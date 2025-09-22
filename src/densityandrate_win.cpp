@@ -27,7 +27,6 @@ using namespace std;
 
 // LIST OF FUNCTIONS
 
-void compute_density_of_states(double *frequencies, double *&energies, double *&rho, int num_oscillators, double energy_max, double bin_width);
 
 void compute_density_of_states_noE0(double *frequencies, double *&energies, double *&rho, int num_oscillators, double energy_max, double bin_width);
 
@@ -628,74 +627,6 @@ void read_rotations(char *filename, double *rotations)
   }
 
   file.close();
-}
-
-
-// Compute density of states from vector of frequencies
-void compute_density_of_states(double *frequencies, double *&energies, double *&rho, int num_oscillators, double energy_max, double bin_width)
-{
-  int k_max;
-  int m;
-  int m_max;
-  double *rho_new;
-  double delta_energy;
-  double energy;
-  double E_m;
-  double energy_lim;
-
-
-  m_max = int(energy_max / bin_width);
-  rho = new double[m_max];
-  energies = new double[m_max];
-  rho_new = new double[m_max];
-
-  for (m = 0; m < m_max; m++)
-  {
-    rho[m] = 0.0;
-  }
-
-  k_max = int((energy_max + 0.5 * frequencies[0]) / frequencies[0]);
-  for (int k = 0; k < k_max; k++)
-  {
-    energy = frequencies[0] * (k + 0.5);
-    // energy=frequencies[0]*k;
-    m = int(energy / bin_width);
-    rho[m]++;
-  }
-
-  for (int i = 1; i < num_oscillators; i++)
-  {
-    for (m = 0; m < m_max; m++)
-    {
-      rho_new[m] = 0.0;
-      E_m = bin_width * (m + 0.5);
-      energy_lim = E_m - 0.5 * frequencies[i];
-      if (energy_lim < 0)
-      {
-        k_max = -1;
-      }
-      else
-      {
-        k_max = int(energy_lim / frequencies[i]);
-      }
-      for (int k = 0; k < k_max + 1; k++)
-      {
-        delta_energy = E_m - frequencies[i] * (k + 0.5);
-        rho_new[m] += rho[int(delta_energy / bin_width)];
-      }
-    }
-    for (m = 0; m < m_max; m++)
-    {
-      rho[m] = rho_new[m];
-    }
-  }
-
-  for (m = 0; m < m_max; m++)
-  {
-    rho[m] = rho[m] / bin_width;
-    energies[m] = bin_width * (m + 0.5);
-  }
-  delete[] rho_new;
 }
 
 
