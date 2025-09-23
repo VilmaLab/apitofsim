@@ -279,8 +279,8 @@ int main()
     nullptr, // title
     &cluster_charge_sign,
     &amu,
-    nullptr, // amu_1
-    nullptr, // amu_2
+    (int *)nullptr, // amu_1
+    (int *)nullptr, // amu_2
     &T,
     &pressure_first,
     &pressure_second,
