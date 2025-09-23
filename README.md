@@ -30,14 +30,20 @@ The binaries are then in `build/src`. You add this directory to your PATH or sym
 
 This will also create a compilation database that `clangd` can use.
 
-## Old instructions (without Meson)
-
-First make the executables with
+There is a debug native build configuration file using clang in `clangdebug.ini`.
+Use it like so:
 
 ```bash
-cd source
-make
+meson setup --native-file clangdebug.ini debugbuild
 ```
+
+This will run leak detection by default, which must be disabled when running under lldb:
+
+```bash
+ASAN_OPTIONS=detect_leaks=0 lldb ./debugbuild/src/densityandrate_win
+```
+
+## Using the executables
 
 Then run the simulation with the provided input and data using `run.sh`:
 
@@ -54,3 +60,13 @@ You can also run each step manually with:
 ```
 
 Outputs are generated in [work/out](./work/out/) directory.
+
+## Old build instructions (Makefile/without Meson)
+
+Make the executables with
+
+```bash
+cd source
+make
+```
+
