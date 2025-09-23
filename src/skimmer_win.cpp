@@ -81,7 +81,7 @@ int main()
   output.open(file_output);
   output << std::scientific << "#Distance_Velocity_Temperature_Pressure_GasMassDensity_SpeedOfSound" << endl;
 
-  Skimmer skimmer = {
+  auto skimmer = Skimmer(
     T0,
     P0,
     rmax,
@@ -94,8 +94,7 @@ int main()
     resolution,
     tolerance,
     nwarnings,
-    warnings,
-  };
+    warnings);
 
   while (true)
   {

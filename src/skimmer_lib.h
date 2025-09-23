@@ -114,6 +114,16 @@ struct Skimmer
   int &nwarnings;
   ofstream &warnings;
 
+  Skimmer(double T0_, double P0_, double rmax_, double dc_,
+          double alpha_factor_, double m_, double ga_, int N_, int M_,
+          int resolution_, double tolerance_, int &nwarnings_,
+          ofstream &warnings_)
+      : T0(T0_), P0(P0_), rmax(rmax_), dc(dc_), alpha_factor(alpha_factor_),
+        m(m_), ga(ga_), N(N_), M(M_), resolution(resolution_),
+        tolerance(tolerance_), nwarnings(nwarnings_), warnings(warnings_)
+  {
+  }
+
   void next()
   {
     if (i >= resolution)
