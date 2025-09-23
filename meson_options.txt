@@ -1,1 +1,1 @@
-option('python', type : 'feature', value : 'auto')
+option('python', type : 'feature', value : 'enabled')
