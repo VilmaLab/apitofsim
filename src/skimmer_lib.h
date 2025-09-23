@@ -168,20 +168,20 @@ struct Skimmer
     return cur_row;
   }
 
-  // private -- but I want to be able to construct this as a struct
-  double rho0;
+private:
+  double rho0{};
   double k = 1.380648e-23;
-  double r;
-  double vc;
-  double v_alert;
-  double c[5];
-  double alpha;
-  double mesh;
-  double vel;
-  double T;
-  double P;
-  double rho;
-  double speed_of_sound;
+  double r{};
+  double vc{};
+  double v_alert{};
+  double c[5]{};
+  double alpha{};
+  double mesh{};
+  double vel{};
+  double T{};
+  double P{};
+  double rho{};
+  double speed_of_sound{};
 
   int i = 0;
   std::optional<SkimmerRow> cur_row = std::nullopt;
