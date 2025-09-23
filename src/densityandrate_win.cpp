@@ -41,11 +41,6 @@ double compute_inertia(Eigen::Vector3d &rotations);
 
 double read_electronic_energy(char *filename);
 
-void k0_integral(Eigen::ArrayXd &k_rate, Eigen::ArrayXd &k0, Eigen::ArrayXd &rho_0, int m_max_rate, double bin_width, double fragmentation_energy);
-
-void compute_k0(Eigen::ArrayXd &k0, double inertia_moment_1, double inertia_moment_2, Eigen::Vector3d &rotations_1, Eigen::Vector3d &rotations_2, Eigen::ArrayXd &rho_comb, Eigen::ArrayXd &rho_0, double bin_width, int m_max_rate, double fragmentation_energy);
-
-void compute_k_rate(Eigen::ArrayXd &k_rate, Eigen::ArrayXd &k0, double inertia_moment_1, double inertia_moment_2, Eigen::Vector3d &rotations_1, Eigen::Vector3d &rotations_2, Eigen::ArrayXd &rho_comb, Eigen::ArrayXd &rho_0, double bin_width, int m_max_rate, double fragmentation_energy);
 void compute_mass_and_radius(double inertia, double amu, double &mass, double &radius);
 void compute_k_total(Eigen::ArrayXd &k0, Eigen::ArrayXd &k_rate, double inertia_moment_1, double inertia_moment_2, Eigen::Vector3d &rotations_1, Eigen::Vector3d &rotations_2, Eigen::ArrayXd &rho_comb, Eigen::ArrayXd &rho_0, double bin_width, int m_max_rate, double fragmentation_energy, double max_rate);
 void compute_k_total_atom(Eigen::ArrayXd &k0, Eigen::ArrayXd &k_rate, double inertia_moment_1, Eigen::ArrayXd &rho_comb, Eigen::ArrayXd &rho_0, double bin_width, int m_max_rate, double fragmentation_energy, double max_rate);
@@ -487,96 +482,6 @@ void compute_k_total_atom(Eigen::ArrayXd &k0, Eigen::ArrayXd &k_rate, double ine
   // m_max_rate=m;
   if ((m_max_rate) % progress != 0)
     cout << defaultfloat << setw(5) << setfill(' ') << fixed << setprecision(1) << 100.0 << "% " << string(50, '*') << " (E=" << bin_width * m_max_rate << " K, k_rate=" << scientific << max_rate << " 1/s)" << endl;
-  // cout <<"]\033[F\033[J";
-}
-
-
-void compute_k_rate(Eigen::ArrayXd &k_rate, Eigen::ArrayXd &k0, double inertia_moment_1, double inertia_moment_2, Eigen::Vector3d &rotations_1, Eigen::Vector3d &rotations_2, Eigen::ArrayXd &rho_comb, Eigen::ArrayXd &rho_0, double bin_width, int m_max_rate, double fragmentation_energy)
-{
-
-  compute_k0(k0, inertia_moment_1, inertia_moment_2, rotations_1, rotations_2, rho_comb, rho_0, bin_width, m_max_rate, fragmentation_energy);
-  k0_integral(k_rate, k0, rho_0, m_max_rate, bin_width, fragmentation_energy);
-}
-
-void k0_integral(Eigen::ArrayXd &k_rate, Eigen::ArrayXd &k0, Eigen::ArrayXd &rho_0, int m_max_rate, double bin_width, double fragmentation_energy)
-{
-  double integral;
-  double rot_energy;
-  double normalization;
-  int n_fragmentation;
-
-  n_fragmentation = int(fragmentation_energy / bin_width);
-  // Cycle over the energy at which we calculate the rate constant
-  for (int m = 0; m < m_max_rate; m++)
-  {
-    // if(100*m%m_max_rate==0) cout << "]\033[F\033[J  "<< int(100.0*m/m_max_rate) << "%"<<endl;
-    normalization = 0.0;
-    for (int i = 0; i <= n_fragmentation + m; i++)
-    {
-      rot_energy = bin_width * (i + 0.5);
-      normalization += rho_0[n_fragmentation + m - i] * sqrt(rot_energy);
-    }
-
-    integral = 0.0;
-    // Cycle over integral differential
-    for (int i = 0; i <= m; i++)
-    {
-      rot_energy = bin_width * (i + 0.5);
-      integral += rho_0[n_fragmentation + m - i] * sqrt(rot_energy) * k0[m - i];
-    }
-    k_rate[m] = integral / normalization;
-  }
-  cout << defaultfloat << setw(5) << setfill(' ') << fixed << setprecision(1) << 100.0 << "% " << string(50, '*') << " (" << bin_width * m_max_rate << " K)" << endl;
-  // cout << "100%" << endl;
-  // cout <<"]\033[F\033[J";
-}
-
-
-void compute_k0(Eigen::ArrayXd &k0, double inertia_moment_1, double inertia_moment_2, Eigen::Vector3d &rotations_1, Eigen::Vector3d &rotations_2, Eigen::ArrayXd &rho_comb, Eigen::ArrayXd &rho_0, double bin_width, int m_max_rate, double fragmentation_energy)
-{
-  double prefactor;
-  double rotations_product_1;
-  double rotations_product_2;
-  int n_fragmentation;
-  int progress = 500;
-  double integral;
-  double density_cluster;
-  double rotational_energy;
-  double translational_energy;
-
-  rotations_product_1 = rotations_1[0] * rotations_1[1] * rotations_1[2];
-  rotations_product_2 = rotations_2[0] * rotations_2[1] * rotations_2[2];
-
-  prefactor = 2.0 * kb * kb * (inertia_moment_1 + inertia_moment_2) / (M_PI * hbar * hbar * hbar * pow(pow(rotations_product_1, 1.0 / 3) + pow(rotations_product_2, 1.0 / 3), 1.5));
-  n_fragmentation = int(fragmentation_energy / bin_width);
-  for (int m = 0; m < m_max_rate; m++)
-  {
-    density_cluster = rho_0[n_fragmentation + m];
-    // if(100*m%m_max_rate==0) cout << "]\033[F\033[J  "<< int(100.0*m/m_max_rate) << "%"<<endl;
-    // cout << "]\033[F\033[J  "<< int(100.0*m/m_max_rate) << "%"<<endl;
-    //  Compute double integral
-    integral = 0.0;
-    for (int i = 0; i <= m; i++) // rotational energy
-    {
-      rotational_energy = bin_width * (i + 0.5);
-      for (int j = 0; j <= m - i; j++) // translational energy
-      {
-        translational_energy = bin_width * (j + 0.5);
-        integral += translational_energy * sqrt(rotational_energy) * rho_comb[m - i - j];
-      }
-    }
-
-    k0[m] = prefactor / density_cluster * integral * bin_width * bin_width;
-
-    if ((m + 1) % progress == 0)
-    {
-      cout << defaultfloat << setw(5) << setfill(' ') << fixed << setprecision(1) << 100.0 * (m + 1) / m_max_rate << "% " << string((int)50.0 * (m + 1) / m_max_rate, '*') << string((int)50.0 * (m_max_rate - m - 1) / m_max_rate, '-') << " (" << bin_width * (m + 1) << " K)" << endl;
-    }
-    // if(m%1000==0 and m>0) cout << std::defaultfloat << 100.0*m/m_max_rate << "%" << endl;
-  }
-  // cout << "100%" << endl;
-  if ((m_max_rate) % progress != 0)
-    cout << defaultfloat << setw(5) << setfill(' ') << fixed << setprecision(1) << 100.0 << "% " << string(50, '*') << " (" << bin_width * m_max_rate << " K)" << endl;
   // cout <<"]\033[F\033[J";
 }
 
