@@ -2,7 +2,10 @@ project(
   'apitofsim',
   'cpp',
   license : 'MIT',
-  default_options: ['cpp_std=c++17'],
+  default_options: {
+    'cpp_std': 'c++17',
+    'b_ndebug': 'if-release',
+  },
 )
 
 python_feat = get_option('python')
