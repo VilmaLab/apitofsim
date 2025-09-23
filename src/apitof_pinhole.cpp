@@ -19,13 +19,9 @@
 #include <random>
 #include <fstream>
 #include <iomanip>
-#include <stdio.h>
 #include <stdlib.h>
-#include <time.h>
 #include <chrono>
 #include <math.h>
-#include <complex>
-#include <string.h>
 #include "utils.h"
 
 #define pi 3.14159265
@@ -70,7 +66,6 @@ double evaluate_internal_energy(double vib_energy, double rot_energy);
 double evaluate_rate_const(double *rate_const, double energy, double bin_width_rate, int m_max_rate, ofstream &warnings, int &nwarnings);
 template <typename GenT>
 void time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &unif, double rate_constant, double *v_cluster, double &v_cluster_norm, float n1, float n2, float mobility_gas, float mobility_gas_inv, float R, double dt1, double dt2, double &z, double &x, double &y, double &delta_t, double &t_fragmentation, float first_chamber_end, float sk_end, float quadrupole_start, float quadrupole_end, float second_chamber_end, float acc1, float acc2, float acc3, float acc4, double &t, float m_gas, double *vel_skimmer, double *temp_skimmer, double *pressure_skimmer, double mesh_skimmer, double angular_velocity, double mathieu_factor, double dc_field, double ac_field, ofstream &tmp_evolution);
-void update_position_and_time(double *v_cluster, double &x, double &y, double &t, double &delta_t);
 void update_physical_quantities(double z, double *vel_skimmer, double *temp_skimmer, double *pressure_skimmer, double mesh_skimmer, double &v_gas, double &temperature, double &pressure, double &density, float first_chamber_end, float sk_end, float P1, float P2, float n1, float n2, float T);
 template <typename GenT>
 void draw_theta_skimmer(GenT &gen, uniform_real_distribution<double> &unif, double &theta, double z, float n1, float n2, float m_gas, float mobility_gas, float mobility_gas_inv, float R, double *v_cluster, double v_gas, double pressure, double temperature, double first_chamber_end, double sk_end, ofstream &warnings, int &nwarnings);
@@ -93,13 +88,12 @@ void read_skimmer(char *filename, double *&vel_skimmer, double *&temp_skimmer, d
 void eval_velocities(double *v, double *omega, double *u, double vib_energy, double vib_energy_old, float M, float m, double R_cluster, ofstream &warnings, int &nwarnings);
 void change_coord(double *v_cluster, double theta, double phi, double alpha, double *x3, double *y3, double *z3);
 template <typename GenT>
-void eval_collision(GenT &gen, uniform_real_distribution<double> &unif, bool &collision_accepted, double gas_mean_free_path, double x, double y, double z, double L, double radius_pinhole, float quadrupole_end, double *v_cluster, double *omega, double u_norm, double theta, float R_cluster, double vib_energy, double vib_energy_old, float m_ion, float m_gas, float temperature, ofstream &pinhole, ofstream &warnings, int &nwarnings);
+void eval_collision(GenT &gen, uniform_real_distribution<double> &unif, bool &collision_accepted, double gas_mean_free_path, double x, double y, double z, double L, double radius_pinhole, float quadrupole_end, double *v_cluster, double *omega, double u_norm, double theta, float R_cluster, double vib_energy, double vib_energy_old, float m_ion, float m_gas, float temperature, ofstream &pinhole, ofstream &warnings);
 double vec_norm(double *v);
 template <typename GenT>
 double onedimMaxwell(GenT &gen, normal_distribution<double> &gauss, float m, float kT);
 double mean_free_path(float R, float kT, float pressure);
 double integrate_bernoulli(int n, int k, int M);
-void evaluate_error_limits(double &err_down, double &err_up, double &median, int n, int k, int M, double deviation);
 double evaluate_error(int n, int k);
 void evaluate_lifetime(float kT, double *density_cluster, double *energies_density, int m_max_density, int m_max_rate, double *rate_const, double frag_energy, double bin_width);
 void energy_distribution(float kT, double *density_cluster, double *energies_density, int m_max_density, double bin_width_density, ofstream &file);
@@ -536,24 +530,12 @@ int main()
     double rate_constant;
     double delta_t;
 
-    double kin_energy; // useless variable
     double t_fragmentation;
 
     // Draw initial random velocity from Maxwell-Boltzmann distribution
     init_vel(gen, gauss, v_cluster, m_ion, kT);
-    v_cluster_norm = vec_norm(v_cluster);
     init_ang_vel(gen, gauss, omega, m_ion, kT, R_cluster);
     init_vib_energy(gen, unif, vib_energy, kT, density_cluster, energies_density, m_max_density);
-
-    // kin_energy=evaluate_kinetic_energy(v_cluster, m_ion);
-    rot_energy = evaluate_rotational_energy(omega, inertia);
-
-    // // TO BE REMOVED
-    // z=quadrupole_start;
-    // x=1.0e-3;
-    // v_cluster[0]=-1.0e2;
-    // v_cluster[1]=0.0;
-    // v_cluster[2]=8.0e2;
 
     while (z < total_length) // single realization // TO BE CHANGED IN SECOND CHAMBER!!!!!!!!!!!
     {
@@ -604,11 +586,6 @@ int main()
 
       time_next_coll_quadrupole(gen, unif, rate_constant, v_cluster, v_cluster_norm, n1, n2, mobility_gas, mobility_gas_inv, R_tot, dt1, dt2, z, x, y, delta_t, t_fragmentation, first_chamber_end, sk_end, quadrupole_start, quadrupole_end, second_chamber_end, acc1, acc2, acc3, acc4, t, m_gas, vel_skimmer, temp_skimmer, pressure_skimmer, mesh_skimmer, angular_velocity, mathieu_factor, dc_field, ac_field, tmp_evolution);
 
-      // Update position and time
-      // update_position_and_time(v_cluster, x, y, t, delta_t);
-
-
-      kin_energy = evaluate_kinetic_energy(v_cluster, m_ion);
       // tmp << kin_energy << "\t";
       // tmp_evolution << delta_t << " " << z << " " << v_cluster[0] << " " << v_cluster[1] << " " << v_cluster[2] << " " << kin_energy << endl;
 
@@ -650,8 +627,10 @@ int main()
         // if(z>quadrupole_start && z<quadrupole_end)
         // collisions << j+1 << "\t" << delta_t << "\t" << t << "\t" << x << '\t' << y << "\t" << z << "\t" << ncoll << "\t" << v_cluster_norm << endl;
 
-        coll_z = z;
-        v_cluster_norm_old = vec_norm(v_cluster);
+        // XXX: For some reason these are written after they are read above
+
+        // coll_z = z;
+        // v_cluster_norm_old = vec_norm(v_cluster);
 
 
         if (ncoll > max_coll)
@@ -680,7 +659,7 @@ int main()
         vib_energy_new = draw_vib_energy(gen, unif, vib_energy_old, density_cluster, energies_density, energy_max_density, reduced_mass, u_norm, v_rel_norm, theta, warnings, nwarnings);
 
         bool collision_accepted = true;
-        eval_collision(gen, unif, collision_accepted, gas_mean_free_path, x, y, z, total_length, radius_pinhole, quadrupole_end, v_rel, omega, u_norm, theta, R_cluster, vib_energy_new, vib_energy_old, m_ion, m_gas, temperature, pinhole, warnings, nwarnings);
+        eval_collision(gen, unif, collision_accepted, gas_mean_free_path, x, y, z, total_length, radius_pinhole, quadrupole_end, v_rel, omega, u_norm, theta, R_cluster, vib_energy_new, vib_energy_old, m_ion, m_gas, temperature, pinhole, warnings);
 
         if (collision_accepted)
         {
@@ -774,9 +753,6 @@ int main()
     std::cout << endl
               << "SURVIVAL PROBABILITY: " << std::setprecision(6) << survival_probability << " +/-" << std::setprecision(4) << error_survival_probability << endl
               << endl;
-    // cout << "Integral value: " << integrate_bernoulli(realizations,n_escaped,1e6) << endl;
-    // evaluate_error_limits(err_down, err_up, median, realizations, n_escaped, 1e6, deviation);
-    // cout << err_down << " " << median << " " << err_up << endl;
     if (nwarnings > 0)
       probabilities << "# WARNINGS GENERATED" << endl;
     // probabilities << bonding_energy/boltzmann << " " << survival_probability << " "  << median << " " << err_down << " "<< err_up << endl;
@@ -837,84 +813,6 @@ double evaluate_error(int n, int k)
 {
   return sqrt((6.0 * k * k - k * (6.0 + k) * n + (2.0 + k) * n * n) / (n * n * (3.0 + n) * (2.0 + n)));
 }
-
-double integrate_bernoulli(int n, int k, int M)
-{
-  double sum = 0.0;
-  double f;
-  double x;
-  double delta = 1.0 / M;
-
-  if (k == n)
-  {
-    for (int i = 0; i < M; i++)
-    {
-      x = (double)i * delta;
-      f = pow(x, n);
-      sum += f * delta;
-    }
-  }
-  else if (k == 0)
-  {
-    for (int i = 0; i < M; i++)
-    {
-      x = (double)i * delta;
-      f = pow(1.0 - x, n);
-      sum += f * delta;
-    }
-  }
-  else
-  {
-    for (int i = 0; i < M; i++)
-    {
-      x = (double)i * delta;
-      f = pow(x, k) * pow(1.0 - x, n - k);
-      sum += f * delta;
-    }
-  }
-  return sum;
-}
-
-// It seems to work well. But check it!
-void evaluate_error_limits(double &err_down, double &err_up, double &median, int n, int k, int M, double deviation)
-{
-  int i = 0;
-  double norm;
-  double sum = 0.0;
-  double x;
-  double f;
-  double delta = 1.0 / M;
-
-  norm = integrate_bernoulli(n, k, M);
-
-  while (sum < 0.5 - deviation)
-  {
-    x = (double)i * delta;
-    f = pow(x, k) * pow(1.0 - x, n - k) / norm;
-    sum += f * delta;
-    i++;
-  }
-  err_down = x;
-
-  while (sum < 0.5)
-  {
-    x = (double)i * delta;
-    f = pow(x, k) * pow(1.0 - x, n - k) / norm;
-    sum += f * delta;
-    i++;
-  }
-  median = x;
-
-  while (sum < 0.5 + deviation)
-  {
-    x = (double)i * delta;
-    f = pow(x, k) * pow(1.0 - x, n - k) / norm;
-    sum += f * delta;
-    i++;
-  }
-  err_up = x;
-}
-
 
 void read_rotations(char *filename, double *rotations)
 {
@@ -1034,7 +932,7 @@ double coll_freq_theta(double theta, float n, float mobility_gas, float mobility
 
 
 // Collision frequency on angle theta and gas velocity
-double coll_freq_theta_u(double u, double theta, float n, float mobility_gas, float mobility_gas_inv, float R, double v)
+double coll_freq_theta_u(double u, double theta, float n, float mobility_gas_inv, float R, double v)
 {
   double costheta = cos(theta);
   double sintheta = sin(theta);
@@ -1052,7 +950,7 @@ double distr_theta(double theta, float n, float mobility_gas, float mobility_gas
 // Distribution of gas velocity
 double distr_u(double u, double theta, float n, float mobility_gas, float mobility_gas_inv, float R, double v)
 {
-  return coll_freq_theta_u(u, theta, n, mobility_gas, mobility_gas_inv, R, v) / coll_freq_theta(theta, n, mobility_gas, mobility_gas_inv, R, v);
+  return coll_freq_theta_u(u, theta, n, mobility_gas_inv, R, v) / coll_freq_theta(theta, n, mobility_gas, mobility_gas_inv, R, v);
 }
 
 
@@ -1541,14 +1439,6 @@ void time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &uni
 }
 
 
-// Update time and position after evaluating time of next collision
-void update_position_and_time(double *v_cluster, double &x, double &y, double &t, double &delta_t)
-{
-  // t+=delta_t;
-  x += v_cluster[0] * delta_t;
-  y += v_cluster[1] * delta_t;
-}
-
 // Draw theta angle of collision UPDATED
 template <typename GenT>
 void draw_theta_skimmer(GenT &gen, uniform_real_distribution<double> &unif, double &theta, double z, float n1, float n2, float m_gas, float mobility_gas, float mobility_gas_inv, float R, double *v_cluster, double v_gas, double pressure, double temperature, double first_chamber_end, double sk_end, ofstream &warnings, int &nwarnings)
@@ -1705,7 +1595,6 @@ void update_rot_vel_old(double *omega, double rot_energy, double inertia)
 {
   double old_norm;
   double new_norm;
-  old_norm = sqrt(scalar(omega, omega));
   old_norm = vec_norm(omega);
   new_norm = sqrt(2.0 * rot_energy / inertia);
   omega[0] = (omega[0] / old_norm) * new_norm;
@@ -1905,33 +1794,8 @@ void update_velocities(double *v_cluster, double &v_cluster_norm, double *v_rel,
 }
 
 
-void no_rotation_velocities_elastic(double *v, double *u, float M, float m, ofstream &warnings, int &nwarnings)
-{
-  v[2] = (2.0 * m * u[0] + (M - m) * v[2]) / (M + m);
-}
-
-void no_rotation_velocities_anelastic(double *v, double *u, double vib_energy, double vib_energy_old, float M, float m, ofstream &warnings, int &nwarnings)
-{
-  double delta_E = vib_energy - vib_energy_old;
-  double radicand;
-  double m_reduced = m / (m + M);
-  double M_reduced = M / (m + M);
-  if (delta_E < 0)
-  {
-    // cout << "Delta E is negative: " << delta_E << endl<<endl;
-  }
-  radicand = pow(m_reduced, 2) * pow(u[0] - v[2], 2) - 2.0 * m_reduced * delta_E / M;
-  if (radicand < 0)
-  {
-    std::cout << "Radicand is negative: " << radicand << endl
-              << endl;
-  }
-  v[2] = m_reduced * u[0] + M_reduced * v[2] - sqrt(radicand);
-  // v[2]=(2.0*m*u[0]+(M-m)*v[2])/(M+m);
-}
-
 // Evaluate the velocities after collision in the rotated reference system
-void eval_velocities(double *v, double *omega, double *u, double vib_energy, double vib_energy_old, float M, float m, double R_cluster, ofstream &warnings, int &nwarnings)
+void eval_velocities(double *v, double *omega, double *u, double vib_energy, double vib_energy_old, float M, float m, double R_cluster, ofstream &warnings)
 {
   double vx;
   double vy;
@@ -2227,7 +2091,7 @@ double eval_solid_angle_ellipse(double theta1, double theta2)
 
 //
 template <typename GenT>
-void eval_collision(GenT &gen, uniform_real_distribution<double> &unif, bool &collision_accepted, double gas_mean_free_path, double x, double y, double z, double L, double radius_pinhole, float quadrupole_end, double *v_cluster, double *omega, double u_norm, double theta, float R_cluster, double vib_energy, double vib_energy_old, float m_ion, float m_gas, float temperature, ofstream &pinhole, ofstream &warnings, int &nwarnings)
+void eval_collision(GenT &gen, uniform_real_distribution<double> &unif, bool &collision_accepted, double gas_mean_free_path, double x, double y, double z, double L, double radius_pinhole, float quadrupole_end, double *v_cluster, double *omega, double u_norm, double theta, float R_cluster, double vib_energy, double vib_energy_old, float m_ion, float m_gas, float temperature, ofstream &pinhole, ofstream &warnings)
 {
   double x3[3];
   double y3[3];
@@ -2318,7 +2182,7 @@ void eval_collision(GenT &gen, uniform_real_distribution<double> &unif, bool &co
       omega[i] = omega2[0] * x3[i] + omega2[1] * y3[i] + omega2[2] * z3[i];
     }
 
-    eval_velocities(v2, omega2, u, vib_energy, vib_energy_old, m_ion, m_gas, R_cluster, warnings, nwarnings);
+    eval_velocities(v2, omega2, u, vib_energy, vib_energy_old, m_ion, m_gas, R_cluster, warnings);
     // Express new velocities in lab reference system
     for (int i = 0; i < 3; i++)
     {
@@ -2345,6 +2209,11 @@ void read_from_file(char *filename, double *&x, double *&y, double &bin_width, i
     m_max++;
   }
   file.close();
+  if (m_max < 2)
+  {
+    std::cout << "Error in reading file " << filename << ". It should contain at least two rows." << endl;
+    exit(EXIT_FAILURE);
+  }
   x = new double[m_max];
   y = new double[m_max];
 
