@@ -1,29 +1,39 @@
 #include <iostream>
 #include <cstring>
 
-void check_field_name(const char *buffer, const char *expected) {
-  if (strcmp(buffer, expected) != 0) {
+void check_field_name(const char *buffer, const char *expected)
+{
+  if (strcmp(buffer, expected) != 0)
+  {
     std::cerr << "Error while reading input configuration: Expected to read field name '" << expected << "' but got field name '" << buffer << "'" << std::endl;
     exit(EXIT_FAILURE);
   }
 }
 
 template <typename T>
-void read_field(std::istream &config_in, T *variable, char *buffer, const char *expected) {
-  if (variable) {
+void read_field(std::istream &config_in, T *variable, char *buffer, const char *expected)
+{
+  if (variable)
+  {
     config_in >> *variable >> buffer;
-  } else {
+  }
+  else
+  {
     config_in >> buffer >> buffer;
   }
   check_field_name(buffer, expected);
 }
 
-  
+
 template <>
-void read_field(std::istream &config_in, char *variable, char *buffer, const char *expected) {
-  if (variable) {
+void read_field(std::istream &config_in, char *variable, char *buffer, const char *expected)
+{
+  if (variable)
+  {
     config_in >> variable >> buffer;
-  } else {
+  }
+  else
+  {
     config_in >> buffer >> buffer;
   }
   check_field_name(buffer, expected);
@@ -83,12 +93,15 @@ void read_config(
   int *N_iter,
   int *M_iter,
   int *resolution,
-  double *tolerance
-) {
+  double *tolerance)
+{
   char buffer[256];
-  if (title) {
+  if (title)
+  {
     config_in >> title; // Title line
-  } else {
+  }
+  else
+  {
     config_in >> buffer; // Skip title line
   }
   read_field(config_in, cluster_charge_sign, buffer, "Cluster_charge_sign");
@@ -150,25 +163,27 @@ const int LOGLEVEL_NONE = 0,
           LOGLEVEL_EXTRA = 3;
 const int LOGLEVEL = LOGLEVEL_MIN;
 
-namespace Filenames {
-  const char* const SKIMMER_WARNINGS = "work/log/warnings_skimmer.dat";
+namespace Filenames
+{
+const char *const SKIMMER_WARNINGS = "work/log/warnings_skimmer.dat";
 
-  const char* const COLLISIONS = "work/log/collisions.dat";
-  const char* const INTENERGY = "work/log/intenergy.dat";
-  const char* const WARNINGS = "work/log/warnings.dat";
-  const char* const FRAGMENTS = "work/log/fragments.dat";
-  const char* const TMP = "work/log/tmp.dat";
-  const char* const TMP_EVOLUTION = "work/log/tmp_evolution.dat";
-  const char* const ENERGY_DISTRIBUTION = "work/log/energy_distribution.dat";
-  const char* const FINAL_POSITION = "work/log/final_position.dat";
-  const char* const PINHOLE = "work/log/pinhole.dat";
-}
+const char *const COLLISIONS = "work/log/collisions.dat";
+const char *const INTENERGY = "work/log/intenergy.dat";
+const char *const WARNINGS = "work/log/warnings.dat";
+const char *const FRAGMENTS = "work/log/fragments.dat";
+const char *const TMP = "work/log/tmp.dat";
+const char *const TMP_EVOLUTION = "work/log/tmp_evolution.dat";
+const char *const ENERGY_DISTRIBUTION = "work/log/energy_distribution.dat";
+const char *const FINAL_POSITION = "work/log/final_position.dat";
+const char *const PINHOLE = "work/log/pinhole.dat";
+} // namespace Filenames
 
 template <typename CallbackT>
-void warn_omp(int &nwarnings, CallbackT callback) {
-  #pragma omp atomic
+void warn_omp(int &nwarnings, CallbackT callback)
+{
+#pragma omp atomic
   nwarnings++;
-  #pragma omp critical
+#pragma omp critical
   {
     callback();
   }
