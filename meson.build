@@ -10,9 +10,9 @@ project(
 
 python_feat = get_option('python')
 
-openmp = dependency('openmp')
-eigen3 = dependency('eigen3')
-nanobind = dependency('nanobind', required : python_feat)
+openmp = dependency('openmp', include_type : 'system')
+eigen3 = dependency('eigen3', include_type : 'system')
+nanobind = dependency('nanobind', required : python_feat, include_type : 'system')
 
 subdir('src')
 
