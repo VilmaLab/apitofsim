@@ -16,7 +16,7 @@ uv pip install --no-build-isolation -e .
 During development you can also run the following to get compiler errors on import, and add debug symbols:
 
 ```bash
-uv pip install --no-build-isolation --config-settings=editable-verbose=true -Csetup-args=-Dbuildtype=debug -Cbuild-dir=build-dbg -e .
+uv pip install --no-build-isolation --config-settings=editable-verbose=true -Csetup-args="-Dbuildtype=debugoptimized" -Cbuild-dir=pydebugbuild -e .
 ```
 
 ## Using Meson to compile the executables
