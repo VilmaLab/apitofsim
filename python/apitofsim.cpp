@@ -6,8 +6,11 @@
 #include <nanobind/eigen/dense.h>
 
 #include "skimmer_lib.h"
+#include "densityandrate_lib.h"
 
-typedef Eigen::Matrix<float, Eigen::Dynamic, 6> SkimmerResult;
+namespace nb = nanobind;
+
+typedef Eigen::Array<double, Eigen::Dynamic, 6> SkimmerResult;
 
 SkimmerResult skimmer(
   double T0,
@@ -67,7 +70,56 @@ SkimmerResult skimmer(
   return result;
 }
 
+nb::tuple densityandrate(
+  ClusterData &cluster_0,
+  ClusterData &cluster_1,
+  ClusterData &cluster_2,
+  double energy_max,
+  double energy_max_rate,
+  double bin_width,
+  double fragmentation_energy)
+{
+  // TODO:: The individual product densities are not used -- should be possible to not compute them
+  DensityResult rhos = compute_density_of_states_all(cluster_0, cluster_1, cluster_2, energy_max, bin_width);
+  const Eigen::ArrayXd k_rate = compute_k_total_full(
+    cluster_0,
+    cluster_1,
+    cluster_2,
+    rhos,
+    fragmentation_energy,
+    energy_max_rate,
+    bin_width);
+  return nb::make_tuple(rhos, k_rate);
+}
+
 NB_MODULE(_apitofsim, m)
 {
+  m.doc() = "APi-TOF-MS simulation module";
   m.def("skimmer", &skimmer);
+
+  nb::class_<ClusterData>(m, "ClusterData")
+    .def(nb::init<int, double, Eigen::Vector3d, Eigen::ArrayXd>(),
+         nb::arg("atomic_mass"),
+         nb::arg("electronic_energy"),
+         nb::arg("rotations"),
+         nb::arg("frequencies"))
+    .def_ro("atomic_mass", &ClusterData::atomic_mass)
+    .def_ro("electronic_energy", &ClusterData::electronic_energy)
+    .def_ro("rotations", &ClusterData::rotations)
+    .def_ro("frequencies", &ClusterData::frequencies)
+    .def_ro("inertia_moment", &ClusterData::inertia_moment)
+    .def_ro("radius", &ClusterData::radius)
+    .def_ro("mass", &ClusterData::mass)
+    .def("num_oscillators", &ClusterData::num_oscillators)
+    .def("is_atom_like_product", &ClusterData::is_atom_like_product)
+    .def("compute_derived", &ClusterData::compute_derived);
+
+  nb::class_<Gas>(m, "Gas")
+    .def(nb::init<double, double>(),
+         nb::arg("radius"),
+         nb::arg("mass"))
+    .def_ro("radius", &Gas::radius)
+    .def_ro("mass", &Gas::mass);
+
+  m.def("densityandrate", &densityandrate);
 }

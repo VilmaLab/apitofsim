@@ -1,7 +1,15 @@
 import argparse
 import sys
 import os
-from apitofsim import skimmer_pandas, parse_config_with_particles, config_to_shortnames
+import numpy
+from apitofsim import (
+    skimmer_pandas,
+    parse_config_with_particles,
+    config_to_shortnames,
+    ClusterData,
+    Gas,
+    densityandrate,
+)
 
 
 def main():
@@ -36,6 +44,9 @@ def main():
 
     full_config = parse_config_with_particles(args.config)
     config = config_to_shortnames(full_config["config"])
+    from pprint import pprint
+
+    pprint(full_config)
 
     if args.command == "skimmer" or args.command is None:
         skimmer_df = skimmer_pandas(
@@ -57,6 +68,38 @@ def main():
             )
         )
         print(skimmer_df)
+    if args.command == "densityandrate" or args.command is None:
+        clusters = []
+        for particle in ["cluster", "first_product", "second_product"]:
+            particle_config = full_config[particle]
+            vibrational_temperatures = particle_config["vibrational_temperatures"]
+            if vibrational_temperatures is None:
+                vibrational_temperatures = numpy.empty(0)
+            cluster = ClusterData(
+                particle_config["atomic_mass"],
+                float(particle_config["electronic_energy"]),
+                particle_config["rotational_temperatures"],
+                vibrational_temperatures,
+            )
+            clusters.append(cluster)
+        gas = Gas(config["R_gas"], config["m_gas"])
+        rhos, k_rate = densityandrate(
+            *clusters,
+            *(
+                config[setting]
+                for setting in (
+                    "energy_max",
+                    "energy_max_rate",
+                    "bin_width",
+                    "bonding_energy",
+                )
+            ),
+        )
+        numpy.set_printoptions(threshold=sys.maxsize)
+        print("densities")
+        print(rhos)
+        print("k_rate")
+        print(k_rate)
 
 
 if __name__ == "__main__":
