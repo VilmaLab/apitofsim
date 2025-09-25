@@ -42,6 +42,7 @@ void compute_mass_and_radius(double inertia, double amu, double &mass, double &r
 void compute_k_total(Eigen::ArrayXd &k0, Eigen::ArrayXd &k_rate, double inertia_moment_1, double inertia_moment_2, Eigen::Vector3d &rotations_1, Eigen::Vector3d &rotations_2, const Eigen::Ref<const Eigen::ArrayXd> rho_comb, const Eigen::Ref<const Eigen::ArrayXd> rho_0, double bin_width, int m_max_rate, double fragmentation_energy);
 void compute_k_total_atom(Eigen::ArrayXd &k0, Eigen::ArrayXd &k_rate, double inertia_moment_1, const Eigen::Ref<const Eigen::ArrayXd> rho_comb, const Eigen::Ref<const Eigen::ArrayXd> rho_0, double bin_width, int m_max_rate, double fragmentation_energy);
 
+// TODO: Separate struct for atom-like products
 struct ClusterData
 {
   int atomic_mass;
