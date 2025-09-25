@@ -54,9 +54,10 @@ BinPackParameters: true
 AlignAfterOpenBracket: Align
 AlignConsecutiveAssignments: false
 AlignConsecutiveDeclarations: false
-AlignEscapedNewlines: Right
+AlignEscapedNewlines: DontAlign
 AlignOperands: true
 AlignTrailingComments: false
+LambdaBodyIndentation: OuterScope
 
 # Miscellaneous
 KeepEmptyLinesAtTheStartOfBlocks: true
