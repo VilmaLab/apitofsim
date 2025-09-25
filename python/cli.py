@@ -7,7 +7,6 @@ from apitofsim import (
     parse_config_with_particles,
     config_to_shortnames,
     ClusterData,
-    Gas,
     densityandrate,
 )
 
@@ -82,7 +81,6 @@ def main():
                 vibrational_temperatures,
             )
             clusters.append(cluster)
-        gas = Gas(config["R_gas"], config["m_gas"])
         rhos, k_rate = densityandrate(
             *clusters,
             *(
