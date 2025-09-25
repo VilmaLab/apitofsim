@@ -53,14 +53,12 @@ void compute_inertia(double *rotations, double &inertia_moment);
 void compute_mass_and_radius(double inertia, double amu, double &mass, double &radius);
 float particle_density(float pressure, float kT);
 double coll_freq(float n, float mobility_gas, float mobility_gas_inv, float R, double v);
-void counter(long long int c, int intacts, int fragments);
 template <typename GenT>
 void init_vel(GenT &gen, normal_distribution<double> &gauss, double *v_cluster, float m, float kT);
 template <typename GenT>
 void init_ang_vel(GenT &gen, normal_distribution<double> &gauss, double *omega, float m, float kT, float R);
 template <typename GenT>
 void init_vib_energy(GenT &gen, uniform_real_distribution<double> &unif, double &vib_energy, float kT, double *density_cluster, double *energies_density, int m_max_density);
-double evaluate_kinetic_energy(double *v_cluster, float m_ion);
 double evaluate_rotational_energy(double *omega, float inertia);
 double evaluate_internal_energy(double vib_energy, double rot_energy);
 double evaluate_rate_const(double *rate_const, double energy, double bin_width_rate, int m_max_rate, ofstream &warnings, int &nwarnings);
@@ -77,7 +75,6 @@ template <typename GenT>
 double draw_vib_energy(GenT &gen, uniform_real_distribution<double> &unif, double vib_energy_old, double *density_cluster, double *energies_density, double energy_max_density, float reduced_mass, double u_norm, double v_cluster_norm, double theta, ofstream &warnings, int &nwarnings);
 void update_velocities(double *v_cluster, double &v_cluster_norm, double *v_rel, double v_gas);
 void update_rot_vel(double *omega, double rot_energy_old, double rot_energy);
-void update_rot_vel_old(double *omega, double rot_energy, double inertia);
 int mod_func_int(int a, int b);
 void read_from_file(char *filename, double *&x, double *&y, double &bin_width, int &m_max, double &x_max);
 template <typename GenT>
@@ -93,12 +90,8 @@ double vec_norm(double *v);
 template <typename GenT>
 double onedimMaxwell(GenT &gen, normal_distribution<double> &gauss, float m, float kT);
 double mean_free_path(float R, float kT, float pressure);
-double integrate_bernoulli(int n, int k, int M);
 double evaluate_error(int n, int k);
-void evaluate_lifetime(float kT, double *density_cluster, double *energies_density, int m_max_density, int m_max_rate, double *rate_const, double frag_energy, double bin_width);
-void energy_distribution(float kT, double *density_cluster, double *energies_density, int m_max_density, double bin_width_density, ofstream &file);
 double polar_function(double phi, double theta1, double theta2);
-double eval_solid_angle(double R, double L, double x, double y, double z);
 double eval_solid_angle_stokes(double R, double L, double xx, double yy, double zz);
 int zone(double z, float first_chamber_end, float sk_end, float quadrupole_start, float quadrupole_end, float second_chamber_end);
 
@@ -457,9 +450,6 @@ int main()
               << endl;
   }
 
-  // Evaluate energy distribution at equilibrium
-  // energy_distribution(kT, density_cluster, energies_density, m_max_density, bin_width_density, file_energy_distribution);
-
   n_escaped_total = 0;
   n_fragmented_total = 0;
 
@@ -470,7 +460,6 @@ int main()
   }
 
   // cout << bin_width_rate << endl;
-  // evaluate_lifetime(kT,density_cluster,energies_density,m_max_density, m_max_rate, rate_const, bonding_energy, bin_width_rate);
   //  N realizations
   if (LOGLEVEL >= LOGLEVEL_MIN)
   {
@@ -555,7 +544,6 @@ int main()
       // if(z<sk_end) tmp << coll_freq(n1, mobility_gas, mobility_gas_inv, R_tot, v_cluster_norm)<<endl;
       // else tmp << coll_freq(n2, mobility_gas, mobility_gas_inv, R_tot, v_cluster_norm)<<endl;
 
-      // kin_energy=evaluate_kinetic_energy(v_cluster, m_ion);
       rot_energy = evaluate_rotational_energy(omega, inertia);
       internal_energy = evaluate_internal_energy(vib_energy, rot_energy);
       delta_en = internal_energy - bonding_energy;
@@ -1192,55 +1180,6 @@ void update_physical_quantities(double z, double *vel_skimmer, double *temp_skim
 //   //return pow(energy/boltzmann,10)/3.0e34; //good for 10 Pa and 30 Pa
 // }
 
-void evaluate_lifetime(float kT, double *density_cluster, double *energies_density, int m_max_density, int m_max_rate, double *rate_const, double frag_energy, double bin_width)
-{
-  double sum1 = 0.0;
-  double sum2 = 0.0;
-  int n_fragmentation;
-  int m;
-
-  std::cout << m_max_density << endl;
-  n_fragmentation = int(frag_energy / bin_width);
-  std::cout << n_fragmentation << endl;
-
-  // Compute the normalization of the distribution of energies
-  for (m = 0; m < m_max_density; m++)
-  {
-    sum1 += density_cluster[m] * exp(-energies_density[m] / kT);
-    // cout <<setprecision(8) << m << " " << sum1 << endl;
-  }
-  for (m = n_fragmentation; m < n_fragmentation + m_max_rate; m++) // m_max_rate+
-  // for(m=n_fragmentation+1; m<n_fragmentation+2; m++) //m_max_rate+
-  {
-    sum2 += density_cluster[m] * exp(-energies_density[m] / kT) / rate_const[m - n_fragmentation] / sum1;
-    std::cout << energies_density[m] << " " << sum2 << endl;
-  }
-  // for(m=0; m<m_max_density; m++)
-  // {
-  //   sum2+=energies_density[m]*density_cluster[m]*exp(-energies_density[m]/kT)/sum1;
-  //   //cout <<setprecision(8) << m << " " << sum2 << endl;
-  // }
-
-  // for(m=0; m<m_max_density; m++) cout <<
-}
-
-void energy_distribution(float kT, double *density_cluster, double *energies_density, int m_max_density, double bin_width_density, ofstream &file)
-{
-  double sum = 0.0;
-  int m;
-
-  for (m = 0; m < m_max_density; m++)
-  {
-    sum += density_cluster[m] * exp(-energies_density[m] / kT);
-  }
-  sum *= bin_width_density;
-
-  for (m = 0; m < m_max_density; m++)
-  {
-    file << energies_density[m] << " " << density_cluster[m] * exp(-energies_density[m] / kT) / sum << endl;
-  }
-}
-
 // Draw initial vibrational energy
 template <typename GenT>
 void init_vib_energy(GenT &gen, uniform_real_distribution<double> &unif, double &vib_energy, float kT, double *density_cluster, double *energies_density, int m_max_density)
@@ -1591,17 +1530,6 @@ void update_rot_vel(double *omega, double rot_energy_old, double rot_energy)
   omega[2] = omega[2] * sqrt(rot_energy / rot_energy_old);
 }
 
-void update_rot_vel_old(double *omega, double rot_energy, double inertia)
-{
-  double old_norm;
-  double new_norm;
-  old_norm = vec_norm(omega);
-  new_norm = sqrt(2.0 * rot_energy / inertia);
-  omega[0] = (omega[0] / old_norm) * new_norm;
-  omega[1] = (omega[1] / old_norm) * new_norm;
-  omega[2] = (omega[2] / old_norm) * new_norm;
-}
-
 // Draw normal velocity of carrier gas
 template <typename GenT>
 void draw_u_norm_skimmer(GenT &gen, uniform_real_distribution<double> &unif, double z, double du, double boundary_u, double &u_norm, double theta, float n1, float n2, float m_gas, float mobility_gas, float mobility_gas_inv, float R, double *v_cluster, double v_gas, double pressure, double temperature, double first_chamber_end, double sk_end, double costheta, ofstream &warnings, int &nwarnings)
@@ -1695,13 +1623,6 @@ double evaluate_rotational_energy(double *omega, float inertia)
 {
   double omega_squared = omega[0] * omega[0] + omega[1] * omega[1] + omega[2] * omega[2];
   return 0.5 * inertia * omega_squared;
-}
-
-// Evaluate kinetic energy
-double evaluate_kinetic_energy(double *v_cluster, float m_ion)
-{
-  double v_squared = v_cluster[0] * v_cluster[0] + v_cluster[1] * v_cluster[1] + v_cluster[2] * v_cluster[2];
-  return 0.5 * m_ion * v_squared;
 }
 
 // Mean free path
@@ -1987,107 +1908,6 @@ double eval_solid_angle_stokes(double R, double L, double xx, double yy, double 
 
   return sum * dphi;
 }
-
-// Evaluate the solid angle subtended by a disk // It can give result > 2*pi
-double eval_solid_angle(double R, double L, double xx, double yy, double zz)
-{
-  double sum = 0.0;
-  double delta;
-  double sintheta;
-  double x, y;
-  double distance;
-
-  delta = 1.0e-3 * R;
-  x = -R;
-  while (x < R)
-  {
-    y = -sqrt(R * R - x * x);
-    while (y < sqrt(R * R - x * x))
-    {
-      distance = sqrt(pow(L - zz, 2) + pow(xx - x, 2) + pow(yy - y, 2));
-      sintheta = (L - zz) / distance;
-      sum += sintheta / pow(distance, 2) * delta * delta;
-      y += delta;
-    }
-    x += delta;
-  }
-
-  // Polar coordinates
-  //  dtheta=2.0*M_PI/iter;
-  //  dr=1.0*R/iter;
-  //
-  //  for(int j=0; j<iter; j++)
-  //  {
-  //    r=dr*j;
-  //    for(int i=0; i<iter; i++)
-  //    {
-  //      sum+=dtheta*dr*r;
-  //    }
-  //  }
-
-  return sum;
-}
-
-
-// Evaluate the solid angle subtended by an ellipse with semiaxes that subtend angles theta1 and theta2
-double eval_solid_angle_ellipse(double theta1, double theta2)
-{
-  double sum = 0.0;
-  double sum1 = 0.0;
-  double sum2 = 0.0;
-  double sum3 = 0.0;
-  int iter = 1000;
-  double phi, theta, maxtheta;
-  double dphi = 0.5 * M_PI / iter;
-  double dtheta;
-
-  // Trapezoidal rule
-  // First integration with half result
-  phi = 0.0;
-  maxtheta = polar_function(phi, theta1, theta2);
-  dtheta = maxtheta / iter;
-  for (int j = 1; j < iter; j++)
-  {
-    theta = dtheta * j;
-    sum1 += sin(theta);
-  }
-  sum1 += 0.5 * sin(maxtheta);
-  sum1 *= dtheta;
-  sum += 0.5 * sum1;
-
-
-  for (int i = 1; i < iter; i++)
-  {
-    phi = dphi * i;
-    maxtheta = polar_function(phi, theta1, theta2);
-    dtheta = maxtheta / iter;
-    sum3 = 0.0;
-    for (int j = 1; j < iter; j++)
-    {
-      theta = dtheta * j;
-      sum3 += sin(theta);
-    }
-    sum3 += 0.5 * sin(maxtheta);
-    sum3 *= dtheta;
-    sum += sum3;
-  }
-
-  // Final step with half result
-  phi = M_PI / 2;
-  maxtheta = polar_function(phi, theta1, theta2);
-  dtheta = maxtheta / iter;
-  for (int j = 1; j < iter; j++)
-  {
-    theta = dtheta * j;
-    sum2 += sin(theta);
-  }
-  sum2 += 0.5 * sin(maxtheta);
-  sum2 *= dtheta;
-  sum += 0.5 * sum2;
-
-  return 4.0 * sum * dphi;
-}
-
 
 //
 template <typename GenT>
