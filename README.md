@@ -31,6 +31,7 @@ The binaries are then in `build/src`. You add this directory to your PATH or sym
 This will also create a compilation database that `clangd` can use.
 
 There is a debug native build configuration file using clang in `clangdebug.ini`.
+On Linux, you may need to install `libc++` (from LLVM rather than GNU) e.g. `apt install 'libc++1' 'libc++-dev'`.
 Use it like so:
 
 ```bash
