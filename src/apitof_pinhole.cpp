@@ -15,13 +15,17 @@
 // - Does the cluster reach the distribution at equilibrium at temperature T? Seems that the theoretical distribution of internal energy does not match the one from simulation...
 // Change the initial energy of clusters and see how the fragmentation probability changes
 
+#include <Eigen/Dense>
 #include <iostream>
 #include <random>
 #include <fstream>
 #include <iomanip>
+#include <sstream>
+#include <stdexcept>
 #include <stdlib.h>
 #include <chrono>
 #include <math.h>
+#include <tuple>
 #include "utils.h"
 
 #define pi 3.14159265
@@ -29,7 +33,6 @@
 #define boltzmann 1.38064852e-23
 #define pmass 1.6726219e-27
 #define hartK 3.157732e+5 // 1 hartree in Kelvin
-#define hbar 1.054571800e-34 // Reduced Planck constant
 #define kcal 1.439325e+20 // 1 Joule in kcal/mol
 
 // Define Pi if it is not already defined
@@ -43,14 +46,42 @@
 
 using namespace std;
 
-int a_c1 = 0;
+typedef Eigen::Array<double, Eigen::Dynamic, 3> SkimmerData;
+const int VEL_SKIMMER = 0;
+const int TEMP_SKIMMER = 1;
+const int PRESSURE_SKIMMER = 2;
+
+class ApiTofError : public std::runtime_error
+{
+public:
+  ApiTofError(const std::string &msg) : std::runtime_error(msg)
+  {
+  }
+
+  ApiTofError(const char *msg) : std::runtime_error(msg)
+  {
+  }
+
+  template <typename Callback>
+  ApiTofError(Callback cb) : ApiTofError(call_with_stringstream(cb))
+  {
+  }
+
+private:
+  template <typename Callback>
+  std::string call_with_stringstream(Callback cb)
+  {
+    std::string result;
+    stringstream ss(result);
+    ss << std::scientific << std::setprecision(3);
+    cb(ss);
+    return result;
+  }
+};
 
 // LIST OF FUNCTIONS
 // Here we are
-void read_rotations(char *filename, double *rotations);
 void read_electronic_energy(char *filename, double &electronic_energy);
-void compute_inertia(double *rotations, double &inertia_moment);
-void compute_mass_and_radius(double inertia, double amu, double &mass, double &radius);
 float particle_density(float pressure, float kT);
 double coll_freq(float n, float mobility_gas, float mobility_gas_inv, float R, double v);
 template <typename GenT>
@@ -58,13 +89,13 @@ void init_vel(GenT &gen, normal_distribution<double> &gauss, double *v_cluster, 
 template <typename GenT>
 void init_ang_vel(GenT &gen, normal_distribution<double> &gauss, double *omega, float m, float kT, float R);
 template <typename GenT>
-void init_vib_energy(GenT &gen, uniform_real_distribution<double> &unif, double &vib_energy, float kT, double *density_cluster, double *energies_density, int m_max_density);
+void init_vib_energy(GenT &gen, uniform_real_distribution<double> &unif, double &vib_energy, float kT, const Eigen::ArrayXd &density_cluster, const Eigen::ArrayXd &energies_density, int m_max_density);
 double evaluate_rotational_energy(double *omega, float inertia);
 double evaluate_internal_energy(double vib_energy, double rot_energy);
-double evaluate_rate_const(double *rate_const, double energy, double bin_width_rate, int m_max_rate, ofstream &warnings, int &nwarnings);
+double evaluate_rate_const(const Eigen::ArrayXd &rate_const, double energy, double bin_width_rate, int m_max_rate, ofstream &warnings, int &nwarnings);
 template <typename GenT>
-void time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &unif, double rate_constant, double *v_cluster, double &v_cluster_norm, float n1, float n2, float mobility_gas, float mobility_gas_inv, float R, double dt1, double dt2, double &z, double &x, double &y, double &delta_t, double &t_fragmentation, float first_chamber_end, float sk_end, float quadrupole_start, float quadrupole_end, float second_chamber_end, float acc1, float acc2, float acc3, float acc4, double &t, float m_gas, double *vel_skimmer, double *temp_skimmer, double *pressure_skimmer, double mesh_skimmer, double angular_velocity, double mathieu_factor, double dc_field, double ac_field, ofstream &tmp_evolution);
-void update_physical_quantities(double z, double *vel_skimmer, double *temp_skimmer, double *pressure_skimmer, double mesh_skimmer, double &v_gas, double &temperature, double &pressure, double &density, float first_chamber_end, float sk_end, float P1, float P2, float n1, float n2, float T);
+void time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &unif, double rate_constant, double *v_cluster, double &v_cluster_norm, float n1, float n2, float mobility_gas, float mobility_gas_inv, float R, double dt1, double dt2, double &z, double &x, double &y, double &delta_t, double &t_fragmentation, float first_chamber_end, float sk_end, float quadrupole_start, float quadrupole_end, float second_chamber_end, float acc1, float acc2, float acc3, float acc4, double &t, float m_gas, const SkimmerData &skimmer, double mesh_skimmer, double angular_velocity, double mathieu_factor, double dc_field, double ac_field, ofstream &tmp_evolution);
+void update_physical_quantities(double z, const SkimmerData skimmer, double mesh_skimmer, double &v_gas, double &temperature, double &pressure, double &density, float first_chamber_end, float sk_end, float P1, float P2, float n1, float n2, float T);
 template <typename GenT>
 void draw_theta_skimmer(GenT &gen, uniform_real_distribution<double> &unif, double &theta, double z, float n1, float n2, float m_gas, float mobility_gas, float mobility_gas_inv, float R, double *v_cluster, double v_gas, double pressure, double temperature, double first_chamber_end, double sk_end, ofstream &warnings, int &nwarnings);
 void update_param(double &v_cluster_norm, double *v_cluster, double *v_cluster_versor, double theta, double phi, double &sintheta, double &costheta, double &sinphi, double &cosphi);
@@ -72,16 +103,17 @@ template <typename GenT>
 void draw_u_norm_skimmer(GenT &gen, uniform_real_distribution<double> &unif, double z, double du, double boundary_u, double &u_norm, double theta, float n1, float n2, float m_gas, float mobility_gas, float mobility_gas_inv, float R, double *v_cluster, double v_gas, double pressure, double temperature, double first_chamber_end, double sk_end, double costheta, ofstream &warnings, int &nwarnings);
 void evaluate_relative_velocity(double z, double *v_cluster, double &v_rel_norm, double v_gas, double *v_rel, double first_chamber_end, double sk_end);
 template <typename GenT>
-double draw_vib_energy(GenT &gen, uniform_real_distribution<double> &unif, double vib_energy_old, double *density_cluster, double *energies_density, double energy_max_density, float reduced_mass, double u_norm, double v_cluster_norm, double theta, ofstream &warnings, int &nwarnings);
+double draw_vib_energy(GenT &gen, uniform_real_distribution<double> &unif, double vib_energy_old, const Eigen::ArrayXd &density_cluster, const Eigen::ArrayXd &energies_density, double energy_max_density, float reduced_mass, double u_norm, double v_cluster_norm, double theta, ofstream &warnings, int &nwarnings);
 void update_velocities(double *v_cluster, double &v_cluster_norm, double *v_rel, double v_gas);
 void update_rot_vel(double *omega, double rot_energy_old, double rot_energy);
 int mod_func_int(int a, int b);
-void read_from_file(char *filename, double *&x, double *&y, double &bin_width, int &m_max, double &x_max);
+std::tuple<Eigen::ArrayXd, Eigen::ArrayXd, int, double, double> read_histogram(char *filename);
+std::tuple<Eigen::ArrayXd, Eigen::ArrayXd, Eigen::ArrayXd, int, double, double> read_two_density_histograms(char *file_density_cluster, char *file_density_combined_products);
 template <typename GenT>
-void redistribute_internal_energy(GenT &gen, uniform_real_distribution<double> &unif, double &vib_energy, double &rot_energy, double *density_cluster, double *energies_density, double energy_max_density, ofstream &warnings, int &nwarnings);
-void rescale_density(double *density, int m_max);
-void rescale_energies(double *energies, int m_max, double &energy_max, double &bin_width);
-void read_skimmer(char *filename, double *&vel_skimmer, double *&temp_skimmer, double *&pressure_skimmer, double *&density_skimmer, double *&speed_of_sound_skimmer, double &mesh_skimmer);
+void redistribute_internal_energy(GenT &gen, uniform_real_distribution<double> &unif, double &vib_energy, double &rot_energy, const Eigen::ArrayXd &density_cluster, const Eigen::ArrayXd &energies_density, double energy_max_density, ofstream &warnings, int &nwarnings);
+void rescale_density(Eigen::ArrayXd &density, int m_max);
+void rescale_energies(Eigen::ArrayXd &energies, int m_max, double &energy_max, double &bin_width);
+std::tuple<SkimmerData, double> read_skimmer(char *filename);
 void eval_velocities(double *v, double *omega, double *u, double vib_energy, double vib_energy_old, float M, float m, double R_cluster, ofstream &warnings, int &nwarnings);
 void change_coord(double *v_cluster, double theta, double phi, double alpha, double *x3, double *y3, double *z3);
 template <typename GenT>
@@ -97,7 +129,7 @@ int zone(double z, float first_chamber_end, float sk_end, float quadrupole_start
 
 // MAIN PROGRAM
 
-int main()
+void apitof_pinhole()
 {
   // Mersenne-Twister uniform random number generator
   mt19937 root_gen = mt19937(42ull);
@@ -142,7 +174,6 @@ int main()
   double m_ion;
   double m_gas;
   double reduced_mass;
-  double inertia;
   float q = 1.602e-19; // Coulombs
   float mobility_gas; // thermal agitation
   // float std_gas;
@@ -159,27 +190,6 @@ int main()
   double boundary_u;
 
   // double rate_const;
-  double mesh_skimmer;
-  double *rate_const;
-  double *vel_skimmer;
-  double *temp_skimmer;
-  double *pressure_skimmer;
-  double *density_skimmer;
-  double *speed_of_sound_skimmer;
-  double *energies_density;
-  double *energies_rate;
-  double *density_cluster;
-  double *density_first_product;
-  double *density_second_product;
-  double *density_combined_products;
-  double bin_width_rate;
-  double bin_width_density;
-  double energy_max_density;
-  double energy_max_rate;
-  double *rotations;
-  double electronic_energy_0;
-  double electronic_energy_1;
-  double electronic_energy_2;
   double total_length;
   double mathieu_factor;
   double r_quadrupole;
@@ -190,8 +200,6 @@ int main()
   double gas_mean_free_path;
   int counter_collision_rejections = 0;
 
-  rotations = new double[3];
-
   int j;
   int ncoll_total = 0;
   int n_escaped_total;
@@ -199,15 +207,11 @@ int main()
   int N;
   int nwarnings = 0;
   int realizations;
-  int m_max_density;
-  int m_max_rate;
   int amu;
   int cluster_charge_sign;
 
   char file_rate_const[150];
   char file_density_cluster[150];
-  char file_density_first_product[150];
-  char file_density_second_product[150];
   char file_density_combined_products[150];
   char file_skimmer[150];
   char file_rotations[150];
@@ -285,9 +289,9 @@ int main()
     nullptr, // dc
     nullptr, // alpha_factor
     &bonding_energy,
-    &energy_max_density,
-    &energy_max_rate,
-    &bin_width_density,
+    nullptr,
+    nullptr,
+    nullptr,
     &R_gas,
     &m_gas,
     nullptr, // ga
@@ -306,8 +310,8 @@ int main()
     file_electronic_energy_1,
     file_electronic_energy_2,
     file_density_cluster,
-    file_density_first_product,
-    file_density_second_product,
+    nullptr,
+    nullptr,
     file_density_combined_products,
     file_rate_const,
     file_probabilities,
@@ -319,14 +323,14 @@ int main()
 
   if (LOGLEVEL >= LOGLEVEL_MIN)
   {
-    probabilities.open(file_probabilities, std::ios_base::app);
+    probabilities.open(file_probabilities);
     probabilities << setprecision(6) << std::scientific;
   }
 
   // Read electronic energies
-  read_electronic_energy(file_electronic_energy_0, electronic_energy_0);
-  read_electronic_energy(file_electronic_energy_1, electronic_energy_1);
-  read_electronic_energy(file_electronic_energy_2, electronic_energy_2);
+  auto electronic_energy_0 = read_electronic_energy(file_electronic_energy_0);
+  auto electronic_energy_1 = read_electronic_energy(file_electronic_energy_1);
+  auto electronic_energy_2 = read_electronic_energy(file_electronic_energy_2);
 
   // Compute fragmentation energy in Kelvin
   if (bonding_energy == 0)
@@ -334,30 +338,36 @@ int main()
     bonding_energy = (electronic_energy_1 + electronic_energy_2 - electronic_energy_0) * hartK;
   }
 
-  // TODO: Leak in energies_density and bin_width_density here
-  read_from_file(file_density_cluster, energies_density, density_cluster, bin_width_density, m_max_density, energy_max_density);
-  read_from_file(file_density_first_product, energies_density, density_first_product, bin_width_density, m_max_density, energy_max_density);
-  read_from_file(file_density_second_product, energies_density, density_second_product, bin_width_density, m_max_density, energy_max_density);
-  read_from_file(file_density_combined_products, energies_density, density_combined_products, bin_width_density, m_max_density, energy_max_density);
+  Eigen::ArrayXd energies_density;
+  Eigen::ArrayXd density_cluster;
+  Eigen::ArrayXd density_combined_products;
+  int m_max_density;
+  double energy_max_density;
+  double bin_width_density;
+  std::tie(energies_density, density_cluster, density_combined_products, m_max_density, energy_max_density, bin_width_density) = read_two_density_histograms(file_density_cluster, file_density_combined_products);
 
-  read_from_file(file_rate_const, energies_rate, rate_const, bin_width_rate, m_max_rate, energy_max_rate);
+  Eigen::ArrayXd energies_rate;
+  Eigen::ArrayXd rate_const;
+  int m_max_rate;
+  double energy_max_rate;
+  double bin_width_rate;
+  std::tie(energies_rate, rate_const, m_max_rate, energy_max_rate, bin_width_rate) = read_histogram(file_rate_const);
 
-  read_skimmer(file_skimmer, vel_skimmer, temp_skimmer, pressure_skimmer, density_skimmer, speed_of_sound_skimmer, mesh_skimmer);
+  SkimmerData skimmer;
+  double mesh_skimmer;
+  std::tie(skimmer, mesh_skimmer) = read_skimmer(file_skimmer);
+
   rescale_density(density_cluster, m_max_density);
-  rescale_density(density_first_product, m_max_density);
-  rescale_density(density_second_product, m_max_density);
   rescale_density(density_combined_products, m_max_density);
-
 
   rescale_energies(energies_density, m_max_density, energy_max_density, bin_width_density);
   rescale_energies(energies_rate, m_max_rate, energy_max_rate, bin_width_rate);
 
-
   // cout << "Density: " << energy_max_density << " " << m_max_density << " " << bin_width_density << endl;
   // cout << "Rate: " << energy_max_rate << " " << m_max_rate << " " << bin_width_rate << endl;
 
-  read_rotations(file_rotations, rotations);
-  compute_inertia(rotations, inertia);
+  auto rotations = read_rotations(file_rotations);
+  auto inertia = compute_inertia(rotations);
   compute_mass_and_radius(inertia, amu, m_ion, R_cluster);
 
   // TO BE DELETED ###############
@@ -468,245 +478,251 @@ int main()
   // All firstprivate variables *should* be constant within the loop
   // Truly private variables are declared in the loop
   auto loop_start = std::chrono::high_resolution_clock::now();
-#pragma omp parallel for default(none)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 \
-  firstprivate(                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        \
-      N, T, kT, m_ion, R_cluster, R_tot, m_max_density, energies_density, inertia, m_max_rate, second_chamber_end, mathieu_factor, rate_const, n1, n2, dt1, dt2, vel_skimmer, temp_skimmer, pressure_skimmer, mesh_skimmer, angular_velocity, total_length, bin_width_rate, mobility_gas, mobility_gas_inv, gas_mean_free_path, first_chamber_end, root_seed, density_cluster, energy_max_rate, energy_max_density, sk_end, quadrupole_start, quadrupole_end, acc1, acc2, acc3, acc4, P1, P2, bonding_energy, m_gas, dc_field, ac_field, du, boundary_u, reduced_mass) \
-  shared(nwarnings, collisions, intenergy, warnings, fragments, tmp, tmp_evolution, file_energy_distribution, final_position, pinhole, probabilities, std::cout)                                                                                                                                                                                                                                                                                                                                                                                                       \
+  OMPExceptionHelper exception_helper;
+#pragma omp parallel for default(none) \
+  firstprivate( \
+      N, T, kT, m_ion, R_cluster, R_tot, m_max_density, energies_density, inertia, m_max_rate, second_chamber_end, mathieu_factor, rate_const, n1, n2, dt1, dt2, skimmer, mesh_skimmer, angular_velocity, total_length, bin_width_rate, mobility_gas, mobility_gas_inv, gas_mean_free_path, first_chamber_end, root_seed, density_cluster, energy_max_rate, energy_max_density, sk_end, quadrupole_start, quadrupole_end, acc1, acc2, acc3, acc4, P1, P2, bonding_energy, m_gas, dc_field, ac_field, du, boundary_u, reduced_mass) \
+  shared(nwarnings, collisions, intenergy, warnings, fragments, tmp, tmp_evolution, file_energy_distribution, final_position, pinhole, probabilities, std::cout, exception_helper) \
   reduction(+ : n_fragmented_total, n_escaped_total, ncoll_total, counter_collision_rejections)
   for (j = 0; j < N; j++)
   {
-    mt19937 gen = mt19937(root_seed ^ j);
-    // Define uniform distribution from 0 to 1
-    static uniform_real_distribution<double> unif = uniform_real_distribution<>(0.0, 1.0);
-    // Define normal (gaussian) distribution with 0 mean and 1 standard deviation
-    static normal_distribution<double> gauss = normal_distribution<>(0.0, 1.0);
-
-    const int progress = 10; // Show progress of simulation every *progress* realizations
-
-    int n_escaped = 0;
-    int n_fragmented = 0;
-
-    double t = 0.0;
-    double x = 0.0;
-    double y = 0.0;
-    double z = 0.0;
-    int ncoll = 0;
-    double coll_z = 0.0;
-
-    double v_cluster[3];
-    double v_rel[3];
-    double v_rel_norm;
-    double omega[3];
-    double v_cluster_versor[3];
-    double v_gas;
-    double temperature;
-    double density;
-    double v_cluster_norm;
-    double v_cluster_norm_old;
-
-    double theta;
-    double phi;
-    double u_norm; // normal velocity of colliding gas molecule
-
-    double sintheta;
-    double costheta;
-    double sinphi;
-    double cosphi;
-
-    double vib_energy = 0.0;
-    double rot_energy;
-
-    double rate_constant;
-    double delta_t;
-
-    double t_fragmentation;
-
-    // Draw initial random velocity from Maxwell-Boltzmann distribution
-    init_vel(gen, gauss, v_cluster, m_ion, kT);
-    init_ang_vel(gen, gauss, omega, m_ion, kT, R_cluster);
-    init_vib_energy(gen, unif, vib_energy, kT, density_cluster, energies_density, m_max_density);
-
-    while (z < total_length) // single realization // TO BE CHANGED IN SECOND CHAMBER!!!!!!!!!!!
+    exception_helper.guard([&]
     {
-      int a;
-      double vib_energy_old = 0.0;
-      double vib_energy_new;
-      double rot_energy_old;
-      double pressure = 10.0;
-      double internal_energy;
-      double delta_en;
-      const double radius_pinhole = 1.0e-3;
-      const int max_coll = 1e6;
+      mt19937 gen = mt19937(root_seed ^ j);
+      // Define uniform distribution from 0 to 1
+      static uniform_real_distribution<double> unif = uniform_real_distribution<>(0.0, 1.0);
+      // Define normal (gaussian) distribution with 0 mean and 1 standard deviation
+      static normal_distribution<double> gauss = normal_distribution<>(0.0, 1.0);
 
-      v_cluster_norm = vec_norm(v_cluster);
+      const int progress = 10; // Show progress of simulation every *progress* realizations
 
-      // Checking the collision frequencies during the evolution
-      // if(z<sk_end) tmp << coll_freq(n1, mobility_gas, mobility_gas_inv, R_tot, v_cluster_norm)<<endl;
-      // else tmp << coll_freq(n2, mobility_gas, mobility_gas_inv, R_tot, v_cluster_norm)<<endl;
+      int n_escaped = 0;
+      int n_fragmented = 0;
 
-      rot_energy = evaluate_rotational_energy(omega, inertia);
-      internal_energy = evaluate_internal_energy(vib_energy, rot_energy);
-      delta_en = internal_energy - bonding_energy;
+      double t = 0.0;
+      double x = 0.0;
+      double y = 0.0;
+      double z = 0.0;
+      int ncoll = 0;
+      double coll_z = 0.0;
 
-      // intenergy << j+1 << "\t" << ncoll << "\t" << internal_energy*kcal << endl;
-      // intenergy << j+1 << "\t" << ncoll << "\t" << vib_energy/boltzmann << endl;
+      double v_cluster[3];
+      double v_rel[3];
+      double v_rel_norm;
+      double omega[3];
+      double v_cluster_versor[3];
+      double v_gas;
+      double temperature;
+      double density;
+      double v_cluster_norm;
+      double v_cluster_norm_old;
 
-      a = 0; // variable that check if the cluster fragments when delta_en > energy_max_rate
+      double theta;
+      double phi;
+      double u_norm; // normal velocity of colliding gas molecule
 
-      if (delta_en > 0.0)
+      double sintheta;
+      double costheta;
+      double sinphi;
+      double cosphi;
+
+      double vib_energy = 0.0;
+      double rot_energy;
+
+      double rate_constant;
+      double delta_t;
+
+      double t_fragmentation;
+
+      // Draw initial random velocity from Maxwell-Boltzmann distribution
+      init_vel(gen, gauss, v_cluster, m_ion, kT);
+      init_ang_vel(gen, gauss, omega, m_ion, kT, R_cluster);
+      init_vib_energy(gen, unif, vib_energy, kT, density_cluster, energies_density, m_max_density);
+
+      while (z < total_length) // single realization // TO BE CHANGED IN SECOND CHAMBER!!!!!!!!!!!
       {
-        // tmp << delta_en << endl;
-        if (delta_en > energy_max_rate)
+        int a;
+        double vib_energy_old = 0.0;
+        double vib_energy_new;
+        double rot_energy_old;
+        double pressure = 10.0;
+        double internal_energy;
+        double delta_en;
+        const double radius_pinhole = 1.0e-3;
+        const int max_coll = 1e6;
+
+        v_cluster_norm = vec_norm(v_cluster);
+
+        // Checking the collision frequencies during the evolution
+        // if(z<sk_end) tmp << coll_freq(n1, mobility_gas, mobility_gas_inv, R_tot, v_cluster_norm)<<endl;
+        // else tmp << coll_freq(n2, mobility_gas, mobility_gas_inv, R_tot, v_cluster_norm)<<endl;
+
+        rot_energy = evaluate_rotational_energy(omega, inertia);
+        internal_energy = evaluate_internal_energy(vib_energy, rot_energy);
+        delta_en = internal_energy - bonding_energy;
+
+        // intenergy << j+1 << "\t" << ncoll << "\t" << internal_energy*kcal << endl;
+        // intenergy << j+1 << "\t" << ncoll << "\t" << vib_energy/boltzmann << endl;
+
+        a = 0; // variable that check if the cluster fragments when delta_en > energy_max_rate
+
+        if (delta_en > 0.0)
         {
-          warn_omp(nwarnings, [&warnings, &probabilities, &delta_en, &energy_max_rate]()
-                   {
+          // tmp << delta_en << endl;
+          if (delta_en > energy_max_rate)
+          {
+            warn_omp(nwarnings, [&warnings, &probabilities, &delta_en, &energy_max_rate]()
+            {
             warnings << "Internal energy exceeds maximum rate energy by " << setprecision(3) << scientific << (delta_en-energy_max_rate)/energy_max_rate << endl;
             probabilities << "# Internal energy exceeds maximum rate energy: " << setprecision(3) << scientific << (delta_en-energy_max_rate)/energy_max_rate << endl; });
-          delta_en = energy_max_rate;
-          a = 1;
+            delta_en = energy_max_rate;
+            a = 1;
+          }
+          rate_constant = evaluate_rate_const(rate_const, delta_en, bin_width_rate, m_max_rate, warnings, nwarnings);
         }
-        rate_constant = evaluate_rate_const(rate_const, delta_en, bin_width_rate, m_max_rate, warnings, nwarnings);
-      }
-      else
-      {
-        rate_constant = 0.0;
-      }
-
-      time_next_coll_quadrupole(gen, unif, rate_constant, v_cluster, v_cluster_norm, n1, n2, mobility_gas, mobility_gas_inv, R_tot, dt1, dt2, z, x, y, delta_t, t_fragmentation, first_chamber_end, sk_end, quadrupole_start, quadrupole_end, second_chamber_end, acc1, acc2, acc3, acc4, t, m_gas, vel_skimmer, temp_skimmer, pressure_skimmer, mesh_skimmer, angular_velocity, mathieu_factor, dc_field, ac_field, tmp_evolution);
-
-      // tmp << kin_energy << "\t";
-      // tmp_evolution << delta_t << " " << z << " " << v_cluster[0] << " " << v_cluster[1] << " " << v_cluster[2] << " " << kin_energy << endl;
-
-
-      // In case we are still in the box
-      if (z < total_length)
-      {
-        // Evaluate if the cluster fragments or not
-        if (rate_constant > 0 && delta_t >= t_fragmentation)
+        else
         {
-          n_fragmented++;
-          // if(a==1) cout << "Fragmentation with max energy for rate exceeded. Realization: " << j+1 << endl;
-          // if(coll_z>quadrupole_start && coll_z<quadrupole_end)
+          rate_constant = 0.0;
+        }
+
+        time_next_coll_quadrupole(gen, unif, rate_constant, v_cluster, v_cluster_norm, n1, n2, mobility_gas, mobility_gas_inv, R_tot, dt1, dt2, z, x, y, delta_t, t_fragmentation, first_chamber_end, sk_end, quadrupole_start, quadrupole_end, second_chamber_end, acc1, acc2, acc3, acc4, t, m_gas, skimmer, mesh_skimmer, angular_velocity, mathieu_factor, dc_field, ac_field, tmp_evolution);
+
+        // tmp << kin_energy << "\t";
+        // tmp_evolution << delta_t << " " << z << " " << v_cluster[0] << " " << v_cluster[1] << " " << v_cluster[2] << " " << kin_energy << endl;
+
+
+        // In case we are still in the box
+        if (z < total_length)
+        {
+          // Evaluate if the cluster fragments or not
+          if (rate_constant > 0 && delta_t >= t_fragmentation)
+          {
+            n_fragmented++;
+            // if(a==1) cout << "Fragmentation with max energy for rate exceeded. Realization: " << j+1 << endl;
+            // if(coll_z>quadrupole_start && coll_z<quadrupole_end)
+            if (LOGLEVEL >= LOGLEVEL_NORMAL)
+            {
+#pragma omp critical
+              {
+                fragments << j + 1 << "\t" << t << "\t" << z << "\t" << zone(z, first_chamber_end, sk_end, quadrupole_start, quadrupole_end, second_chamber_end) << "\t" << coll_z << "\t" << zone(coll_z, first_chamber_end, sk_end, quadrupole_start, quadrupole_end, second_chamber_end) << "\t" << v_cluster_norm_old << endl;
+              }
+            }
+            break;
+          }
+
+          if (a == 1)
+          {
+            {
+              throw ApiTofError([&](auto &ss)
+              {
+                ss << "FATAL ERROR: The internal energy exceeded the max energy related to rate constant (so the cluster should fragment), but the cluster did not fragment. Realization: " << j + 1 << endl
+                   << "--> EVALUATE FRAGMENTATION RATE CONSTANT AT HIGHER ENERGIES" << endl
+                   << "position= " << scientific << z << endl;
+              });
+            }
+          }
+
+          // Keep track on number of collisions per realization
+          ncoll++;
+          // cout << "Collision number: " << ncoll << endl;
+          // cout << "Position z: " << z << endl;
+          // if(z>quadrupole_start && z<quadrupole_end)
+          // collisions << j+1 << "\t" << delta_t << "\t" << t << "\t" << x << '\t' << y << "\t" << z << "\t" << ncoll << "\t" << v_cluster_norm << endl;
+
+          // XXX: For some reason these are written after they are read above
+
+          // coll_z = z;
+          // v_cluster_norm_old = vec_norm(v_cluster);
+
+          if (ncoll > max_coll)
+          {
+            throw ApiTofError([&](auto &ss)
+            {
+              ss << "Got to the max collisions " << ncoll << " (max is " << max_coll << ")";
+            });
+          }
+
+          update_physical_quantities(z, skimmer, mesh_skimmer, v_gas, temperature, pressure, density, first_chamber_end, sk_end, P1, P2, n1, n2, T);
+
+          // Draw theta angle of collision
+          draw_theta_skimmer(gen, unif, theta, z, n1, n2, m_gas, mobility_gas, mobility_gas_inv, R_tot, v_cluster, v_gas, pressure, temperature, first_chamber_end, sk_end, warnings, nwarnings);
+
+          phi = 2.0 * pi * unif(gen);
+
+          // Update some parameters useful for calculations
+          update_param(v_cluster_norm, v_cluster, v_cluster_versor, theta, phi, sintheta, costheta, sinphi, cosphi);
+
+          // Draw normal velocity of carrier gas
+          draw_u_norm_skimmer(gen, unif, z, du, boundary_u, u_norm, theta, n1, n2, m_gas, mobility_gas, mobility_gas_inv, R_tot, v_cluster, v_gas, pressure, temperature, first_chamber_end, sk_end, costheta, warnings, nwarnings);
+
+          vib_energy_old = vib_energy;
+
+          evaluate_relative_velocity(z, v_cluster, v_rel_norm, v_gas, v_rel, first_chamber_end, sk_end);
+
+          // Evaluate the dissipated energy in the collision (energy that goes to vibrational modes)
+
+          vib_energy_new = draw_vib_energy(gen, unif, vib_energy_old, density_cluster, energies_density, energy_max_density, reduced_mass, u_norm, v_rel_norm, theta, warnings, nwarnings);
+
+          bool collision_accepted = true;
+          eval_collision(gen, unif, collision_accepted, gas_mean_free_path, x, y, z, total_length, radius_pinhole, quadrupole_end, v_rel, omega, u_norm, theta, R_cluster, vib_energy_new, vib_energy_old, m_ion, m_gas, temperature, pinhole, warnings);
+
+          if (collision_accepted)
+          {
+            vib_energy = vib_energy_new;
+            update_velocities(v_cluster, v_cluster_norm, v_rel, v_gas);
+            // tmp << kin_energy << endl;
+
+            rot_energy_old = evaluate_rotational_energy(omega, inertia);
+            rot_energy = rot_energy_old;
+            redistribute_internal_energy(gen, unif, vib_energy, rot_energy, density_cluster, energies_density, energy_max_density, warnings, nwarnings);
+            update_rot_vel(omega, rot_energy_old, rot_energy);
+          }
+          else
+            counter_collision_rejections++;
+        }
+
+        else
+        {
+          if (a == 1)
+          {
+            throw ApiTofError("FATAL ERROR: The internal energy exceeded the max energy related to rate constant (so the cluster should fragment), but the cluster did not fragment");
+          }
+          n_escaped++; // Count how many clusters reached the end of the box intact
           if (LOGLEVEL >= LOGLEVEL_NORMAL)
           {
 #pragma omp critical
             {
-              fragments << j + 1 << "\t" << t << "\t" << z << "\t" << zone(z, first_chamber_end, sk_end, quadrupole_start, quadrupole_end, second_chamber_end) << "\t" << coll_z << "\t" << zone(coll_z, first_chamber_end, sk_end, quadrupole_start, quadrupole_end, second_chamber_end) << "\t" << v_cluster_norm_old << endl;
+              final_position << x << "\t" << y << endl;
             }
           }
-          break;
+          // cout << "Distance from exit on x: " << x << "and y: " << y << endl; // Distance from the exit on x and y axes
         }
-
-        if (a == 1)
-        {
-#pragma omp critical
-          {
-            std::cout << "FATAL ERROR: The internal energy exceeded the max energy related to rate constant (so the cluster should fragment), but the cluster did not fragment. Realization: " << j + 1 << endl
-                      << "--> EVALUATE FRAGMENTATION RATE CONSTANT AT HIGHER ENERGIES" << endl
-                      << "position= " << scientific << z << endl;
-            exit(EXIT_FAILURE);
-          }
-        }
-
-        // Keep track on number of collisions per realization
-        ncoll++;
-        // cout << "Collision number: " << ncoll << endl;
-        // cout << "Position z: " << z << endl;
-        // if(z>quadrupole_start && z<quadrupole_end)
-        // collisions << j+1 << "\t" << delta_t << "\t" << t << "\t" << x << '\t' << y << "\t" << z << "\t" << ncoll << "\t" << v_cluster_norm << endl;
-
-        // XXX: For some reason these are written after they are read above
-
-        // coll_z = z;
-        // v_cluster_norm_old = vec_norm(v_cluster);
-
-
-        if (ncoll > max_coll)
-          exit(EXIT_FAILURE); // break; // rimetti il break!!!!!!!!!!!!
-
-
-        update_physical_quantities(z, vel_skimmer, temp_skimmer, pressure_skimmer, mesh_skimmer, v_gas, temperature, pressure, density, first_chamber_end, sk_end, P1, P2, n1, n2, T);
-
-        // Draw theta angle of collision
-        draw_theta_skimmer(gen, unif, theta, z, n1, n2, m_gas, mobility_gas, mobility_gas_inv, R_tot, v_cluster, v_gas, pressure, temperature, first_chamber_end, sk_end, warnings, nwarnings);
-
-        phi = 2.0 * pi * unif(gen);
-
-        // Update some parameters useful for calculations
-        update_param(v_cluster_norm, v_cluster, v_cluster_versor, theta, phi, sintheta, costheta, sinphi, cosphi);
-
-        // Draw normal velocity of carrier gas
-        draw_u_norm_skimmer(gen, unif, z, du, boundary_u, u_norm, theta, n1, n2, m_gas, mobility_gas, mobility_gas_inv, R_tot, v_cluster, v_gas, pressure, temperature, first_chamber_end, sk_end, costheta, warnings, nwarnings);
-
-        vib_energy_old = vib_energy;
-
-        evaluate_relative_velocity(z, v_cluster, v_rel_norm, v_gas, v_rel, first_chamber_end, sk_end);
-
-        // Evaluate the dissipated energy in the collision (energy that goes to vibrational modes)
-
-        vib_energy_new = draw_vib_energy(gen, unif, vib_energy_old, density_cluster, energies_density, energy_max_density, reduced_mass, u_norm, v_rel_norm, theta, warnings, nwarnings);
-
-        bool collision_accepted = true;
-        eval_collision(gen, unif, collision_accepted, gas_mean_free_path, x, y, z, total_length, radius_pinhole, quadrupole_end, v_rel, omega, u_norm, theta, R_cluster, vib_energy_new, vib_energy_old, m_ion, m_gas, temperature, pinhole, warnings);
-
-        if (collision_accepted)
-        {
-          vib_energy = vib_energy_new;
-          update_velocities(v_cluster, v_cluster_norm, v_rel, v_gas);
-          // tmp << kin_energy << endl;
-
-          rot_energy_old = evaluate_rotational_energy(omega, inertia);
-          rot_energy = rot_energy_old;
-          redistribute_internal_energy(gen, unif, vib_energy, rot_energy, density_cluster, energies_density, energy_max_density, warnings, nwarnings);
-          update_rot_vel(omega, rot_energy_old, rot_energy);
-        }
-        else
-          counter_collision_rejections++;
       }
 
-      else
+      if (LOGLEVEL >= LOGLEVEL_NORMAL)
       {
-        if (a == 1)
+        if ((j + 1) % progress == 0 and j > 0)
         {
 #pragma omp critical
           {
-            std::cout << "FATAL ERROR: The internal energy exceeded the max energy related to rate constant (so the cluster should fragment), but the cluster did not fragment" << endl;
-            exit(EXIT_FAILURE);
+            std::cout << std::defaultfloat << setw(5) << setfill(' ') << fixed << setprecision(1) << 100.0 * (j + 1) / N << "% " << string(n_fragmented, '*') << string(n_escaped, '-') << " (" << n_fragmented << "*, " << n_escaped << "-) P=" << setprecision(3) << (double)n_escaped_total / (j + 1) << endl;
           }
         }
-        n_escaped++; // Count how many clusters reached the end of the box intact
-        if (LOGLEVEL >= LOGLEVEL_NORMAL)
-        {
-#pragma omp critical
-          {
-            final_position << x << "\t" << y << endl;
-          }
-        }
-        // cout << "Distance from exit on x: " << x << "and y: " << y << endl; // Distance from the exit on x and y axes
       }
-    }
+      n_fragmented_total += n_fragmented;
+      n_escaped_total += n_escaped;
+      ncoll_total += ncoll;
 
-    if (LOGLEVEL >= LOGLEVEL_NORMAL)
-    {
-      if ((j + 1) % progress == 0 and j > 0)
-      {
-#pragma omp critical
-        {
-          std::cout << std::defaultfloat << setw(5) << setfill(' ') << fixed << setprecision(1) << 100.0 * (j + 1) / N << "% " << string(n_fragmented, '*') << string(n_escaped, '-') << " (" << n_fragmented << "*, " << n_escaped << "-) P=" << setprecision(3) << (double)n_escaped_total / (j + 1) << endl;
-        }
-      }
-    }
-    n_fragmented_total += n_fragmented;
-    n_escaped_total += n_escaped;
-    ncoll_total += ncoll;
-
-    // if(j%100==0 and j>0) cout << std::defaultfloat << 100.0*j/N << "%" << " Intacts: " << setw(5) << setfill(' ') << n_escaped << " | Fragments: " << setw(5) << setfill (' ') << n_fragmented << " | Survival probability: "  << std::setprecision(3) << 1.0*n_escaped/(n_escaped+n_fragmented)  << endl;
-    // if(10*j%N==0)
-    // {
-    //   c= (int) 10.0*j/N;
-    //   counter(c, n_escaped, n_fragmented);
-    // }
+      // if(j%100==0 and j>0) cout << std::defaultfloat << 100.0*j/N << "%" << " Intacts: " << setw(5) << setfill(' ') << n_escaped << " | Fragments: " << setw(5) << setfill (' ') << n_fragmented << " | Survival probability: "  << std::setprecision(3) << 1.0*n_escaped/(n_escaped+n_fragmented)  << endl;
+      // if(10*j%N==0)
+      // {
+      //   c= (int) 10.0*j/N;
+      //   counter(c, n_escaped, n_fragmented);
+      // }
+    });
   }
+  exception_helper.rethrow();
+  // End of parallel loop
 
   realizations = n_fragmented_total + n_escaped_total;
   std::cout << setprecision(3);
@@ -714,7 +730,7 @@ int main()
   if (N != realizations)
   {
     warn_omp(nwarnings, [&warnings]()
-             { warnings << "Number of total realizations does not correspond to input value!" << endl; });
+    { warnings << "Number of total realizations does not correspond to input value!" << endl; });
   }
   else
   {
@@ -777,23 +793,22 @@ int main()
     std::cout << "$$$$$$$$$ WARNING $$$$$$$$$" << endl
               << nwarnings << " warnings have been generated: check the file " << Filenames::WARNINGS << endl
               << "$$$$$$$$$$$$$$$$$$$$$$$$$$$" << endl;
-  delete[] rate_const;
-  delete[] vel_skimmer;
-  delete[] temp_skimmer;
-  delete[] pressure_skimmer;
-  delete[] density_skimmer;
-  delete[] speed_of_sound_skimmer;
-  delete[] energies_density;
-  delete[] energies_rate;
-  delete[] density_cluster;
-  delete[] density_first_product;
-  delete[] density_second_product;
-  delete[] density_combined_products;
-  delete[] rotations;
 
   // cout << setprecision(8) << eval_solid_angle(radius_pinhole, total_length, 0.0, 0.0, total_length-1.0e-4) << endl;
   // cout << setprecision(8) << eval_solid_angle_stokes(1.0,10.0,0.0,0.0,9.0) << endl;
+}
 
+int main()
+{
+  try
+  {
+    apitof_pinhole();
+  }
+  catch (std::exception &ex)
+  {
+    std::cerr << ex.what() << std::endl;
+    return -1;
+  }
   return 0;
 }
 
@@ -802,31 +817,10 @@ double evaluate_error(int n, int k)
   return sqrt((6.0 * k * k - k * (6.0 + k) * n + (2.0 + k) * n * n) / (n * n * (3.0 + n) * (2.0 + n)));
 }
 
-void read_rotations(char *filename, double *rotations)
-{
-  ifstream file;
-
-  file.open(filename);
-
-  for (int i = 0; i < 3; i++)
-  {
-    file >> rotations[i];
-  }
-
-  file.close();
-}
-
 // Geometrical mean of moment of inertia
 void compute_inertia(double *rotations, double &inertia_moment)
 {
   inertia_moment = 0.5 * hbar * hbar / (boltzmann * pow(rotations[0] * rotations[1] * rotations[2], 1.0 / 3));
-}
-
-// Compute radius of cluster
-void compute_mass_and_radius(double inertia, double amu, double &mass, double &radius)
-{
-  mass = 1.6726219e-27 * amu; // proton mass * nucleons
-  radius = sqrt(2.5 * inertia / mass);
 }
 
 double vec_norm(double *v)
@@ -1000,7 +994,7 @@ void coord_change(double *v_cluster_versor, double *u_versor, double sintheta, d
   if (v_cluster_versor[2] == 0)
   {
     warn_omp(nwarnings, [&warnings]()
-             {
+    {
       std::cout << endl << "FAILURE: z-component of cluster velocity is zero." << endl;
       warnings << "z-component of cluster velocity is zero." << endl; });
     exit(EXIT_FAILURE);
@@ -1092,7 +1086,7 @@ double avg_vib_energy(float kT, double *density_cluster, double *energies_densit
   return sum2;
 }
 
-double evaluate_rate_const(double *rate_const, double energy, double bin_width_rate, int m_max_rate, ofstream &warnings, int &nwarnings)
+double evaluate_rate_const(const Eigen::ArrayXd &rate_const, double energy, double bin_width_rate, int m_max_rate, ofstream &warnings, int &nwarnings)
 {
   int m;
   double coeff1;
@@ -1109,19 +1103,19 @@ double evaluate_rate_const(double *rate_const, double energy, double bin_width_r
   else if (m >= m_max_rate)
   {
     warn_omp(nwarnings, [&warnings, &energy]()
-             { warnings << "delta_energy exceeded upper limit of rate_constant evaluation: delta_energy= " << energy << endl; });
+    { warnings << "delta_energy exceeded upper limit of rate_constant evaluation: delta_energy= " << energy << endl; });
     return rate_const[m_max_rate];
   }
   else
   {
     warn_omp(nwarnings, [&warnings, &energy]()
-             { warnings << "Rate constant evaluation failed: delta_energy= " << energy << endl; });
+    { warnings << "Rate constant evaluation failed: delta_energy= " << energy << endl; });
     return 0;
   }
 }
 
 
-void update_skimmer_quantities(double *vel_skimmer, double *temp_skimmer, double *pressure_skimmer, double z, float first_chamber_end, double mesh_skimmer, double &v_gas, double &temp, double &pressure)
+void update_skimmer_quantities(const SkimmerData &skimmer, double z, float first_chamber_end, double mesh_skimmer, double &v_gas, double &temp, double &pressure)
 {
   int m;
   double coeff1;
@@ -1129,15 +1123,24 @@ void update_skimmer_quantities(double *vel_skimmer, double *temp_skimmer, double
   double position;
   position = z - first_chamber_end;
   m = int(position / mesh_skimmer);
-  coeff1 = (position - m * mesh_skimmer) / mesh_skimmer;
-  coeff2 = 1.0 - coeff1;
-  v_gas = coeff2 * vel_skimmer[m] + coeff1 * vel_skimmer[m + 1];
-  temp = coeff2 * temp_skimmer[m] + coeff1 * temp_skimmer[m + 1];
-  pressure = coeff2 * pressure_skimmer[m] + coeff1 * pressure_skimmer[m + 1];
+  if (m == skimmer.rows() - 1)
+  {
+    v_gas = skimmer(m, VEL_SKIMMER);
+    temp = skimmer(m, TEMP_SKIMMER);
+    pressure = skimmer(m, TEMP_SKIMMER);
+  }
+  else
+  {
+    coeff1 = (position - m * mesh_skimmer) / mesh_skimmer;
+    coeff2 = 1.0 - coeff1;
+    v_gas = coeff2 * skimmer(m, VEL_SKIMMER) + coeff1 * skimmer(m + 1, VEL_SKIMMER);
+    temp = coeff2 * skimmer(m, TEMP_SKIMMER) + coeff1 * skimmer(m + 1, TEMP_SKIMMER);
+    pressure = coeff2 * skimmer(m, PRESSURE_SKIMMER) + coeff1 * skimmer(m + 1, PRESSURE_SKIMMER);
+  }
   // density=coeff2*density_skimmer[m]+coeff1*density_skimmer[m+1];
 }
 
-void update_physical_quantities(double z, double *vel_skimmer, double *temp_skimmer, double *pressure_skimmer, double mesh_skimmer, double &v_gas, double &temperature, double &pressure, double &density, float first_chamber_end, float sk_end, float P1, float P2, float n1, float n2, float T)
+void update_physical_quantities(double z, const SkimmerData skimmer, double mesh_skimmer, double &v_gas, double &temperature, double &pressure, double &density, float first_chamber_end, float sk_end, float P1, float P2, float n1, float n2, float T)
 {
   int m;
   double coeff1;
@@ -1157,9 +1160,9 @@ void update_physical_quantities(double z, double *vel_skimmer, double *temp_skim
     m = int(position / mesh_skimmer);
     coeff1 = (position - m * mesh_skimmer) / mesh_skimmer;
     coeff2 = 1.0 - coeff1;
-    v_gas = coeff2 * vel_skimmer[m] + coeff1 * vel_skimmer[m + 1];
-    temperature = coeff2 * temp_skimmer[m] + coeff1 * temp_skimmer[m + 1];
-    pressure = coeff2 * pressure_skimmer[m] + coeff1 * pressure_skimmer[m + 1];
+    v_gas = coeff2 * skimmer(m, VEL_SKIMMER) + coeff1 * skimmer(m + 1, VEL_SKIMMER);
+    temperature = coeff2 * skimmer(m, TEMP_SKIMMER) + coeff1 * skimmer(m + 1, TEMP_SKIMMER);
+    pressure = coeff2 * skimmer(m, PRESSURE_SKIMMER) + coeff1 * skimmer(m + 1, PRESSURE_SKIMMER);
   }
   else
   {
@@ -1182,7 +1185,7 @@ void update_physical_quantities(double z, double *vel_skimmer, double *temp_skim
 
 // Draw initial vibrational energy
 template <typename GenT>
-void init_vib_energy(GenT &gen, uniform_real_distribution<double> &unif, double &vib_energy, float kT, double *density_cluster, double *energies_density, int m_max_density)
+void init_vib_energy(GenT &gen, uniform_real_distribution<double> &unif, double &vib_energy, float kT, const Eigen::ArrayXd &density_cluster, const Eigen::ArrayXd &energies_density, int m_max_density)
 {
   double sum1 = 0.0;
   double sum2 = 0.0;
@@ -1205,7 +1208,7 @@ void init_vib_energy(GenT &gen, uniform_real_distribution<double> &unif, double 
 
 // Evaluate time to next collision
 template <typename GenT>
-void time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &unif, double rate_constant, double *v_cluster, double &v_cluster_norm, float n1, float n2, float mobility_gas, float mobility_gas_inv, float R, double dt1, double dt2, double &z, double &x, double &y, double &delta_t, double &t_fragmentation, float first_chamber_end, float sk_end, float quadrupole_start, float quadrupole_end, float second_chamber_end, float acc1, float acc2, float acc3, float acc4, double &t, float m_gas, double *vel_skimmer, double *temp_skimmer, double *pressure_skimmer, double mesh_skimmer, double angular_velocity, double mathieu_factor, double dc_field, double ac_field, ofstream &tmp_evolution)
+void time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &unif, double rate_constant, double *v_cluster, double &v_cluster_norm, float n1, float n2, float mobility_gas, float mobility_gas_inv, float R, double dt1, double dt2, double &z, double &x, double &y, double &delta_t, double &t_fragmentation, float first_chamber_end, float sk_end, float quadrupole_start, float quadrupole_end, float second_chamber_end, float acc1, float acc2, float acc3, float acc4, double &t, float m_gas, const SkimmerData &skimmer, double mesh_skimmer, double angular_velocity, double mathieu_factor, double dc_field, double ac_field, ofstream &tmp_evolution)
 {
   double integral = 0.0;
   double P = 1.0;
@@ -1242,7 +1245,7 @@ void time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &uni
   }
   else // In the skimmer
   {
-    update_skimmer_quantities(vel_skimmer, temp_skimmer, pressure_skimmer, z, first_chamber_end, mesh_skimmer, v_gas, T_skimmer, P_skimmer);
+    update_skimmer_quantities(skimmer, z, first_chamber_end, mesh_skimmer, v_gas, T_skimmer, P_skimmer);
     kT_skimmer = boltzmann * T_skimmer;
     mobility_gas_skimmer = boltzmann * T_skimmer / m_gas;
     mobility_gas_inv_skimmer = 1.0 / mobility_gas_skimmer;
@@ -1343,7 +1346,7 @@ void time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &uni
 
     else // Dynamics in the skimmer
     {
-      update_skimmer_quantities(vel_skimmer, temp_skimmer, pressure_skimmer, z, first_chamber_end, mesh_skimmer, v_gas, T_skimmer, P_skimmer);
+      update_skimmer_quantities(skimmer, z, first_chamber_end, mesh_skimmer, v_gas, T_skimmer, P_skimmer);
       kT_skimmer = boltzmann * T_skimmer;
       mobility_gas_skimmer = boltzmann * T_skimmer / m_gas;
       mobility_gas_inv_skimmer = 1.0 / mobility_gas_skimmer;
@@ -1426,13 +1429,13 @@ void draw_theta_skimmer(GenT &gen, uniform_real_distribution<double> &unif, doub
   {
     theta = pi - 1.0e-3;
     warn_omp(nwarnings, [&warnings, &r]()
-             { warnings << "theta exceeded pi. random number r is: " << r << endl; });
+    { warnings << "theta exceeded pi. random number r is: " << r << endl; });
   }
 }
 // Draw translational energy of cluster after the impact with carrier gas
 // Here we are considering a constant density of states for vibrational mode, i.e. a single vibration (simplified model)
 template <typename GenT>
-double draw_vib_energy(GenT &gen, uniform_real_distribution<double> &unif, double vib_energy_old, double *density_cluster, double *energies_density, double energy_max_density, float reduced_mass, double u_norm, double v_cluster_norm, double theta, ofstream &warnings, int &nwarnings)
+double draw_vib_energy(GenT &gen, uniform_real_distribution<double> &unif, double vib_energy_old, const Eigen::ArrayXd &density_cluster, const Eigen::ArrayXd &energies_density, double energy_max_density, float reduced_mass, double u_norm, double v_cluster_norm, double theta, ofstream &warnings, int &nwarnings)
 {
   double r = unif(gen);
   double relative_speed = u_norm + v_cluster_norm * cos(theta);
@@ -1449,7 +1452,7 @@ double draw_vib_energy(GenT &gen, uniform_real_distribution<double> &unif, doubl
   if (E > energy_max_density)
   {
     warn_omp(nwarnings, [&warnings, &E]()
-             {
+    {
       std::cout << "\n\n\n WARNING!!! E: "<<E/boltzmann<<"\n\n\n";
       warnings << "Energy is exceeding the density of states file. E: "<<E/boltzmann<<endl; });
     exit(EXIT_FAILURE);
@@ -1477,7 +1480,7 @@ double draw_vib_energy(GenT &gen, uniform_real_distribution<double> &unif, doubl
 
 // Redistribution of internal energy (between vibrational and rotational modes)
 template <typename GenT>
-void redistribute_internal_energy(GenT &gen, uniform_real_distribution<double> &unif, double &vib_energy, double &rot_energy, double *density_cluster, double *energies_density, double energy_max_density, ofstream &warnings, int &nwarnings)
+void redistribute_internal_energy(GenT &gen, uniform_real_distribution<double> &unif, double &vib_energy, double &rot_energy, const Eigen::ArrayXd &density_cluster, const Eigen::ArrayXd &energies_density, double energy_max_density, ofstream &warnings, int &nwarnings)
 {
   double r = unif(gen);
   double E = vib_energy + rot_energy;
@@ -1489,7 +1492,7 @@ void redistribute_internal_energy(GenT &gen, uniform_real_distribution<double> &
   if (E > energy_max_density)
   {
     warn_omp(nwarnings, [&warnings, &E]()
-             {
+    {
       std::cout << "\n\n\n WARNING!!! E: "<<E/boltzmann<<"\n\n\n";
       warnings << "Energy is exceeding the density of states file. E: "<<E/boltzmann<<endl; });
     exit(EXIT_FAILURE);
@@ -1581,7 +1584,7 @@ void draw_u_norm_skimmer(GenT &gen, uniform_real_distribution<double> &unif, dou
   if (u_norm > boundary_u)
   {
     warn_omp(nwarnings, [&warnings, &r]()
-             { warnings << "u_norm exceeded boundary of the integration. random number r is: " << r << endl; });
+    { warnings << "u_norm exceeded boundary of the integration. random number r is: " << r << endl; });
   }
 }
 
@@ -2017,13 +2020,13 @@ double modulus_squared(double *x)
   return sqrt(x[0] * x[0] + x[1] * x[1] + x[2] * x[2]);
 }
 
-void read_from_file(char *filename, double *&x, double *&y, double &bin_width, int &m_max, double &x_max)
+std::tuple<Eigen::ArrayXd, Eigen::ArrayXd, int, double, double> read_histogram(char *filename)
 {
   ifstream file;
   char garb[150];
   file.open(filename);
 
-  m_max = 0;
+  int m_max = 0;
   while (file >> garb >> garb)
   {
     m_max++;
@@ -2034,8 +2037,8 @@ void read_from_file(char *filename, double *&x, double *&y, double &bin_width, i
     std::cout << "Error in reading file " << filename << ". It should contain at least two rows." << endl;
     exit(EXIT_FAILURE);
   }
-  x = new double[m_max];
-  y = new double[m_max];
+  Eigen::ArrayXd x(m_max);
+  Eigen::ArrayXd y(m_max);
 
   file.open(filename);
   for (int m = 0; m < m_max; m++)
@@ -2043,11 +2046,25 @@ void read_from_file(char *filename, double *&x, double *&y, double &bin_width, i
     file >> x[m] >> y[m];
   }
   file.close();
-  bin_width = x[1] - x[0];
-  x_max = bin_width * m_max;
+  double bin_width = x[1] - x[0];
+  double x_max = bin_width * m_max;
+
+  return std::make_tuple(x, y, m_max, x_max, bin_width);
 }
 
-void rescale_density(double *density, int m_max)
+std::tuple<Eigen::ArrayXd, Eigen::ArrayXd, Eigen::ArrayXd, int, double, double> read_two_density_histograms(char *file_density_cluster, char *file_density_combined_products)
+{
+  auto [energies_density, density_cluster, m_max_density, energy_max_density, bin_width_density] = read_histogram(file_density_cluster);
+  auto [energies_density_other, density_combined_products, m_max_density_other, energy_max_density_other, bin_width_density_other] = read_histogram(file_density_combined_products);
+  if (!energies_density.isApprox(energies_density_other) || bin_width_density != bin_width_density_other || m_max_density != m_max_density_other || energy_max_density != energy_max_density_other)
+  {
+    std::cout << "Error: The two density of states histograms are not compatible." << std::endl;
+    exit(EXIT_FAILURE);
+  }
+  return std::make_tuple(energies_density, density_cluster, density_combined_products, m_max_density, energy_max_density, bin_width_density);
+}
+
+void rescale_density(Eigen::ArrayXd &density, int m_max)
 {
   for (int m = 0; m < m_max; m++)
   {
@@ -2055,7 +2072,7 @@ void rescale_density(double *density, int m_max)
   }
 }
 
-void rescale_energies(double *energies, int m_max, double &energy_max, double &bin_width)
+void rescale_energies(Eigen::ArrayXd &energies, int m_max, double &energy_max, double &bin_width)
 {
   for (int m = 0; m < m_max; m++)
   {
@@ -2065,7 +2082,7 @@ void rescale_energies(double *energies, int m_max, double &energy_max, double &b
   bin_width *= boltzmann;
 }
 
-void read_skimmer(char *filename, double *&vel_skimmer, double *&temp_skimmer, double *&pressure_skimmer, double *&density_skimmer, double *&speed_of_sound_skimmer, double &mesh_skimmer)
+std::tuple<SkimmerData, double> read_skimmer(char *filename)
 {
   int m;
   ifstream file;
@@ -2080,36 +2097,24 @@ void read_skimmer(char *filename, double *&vel_skimmer, double *&temp_skimmer, d
   file >> pos1 >> garb >> garb >> garb >> garb >> garb;
   m = 2;
 
-  mesh_skimmer = pos1 - pos0;
+  double mesh_skimmer = pos1 - pos0;
 
   while (file >> garb >> garb >> garb >> garb >> garb >> garb)
     m++;
   file.close();
 
   m_max = m;
-  vel_skimmer = new double[m_max];
-  temp_skimmer = new double[m_max];
-  pressure_skimmer = new double[m_max];
-  density_skimmer = new double[m_max];
-  speed_of_sound_skimmer = new double[m_max];
+  SkimmerData data(m_max, 3);
 
   file.open(filename);
   file >> garb;
   for (m = 0; m < m_max; m++)
   {
-    file >> garb >> vel_skimmer[m] >> temp_skimmer[m] >> pressure_skimmer[m] >> density_skimmer[m] >> speed_of_sound_skimmer[m];
+    file >> garb >> data(m, VEL_SKIMMER) >> data(m, TEMP_SKIMMER) >> data(m, PRESSURE_SKIMMER) >> garb >> garb;
   }
   file.close();
-}
 
-// Read electronic energy
-void read_electronic_energy(char *filename, double &electronic_energy)
-{
-  ifstream file;
-
-  file.open(filename);
-
-  file >> electronic_energy;
+  return std::make_tuple(data, mesh_skimmer);
 }
 
 int zone(double z, float first_chamber_end, float sk_end, float quadrupole_start, float quadrupole_end, float second_chamber_end)

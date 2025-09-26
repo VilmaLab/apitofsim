@@ -2,6 +2,12 @@
 
 #include <iostream>
 #include <cstring>
+#include <fstream>
+#include <Eigen/Dense>
+
+#define kb 1.38064852e-23 // Boltzmann constant
+#define hbar 1.054571800e-34 // Reduced Planck constant
+#define protonMass 1.6726219e-27 // relative mass of on proton in kg
 
 void check_field_name(const char *buffer, const char *expected)
 {
@@ -190,3 +196,103 @@ void warn_omp(int &nwarnings, CallbackT callback)
     callback();
   }
 }
+
+Eigen::Array3d read_rotations(char *filename)
+{
+  Eigen::Array3d rotations;
+  std::ifstream file;
+
+  file.open(filename);
+
+  for (int i = 0; i < 3; i++)
+  {
+    file >> rotations[i];
+  }
+
+  file.close();
+  return rotations;
+}
+
+// Read electronic energy
+double read_electronic_energy(char *filename)
+{
+  std::ifstream file;
+  double electronic_energy;
+
+  file.open(filename);
+
+  file >> electronic_energy;
+
+  return electronic_energy;
+}
+
+// Geometrical mean of moment of inertia
+double compute_inertia(const Eigen::Vector3d &rotations)
+{
+  return 0.5 * hbar * hbar / (kb * pow(rotations[0] * rotations[1] * rotations[2], 1.0 / 3));
+}
+
+// Compute radius of cluster
+void compute_mass_and_radius(double inertia, double amu, double &mass, double &radius)
+{
+  mass = protonMass * amu; // proton mass * nucleons
+  radius = sqrt(2.5 * inertia / mass);
+}
+
+/* Exceptions can't pass between threads.
+ * The solution is to capture and rethrow.
+ * Additionally once the shared exception is set, no other guarded code can run, preventing further processing. */
+class OMPExceptionHelper
+{
+  std::exception_ptr exception = nullptr;
+  bool rethrow_called = false;
+
+public:
+  OMPExceptionHelper()
+  {
+  }
+
+  ~OMPExceptionHelper()
+  {
+    if (!rethrow_called && this->exception)
+    {
+      std::cerr << "Exception lost! OMPExceptionHelper holding exception destroyed without rethrowing\n"
+                << std::flush;
+      std::terminate();
+    }
+  }
+
+  void rethrow()
+  {
+    rethrow_called = true;
+    if (this->exception)
+    {
+      std::rethrow_exception(this->exception);
+    }
+  }
+
+  void capture()
+  {
+#pragma omp critical
+    if (!this->exception)
+    {
+      this->exception = std::current_exception();
+    }
+  }
+
+  template <typename Function, typename... Parameters>
+  void guard(Function f, Parameters... params)
+  {
+    if (!this->exception)
+    {
+      try
+      {
+        f(params...);
+      }
+      catch (...)
+      {
+        capture();
+      }
+    }
+  }
+};

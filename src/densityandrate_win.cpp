@@ -212,35 +212,6 @@ void write_on_file(char *filename, const Eigen::Ref<const Eigen::ArrayXd> x, con
   cout << "]\033[F\033[J" << filename << endl;
 }
 
-// Read electronic energy
-double read_electronic_energy(char *filename)
-{
-  ifstream file;
-  double electronic_energy;
-
-  file.open(filename);
-
-  file >> electronic_energy;
-
-  return electronic_energy;
-}
-
-
-Eigen::Array3d read_rotations(char *filename)
-{
-  Eigen::Array3d rotations;
-  ifstream file;
-
-  file.open(filename);
-
-  for (int i = 0; i < 3; i++)
-  {
-    file >> rotations[i];
-  }
-
-  file.close();
-  return rotations;
-}
 
 Eigen::ArrayXd read_frequencies(char *filename)
 {

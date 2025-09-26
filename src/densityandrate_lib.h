@@ -9,14 +9,11 @@
 #include <tuple>
 
 
-#define kb 1.38064852e-23 // Boltzmann constant
-#define hbar 1.054571800e-34 // Reduced Planck constant
 #define hart 627.509 // 1 hartree in Kcal/mol
 #define R 1.9872e-3 // Gas constant in Kcal/mol/K
 #define hartK 3.157732e+5 // 1 hartree in Kelvin
 #define joulekcal 1.439325e+20 // 1 Joule in kcal/mol
 #define kelvinkcal 1.987216e-03 // 1 K in kcal/mol
-#define protonMass 1.6726219e-27 // relative mass of on proton in kg
 
 // Define Pi if it is not already defined
 #ifndef M_PI
@@ -37,8 +34,6 @@ void compute_density_of_states_noE0(Eigen::ArrayXd &frequencies, Eigen::Ref<Eige
 void compute_combined_density_of_states(Eigen::Ref<Eigen::ArrayXd> rho_comb, Eigen::ArrayXd &frequencies_1, Eigen::ArrayXd &frequencies_2, double energy_max, double bin_width);
 Eigen::ArrayXd combine_frequencies(Eigen::ArrayXd &frequencies_1, Eigen::ArrayXd &frequencies_2);
 Eigen::ArrayXd prepare_energies(double bin_width, int m_max);
-double compute_inertia(Eigen::Vector3d &rotations);
-void compute_mass_and_radius(double inertia, double amu, double &mass, double &radius);
 void compute_k_total(Eigen::ArrayXd &k0, Eigen::ArrayXd &k_rate, double inertia_moment_1, double inertia_moment_2, Eigen::Vector3d &rotations_1, Eigen::Vector3d &rotations_2, const Eigen::Ref<const Eigen::ArrayXd> rho_comb, const Eigen::Ref<const Eigen::ArrayXd> rho_0, double bin_width, int m_max_rate, double fragmentation_energy);
 void compute_k_total_atom(Eigen::ArrayXd &k0, Eigen::ArrayXd &k_rate, double inertia_moment_1, const Eigen::Ref<const Eigen::ArrayXd> rho_comb, const Eigen::Ref<const Eigen::ArrayXd> rho_0, double bin_width, int m_max_rate, double fragmentation_energy);
 
@@ -252,20 +247,6 @@ void compute_k_total_atom(Eigen::ArrayXd &k0, Eigen::ArrayXd &k_rate, double ine
   // if ((m_max_rate) % progress != 0)
   // cout << defaultfloat << setw(5) << setfill(' ') << fixed << setprecision(1) << 100.0 << "% " << string(50, '*') << " (E=" << bin_width * m_max_rate << " K, k_rate=" << scientific << max_rate << " 1/s)" << endl;
   // cout <<"]\033[F\033[J";
-}
-
-
-// Geometrical mean of moment of inertia
-double compute_inertia(Eigen::Vector3d &rotations)
-{
-  return 0.5 * hbar * hbar / (kb * pow(rotations[0] * rotations[1] * rotations[2], 1.0 / 3));
-}
-
-// Compute radius of cluster
-void compute_mass_and_radius(double inertia, double amu, double &mass, double &radius)
-{
-  mass = protonMass * amu; // proton mass * nucleons
-  radius = sqrt(2.5 * inertia / mass);
 }
 
 
