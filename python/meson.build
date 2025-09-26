@@ -7,3 +7,11 @@ apitofsim = python.extension_module(
   install: true,
 )
 python.install_sources(['apitofsim.py'], pure : true)
+
+stubgen = nanobind.get_variable('stubgen')
+custom_target(
+  output: '_apitofsim.pyi',
+  depends: apitofsim,
+  command: [python, stubgen, '-m', '_apitofsim', '-M', 'py.typed'],
+  #build_by_default: true
+)
