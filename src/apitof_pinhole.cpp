@@ -251,7 +251,6 @@ void update_velocities(double *v_cluster, double &v_cluster_norm, double *v_rel,
 void update_rot_vel(double *omega, double rot_energy_old, double rot_energy);
 int mod_func_int(int a, int b);
 std::tuple<Eigen::ArrayXd, Eigen::ArrayXd, int, double, double> read_histogram(char *filename);
-std::tuple<Eigen::ArrayXd, Eigen::ArrayXd, Eigen::ArrayXd, int, double, double> read_two_density_histograms(char *file_density_cluster, char *file_density_combined_products);
 template <typename GenT>
 void redistribute_internal_energy(GenT &gen, uniform_real_distribution<double> &unif, double &vib_energy, double &rot_energy, const Eigen::ArrayXd &density_cluster, const Eigen::ArrayXd &energies_density, double energy_max_density);
 void rescale_density(Eigen::ArrayXd &density, int m_max);
@@ -720,7 +719,6 @@ void apitof_pinhole_config_in()
 
   char file_rate_const[150];
   char file_density_cluster[150];
-  char file_density_combined_products[150];
   char file_skimmer[150];
   char file_rotations[150];
   char file_electronic_energy_0[150];
@@ -822,7 +820,7 @@ void apitof_pinhole_config_in()
     file_density_cluster,
     nullptr,
     nullptr,
-    file_density_combined_products,
+    nullptr,
     file_rate_const,
     file_probabilities,
     nullptr, // N_iter
@@ -850,11 +848,10 @@ void apitof_pinhole_config_in()
 
   Eigen::ArrayXd energies_density;
   Eigen::ArrayXd density_cluster;
-  Eigen::ArrayXd density_combined_products;
   int m_max_density;
   double energy_max_density;
   double bin_width_density;
-  std::tie(energies_density, density_cluster, density_combined_products, m_max_density, energy_max_density, bin_width_density) = read_two_density_histograms(file_density_cluster, file_density_combined_products);
+  std::tie(energies_density, density_cluster, m_max_density, energy_max_density, bin_width_density) = read_histogram(file_density_cluster);
 
   Eigen::ArrayXd energies_rate;
   Eigen::ArrayXd rate_const;
@@ -877,7 +874,6 @@ void apitof_pinhole_config_in()
   compute_mass_and_radius(inertia, amu, m_ion, R_cluster);
 
   rescale_density(density_cluster, m_max_density);
-  rescale_density(density_combined_products, m_max_density);
 
   rescale_energies(energies_density, m_max_density, energy_max_density, bin_width_density);
   rescale_energies(energies_rate, m_max_rate, energy_max_rate, bin_width_rate);
@@ -2318,17 +2314,6 @@ std::tuple<Eigen::ArrayXd, Eigen::ArrayXd, int, double, double> read_histogram(c
   double x_max = bin_width * m_max;
 
   return std::make_tuple(x, y, m_max, x_max, bin_width);
-}
-
-std::tuple<Eigen::ArrayXd, Eigen::ArrayXd, Eigen::ArrayXd, int, double, double> read_two_density_histograms(char *file_density_cluster, char *file_density_combined_products)
-{
-  auto [energies_density, density_cluster, m_max_density, energy_max_density, bin_width_density] = read_histogram(file_density_cluster);
-  auto [energies_density_other, density_combined_products, m_max_density_other, energy_max_density_other, bin_width_density_other] = read_histogram(file_density_combined_products);
-  if (!energies_density.isApprox(energies_density_other) || bin_width_density != bin_width_density_other || m_max_density != m_max_density_other || energy_max_density != energy_max_density_other)
-  {
-    throw ApiTofError("Error: The two density of states histograms are not compatible.");
-  }
-  return std::make_tuple(energies_density, density_cluster, density_combined_products, m_max_density, energy_max_density, bin_width_density);
 }
 
 void rescale_density(Eigen::ArrayXd &density, int m_max)
