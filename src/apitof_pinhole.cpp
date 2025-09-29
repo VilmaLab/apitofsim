@@ -46,10 +46,6 @@
 #define M_PI (3.14159265358979323846)
 #endif
 
-// FOR WINDOWS
-// #define srand48(x) srand(x)
-// #define drand48() ((double)rand()/RAND_MAX)
-
 using namespace std;
 using magic_enum::enum_count;
 using moodycamel::BlockingConcurrentQueue;
@@ -148,11 +144,6 @@ struct LogMessage
 struct LogFileWriter
 {
   ofstream out_streams[10];
-
-  /*ofstream &operator[](LogMessage::LogType type)
-  {
-    return out_streams[static_cast<int>(type)];
-  }*/
 
   LogFileWriter(char *file_probabilities)
   {
@@ -728,45 +719,6 @@ void apitof_pinhole_config_in()
 
   // Set scientific notation
   std::cout << std::scientific << std::setprecision(3);
-
-  /*
-  // MANAGE FILES
-  ofstream collisions;
-  ofstream warnings;
-  ofstream fragments;
-  ofstream probabilities;
-  ofstream intenergy;
-  ofstream tmp;
-  ofstream tmp_evolution;
-  ofstream file_energy_distribution;
-  ofstream final_position;
-  ofstream pinhole;
-
-
-  if (LOGLEVEL >= LOGLEVEL_MIN)
-  {
-    collisions.open(Filenames::COLLISIONS);
-    collisions << setprecision(12) << std::scientific;
-    intenergy.open(Filenames::INTENERGY);
-    intenergy << setprecision(12) << std::scientific;
-    warnings.open(Filenames::WARNINGS);
-    fragments.open(Filenames::FRAGMENTS);
-    fragments << setprecision(12) << std::scientific;
-    tmp.open(Filenames::TMP);
-    tmp << setprecision(12) << std::scientific;
-    tmp_evolution.open(Filenames::TMP_EVOLUTION);
-    tmp_evolution << setprecision(12) << std::scientific;
-    file_energy_distribution.open(Filenames::ENERGY_DISTRIBUTION);
-    file_energy_distribution << setprecision(12) << scientific;
-    final_position.open(Filenames::FINAL_POSITION);
-    final_position << setprecision(12) << std::scientific;
-    pinhole.open(Filenames::PINHOLE);
-    pinhole << setprecision(12) << std::scientific;
-  }
-  */
-
-  // SEED OF RANDOM NUMBERS GENERATOR
-  // srand48(2);
 
   // READING THE INPUT FILE
   std::cout << endl
@@ -1426,16 +1378,6 @@ void update_physical_quantities(double z, const SkimmerData skimmer, double mesh
     v_gas = 0;
   }
 }
-// double evaluate_rate_const(double energy)
-//{
-//   //return pow(energy/boltzmann,6)/2.0e18; // good for 10 Pa and 100 Pa
-//   //return pow(energy/boltzmann,7)/2.0e22; // good for 10 Pa
-//   //return pow(energy/boltzmann,4)/3.0e9;
-//   //return pow(energy/boltzmann,5)/1.0e14;
-//   //return pow(energy/boltzmann,5)/2.0e14;
-//   return pow(energy/boltzmann,8)/1.5e26; //good for 10 Pa and 30 Pa
-//   //return pow(energy/boltzmann,10)/3.0e34; //good for 10 Pa and 30 Pa
-// }
 
 // Draw initial vibrational energy
 template <typename GenT>
@@ -1850,12 +1792,6 @@ void update_v_cluster_norm(double *v_cluster, double &v_cluster_norm)
   v_cluster_norm = sqrt(v_cluster[0] * v_cluster[0] + v_cluster[1] * v_cluster[1] + v_cluster[2] * v_cluster[2]);
 }
 
-//// Evaluate (approximation of) kinetic energy of crashing gas molecule
-// double evaluate_energy_collision(double v_relative, float m_gas)
-//{
-//   return 0.5*m_gas*v_relative*v_relative;
-// }
-
 // Evaluate (approximation of) kinetic energy of crashing gas molecule
 double evaluate_energy_collision(double *v, double *omega, float inertia, float m_ion)
 {
@@ -1863,13 +1799,6 @@ double evaluate_energy_collision(double *v, double *omega, float inertia, float 
   double omega_squared = omega[0] * omega[0] + omega[1] * omega[1] + omega[2] * omega[2];
   return 0.5 * (m_ion * v_squared + inertia * omega_squared);
 }
-
-//// Evaluate internal energy (rotational+vibrational)
-// double evaluate_internal_energy(double vib_energy, double * omega, float inertia, float m_ion)
-//{
-//   double omega_squared=omega[0]*omega[0]+omega[1]*omega[1]+omega[2]*omega[2];
-//   return 0.5*inertia*omega_squared+vib_energy;
-// }
 
 // Evaluate internal energy (rotational+vibrational)
 double evaluate_internal_energy(double vib_energy, double rot_energy)
@@ -1895,58 +1824,6 @@ double energy_in_eV(double energy)
 {
   return energy / 1.602e-19;
 }
-
-
-//// Evaluate tangential component of carrier gas velocity in cluster reference system
-// void eval_u_tan(double * u_versor, double * v_cluster, double * v_new, double * u_tan, float m_gas, float kT)
-//{
-//   double phi=2.0*pi*drand48();
-//   double cosphi=cos(phi);
-//   double sinphi=sin(phi);
-//   double y_old[3];
-//   double x_old[3];
-//   double y_new[3];
-//   double x_new[3];
-//   double norm;
-//   double scalarvx;
-//   double scalarvy;
-//   double xcomponent;
-//   double ycomponent;
-//
-//   // Define reference system in the tangent plane
-//   cross_norm(u_versor,v_cluster,y_old);
-//   cross_norm(y_old,u_versor,x_old);
-//
-//   // Rotate the reference system in order to have x axis directed as u_tan
-//   for(int i=0; i<3; i++)
-//   {
-//     x_new[i]=cosphi*x_old[i]+sinphi*y_old[i];
-//     y_new[i]=-sinphi*x_old[i]+cosphi*y_old[i];
-//   }
-//
-//   // Compute omega_old in the new reference system
-//   for(int i=0; i<3; i++)
-//   {
-//     omega_new[i]=scalar(omega_old,x_new)*x_new[i]+scalar(omega_old,y_new)*y_new[i]+scalar(omega_old,z_new)*z_new[i];
-//   }
-//
-//   // Compute new velocities after collision
-//   vx=4.0*m_gas*(u_tanx+R_cluster*omega_oldz)/(7.0*m_gas+2.0*m_ion);
-//   vz=-4.0*m_gas*R_cluster*omega_oldx/(7.0*m_gas+2.0*m_ion);
-//   omega_newx=(2.0*m_ion-3.0*m_gas)*omega_oldx/(7.0*m_gas+2.0*m_ion);
-//   omega_newz=-10.0*m_ion*(u_tanx+R_cluster*omega_oldz)/((7.0*m_gas+2.0*m_ion)*R_cluster)+omega_oldz;
-//   // Draw norm of tangential velocity
-//  // norm=twodimMaxwell(m_gas, kT);
-//
-//  // scalarvx=scalar(v_cluster,x);
-//  // scalarvy=scalar(v_cluster,y);
-//  // xcomponent=norm*cosphi;
-//  // ycomponent=norm*sinphi;
-//
-//  // u_tan[0]=(xcomponent-scalarvx)*x[0]+(ycomponent-scalarvy)*y[0];
-//  // u_tan[1]=(xcomponent-scalarvx)*x[1]+(ycomponent-scalarvy)*y[1];
-//  // u_tan[2]=(xcomponent-scalarvx)*x[2]+(ycomponent-scalarvy)*y[2];
-// }
 
 void evaluate_relative_velocity(double z, double *v_cluster, double &v_rel_norm, double v_gas, double *v_rel, double first_chamber_end, double sk_end)
 {
@@ -2007,19 +1884,6 @@ void eval_velocities(double *v, double *omega, double *u, double vib_energy, dou
     });
   }
   vz = m_reduced * u[0] + M_reduced * v[2] - sqrt(radicand);
-
-  // if(m_reduced*m_reduced*pow(u[1]-v[1],2)-2.0*(vib_energy-vib_energy_old)*m_reduced/M<0)
-  // {
-  //   cout << std::scientific << "ERROR!!!  "<< u[1]-v[1]<< " " << u_norm+v_cluster_norm*costheta<< " "<<vib_energy-vib_energy_old<< " " << 0.5*m*M*(u[1]-v[1])*(u[1]-v[1])/(M+m)<< " " << m_reduced*m_reduced*pow(u[1]-v[1],2)-2.0*(vib_energy-vib_energy_old)*m_reduced/M <<endl<<endl<<endl;
-  //   exit(EXIT_FAILURE);
-  // }
-  // cout << m_reduced*m_reduced*pow(u[1]-v[1],2)-2.0*vib_energy*m_reduced/M << endl<<endl;
-  // cout<<"anelastic: "<<vy<<endl;
-  // vy=(m*M*u[1]+M*M*v[1]+sqrt(m*m*M*M*pow(u[1]-v[1],2)-2.0*diss_energy*M*m*(M+m)))/(M*(m+M));
-
-  // In case of elastic collision, vy becomes:
-  // vy=(2.0*u[1]+(ratio_masses-1.0)*v[1])/(1.0+ratio_masses);
-  // cout<<"elastic: "<<vy<<endl;
 
   vx = (-4.0 * omega[1] * R_cluster + (3.0 + 2.0 * ratio_masses) * v[0]) / (7.0 + 2.0 * ratio_masses);
   omegay = ((2.0 * ratio_masses - 3.0) * omega[1] - 10.0 * (v[0] / R_cluster)) / (7.0 + 2.0 * ratio_masses);
