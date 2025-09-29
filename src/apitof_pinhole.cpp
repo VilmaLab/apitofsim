@@ -17,6 +17,7 @@
 
 #include <Eigen/Dense>
 #include <iostream>
+#include <omp.h>
 #include <random>
 #include <fstream>
 #include <iomanip>
@@ -26,7 +27,12 @@
 #include <chrono>
 #include <math.h>
 #include <tuple>
+#include <variant>
 #include "utils.h"
+#include <magic_enum/magic_enum.hpp>
+#pragma clang attribute push(__attribute__((no_sanitize("unsigned-integer-overflow"))), apply_to = function)
+#include <blockingconcurrentqueue.h>
+#pragma clang attribute pop
 
 #define pi 3.14159265
 #define eV 1.602176565e-19
@@ -45,11 +51,23 @@
 // #define drand48() ((double)rand()/RAND_MAX)
 
 using namespace std;
+using magic_enum::enum_count;
+using moodycamel::BlockingConcurrentQueue;
 
 typedef Eigen::Array<double, Eigen::Dynamic, 3> SkimmerData;
 const int VEL_SKIMMER = 0;
 const int TEMP_SKIMMER = 1;
 const int PRESSURE_SKIMMER = 2;
+
+template <typename Callback>
+std::string call_with_stringstream(Callback cb)
+{
+  std::string result;
+  stringstream ss(result);
+  ss << std::scientific << std::setprecision(3);
+  cb(ss);
+  return result;
+}
 
 class ApiTofError : public std::runtime_error
 {
@@ -66,16 +84,141 @@ public:
   ApiTofError(Callback cb) : ApiTofError(call_with_stringstream(cb))
   {
   }
+};
+
+namespace Counter
+{
+enum Counter
+{
+  nwarnings,
+  n_fragmented_total,
+  n_escaped_total,
+  ncoll_total,
+  counter_collision_rejections
+};
+};
+constexpr auto n_counters = enum_count<Counter::Counter>();
+using Counters = Eigen::Array<int, n_counters, 1>;
+#pragma omp declare reduction(+ : Counters : omp_out = omp_out + omp_in) \
+  initializer(omp_priv = Counters::Zero())
+
+struct PartialResult
+{
+  int thread_id;
+  Counters counters;
+
+  PartialResult(Counters counters) : thread_id(omp_get_thread_num()), counters(counters)
+  {
+  }
+};
+
+struct LogMessage
+{
+  enum LogType
+  {
+    collisions,
+    warnings,
+    fragments,
+    probabilities,
+    intenergy,
+    tmp,
+    tmp_evolution,
+    file_energy_distribution,
+    final_position,
+    pinhole
+  };
+
+  LogType type;
+  std::string message;
+
+  LogMessage(LogType type, std::string message) : type(type), message(message)
+  {
+  }
+
+  LogMessage(LogType type, const char *message) : type(type), message(message)
+  {
+  }
+
+  template <typename Callback>
+  LogMessage(LogType type, Callback cb) : type(type), message(call_with_stringstream(cb))
+  {
+  }
+};
+
+struct LogFileWriter
+{
+  ofstream out_streams[10];
+
+  /*ofstream &operator[](LogMessage::LogType type)
+  {
+    return out_streams[static_cast<int>(type)];
+  }*/
+
+  LogFileWriter(char *file_probabilities)
+  {
+    if (LOGLEVEL >= LOGLEVEL_MIN)
+    {
+      this->open(LogMessage::collisions, Filenames::COLLISIONS);
+      this->open(LogMessage::warnings, Filenames::WARNINGS, false);
+      this->open(LogMessage::fragments, Filenames::FRAGMENTS);
+      this->open(LogMessage::probabilities, file_probabilities);
+      this->open(LogMessage::intenergy, Filenames::INTENERGY);
+      this->open(LogMessage::tmp, Filenames::TMP);
+      this->open(LogMessage::tmp_evolution, Filenames::TMP_EVOLUTION);
+      this->open(LogMessage::file_energy_distribution, Filenames::ENERGY_DISTRIBUTION);
+      this->open(LogMessage::final_position, Filenames::FINAL_POSITION);
+      this->open(LogMessage::pinhole, Filenames::PINHOLE);
+    }
+  }
+
+  void close()
+  {
+    for (auto &stream : this->out_streams)
+    {
+      if (stream.is_open())
+      {
+        stream.close();
+      }
+    }
+  }
 
 private:
-  template <typename Callback>
-  std::string call_with_stringstream(Callback cb)
+  void
+  open(LogMessage::LogType type, const char *const filename, bool scientific = true)
   {
-    std::string result;
-    stringstream ss(result);
-    ss << std::scientific << std::setprecision(3);
-    cb(ss);
-    return result;
+    this->out_streams[type].open(filename);
+    if (scientific)
+    {
+      this->out_streams[type] << setprecision(12) << std::scientific;
+    }
+  }
+};
+
+using StreamingResultElement = std::variant<std::monostate, LogMessage, PartialResult, std::exception>;
+using StreamingResultQueue = BlockingConcurrentQueue<StreamingResultElement>;
+
+struct WarningHelper
+{
+  Counters &counters;
+  StreamingResultQueue &result_queue;
+
+  template <typename T>
+  void operator()(T msg)
+  {
+    counters[Counter::nwarnings] += 1;
+    result_queue.enqueue(LogMessage(LogMessage::warnings, msg));
+  }
+};
+
+struct LogHelper
+{
+  StreamingResultQueue &result_queue;
+  LogMessage::LogType type;
+
+  template <typename T>
+  void operator()(T msg)
+  {
+    result_queue.enqueue(LogMessage(type, msg));
   }
 };
 
@@ -92,32 +235,32 @@ template <typename GenT>
 void init_vib_energy(GenT &gen, uniform_real_distribution<double> &unif, double &vib_energy, float kT, const Eigen::ArrayXd &density_cluster, const Eigen::ArrayXd &energies_density, int m_max_density);
 double evaluate_rotational_energy(double *omega, float inertia);
 double evaluate_internal_energy(double vib_energy, double rot_energy);
-double evaluate_rate_const(const Eigen::ArrayXd &rate_const, double energy, double bin_width_rate, int m_max_rate, ofstream &warnings, int &nwarnings);
+double evaluate_rate_const(const Eigen::ArrayXd &rate_const, double energy, double bin_width_rate, int m_max_rate, WarningHelper warn);
 template <typename GenT>
-void time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &unif, double rate_constant, double *v_cluster, double &v_cluster_norm, float n1, float n2, float mobility_gas, float mobility_gas_inv, float R, double dt1, double dt2, double &z, double &x, double &y, double &delta_t, double &t_fragmentation, float first_chamber_end, float sk_end, float quadrupole_start, float quadrupole_end, float second_chamber_end, float acc1, float acc2, float acc3, float acc4, double &t, float m_gas, const SkimmerData &skimmer, double mesh_skimmer, double angular_velocity, double mathieu_factor, double dc_field, double ac_field, ofstream &tmp_evolution);
+void time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &unif, double rate_constant, double *v_cluster, double &v_cluster_norm, float n1, float n2, float mobility_gas, float mobility_gas_inv, float R, double dt1, double dt2, double &z, double &x, double &y, double &delta_t, double &t_fragmentation, float first_chamber_end, float sk_end, float quadrupole_start, float quadrupole_end, float second_chamber_end, float acc1, float acc2, float acc3, float acc4, double &t, float m_gas, const SkimmerData &skimmer, double mesh_skimmer, double angular_velocity, double mathieu_factor, double dc_field, double ac_field, LogHelper tmp_evolution);
 void update_physical_quantities(double z, const SkimmerData skimmer, double mesh_skimmer, double &v_gas, double &temperature, double &pressure, double &density, float first_chamber_end, float sk_end, float P1, float P2, float n1, float n2, float T);
 template <typename GenT>
-void draw_theta_skimmer(GenT &gen, uniform_real_distribution<double> &unif, double &theta, double z, float n1, float n2, float m_gas, float mobility_gas, float mobility_gas_inv, float R, double *v_cluster, double v_gas, double pressure, double temperature, double first_chamber_end, double sk_end, ofstream &warnings, int &nwarnings);
+void draw_theta_skimmer(GenT &gen, uniform_real_distribution<double> &unif, double &theta, double z, float n1, float n2, float m_gas, float mobility_gas, float mobility_gas_inv, float R, double *v_cluster, double v_gas, double pressure, double temperature, double first_chamber_end, double sk_end, WarningHelper warn);
 void update_param(double &v_cluster_norm, double *v_cluster, double *v_cluster_versor, double theta, double phi, double &sintheta, double &costheta, double &sinphi, double &cosphi);
 template <typename GenT>
-void draw_u_norm_skimmer(GenT &gen, uniform_real_distribution<double> &unif, double z, double du, double boundary_u, double &u_norm, double theta, float n1, float n2, float m_gas, float mobility_gas, float mobility_gas_inv, float R, double *v_cluster, double v_gas, double pressure, double temperature, double first_chamber_end, double sk_end, double costheta, ofstream &warnings, int &nwarnings);
+void draw_u_norm_skimmer(GenT &gen, uniform_real_distribution<double> &unif, double z, double du, double boundary_u, double &u_norm, double theta, float n1, float n2, float m_gas, float mobility_gas, float mobility_gas_inv, float R, double *v_cluster, double v_gas, double pressure, double temperature, double first_chamber_end, double sk_end, double costheta, WarningHelper warn);
 void evaluate_relative_velocity(double z, double *v_cluster, double &v_rel_norm, double v_gas, double *v_rel, double first_chamber_end, double sk_end);
 template <typename GenT>
-double draw_vib_energy(GenT &gen, uniform_real_distribution<double> &unif, double vib_energy_old, const Eigen::ArrayXd &density_cluster, const Eigen::ArrayXd &energies_density, double energy_max_density, float reduced_mass, double u_norm, double v_cluster_norm, double theta, ofstream &warnings, int &nwarnings);
+double draw_vib_energy(GenT &gen, uniform_real_distribution<double> &unif, double vib_energy_old, const Eigen::ArrayXd &density_cluster, const Eigen::ArrayXd &energies_density, double energy_max_density, float reduced_mass, double u_norm, double v_cluster_norm, double theta);
 void update_velocities(double *v_cluster, double &v_cluster_norm, double *v_rel, double v_gas);
 void update_rot_vel(double *omega, double rot_energy_old, double rot_energy);
 int mod_func_int(int a, int b);
 std::tuple<Eigen::ArrayXd, Eigen::ArrayXd, int, double, double> read_histogram(char *filename);
 std::tuple<Eigen::ArrayXd, Eigen::ArrayXd, Eigen::ArrayXd, int, double, double> read_two_density_histograms(char *file_density_cluster, char *file_density_combined_products);
 template <typename GenT>
-void redistribute_internal_energy(GenT &gen, uniform_real_distribution<double> &unif, double &vib_energy, double &rot_energy, const Eigen::ArrayXd &density_cluster, const Eigen::ArrayXd &energies_density, double energy_max_density, ofstream &warnings, int &nwarnings);
+void redistribute_internal_energy(GenT &gen, uniform_real_distribution<double> &unif, double &vib_energy, double &rot_energy, const Eigen::ArrayXd &density_cluster, const Eigen::ArrayXd &energies_density, double energy_max_density);
 void rescale_density(Eigen::ArrayXd &density, int m_max);
 void rescale_energies(Eigen::ArrayXd &energies, int m_max, double &energy_max, double &bin_width);
 std::tuple<SkimmerData, double> read_skimmer(char *filename);
-void eval_velocities(double *v, double *omega, double *u, double vib_energy, double vib_energy_old, float M, float m, double R_cluster, ofstream &warnings, int &nwarnings);
+void eval_velocities(double *v, double *omega, double *u, double vib_energy, double vib_energy_old, float M, float m, double R_cluster);
 void change_coord(double *v_cluster, double theta, double phi, double alpha, double *x3, double *y3, double *z3);
 template <typename GenT>
-void eval_collision(GenT &gen, uniform_real_distribution<double> &unif, bool &collision_accepted, double gas_mean_free_path, double x, double y, double z, double L, double radius_pinhole, float quadrupole_end, double *v_cluster, double *omega, double u_norm, double theta, float R_cluster, double vib_energy, double vib_energy_old, float m_ion, float m_gas, float temperature, ofstream &pinhole, ofstream &warnings);
+void eval_collision(GenT &gen, uniform_real_distribution<double> &unif, bool &collision_accepted, double gas_mean_free_path, double x, double y, double z, double L, double radius_pinhole, float quadrupole_end, double *v_cluster, double *omega, double u_norm, double theta, float R_cluster, double vib_energy, double vib_energy_old, float m_ion, float m_gas, float temperature, LogHelper pinhole);
 double vec_norm(double *v);
 template <typename GenT>
 double onedimMaxwell(GenT &gen, normal_distribution<double> &gauss, float m, float kT);
@@ -128,85 +271,450 @@ double eval_solid_angle_stokes(double R, double L, double xx, double yy, double 
 int zone(double z, float first_chamber_end, float sk_end, float quadrupole_start, float quadrupole_end, float second_chamber_end);
 
 // MAIN PROGRAM
+Counters apitof_pinhole(
+  int cluster_charge_sign,
+  float T,
+  float pressure_first,
+  float pressure_second,
+  float L0,
+  float Lsk,
+  float L1,
+  float L2,
+  float L3,
+  float V0,
+  float V1,
+  float V2,
+  float V3,
+  float V4,
+  int N,
+  double bonding_energy,
+  double R_gas,
+  double m_gas,
+  double dc_field,
+  double ac_field,
+  double radiofrequency,
+  double r_quadrupole,
+  double m_ion,
+  double R_cluster,
+  const Eigen::ArrayXd &energies_density,
+  const Eigen::ArrayXd &density_cluster,
+  int m_max_density,
+  double energy_max_density,
+  const Eigen::ArrayXd &rate_const,
+  int m_max_rate,
+  double energy_max_rate,
+  double bin_width_rate,
+  const SkimmerData &skimmer,
+  double mesh_skimmer,
+  unsigned long long root_seed,
+  StreamingResultQueue &result_queue)
+{
+  // TO BE DELETED ###############
+  //  R_cluster=4.675e-10;
+  // #############################
+  double kT = boltzmann * T;
+  double R_tot = R_cluster + R_gas;
+  double reduced_mass = 1. / (1. / m_ion + 1. / m_gas);
+  double inertia = 0.4 * m_ion * R_cluster * R_cluster;
+  float mobility_gas = kT / m_gas; // thermal agitation
+  // std_gas=sqrt(mobility_gas);
+  float mobility_gas_inv = 1.0 / mobility_gas;
+  double boundary_u = 5.0 * sqrt(mobility_gas);
+  double du = 1.0e-4 * sqrt(mobility_gas);
+  float E1 = -(V1 - V0) / L0;
+  float E2 = -(V2 - V1) / L1;
+  float E3 = -(V3 - V2) / L2;
+  float E4 = -(V4 - V3) / L3;
+  float first_chamber_end = L0;
+  float sk_end = L0 + Lsk;
+  float quadrupole_start = L0 + Lsk + L1;
+  float quadrupole_end = L0 + Lsk + L1 + L2;
+  float second_chamber_end = L0 + Lsk + L1 + L2 + L3;
+  double total_length = second_chamber_end;
 
-void apitof_pinhole()
+  if (LOGLEVEL >= LOGLEVEL_MIN)
+  {
+    std::cout << "Physical quantities:" << endl;
+    std::cout << "L1: " << first_chamber_end << " m" << endl;
+    std::cout << "L2: " << sk_end << " m" << endl;
+    std::cout << "L3: " << quadrupole_start << " m" << endl;
+    std::cout << "L4: " << quadrupole_end << " m" << endl;
+    std::cout << "L5: " << second_chamber_end << " m" << endl;
+  }
+
+  auto start = std::chrono::high_resolution_clock::now();
+
+  bonding_energy *= boltzmann; // convert in Joules
+  const float q = 1.602e-19; // Coulombs
+  double mathieu_factor = q / (m_ion * r_quadrupole * r_quadrupole);
+  double angular_velocity = 2.0 * M_PI * radiofrequency;
+  float acc1 = E1 * q * cluster_charge_sign / m_ion;
+  float acc2 = E2 * q * cluster_charge_sign / m_ion;
+  float acc3 = E3 * q * cluster_charge_sign / m_ion;
+  float acc4 = E4 * q * cluster_charge_sign / m_ion;
+  float P1 = pressure_first;
+  float P2 = pressure_second;
+  double gas_mean_free_path = mean_free_path(R_gas, kT, P2);
+  if (LOGLEVEL >= LOGLEVEL_MIN)
+  {
+    std::cout << "Cluster charge sign: " << cluster_charge_sign << endl;
+    std::cout << "Pressure 1st chamber: " << P1 << " Pa" << endl;
+    std::cout << "Pressure 2nd chamber: " << P2 << " Pa" << endl;
+    std::cout << "E1: " << E1 << " V/m, Acceleration: " << acc1 << " m/s^2" << endl;
+    std::cout << "E2: " << E2 << " V/m, Acceleration: " << acc2 << " m/s^2" << endl;
+    std::cout << "E3: " << E3 << " V/m, Acceleration: " << acc3 << " m/s^2" << endl;
+    std::cout << "E4: " << E4 << " V/m, Acceleration: " << acc4 << " m/s^2" << endl;
+  }
+  float n1 = particle_density(P1, kT);
+  float n2 = particle_density(P2, kT);
+  if (LOGLEVEL >= LOGLEVEL_MIN)
+  {
+    std::cout << "Fragmentation energy: " << bonding_energy / boltzmann << " K (" << bonding_energy * kcal << " kcal/mol)" << endl;
+    std::cout << "Cluster mass: " << m_ion << " Kg" << endl;
+    std::cout << "Inertia momentum: " << inertia << " kg*m^2" << endl;
+    std::cout << "Cluster radius: " << R_cluster << " m" << endl;
+    std::cout << "Particle density 1st chamber: " << n1 << " 1/m^3" << endl;
+    std::cout << "Particle density 2nd chamber: " << n2 << " 1/m^3" << endl;
+    std::cout << "Cluster mean free path 1st chamber: " << mean_free_path(R_tot, kT, P1) << " m" << endl;
+    std::cout << "Cluster mean free path 2nd chamber: " << mean_free_path(R_tot, kT, P2) << " m" << endl;
+    std::cout << "Gas mean free path 1st chamber: " << mean_free_path(R_gas, kT, P1) << " m" << endl;
+    std::cout << "Gas mean free path 2nd chamber: " << mean_free_path(R_gas, kT, P2) << " m" << endl;
+    std::cout << "Gas density 1st chamber: " << n1 << " 1/m^3" << endl;
+    std::cout << "Gas density 2nd chamber: " << n2 << " 1/m^3" << endl;
+    std::cout << "Collision frequency 1st chamber (at v=0): " << coll_freq(n1, mobility_gas, mobility_gas_inv, R_tot, 0.0) << " 1/s" << endl;
+    std::cout << "Collision frequency 2nd chamber (at v=0): " << coll_freq(n2, mobility_gas, mobility_gas_inv, R_tot, 0.0) << " 1/s" << endl;
+    std::cout << "Standard deviation velocity_x: " << sqrt(boltzmann * T / m_ion) << " m/s" << endl;
+    std::cout << "R_tot: " << R_tot << " m" << endl;
+  }
+
+  // dt1=1.934e-16;
+  double dt1 = 1.0e-3 / coll_freq(n1, mobility_gas, mobility_gas_inv, R_tot, 0.0);
+  double dt2 = 1.0e-3 / coll_freq(n2, mobility_gas, mobility_gas_inv, R_tot, 0.0);
+  if (dt2 > 1.0 / radiofrequency / 1000.0)
+    dt2 = 1.0 / radiofrequency / 1000.0;
+
+  if (LOGLEVEL >= LOGLEVEL_MIN)
+  {
+    std::cout << "Time step t1: " << dt1 << " s" << endl;
+    std::cout << "Time step t2: " << dt2 << " s" << endl
+              << endl;
+  }
+
+  Counters counters;
+
+  if (LOGLEVEL >= LOGLEVEL_MIN)
+  {
+    result_queue.enqueue(LogMessage{LogMessage::probabilities, "#1_FragmentationEnergy 2_SurvivalProbability 3_Error\n"});
+    result_queue.enqueue(LogMessage{LogMessage::fragments, "#1_Realization 2_Time 3_Position 4_FragmentationZone 5_PositionOfCollision 6_CollisionZone 7_VelocityAtCollision\n"});
+  }
+
+  // cout << bin_width_rate << endl;
+  //  N realizations
+  if (LOGLEVEL >= LOGLEVEL_MIN)
+  {
+    std::cout << "Simulating dynamics... (Fragments *, Intacts -)" << endl;
+  }
+  // All firstprivate variables *should* be constant within the loop
+  // Truly private variables are declared in the loop
+  auto loop_start = std::chrono::high_resolution_clock::now();
+  OMPExceptionHelper exception_helper;
+#pragma omp parallel for default(none) \
+  firstprivate( \
+      N, T, kT, m_ion, R_cluster, R_tot, m_max_density, energies_density, inertia, m_max_rate, second_chamber_end, mathieu_factor, rate_const, n1, n2, dt1, dt2, skimmer, mesh_skimmer, angular_velocity, total_length, bin_width_rate, mobility_gas, mobility_gas_inv, gas_mean_free_path, first_chamber_end, root_seed, density_cluster, energy_max_rate, energy_max_density, sk_end, quadrupole_start, quadrupole_end, acc1, acc2, acc3, acc4, P1, P2, bonding_energy, m_gas, dc_field, ac_field, du, boundary_u, reduced_mass) \
+  shared(exception_helper, result_queue) \
+  reduction(+ : counters)
+  for (int j = 0; j < N; j++)
+  {
+    // shared(nwarnings, collisions, intenergy, warnings, fragments, tmp, tmp_evolution, file_energy_distribution, final_position, pinhole, probabilities, std::cout, exception_helper)
+    exception_helper.guard([&]
+    {
+      WarningHelper warn{counters, result_queue};
+      LogHelper fragments{result_queue, LogMessage::fragments};
+      LogHelper final_position{result_queue, LogMessage::final_position};
+      mt19937 gen = mt19937(root_seed ^ j);
+      // Define uniform distribution from 0 to 1
+      static uniform_real_distribution<double> unif = uniform_real_distribution<>(0.0, 1.0);
+      // Define normal (gaussian) distribution with 0 mean and 1 standard deviation
+      static normal_distribution<double> gauss = normal_distribution<>(0.0, 1.0);
+
+      int n_escaped = 0;
+      int n_fragmented = 0;
+
+      double t = 0.0;
+      double x = 0.0;
+      double y = 0.0;
+      double z = 0.0;
+      int ncoll = 0;
+      double coll_z = 0.0;
+
+      double v_cluster[3];
+      double v_rel[3];
+      double v_rel_norm;
+      double omega[3];
+      double v_cluster_versor[3];
+      double v_gas;
+      double temperature;
+      double density;
+      double v_cluster_norm;
+
+      double theta;
+      double phi;
+      double u_norm; // normal velocity of colliding gas molecule
+
+      double sintheta;
+      double costheta;
+      double sinphi;
+      double cosphi;
+
+      double vib_energy = 0.0;
+      double rot_energy;
+
+      double rate_constant;
+      double delta_t;
+
+      double t_fragmentation;
+
+      // Draw initial random velocity from Maxwell-Boltzmann distribution
+      init_vel(gen, gauss, v_cluster, m_ion, kT);
+      init_ang_vel(gen, gauss, omega, m_ion, kT, R_cluster);
+      init_vib_energy(gen, unif, vib_energy, kT, density_cluster, energies_density, m_max_density);
+
+      while (z < total_length) // single realization // TO BE CHANGED IN SECOND CHAMBER!!!!!!!!!!!
+      {
+        int a;
+        double vib_energy_old = 0.0;
+        double vib_energy_new;
+        double rot_energy_old;
+        double pressure = 10.0;
+        double internal_energy;
+        double delta_en;
+        const double radius_pinhole = 1.0e-3;
+        const int max_coll = 1e6;
+
+        v_cluster_norm = vec_norm(v_cluster);
+
+        // Checking the collision frequencies during the evolution
+        // if(z<sk_end) tmp << coll_freq(n1, mobility_gas, mobility_gas_inv, R_tot, v_cluster_norm)<<endl;
+        // else tmp << coll_freq(n2, mobility_gas, mobility_gas_inv, R_tot, v_cluster_norm)<<endl;
+
+        rot_energy = evaluate_rotational_energy(omega, inertia);
+        internal_energy = evaluate_internal_energy(vib_energy, rot_energy);
+        delta_en = internal_energy - bonding_energy;
+
+        // intenergy << j+1 << "\t" << ncoll << "\t" << internal_energy*kcal << endl;
+        // intenergy << j+1 << "\t" << ncoll << "\t" << vib_energy/boltzmann << endl;
+
+        a = 0; // variable that check if the cluster fragments when delta_en > energy_max_rate
+
+        if (delta_en > 0.0)
+        {
+          // tmp << delta_en << endl;
+          if (delta_en > energy_max_rate)
+          {
+            auto overflow = (delta_en - energy_max_rate) / energy_max_rate;
+            warn([&overflow](auto &warning)
+            {
+              warning << "Internal energy exceeds maximum rate energy by " << setprecision(3) << scientific << overflow << endl;
+            });
+            result_queue.enqueue(LogMessage{LogMessage::probabilities, [&overflow](auto &probabilities)
+            {
+              probabilities << "# Internal energy exceeds maximum rate energy: " << setprecision(3) << scientific << overflow << endl;
+            }});
+            delta_en = energy_max_rate;
+            a = 1;
+          }
+          rate_constant = evaluate_rate_const(rate_const, delta_en, bin_width_rate, m_max_rate, warn);
+        }
+        else
+        {
+          rate_constant = 0.0;
+        }
+
+        time_next_coll_quadrupole(gen, unif, rate_constant, v_cluster, v_cluster_norm, n1, n2, mobility_gas, mobility_gas_inv, R_tot, dt1, dt2, z, x, y, delta_t, t_fragmentation, first_chamber_end, sk_end, quadrupole_start, quadrupole_end, second_chamber_end, acc1, acc2, acc3, acc4, t, m_gas, skimmer, mesh_skimmer, angular_velocity, mathieu_factor, dc_field, ac_field, LogHelper{result_queue, LogMessage::tmp_evolution});
+
+        // tmp << kin_energy << "\t";
+        // tmp_evolution << delta_t << " " << z << " " << v_cluster[0] << " " << v_cluster[1] << " " << v_cluster[2] << " " << kin_energy << endl;
+
+
+        // In case we are still in the box
+        if (z < total_length)
+        {
+          // Evaluate if the cluster fragments or not
+          if (rate_constant > 0 && delta_t >= t_fragmentation)
+          {
+            n_fragmented++;
+            // if(a==1) cout << "Fragmentation with max energy for rate exceeded. Realization: " << j+1 << endl;
+            // if(coll_z>quadrupole_start && coll_z<quadrupole_end)
+            if (LOGLEVEL >= LOGLEVEL_NORMAL)
+            {
+              fragments([&](auto &fragments)
+              {
+                fragments << j + 1 << "\t" << t << "\t" << z << "\t" << zone(z, first_chamber_end, sk_end, quadrupole_start, quadrupole_end, second_chamber_end) << "\t" << coll_z << "\t" << zone(coll_z, first_chamber_end, sk_end, quadrupole_start, quadrupole_end, second_chamber_end) << endl;
+              });
+            }
+            break;
+          }
+
+          if (a == 1)
+          {
+            {
+              throw ApiTofError([&](auto &msg)
+              {
+                msg << "FATAL ERROR: The internal energy exceeded the max energy related to rate constant (so the cluster should fragment), but the cluster did not fragment. Realization: " << j + 1 << endl
+                    << "--> EVALUATE FRAGMENTATION RATE CONSTANT AT HIGHER ENERGIES" << endl
+                    << "position= " << scientific << z << endl;
+              });
+            }
+          }
+
+          // Keep track on number of collisions per realization
+          ncoll++;
+          // cout << "Collision number: " << ncoll << endl;
+          // cout << "Position z: " << z << endl;
+          // if(z>quadrupole_start && z<quadrupole_end)
+          // collisions << j+1 << "\t" << delta_t << "\t" << t << "\t" << x << '\t' << y << "\t" << z << "\t" << ncoll << "\t" << v_cluster_norm << endl;
+
+          // XXX: For some reason these are written after they are read above
+
+          // coll_z = z;
+
+          if (ncoll > max_coll)
+          {
+            throw ApiTofError([&](auto &warning)
+            {
+              warning << "Got to the max collisions " << ncoll << " (max is " << max_coll << ")";
+            });
+          }
+
+          update_physical_quantities(z, skimmer, mesh_skimmer, v_gas, temperature, pressure, density, first_chamber_end, sk_end, P1, P2, n1, n2, T);
+
+          // Draw theta angle of collision
+          draw_theta_skimmer(gen, unif, theta, z, n1, n2, m_gas, mobility_gas, mobility_gas_inv, R_tot, v_cluster, v_gas, pressure, temperature, first_chamber_end, sk_end, warn);
+
+          phi = 2.0 * pi * unif(gen);
+
+          // Update some parameters useful for calculations
+          update_param(v_cluster_norm, v_cluster, v_cluster_versor, theta, phi, sintheta, costheta, sinphi, cosphi);
+
+          // Draw normal velocity of carrier gas
+          draw_u_norm_skimmer(gen, unif, z, du, boundary_u, u_norm, theta, n1, n2, m_gas, mobility_gas, mobility_gas_inv, R_tot, v_cluster, v_gas, pressure, temperature, first_chamber_end, sk_end, costheta, warn);
+
+          vib_energy_old = vib_energy;
+
+          evaluate_relative_velocity(z, v_cluster, v_rel_norm, v_gas, v_rel, first_chamber_end, sk_end);
+
+          // Evaluate the dissipated energy in the collision (energy that goes to vibrational modes)
+
+          vib_energy_new = draw_vib_energy(gen, unif, vib_energy_old, density_cluster, energies_density, energy_max_density, reduced_mass, u_norm, v_rel_norm, theta);
+
+          bool collision_accepted = true;
+          eval_collision(gen, unif, collision_accepted, gas_mean_free_path, x, y, z, total_length, radius_pinhole, quadrupole_end, v_rel, omega, u_norm, theta, R_cluster, vib_energy_new, vib_energy_old, m_ion, m_gas, temperature, LogHelper{result_queue, LogMessage::pinhole});
+
+          if (collision_accepted)
+          {
+            vib_energy = vib_energy_new;
+            update_velocities(v_cluster, v_cluster_norm, v_rel, v_gas);
+            // tmp << kin_energy << endl;
+
+            rot_energy_old = evaluate_rotational_energy(omega, inertia);
+            rot_energy = rot_energy_old;
+            redistribute_internal_energy(gen, unif, vib_energy, rot_energy, density_cluster, energies_density, energy_max_density);
+            update_rot_vel(omega, rot_energy_old, rot_energy);
+          }
+          else
+          {
+            counters[Counter::counter_collision_rejections]++;
+          }
+        }
+
+        else
+        {
+          if (a == 1)
+          {
+            throw ApiTofError("FATAL ERROR: The internal energy exceeded the max energy related to rate constant (so the cluster should fragment), but the cluster did not fragment");
+          }
+          n_escaped++; // Count how many clusters reached the end of the box intact
+          if (LOGLEVEL >= LOGLEVEL_NORMAL)
+          {
+            final_position([&](auto &final_position)
+            {
+              final_position << x << "\t" << y << endl;
+            });
+          }
+          // cout << "Distance from exit on x: " << x << "and y: " << y << endl; // Distance from the exit on x and y axes
+        }
+      }
+
+      counters[Counter::n_fragmented_total] += n_fragmented;
+      counters[Counter::n_escaped_total] += n_escaped;
+      counters[Counter::ncoll_total] += ncoll;
+
+      result_queue.enqueue(PartialResult(counters));
+
+      // if(j%100==0 and j>0) cout << std::defaultfloat << 100.0*j/N << "%" << " Intacts: " << setw(5) << setfill(' ') << n_escaped << " | Fragments: " << setw(5) << setfill (' ') << n_fragmented << " | Survival probability: "  << std::setprecision(3) << 1.0*n_escaped/(n_escaped+n_fragmented)  << endl;
+      // if(10*j%N==0)
+      // {
+      //   c= (int) 10.0*j/N;
+      //   counter(c, n_escaped, n_fragmented);
+      // }
+    });
+  }
+  exception_helper.rethrow();
+  // End of parallel loop
+
+  // realizations = n_fragmented_total + n_escaped_total;
+
+  auto end = std::chrono::high_resolution_clock::now();
+
+  auto loop_time = std::chrono::duration_cast<std::chrono::microseconds>(end - loop_start);
+  std::cout << endl
+            << "<loop_time>" << loop_time.count() << "</loop_time>" << endl
+            << endl;
+  auto total_time = end - start;
+  auto seconds_tot = std::chrono::duration_cast<std::chrono::seconds>(total_time).count();
+  auto microseconds_tot = std::chrono::duration_cast<std::chrono::microseconds>(total_time).count();
+  auto hours = (int)(seconds_tot / 3600);
+  auto minutes = mod_func_int(seconds_tot / 60, 60);
+  auto seconds = mod_func_int(seconds_tot, 60);
+  std::cout << "Computational time: " << setw(3) << setfill(' ') << hours << "h" << setw(2) << setfill('0') << minutes << "m" << setw(2) << setfill('0') << seconds << "s" << microseconds_tot << "us" << endl;
+
+  return counters;
+}
+
+void apitof_pinhole_config_in()
 {
   // Mersenne-Twister uniform random number generator
   mt19937 root_gen = mt19937(42ull);
   unsigned long long root_seed = root_gen();
-
-  int hours;
-  int seconds;
-  int minutes;
 
   float L0;
   float Lsk;
   float L1;
   float L2;
   float L3;
-  float first_chamber_end;
-  float sk_end;
-  float quadrupole_start;
-  float quadrupole_end;
-  float second_chamber_end;
   float V0;
   float V1;
   float V2;
   float V3;
   float V4;
-  float E1;
-  float E2;
-  float E3;
-  float E4;
-  float acc1;
-  float acc2;
-  float acc3;
-  float acc4;
-  float kT;
   float T;
-  float P1;
-  float P2;
-  float n1;
-  float n2;
-  double R_cluster;
   double R_gas;
-  double R_tot;
-  double m_ion;
   double m_gas;
-  double reduced_mass;
-  float q = 1.602e-19; // Coulombs
-  float mobility_gas; // thermal agitation
   // float std_gas;
-  float mobility_gas_inv;
-  double dt1;
-  double dt2;
-  float survival_probability;
-  float error_survival_probability;
   float pressure_first;
   float pressure_second;
   double bonding_energy;
 
-  double du;
-  double boundary_u;
-
   // double rate_const;
-  double total_length;
-  double mathieu_factor;
   double r_quadrupole;
   double radiofrequency;
-  double angular_velocity;
   double dc_field;
   double ac_field;
-  double gas_mean_free_path;
   int counter_collision_rejections = 0;
 
-  int j;
   int ncoll_total = 0;
-  int n_escaped_total;
-  int n_fragmented_total;
   int N;
   int nwarnings = 0;
-  int realizations;
   int amu;
   int cluster_charge_sign;
 
@@ -223,6 +731,7 @@ void apitof_pinhole()
   // Set scientific notation
   std::cout << std::scientific << std::setprecision(3);
 
+  /*
   // MANAGE FILES
   ofstream collisions;
   ofstream warnings;
@@ -256,6 +765,7 @@ void apitof_pinhole()
     pinhole.open(Filenames::PINHOLE);
     pinhole << setprecision(12) << std::scientific;
   }
+  */
 
   // SEED OF RANDOM NUMBERS GENERATOR
   // srand48(2);
@@ -321,10 +831,10 @@ void apitof_pinhole()
     nullptr // tolerance
   );
 
+  std::optional<LogFileWriter> writer = std::nullopt;
   if (LOGLEVEL >= LOGLEVEL_MIN)
   {
-    probabilities.open(file_probabilities);
-    probabilities << setprecision(6) << std::scientific;
+    writer = LogFileWriter(file_probabilities);
   }
 
   // Read electronic energies
@@ -357,380 +867,134 @@ void apitof_pinhole()
   double mesh_skimmer;
   std::tie(skimmer, mesh_skimmer) = read_skimmer(file_skimmer);
 
+  // cout << "Density: " << energy_max_density << " " << m_max_density << " " << bin_width_density << endl;
+  // cout << "Rate: " << energy_max_rate << " " << m_max_rate << " " << bin_width_rate << endl;
+
+  auto rotations = read_rotations(file_rotations);
+  auto inertia = compute_inertia(rotations);
+  double m_ion;
+  double R_cluster;
+  compute_mass_and_radius(inertia, amu, m_ion, R_cluster);
+
   rescale_density(density_cluster, m_max_density);
   rescale_density(density_combined_products, m_max_density);
 
   rescale_energies(energies_density, m_max_density, energy_max_density, bin_width_density);
   rescale_energies(energies_rate, m_max_rate, energy_max_rate, bin_width_rate);
 
-  // cout << "Density: " << energy_max_density << " " << m_max_density << " " << bin_width_density << endl;
-  // cout << "Rate: " << energy_max_rate << " " << m_max_rate << " " << bin_width_rate << endl;
-
-  auto rotations = read_rotations(file_rotations);
-  auto inertia = compute_inertia(rotations);
-  compute_mass_and_radius(inertia, amu, m_ion, R_cluster);
-
-  // TO BE DELETED ###############
-  //  R_cluster=4.675e-10;
-  // #############################
-  kT = boltzmann * T;
-  R_tot = R_cluster + R_gas;
-  reduced_mass = 1. / (1. / m_ion + 1. / m_gas);
-  inertia = 0.4 * m_ion * R_cluster * R_cluster;
-  mobility_gas = kT / m_gas;
-  // std_gas=sqrt(mobility_gas);
-  mobility_gas_inv = 1.0 / mobility_gas;
-  boundary_u = 5.0 * sqrt(mobility_gas);
-  du = 1.0e-4 * sqrt(mobility_gas);
-  E1 = -(V1 - V0) / L0;
-  E2 = -(V2 - V1) / L1;
-  E3 = -(V3 - V2) / L2;
-  E4 = -(V4 - V3) / L3;
-  first_chamber_end = L0;
-  sk_end = L0 + Lsk;
-  quadrupole_start = L0 + Lsk + L1;
-  quadrupole_end = L0 + Lsk + L1 + L2;
-  second_chamber_end = L0 + Lsk + L1 + L2 + L3;
-  total_length = second_chamber_end;
-
-  if (LOGLEVEL >= LOGLEVEL_MIN)
-  {
-    std::cout << "Physical quantities:" << endl;
-    std::cout << "L1: " << first_chamber_end << " m" << endl;
-    std::cout << "L2: " << sk_end << " m" << endl;
-    std::cout << "L3: " << quadrupole_start << " m" << endl;
-    std::cout << "L4: " << quadrupole_end << " m" << endl;
-    std::cout << "L5: " << second_chamber_end << " m" << endl;
-  }
-
-  auto start = std::chrono::high_resolution_clock::now();
-
-  bonding_energy *= boltzmann; // convert in Joules
-  mathieu_factor = q / (m_ion * r_quadrupole * r_quadrupole);
-  angular_velocity = 2.0 * M_PI * radiofrequency;
-  acc1 = E1 * q * cluster_charge_sign / m_ion;
-  acc2 = E2 * q * cluster_charge_sign / m_ion;
-  acc3 = E3 * q * cluster_charge_sign / m_ion;
-  acc4 = E4 * q * cluster_charge_sign / m_ion;
-  P1 = pressure_first;
-  P2 = pressure_second;
-  gas_mean_free_path = mean_free_path(R_gas, kT, P2);
-  if (LOGLEVEL >= LOGLEVEL_MIN)
-  {
-    std::cout << "Cluster charge sign: " << cluster_charge_sign << endl;
-    std::cout << "Pressure 1st chamber: " << P1 << " Pa" << endl;
-    std::cout << "Pressure 2nd chamber: " << P2 << " Pa" << endl;
-    std::cout << "E1: " << E1 << " V/m, Acceleration: " << acc1 << " m/s^2" << endl;
-    std::cout << "E2: " << E2 << " V/m, Acceleration: " << acc2 << " m/s^2" << endl;
-    std::cout << "E3: " << E3 << " V/m, Acceleration: " << acc3 << " m/s^2" << endl;
-    std::cout << "E4: " << E4 << " V/m, Acceleration: " << acc4 << " m/s^2" << endl;
-  }
-  n1 = particle_density(P1, kT);
-  n2 = particle_density(P2, kT);
-  if (LOGLEVEL >= LOGLEVEL_MIN)
-  {
-    std::cout << "Fragmentation energy: " << bonding_energy / boltzmann << " K (" << bonding_energy * kcal << " kcal/mol)" << endl;
-    std::cout << "Cluster mass: " << m_ion << " Kg" << endl;
-    std::cout << "Inertia momentum: " << inertia << " kg*m^2" << endl;
-    std::cout << "Cluster radius: " << R_cluster << " m" << endl;
-    std::cout << "Particle density 1st chamber: " << n1 << " 1/m^3" << endl;
-    std::cout << "Particle density 2nd chamber: " << n2 << " 1/m^3" << endl;
-    std::cout << "Cluster mean free path 1st chamber: " << mean_free_path(R_tot, kT, P1) << " m" << endl;
-    std::cout << "Cluster mean free path 2nd chamber: " << mean_free_path(R_tot, kT, P2) << " m" << endl;
-    std::cout << "Gas mean free path 1st chamber: " << mean_free_path(R_gas, kT, P1) << " m" << endl;
-    std::cout << "Gas mean free path 2nd chamber: " << mean_free_path(R_gas, kT, P2) << " m" << endl;
-    std::cout << "Gas density 1st chamber: " << n1 << " 1/m^3" << endl;
-    std::cout << "Gas density 2nd chamber: " << n2 << " 1/m^3" << endl;
-    std::cout << "Collision frequency 1st chamber (at v=0): " << coll_freq(n1, mobility_gas, mobility_gas_inv, R_tot, 0.0) << " 1/s" << endl;
-    std::cout << "Collision frequency 2nd chamber (at v=0): " << coll_freq(n2, mobility_gas, mobility_gas_inv, R_tot, 0.0) << " 1/s" << endl;
-    std::cout << "Standard deviation velocity_x: " << sqrt(boltzmann * T / m_ion) << " m/s" << endl;
-    std::cout << "R_tot: " << R_tot << " m" << endl;
-  }
-
-  // dt1=1.934e-16;
-  dt1 = 1.0e-3 / coll_freq(n1, mobility_gas, mobility_gas_inv, R_tot, 0.0);
-  dt2 = 1.0e-3 / coll_freq(n2, mobility_gas, mobility_gas_inv, R_tot, 0.0);
-  if (dt2 > 1.0 / radiofrequency / 1000.0)
-    dt2 = 1.0 / radiofrequency / 1000.0;
-
-  if (LOGLEVEL >= LOGLEVEL_MIN)
-  {
-    std::cout << "Time step t1: " << dt1 << " s" << endl;
-    std::cout << "Time step t2: " << dt2 << " s" << endl
-              << endl;
-  }
-
-  n_escaped_total = 0;
-  n_fragmented_total = 0;
-
-  if (LOGLEVEL >= LOGLEVEL_MIN)
-  {
-    probabilities << "#1_FragmentationEnergy 2_SurvivalProbability 3_Error" << endl;
-    fragments << "#1_Realization 2_Time 3_Position 4_FragmentationZone 5_PositionOfCollision 6_CollisionZone 7_VelocityAtCollision" << endl;
-  }
-
-  // cout << bin_width_rate << endl;
-  //  N realizations
-  if (LOGLEVEL >= LOGLEVEL_MIN)
-  {
-    std::cout << "Simulating dynamics... (Fragments *, Intacts -)" << endl;
-  }
-  // All firstprivate variables *should* be constant within the loop
-  // Truly private variables are declared in the loop
-  auto loop_start = std::chrono::high_resolution_clock::now();
+  StreamingResultQueue result_queue;
+  Counters counters;
   OMPExceptionHelper exception_helper;
-#pragma omp parallel for default(none) \
-  firstprivate( \
-      N, T, kT, m_ion, R_cluster, R_tot, m_max_density, energies_density, inertia, m_max_rate, second_chamber_end, mathieu_factor, rate_const, n1, n2, dt1, dt2, skimmer, mesh_skimmer, angular_velocity, total_length, bin_width_rate, mobility_gas, mobility_gas_inv, gas_mean_free_path, first_chamber_end, root_seed, density_cluster, energy_max_rate, energy_max_density, sk_end, quadrupole_start, quadrupole_end, acc1, acc2, acc3, acc4, P1, P2, bonding_energy, m_gas, dc_field, ac_field, du, boundary_u, reduced_mass) \
-  shared(nwarnings, collisions, intenergy, warnings, fragments, tmp, tmp_evolution, file_energy_distribution, final_position, pinhole, probabilities, std::cout, exception_helper) \
-  reduction(+ : n_fragmented_total, n_escaped_total, ncoll_total, counter_collision_rejections)
-  for (j = 0; j < N; j++)
+  std::thread execution_thread = std::thread([&]
   {
+    // TODO: Probably want to switch to jthread when possible
     exception_helper.guard([&]
     {
-      mt19937 gen = mt19937(root_seed ^ j);
-      // Define uniform distribution from 0 to 1
-      static uniform_real_distribution<double> unif = uniform_real_distribution<>(0.0, 1.0);
-      // Define normal (gaussian) distribution with 0 mean and 1 standard deviation
-      static normal_distribution<double> gauss = normal_distribution<>(0.0, 1.0);
+      // auto [n_fragmented_total, n_escaped_total, ncoll_total, counter_collision_rejections] = apitof_pinhole();
+      counters = apitof_pinhole(
+        cluster_charge_sign,
+        T,
+        pressure_first,
+        pressure_second,
+        L0,
+        Lsk,
+        L1,
+        L2,
+        L3,
+        V0,
+        V1,
+        V2,
+        V3,
+        V4,
+        N,
+        bonding_energy,
+        R_gas,
+        m_gas,
+        dc_field,
+        ac_field,
+        radiofrequency,
+        r_quadrupole,
+        m_ion,
+        R_cluster,
+        energies_density,
+        density_cluster,
+        m_max_density,
+        energy_max_density,
+        rate_const,
+        m_max_rate,
+        energy_max_rate,
+        bin_width_rate,
+        skimmer,
+        mesh_skimmer,
+        root_seed,
+        result_queue);
+    });
+    result_queue.enqueue(std::monostate{});
+  });
 
-      const int progress = 10; // Show progress of simulation every *progress* realizations
-
-      int n_escaped = 0;
-      int n_fragmented = 0;
-
-      double t = 0.0;
-      double x = 0.0;
-      double y = 0.0;
-      double z = 0.0;
-      int ncoll = 0;
-      double coll_z = 0.0;
-
-      double v_cluster[3];
-      double v_rel[3];
-      double v_rel_norm;
-      double omega[3];
-      double v_cluster_versor[3];
-      double v_gas;
-      double temperature;
-      double density;
-      double v_cluster_norm;
-      double v_cluster_norm_old;
-
-      double theta;
-      double phi;
-      double u_norm; // normal velocity of colliding gas molecule
-
-      double sintheta;
-      double costheta;
-      double sinphi;
-      double cosphi;
-
-      double vib_energy = 0.0;
-      double rot_energy;
-
-      double rate_constant;
-      double delta_t;
-
-      double t_fragmentation;
-
-      // Draw initial random velocity from Maxwell-Boltzmann distribution
-      init_vel(gen, gauss, v_cluster, m_ion, kT);
-      init_ang_vel(gen, gauss, omega, m_ion, kT, R_cluster);
-      init_vib_energy(gen, unif, vib_energy, kT, density_cluster, energies_density, m_max_density);
-
-      while (z < total_length) // single realization // TO BE CHANGED IN SECOND CHAMBER!!!!!!!!!!!
+  Eigen::Array<int, Eigen::Dynamic, n_counters> partial_counters = Eigen::Array<int, Eigen::Dynamic, n_counters>::Zero(omp_get_max_threads(), n_counters);
+  bool exiting = false;
+  while (true)
+  {
+    StreamingResultElement result;
+    if (exiting)
+    {
+      bool got = result_queue.try_dequeue(result);
+      if (!got)
       {
-        int a;
-        double vib_energy_old = 0.0;
-        double vib_energy_new;
-        double rot_energy_old;
-        double pressure = 10.0;
-        double internal_energy;
-        double delta_en;
-        const double radius_pinhole = 1.0e-3;
-        const int max_coll = 1e6;
-
-        v_cluster_norm = vec_norm(v_cluster);
-
-        // Checking the collision frequencies during the evolution
-        // if(z<sk_end) tmp << coll_freq(n1, mobility_gas, mobility_gas_inv, R_tot, v_cluster_norm)<<endl;
-        // else tmp << coll_freq(n2, mobility_gas, mobility_gas_inv, R_tot, v_cluster_norm)<<endl;
-
-        rot_energy = evaluate_rotational_energy(omega, inertia);
-        internal_energy = evaluate_internal_energy(vib_energy, rot_energy);
-        delta_en = internal_energy - bonding_energy;
-
-        // intenergy << j+1 << "\t" << ncoll << "\t" << internal_energy*kcal << endl;
-        // intenergy << j+1 << "\t" << ncoll << "\t" << vib_energy/boltzmann << endl;
-
-        a = 0; // variable that check if the cluster fragments when delta_en > energy_max_rate
-
-        if (delta_en > 0.0)
-        {
-          // tmp << delta_en << endl;
-          if (delta_en > energy_max_rate)
-          {
-            warn_omp(nwarnings, [&warnings, &probabilities, &delta_en, &energy_max_rate]()
-            {
-            warnings << "Internal energy exceeds maximum rate energy by " << setprecision(3) << scientific << (delta_en-energy_max_rate)/energy_max_rate << endl;
-            probabilities << "# Internal energy exceeds maximum rate energy: " << setprecision(3) << scientific << (delta_en-energy_max_rate)/energy_max_rate << endl; });
-            delta_en = energy_max_rate;
-            a = 1;
-          }
-          rate_constant = evaluate_rate_const(rate_const, delta_en, bin_width_rate, m_max_rate, warnings, nwarnings);
-        }
-        else
-        {
-          rate_constant = 0.0;
-        }
-
-        time_next_coll_quadrupole(gen, unif, rate_constant, v_cluster, v_cluster_norm, n1, n2, mobility_gas, mobility_gas_inv, R_tot, dt1, dt2, z, x, y, delta_t, t_fragmentation, first_chamber_end, sk_end, quadrupole_start, quadrupole_end, second_chamber_end, acc1, acc2, acc3, acc4, t, m_gas, skimmer, mesh_skimmer, angular_velocity, mathieu_factor, dc_field, ac_field, tmp_evolution);
-
-        // tmp << kin_energy << "\t";
-        // tmp_evolution << delta_t << " " << z << " " << v_cluster[0] << " " << v_cluster[1] << " " << v_cluster[2] << " " << kin_energy << endl;
-
-
-        // In case we are still in the box
-        if (z < total_length)
-        {
-          // Evaluate if the cluster fragments or not
-          if (rate_constant > 0 && delta_t >= t_fragmentation)
-          {
-            n_fragmented++;
-            // if(a==1) cout << "Fragmentation with max energy for rate exceeded. Realization: " << j+1 << endl;
-            // if(coll_z>quadrupole_start && coll_z<quadrupole_end)
-            if (LOGLEVEL >= LOGLEVEL_NORMAL)
-            {
-#pragma omp critical
-              {
-                fragments << j + 1 << "\t" << t << "\t" << z << "\t" << zone(z, first_chamber_end, sk_end, quadrupole_start, quadrupole_end, second_chamber_end) << "\t" << coll_z << "\t" << zone(coll_z, first_chamber_end, sk_end, quadrupole_start, quadrupole_end, second_chamber_end) << "\t" << v_cluster_norm_old << endl;
-              }
-            }
-            break;
-          }
-
-          if (a == 1)
-          {
-            {
-              throw ApiTofError([&](auto &ss)
-              {
-                ss << "FATAL ERROR: The internal energy exceeded the max energy related to rate constant (so the cluster should fragment), but the cluster did not fragment. Realization: " << j + 1 << endl
-                   << "--> EVALUATE FRAGMENTATION RATE CONSTANT AT HIGHER ENERGIES" << endl
-                   << "position= " << scientific << z << endl;
-              });
-            }
-          }
-
-          // Keep track on number of collisions per realization
-          ncoll++;
-          // cout << "Collision number: " << ncoll << endl;
-          // cout << "Position z: " << z << endl;
-          // if(z>quadrupole_start && z<quadrupole_end)
-          // collisions << j+1 << "\t" << delta_t << "\t" << t << "\t" << x << '\t' << y << "\t" << z << "\t" << ncoll << "\t" << v_cluster_norm << endl;
-
-          // XXX: For some reason these are written after they are read above
-
-          // coll_z = z;
-          // v_cluster_norm_old = vec_norm(v_cluster);
-
-          if (ncoll > max_coll)
-          {
-            throw ApiTofError([&](auto &ss)
-            {
-              ss << "Got to the max collisions " << ncoll << " (max is " << max_coll << ")";
-            });
-          }
-
-          update_physical_quantities(z, skimmer, mesh_skimmer, v_gas, temperature, pressure, density, first_chamber_end, sk_end, P1, P2, n1, n2, T);
-
-          // Draw theta angle of collision
-          draw_theta_skimmer(gen, unif, theta, z, n1, n2, m_gas, mobility_gas, mobility_gas_inv, R_tot, v_cluster, v_gas, pressure, temperature, first_chamber_end, sk_end, warnings, nwarnings);
-
-          phi = 2.0 * pi * unif(gen);
-
-          // Update some parameters useful for calculations
-          update_param(v_cluster_norm, v_cluster, v_cluster_versor, theta, phi, sintheta, costheta, sinphi, cosphi);
-
-          // Draw normal velocity of carrier gas
-          draw_u_norm_skimmer(gen, unif, z, du, boundary_u, u_norm, theta, n1, n2, m_gas, mobility_gas, mobility_gas_inv, R_tot, v_cluster, v_gas, pressure, temperature, first_chamber_end, sk_end, costheta, warnings, nwarnings);
-
-          vib_energy_old = vib_energy;
-
-          evaluate_relative_velocity(z, v_cluster, v_rel_norm, v_gas, v_rel, first_chamber_end, sk_end);
-
-          // Evaluate the dissipated energy in the collision (energy that goes to vibrational modes)
-
-          vib_energy_new = draw_vib_energy(gen, unif, vib_energy_old, density_cluster, energies_density, energy_max_density, reduced_mass, u_norm, v_rel_norm, theta, warnings, nwarnings);
-
-          bool collision_accepted = true;
-          eval_collision(gen, unif, collision_accepted, gas_mean_free_path, x, y, z, total_length, radius_pinhole, quadrupole_end, v_rel, omega, u_norm, theta, R_cluster, vib_energy_new, vib_energy_old, m_ion, m_gas, temperature, pinhole, warnings);
-
-          if (collision_accepted)
-          {
-            vib_energy = vib_energy_new;
-            update_velocities(v_cluster, v_cluster_norm, v_rel, v_gas);
-            // tmp << kin_energy << endl;
-
-            rot_energy_old = evaluate_rotational_energy(omega, inertia);
-            rot_energy = rot_energy_old;
-            redistribute_internal_energy(gen, unif, vib_energy, rot_energy, density_cluster, energies_density, energy_max_density, warnings, nwarnings);
-            update_rot_vel(omega, rot_energy_old, rot_energy);
-          }
-          else
-            counter_collision_rejections++;
-        }
-
-        else
-        {
-          if (a == 1)
-          {
-            throw ApiTofError("FATAL ERROR: The internal energy exceeded the max energy related to rate constant (so the cluster should fragment), but the cluster did not fragment");
-          }
-          n_escaped++; // Count how many clusters reached the end of the box intact
-          if (LOGLEVEL >= LOGLEVEL_NORMAL)
-          {
-#pragma omp critical
-            {
-              final_position << x << "\t" << y << endl;
-            }
-          }
-          // cout << "Distance from exit on x: " << x << "and y: " << y << endl; // Distance from the exit on x and y axes
-        }
+        break;
       }
-
+    }
+    else
+    {
+      result_queue.wait_dequeue(result);
+    }
+    if (std::holds_alternative<std::monostate>(result))
+    {
+      // Still need to pump out any pending messages
+      exiting = true;
+    }
+    else if (std::holds_alternative<PartialResult>(result))
+    {
       if (LOGLEVEL >= LOGLEVEL_NORMAL)
       {
-        if ((j + 1) % progress == 0 and j > 0)
+        const PartialResult &partial_result = std::get<PartialResult>(result);
+        partial_counters.row(partial_result.thread_id) = partial_result.counters.transpose();
+        Counters cur_counters = partial_counters.colwise().sum();
+        auto cur_iters = cur_counters[Counter::n_fragmented_total] + cur_counters[Counter::n_escaped_total];
+        const int progress = 10; // Show progress of simulation every *progress* realizations
+        if ((cur_iters + 1) % progress == 0 and cur_iters > 0)
         {
-#pragma omp critical
-          {
-            std::cout << std::defaultfloat << setw(5) << setfill(' ') << fixed << setprecision(1) << 100.0 * (j + 1) / N << "% " << string(n_fragmented, '*') << string(n_escaped, '-') << " (" << n_fragmented << "*, " << n_escaped << "-) P=" << setprecision(3) << (double)n_escaped_total / (j + 1) << endl;
-          }
+          int n_fragmented_total = cur_counters[Counter::n_fragmented_total];
+          int n_escaped_total = cur_counters[Counter::n_escaped_total];
+          double survival_ratio = (double)n_escaped_total / (cur_iters + 1);
+          std::cout << std::defaultfloat << setw(5) << setfill(' ') << fixed << setprecision(1) << 100.0 * (cur_iters + 1) / N << "% " << string(n_fragmented_total, '*') << string(n_escaped_total, '-') << " (" << n_fragmented_total << "*, " << n_escaped_total << "-) P=" << setprecision(3) << survival_ratio << endl;
         }
       }
-      n_fragmented_total += n_fragmented;
-      n_escaped_total += n_escaped;
-      ncoll_total += ncoll;
-
-      // if(j%100==0 and j>0) cout << std::defaultfloat << 100.0*j/N << "%" << " Intacts: " << setw(5) << setfill(' ') << n_escaped << " | Fragments: " << setw(5) << setfill (' ') << n_fragmented << " | Survival probability: "  << std::setprecision(3) << 1.0*n_escaped/(n_escaped+n_fragmented)  << endl;
-      // if(10*j%N==0)
-      // {
-      //   c= (int) 10.0*j/N;
-      //   counter(c, n_escaped, n_fragmented);
-      // }
-    });
+    }
+    else if (std::holds_alternative<LogMessage>(result))
+    {
+      const LogMessage &msg = std::get<LogMessage>(result);
+      if (writer.has_value())
+      {
+        writer.value().out_streams[msg.type] << msg.message;
+      }
+    }
   }
+  execution_thread.join();
   exception_helper.rethrow();
-  // End of parallel loop
 
-  realizations = n_fragmented_total + n_escaped_total;
   std::cout << setprecision(3);
+
+  int realizations = counters[Counter::n_fragmented_total] + counters[Counter::n_escaped_total];
 
   if (N != realizations)
   {
-    warn_omp(nwarnings, [&warnings]()
-    { warnings << "Number of total realizations does not correspond to input value!" << endl; });
+    nwarnings++;
+    if (writer.has_value())
+    {
+      writer.value().out_streams[LogMessage::warnings] << "Number of total realizations does not correspond to input value!" << endl;
+    }
   }
   else
   {
@@ -746,49 +1010,35 @@ void apitof_pinhole()
   {
     // cout << "\033[F\033[J";
     std::cout << "Realizations: " << realizations << endl;
-    std::cout << "Fragments: " << n_fragmented_total << endl;
-    std::cout << "Intacts: " << n_escaped_total << endl;
-    survival_probability = (float)n_escaped_total / realizations;
+    std::cout << "Fragments: " << counters[Counter::n_fragmented_total] << endl;
+    std::cout << "Intacts: " << counters[Counter::n_escaped_total] << endl;
+    float survival_probability = (float)counters[Counter::n_escaped_total] / realizations;
     // error_survival_probability=sqrt(survival_probability*(1.0-survival_probability)/realizations);
-    error_survival_probability = evaluate_error(realizations, n_escaped_total);
+    float error_survival_probability = evaluate_error(realizations, counters[Counter::n_escaped_total]);
     double avg_ncoll = (double)ncoll_total / N;
     std::cout << "Average number of collisions: " << avg_ncoll << endl;
     std::cout << "Number of collision rejections close to the pinhole: " << counter_collision_rejections << endl;
     std::cout << endl
               << "SURVIVAL PROBABILITY: " << std::setprecision(6) << survival_probability << " +/-" << std::setprecision(4) << error_survival_probability << endl
               << endl;
-    if (nwarnings > 0)
-      probabilities << "# WARNINGS GENERATED" << endl;
-    // probabilities << bonding_energy/boltzmann << " " << survival_probability << " "  << median << " " << err_down << " "<< err_up << endl;
-    probabilities << std::setprecision(6) << bonding_energy / boltzmann << " " << survival_probability << " " << error_survival_probability << endl;
+    if (writer.has_value())
+    {
+      if (nwarnings > 0)
+      {
+        writer.value().out_streams[LogMessage::probabilities] << "# WARNINGS GENERATED" << endl;
+      }
+      // probabilities << bonding_energy/boltzmann << " " << survival_probability << " "  << median << " " << err_down << " "<< err_up << endl;
+      writer.value().out_streams[LogMessage::probabilities] << std::setprecision(6) << bonding_energy / boltzmann << " " << survival_probability << " " << error_survival_probability << endl;
+    }
     std::cout << "OUTPUT" << endl;
     std::cout << file_probabilities << endl
               << endl;
 
-    collisions.close();
-    intenergy.close();
-    warnings.close();
-    fragments.close();
-    tmp.close();
-    tmp_evolution.close();
-    file_energy_distribution.close();
-    final_position.close();
-    pinhole.close();
-    probabilities.close();
+    if (writer.has_value())
+    {
+      writer.value().close();
+    }
   }
-  auto end = std::chrono::high_resolution_clock::now();
-
-  auto loop_time = std::chrono::duration_cast<std::chrono::microseconds>(end - loop_start);
-  std::cout << endl
-            << "<loop_time>" << loop_time.count() << "</loop_time>" << endl
-            << endl;
-  auto total_time = end - start;
-  auto seconds_tot = std::chrono::duration_cast<std::chrono::seconds>(total_time).count();
-  auto microseconds_tot = std::chrono::duration_cast<std::chrono::microseconds>(total_time).count();
-  hours = (int)(seconds_tot / 3600);
-  minutes = mod_func_int(seconds_tot / 60, 60);
-  seconds = mod_func_int(seconds_tot, 60);
-  std::cout << "Computational time: " << setw(3) << setfill(' ') << hours << "h" << setw(2) << setfill('0') << minutes << "m" << setw(2) << setfill('0') << seconds << "s" << microseconds_tot << "us" << endl;
   if (nwarnings > 0)
     std::cout << "$$$$$$$$$ WARNING $$$$$$$$$" << endl
               << nwarnings << " warnings have been generated: check the file " << Filenames::WARNINGS << endl
@@ -802,7 +1052,7 @@ int main()
 {
   try
   {
-    apitof_pinhole();
+    apitof_pinhole_config_in();
   }
   catch (std::exception &ex)
   {
@@ -860,8 +1110,7 @@ void cross_norm(double *in1, double *in2, double *out) // PRODOTTO VETTORIALE tr
   }
   else
   {
-    std::cout << "Zero result in evaluating the cross product" << endl;
-    exit(EXIT_FAILURE);
+    throw ApiTofError("Zero result in evaluating the cross product");
   }
 }
 
@@ -980,7 +1229,7 @@ void update_param(double &v_cluster_norm, double *v_cluster, double *v_cluster_v
 
 
 // Change of coordinates from the cluster reference system to the laboratory one -- Input vectors are normalized!
-void coord_change(double *v_cluster_versor, double *u_versor, double sintheta, double costheta, double sinphi, double cosphi, ofstream &warnings, int &nwarnings)
+void coord_change(double *v_cluster_versor, double *u_versor, double sintheta, double costheta, double sinphi, double cosphi)
 {
   double c_x;
   double c_y;
@@ -993,11 +1242,7 @@ void coord_change(double *v_cluster_versor, double *u_versor, double sintheta, d
 
   if (v_cluster_versor[2] == 0)
   {
-    warn_omp(nwarnings, [&warnings]()
-    {
-      std::cout << endl << "FAILURE: z-component of cluster velocity is zero." << endl;
-      warnings << "z-component of cluster velocity is zero." << endl; });
-    exit(EXIT_FAILURE);
+    throw ApiTofError("z-component of cluster velocity is zero.");
   }
   // Coefficients
   c_x = 1.0 / sqrt(1.0 + pow(v_cluster_versor[0] / v_cluster_versor[2], 2));
@@ -1086,7 +1331,7 @@ double avg_vib_energy(float kT, double *density_cluster, double *energies_densit
   return sum2;
 }
 
-double evaluate_rate_const(const Eigen::ArrayXd &rate_const, double energy, double bin_width_rate, int m_max_rate, ofstream &warnings, int &nwarnings)
+double evaluate_rate_const(const Eigen::ArrayXd &rate_const, double energy, double bin_width_rate, int m_max_rate, WarningHelper warn)
 {
   int m;
   double coeff1;
@@ -1102,14 +1347,18 @@ double evaluate_rate_const(const Eigen::ArrayXd &rate_const, double energy, doub
     return rate_const[0];
   else if (m >= m_max_rate)
   {
-    warn_omp(nwarnings, [&warnings, &energy]()
-    { warnings << "delta_energy exceeded upper limit of rate_constant evaluation: delta_energy= " << energy << endl; });
+    warn([&energy](auto &warning)
+    {
+      warning << "delta_energy exceeded upper limit of rate_constant evaluation: delta_energy= " << energy << endl;
+    });
     return rate_const[m_max_rate];
   }
   else
   {
-    warn_omp(nwarnings, [&warnings, &energy]()
-    { warnings << "Rate constant evaluation failed: delta_energy= " << energy << endl; });
+    warn([&energy](auto &warning)
+    {
+      warning << "Rate constant evaluation failed: delta_energy= " << energy << endl;
+    });
     return 0;
   }
 }
@@ -1158,11 +1407,20 @@ void update_physical_quantities(double z, const SkimmerData skimmer, double mesh
   {
     position = z - first_chamber_end;
     m = int(position / mesh_skimmer);
-    coeff1 = (position - m * mesh_skimmer) / mesh_skimmer;
-    coeff2 = 1.0 - coeff1;
-    v_gas = coeff2 * skimmer(m, VEL_SKIMMER) + coeff1 * skimmer(m + 1, VEL_SKIMMER);
-    temperature = coeff2 * skimmer(m, TEMP_SKIMMER) + coeff1 * skimmer(m + 1, TEMP_SKIMMER);
-    pressure = coeff2 * skimmer(m, PRESSURE_SKIMMER) + coeff1 * skimmer(m + 1, PRESSURE_SKIMMER);
+    if (m == skimmer.rows() - 1)
+    {
+      v_gas = skimmer(m, VEL_SKIMMER);
+      temperature = skimmer(m, TEMP_SKIMMER);
+      pressure = skimmer(m, PRESSURE_SKIMMER);
+    }
+    else
+    {
+      coeff1 = (position - m * mesh_skimmer) / mesh_skimmer;
+      coeff2 = 1.0 - coeff1;
+      v_gas = coeff2 * skimmer(m, VEL_SKIMMER) + coeff1 * skimmer(m + 1, VEL_SKIMMER);
+      temperature = coeff2 * skimmer(m, TEMP_SKIMMER) + coeff1 * skimmer(m + 1, TEMP_SKIMMER);
+      pressure = coeff2 * skimmer(m, PRESSURE_SKIMMER) + coeff1 * skimmer(m + 1, PRESSURE_SKIMMER);
+    }
   }
   else
   {
@@ -1208,7 +1466,7 @@ void init_vib_energy(GenT &gen, uniform_real_distribution<double> &unif, double 
 
 // Evaluate time to next collision
 template <typename GenT>
-void time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &unif, double rate_constant, double *v_cluster, double &v_cluster_norm, float n1, float n2, float mobility_gas, float mobility_gas_inv, float R, double dt1, double dt2, double &z, double &x, double &y, double &delta_t, double &t_fragmentation, float first_chamber_end, float sk_end, float quadrupole_start, float quadrupole_end, float second_chamber_end, float acc1, float acc2, float acc3, float acc4, double &t, float m_gas, const SkimmerData &skimmer, double mesh_skimmer, double angular_velocity, double mathieu_factor, double dc_field, double ac_field, ofstream &tmp_evolution)
+void time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &unif, double rate_constant, double *v_cluster, double &v_cluster_norm, float n1, float n2, float mobility_gas, float mobility_gas_inv, float R, double dt1, double dt2, double &z, double &x, double &y, double &delta_t, double &t_fragmentation, float first_chamber_end, float sk_end, float quadrupole_start, float quadrupole_end, float second_chamber_end, float acc1, float acc2, float acc3, float acc4, double &t, float m_gas, const SkimmerData &skimmer, double mesh_skimmer, double angular_velocity, double mathieu_factor, double dc_field, double ac_field, LogHelper tmp_evolution)
 {
   double integral = 0.0;
   double P = 1.0;
@@ -1372,10 +1630,10 @@ void time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &uni
   {
     if (z < first_chamber_end)
     {
-#pragma omp critical
+      tmp_evolution([&](auto &tmp_evolution)
       {
         tmp_evolution << z << " " << delta_t << " " << v_gas << " " << v_cluster_norm << " " << n_skimmer << endl;
-      }
+      });
     }
   }
 }
@@ -1383,7 +1641,7 @@ void time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &uni
 
 // Draw theta angle of collision UPDATED
 template <typename GenT>
-void draw_theta_skimmer(GenT &gen, uniform_real_distribution<double> &unif, double &theta, double z, float n1, float n2, float m_gas, float mobility_gas, float mobility_gas_inv, float R, double *v_cluster, double v_gas, double pressure, double temperature, double first_chamber_end, double sk_end, ofstream &warnings, int &nwarnings)
+void draw_theta_skimmer(GenT &gen, uniform_real_distribution<double> &unif, double &theta, double z, float n1, float n2, float m_gas, float mobility_gas, float mobility_gas_inv, float R, double *v_cluster, double v_gas, double pressure, double temperature, double first_chamber_end, double sk_end, WarningHelper warn)
 {
   double r = unif(gen);
   double integral = 0.0;
@@ -1428,14 +1686,16 @@ void draw_theta_skimmer(GenT &gen, uniform_real_distribution<double> &unif, doub
   if (theta > pi)
   {
     theta = pi - 1.0e-3;
-    warn_omp(nwarnings, [&warnings, &r]()
-    { warnings << "theta exceeded pi. random number r is: " << r << endl; });
+    warn([&r](auto &warning)
+    {
+      warning << "theta exceeded pi. random number r is: " << r << endl;
+    });
   }
 }
 // Draw translational energy of cluster after the impact with carrier gas
 // Here we are considering a constant density of states for vibrational mode, i.e. a single vibration (simplified model)
 template <typename GenT>
-double draw_vib_energy(GenT &gen, uniform_real_distribution<double> &unif, double vib_energy_old, const Eigen::ArrayXd &density_cluster, const Eigen::ArrayXd &energies_density, double energy_max_density, float reduced_mass, double u_norm, double v_cluster_norm, double theta, ofstream &warnings, int &nwarnings)
+double draw_vib_energy(GenT &gen, uniform_real_distribution<double> &unif, double vib_energy_old, const Eigen::ArrayXd &density_cluster, const Eigen::ArrayXd &energies_density, double energy_max_density, float reduced_mass, double u_norm, double v_cluster_norm, double theta)
 {
   double r = unif(gen);
   double relative_speed = u_norm + v_cluster_norm * cos(theta);
@@ -1451,11 +1711,10 @@ double draw_vib_energy(GenT &gen, uniform_real_distribution<double> &unif, doubl
 
   if (E > energy_max_density)
   {
-    warn_omp(nwarnings, [&warnings, &E]()
+    throw ApiTofError([&](auto &warning)
     {
-      std::cout << "\n\n\n WARNING!!! E: "<<E/boltzmann<<"\n\n\n";
-      warnings << "Energy is exceeding the density of states file. E: "<<E/boltzmann<<endl; });
-    exit(EXIT_FAILURE);
+      warning << "Energy is exceeding the density of states file. E: " << E / boltzmann << endl;
+    });
   }
 
   m = 0;
@@ -1480,7 +1739,7 @@ double draw_vib_energy(GenT &gen, uniform_real_distribution<double> &unif, doubl
 
 // Redistribution of internal energy (between vibrational and rotational modes)
 template <typename GenT>
-void redistribute_internal_energy(GenT &gen, uniform_real_distribution<double> &unif, double &vib_energy, double &rot_energy, const Eigen::ArrayXd &density_cluster, const Eigen::ArrayXd &energies_density, double energy_max_density, ofstream &warnings, int &nwarnings)
+void redistribute_internal_energy(GenT &gen, uniform_real_distribution<double> &unif, double &vib_energy, double &rot_energy, const Eigen::ArrayXd &density_cluster, const Eigen::ArrayXd &energies_density, double energy_max_density)
 {
   double r = unif(gen);
   double E = vib_energy + rot_energy;
@@ -1491,11 +1750,10 @@ void redistribute_internal_energy(GenT &gen, uniform_real_distribution<double> &
 
   if (E > energy_max_density)
   {
-    warn_omp(nwarnings, [&warnings, &E]()
+    throw ApiTofError([&](auto &msg)
     {
-      std::cout << "\n\n\n WARNING!!! E: "<<E/boltzmann<<"\n\n\n";
-      warnings << "Energy is exceeding the density of states file. E: "<<E/boltzmann<<endl; });
-    exit(EXIT_FAILURE);
+      msg << "Energy is exceeding the density of states file. E: " << E / boltzmann << endl;
+    });
   }
 
   // 1st step: I evaluate the integral (normalization)
@@ -1535,7 +1793,7 @@ void update_rot_vel(double *omega, double rot_energy_old, double rot_energy)
 
 // Draw normal velocity of carrier gas
 template <typename GenT>
-void draw_u_norm_skimmer(GenT &gen, uniform_real_distribution<double> &unif, double z, double du, double boundary_u, double &u_norm, double theta, float n1, float n2, float m_gas, float mobility_gas, float mobility_gas_inv, float R, double *v_cluster, double v_gas, double pressure, double temperature, double first_chamber_end, double sk_end, double costheta, ofstream &warnings, int &nwarnings)
+void draw_u_norm_skimmer(GenT &gen, uniform_real_distribution<double> &unif, double z, double du, double boundary_u, double &u_norm, double theta, float n1, float n2, float m_gas, float mobility_gas, float mobility_gas_inv, float R, double *v_cluster, double v_gas, double pressure, double temperature, double first_chamber_end, double sk_end, double costheta, WarningHelper warn)
 {
   double r = unif(gen);
   double c;
@@ -1583,8 +1841,10 @@ void draw_u_norm_skimmer(GenT &gen, uniform_real_distribution<double> &unif, dou
 
   if (u_norm > boundary_u)
   {
-    warn_omp(nwarnings, [&warnings, &r]()
-    { warnings << "u_norm exceeded boundary of the integration. random number r is: " << r << endl; });
+    warn([&](auto &warning)
+    {
+      warning << "u_norm exceeded boundary of the integration. random number r is: " << r << endl;
+    });
   }
 }
 
@@ -1719,7 +1979,7 @@ void update_velocities(double *v_cluster, double &v_cluster_norm, double *v_rel,
 
 
 // Evaluate the velocities after collision in the rotated reference system
-void eval_velocities(double *v, double *omega, double *u, double vib_energy, double vib_energy_old, float M, float m, double R_cluster, ofstream &warnings)
+void eval_velocities(double *v, double *omega, double *u, double vib_energy, double vib_energy_old, float M, float m, double R_cluster)
 {
   double vx;
   double vy;
@@ -1745,9 +2005,10 @@ void eval_velocities(double *v, double *omega, double *u, double vib_energy, dou
   // cout << radicand << endl;
   if (radicand < 0)
   {
-    std::cout << radicand << endl;
-    warnings << "sqrt of negative number in evaluation of velocities after collision!" << endl;
-    exit(EXIT_FAILURE);
+    throw ApiTofError([&](auto &msg)
+    {
+      msg << "sqrt of negative number in evaluation of velocities after collision! radicand: " << radicand << endl;
+    });
   }
   vz = m_reduced * u[0] + M_reduced * v[2] - sqrt(radicand);
 
@@ -1914,7 +2175,7 @@ double eval_solid_angle_stokes(double R, double L, double xx, double yy, double 
 
 //
 template <typename GenT>
-void eval_collision(GenT &gen, uniform_real_distribution<double> &unif, bool &collision_accepted, double gas_mean_free_path, double x, double y, double z, double L, double radius_pinhole, float quadrupole_end, double *v_cluster, double *omega, double u_norm, double theta, float R_cluster, double vib_energy, double vib_energy_old, float m_ion, float m_gas, float temperature, ofstream &pinhole, ofstream &warnings)
+void eval_collision(GenT &gen, uniform_real_distribution<double> &unif, bool &collision_accepted, double gas_mean_free_path, double x, double y, double z, double L, double radius_pinhole, float quadrupole_end, double *v_cluster, double *omega, double u_norm, double theta, float R_cluster, double vib_energy, double vib_energy_old, float m_ion, float m_gas, float temperature, LogHelper pinhole)
 {
   double x3[3];
   double y3[3];
@@ -1976,8 +2237,13 @@ void eval_collision(GenT &gen, uniform_real_distribution<double> &unif, bool &co
         inside_target = true;
     }
     else
+    {
       inside_target = false;
-    pinhole << x << " " << y << " " << z << " " << velocity_gas[0] << " " << velocity_gas[1] << " " << velocity_gas[2] << " " << inside_target << endl;
+    }
+    pinhole([&](auto &pinhole)
+    {
+      pinhole << x << " " << y << " " << z << " " << velocity_gas[0] << " " << velocity_gas[1] << " " << velocity_gas[2] << " " << inside_target << endl;
+    });
     if (inside_target)
     {
       double r = unif(gen);
@@ -2005,7 +2271,7 @@ void eval_collision(GenT &gen, uniform_real_distribution<double> &unif, bool &co
       omega[i] = omega2[0] * x3[i] + omega2[1] * y3[i] + omega2[2] * z3[i];
     }
 
-    eval_velocities(v2, omega2, u, vib_energy, vib_energy_old, m_ion, m_gas, R_cluster, warnings);
+    eval_velocities(v2, omega2, u, vib_energy, vib_energy_old, m_ion, m_gas, R_cluster);
     // Express new velocities in lab reference system
     for (int i = 0; i < 3; i++)
     {
@@ -2034,8 +2300,10 @@ std::tuple<Eigen::ArrayXd, Eigen::ArrayXd, int, double, double> read_histogram(c
   file.close();
   if (m_max < 2)
   {
-    std::cout << "Error in reading file " << filename << ". It should contain at least two rows." << endl;
-    exit(EXIT_FAILURE);
+    throw ApiTofError([&](auto &msg)
+    {
+      msg << "Error in reading file " << filename << ". It should contain at least two rows." << endl;
+    });
   }
   Eigen::ArrayXd x(m_max);
   Eigen::ArrayXd y(m_max);
@@ -2058,8 +2326,7 @@ std::tuple<Eigen::ArrayXd, Eigen::ArrayXd, Eigen::ArrayXd, int, double, double> 
   auto [energies_density_other, density_combined_products, m_max_density_other, energy_max_density_other, bin_width_density_other] = read_histogram(file_density_combined_products);
   if (!energies_density.isApprox(energies_density_other) || bin_width_density != bin_width_density_other || m_max_density != m_max_density_other || energy_max_density != energy_max_density_other)
   {
-    std::cout << "Error: The two density of states histograms are not compatible." << std::endl;
-    exit(EXIT_FAILURE);
+    throw ApiTofError("Error: The two density of states histograms are not compatible.");
   }
   return std::make_tuple(energies_density, density_cluster, density_combined_products, m_max_density, energy_max_density, bin_width_density);
 }

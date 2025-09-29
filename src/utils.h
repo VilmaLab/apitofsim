@@ -169,7 +169,7 @@ const int LOGLEVEL_NONE = 0,
           LOGLEVEL_MIN = 1,
           LOGLEVEL_NORMAL = 2,
           LOGLEVEL_EXTRA = 3;
-const int LOGLEVEL = LOGLEVEL_MIN;
+const int LOGLEVEL = LOGLEVEL_NORMAL;
 
 namespace Filenames
 {
@@ -256,7 +256,7 @@ public:
   {
     if (!rethrow_called && this->exception)
     {
-      std::cerr << "Exception lost! OMPExceptionHelper holding exception destroyed without rethrowing\n"
+      std::cerr << "\nException lost! OMPExceptionHelper holding exception destroyed without rethrowing\n"
                 << std::flush;
       std::terminate();
     }
