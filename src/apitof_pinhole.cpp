@@ -256,7 +256,6 @@ template <typename GenT>
 double onedimMaxwell(GenT &gen, normal_distribution<double> &gauss, float m, float kT);
 double mean_free_path(float R, float kT, float pressure);
 double evaluate_error(int n, int k);
-double polar_function(double phi, double theta1, double theta2);
 double eval_solid_angle_stokes(double R, double L, double xx, double yy, double zz);
 int zone(double z, float first_chamber_end, float sk_end, float quadrupole_start, float quadrupole_end, float second_chamber_end);
 
@@ -1984,11 +1983,6 @@ void change_coord(double *v_cluster, double theta, double phi, double alpha, dou
     x3[i] = cos(alpha) * x2[i] + sin(alpha) * y2[i];
     y3[i] = -sin(alpha) * x2[i] + cos(alpha) * y2[i];
   }
-}
-
-double polar_function(double phi, double theta1, double theta2)
-{
-  return theta1 * theta2 / sqrt(pow(theta1 * cos(phi), 2) + pow(theta2 * sin(phi), 2));
 }
 
 // Evaluate solid angle using Stokes theorem (1d integral) (REF: Eq 32, Conway, Nuclear Instruments and Methods in Physics Research A 614, 2010)
