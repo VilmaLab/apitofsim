@@ -211,28 +211,28 @@ struct Histogram
 
 // LIST OF FUNCTIONS
 // Here we are
-float particle_density(float pressure, float kT);
-double coll_freq(float n, float mobility_gas, float mobility_gas_inv, float R, double v);
+double particle_density(double pressure, double kT);
+double coll_freq(double n, double mobility_gas, double mobility_gas_inv, double R, double v);
 template <typename GenT>
-void init_vel(GenT &gen, normal_distribution<double> &gauss, double *v_cluster, float m, float kT);
+void init_vel(GenT &gen, normal_distribution<double> &gauss, double *v_cluster, double m, double kT);
 template <typename GenT>
-void init_ang_vel(GenT &gen, normal_distribution<double> &gauss, double *omega, float m, float kT, float R);
+void init_ang_vel(GenT &gen, normal_distribution<double> &gauss, double *omega, double m, double kT, double R);
 template <typename GenT>
-void init_vib_energy(GenT &gen, uniform_real_distribution<double> &unif, double &vib_energy, float kT, const Histogram &density_cluster);
-double evaluate_rotational_energy(double *omega, float inertia);
+void init_vib_energy(GenT &gen, uniform_real_distribution<double> &unif, double &vib_energy, double kT, const Histogram &density_cluster);
+double evaluate_rotational_energy(double *omega, double inertia);
 double evaluate_internal_energy(double vib_energy, double rot_energy);
 double evaluate_rate_const(const Histogram &rate_const, double energy, WarningHelper warn);
 template <typename GenT>
-void time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &unif, double rate_constant, double *v_cluster, double &v_cluster_norm, float n1, float n2, float mobility_gas, float mobility_gas_inv, float R, double dt1, double dt2, double &z, double &x, double &y, double &delta_t, double &t_fragmentation, float first_chamber_end, float sk_end, float quadrupole_start, float quadrupole_end, float second_chamber_end, float acc1, float acc2, float acc3, float acc4, double &t, float m_gas, const SkimmerData &skimmer, double mesh_skimmer, double angular_velocity, double mathieu_factor, double dc_field, double ac_field, LogHelper tmp_evolution);
-void update_physical_quantities(double z, const SkimmerData skimmer, double mesh_skimmer, double &v_gas, double &temperature, double &pressure, double &density, float first_chamber_end, float sk_end, float P1, float P2, float n1, float n2, float T);
+void time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &unif, double rate_constant, double *v_cluster, double &v_cluster_norm, double n1, double n2, double mobility_gas, double mobility_gas_inv, double R, double dt1, double dt2, double &z, double &x, double &y, double &delta_t, double &t_fragmentation, double first_chamber_end, double sk_end, double quadrupole_start, double quadrupole_end, double second_chamber_end, double acc1, double acc2, double acc3, double acc4, double &t, double m_gas, const SkimmerData &skimmer, double mesh_skimmer, double angular_velocity, double mathieu_factor, double dc_field, double ac_field, LogHelper tmp_evolution);
+void update_physical_quantities(double z, const SkimmerData skimmer, double mesh_skimmer, double &v_gas, double &temperature, double &pressure, double &density, double first_chamber_end, double sk_end, double P1, double P2, double n1, double n2, double T);
 template <typename GenT>
-void draw_theta_skimmer(GenT &gen, uniform_real_distribution<double> &unif, double &theta, double z, float n1, float n2, float m_gas, float mobility_gas, float mobility_gas_inv, float R, double *v_cluster, double v_gas, double pressure, double temperature, double first_chamber_end, double sk_end, WarningHelper warn);
+void draw_theta_skimmer(GenT &gen, uniform_real_distribution<double> &unif, double &theta, double z, double n1, double n2, double m_gas, double mobility_gas, double mobility_gas_inv, double R, double *v_cluster, double v_gas, double pressure, double temperature, double first_chamber_end, double sk_end, WarningHelper warn);
 void update_param(double &v_cluster_norm, double *v_cluster, double *v_cluster_versor, double theta, double phi, double &sintheta, double &costheta, double &sinphi, double &cosphi);
 template <typename GenT>
-void draw_u_norm_skimmer(GenT &gen, uniform_real_distribution<double> &unif, double z, double du, double boundary_u, double &u_norm, double theta, float n1, float n2, float m_gas, float mobility_gas, float mobility_gas_inv, float R, double *v_cluster, double v_gas, double pressure, double temperature, double first_chamber_end, double sk_end, double costheta, WarningHelper warn);
+void draw_u_norm_skimmer(GenT &gen, uniform_real_distribution<double> &unif, double z, double du, double boundary_u, double &u_norm, double theta, double n1, double n2, double m_gas, double mobility_gas, double mobility_gas_inv, double R, double *v_cluster, double v_gas, double pressure, double temperature, double first_chamber_end, double sk_end, double costheta, WarningHelper warn);
 void evaluate_relative_velocity(double z, double *v_cluster, double &v_rel_norm, double v_gas, double *v_rel, double first_chamber_end, double sk_end);
 template <typename GenT>
-double draw_vib_energy(GenT &gen, uniform_real_distribution<double> &unif, double vib_energy_old, const Histogram &density_cluster, float reduced_mass, double u_norm, double v_cluster_norm, double theta);
+double draw_vib_energy(GenT &gen, uniform_real_distribution<double> &unif, double vib_energy_old, const Histogram &density_cluster, double reduced_mass, double u_norm, double v_cluster_norm, double theta);
 void update_velocities(double *v_cluster, double &v_cluster_norm, double *v_rel, double v_gas);
 void update_rot_vel(double *omega, double rot_energy_old, double rot_energy);
 int mod_func_int(int a, int b);
@@ -240,34 +240,34 @@ template <typename GenT>
 void redistribute_internal_energy(GenT &gen, uniform_real_distribution<double> &unif, double &vib_energy, double &rot_energy, const Histogram &density_cluster);
 void rescale_density(Eigen::ArrayXd &density, int m_max);
 void rescale_energies(Eigen::ArrayXd &energies, int m_max, double &energy_max, double &bin_width);
-void eval_velocities(double *v, double *omega, double *u, double vib_energy, double vib_energy_old, float M, float m, double R_cluster);
+void eval_velocities(double *v, double *omega, double *u, double vib_energy, double vib_energy_old, double M, double m, double R_cluster);
 void change_coord(double *v_cluster, double theta, double phi, double alpha, double *x3, double *y3, double *z3);
 template <typename GenT>
-void eval_collision(GenT &gen, uniform_real_distribution<double> &unif, bool &collision_accepted, double gas_mean_free_path, double x, double y, double z, double L, double radius_pinhole, float quadrupole_end, double *v_cluster, double *omega, double u_norm, double theta, float R_cluster, double vib_energy, double vib_energy_old, float m_ion, float m_gas, float temperature, LogHelper pinhole);
+void eval_collision(GenT &gen, uniform_real_distribution<double> &unif, bool &collision_accepted, double gas_mean_free_path, double x, double y, double z, double L, double radius_pinhole, double quadrupole_end, double *v_cluster, double *omega, double u_norm, double theta, double R_cluster, double vib_energy, double vib_energy_old, double m_ion, double m_gas, double temperature, LogHelper pinhole);
 double vec_norm(double *v);
 template <typename GenT>
-double onedimMaxwell(GenT &gen, normal_distribution<double> &gauss, float m, float kT);
-double mean_free_path(float R, float kT, float pressure);
+double onedimMaxwell(GenT &gen, normal_distribution<double> &gauss, double m, double kT);
+double mean_free_path(double R, double kT, double pressure);
 double evaluate_error(int n, int k);
 double eval_solid_angle_stokes(double R, double L, double xx, double yy, double zz);
-int zone(double z, float first_chamber_end, float sk_end, float quadrupole_start, float quadrupole_end, float second_chamber_end);
+int zone(double z, double first_chamber_end, double sk_end, double quadrupole_start, double quadrupole_end, double second_chamber_end);
 
 // MAIN PROGRAM
 Counters apitof_pinhole(
   int cluster_charge_sign,
-  float T,
-  float pressure_first,
-  float pressure_second,
-  float L0,
-  float Lsk,
-  float L1,
-  float L2,
-  float L3,
-  float V0,
-  float V1,
-  float V2,
-  float V3,
-  float V4,
+  double T,
+  double pressure_first,
+  double pressure_second,
+  double L0,
+  double Lsk,
+  double L1,
+  double L2,
+  double L3,
+  double V0,
+  double V1,
+  double V2,
+  double V3,
+  double V4,
   int N,
   double bonding_energy,
   double R_gas,
@@ -293,20 +293,20 @@ Counters apitof_pinhole(
   double R_tot = R_cluster + R_gas;
   double reduced_mass = 1. / (1. / m_ion + 1. / m_gas);
   double inertia = 0.4 * m_ion * R_cluster * R_cluster;
-  float mobility_gas = kT / m_gas; // thermal agitation
+  double mobility_gas = kT / m_gas; // thermal agitation
   // std_gas=sqrt(mobility_gas);
-  float mobility_gas_inv = 1.0 / mobility_gas;
+  double mobility_gas_inv = 1.0 / mobility_gas;
   double boundary_u = 5.0 * sqrt(mobility_gas);
   double du = 1.0e-4 * sqrt(mobility_gas);
-  float E1 = -(V1 - V0) / L0;
-  float E2 = -(V2 - V1) / L1;
-  float E3 = -(V3 - V2) / L2;
-  float E4 = -(V4 - V3) / L3;
-  float first_chamber_end = L0;
-  float sk_end = L0 + Lsk;
-  float quadrupole_start = L0 + Lsk + L1;
-  float quadrupole_end = L0 + Lsk + L1 + L2;
-  float second_chamber_end = L0 + Lsk + L1 + L2 + L3;
+  double E1 = -(V1 - V0) / L0;
+  double E2 = -(V2 - V1) / L1;
+  double E3 = -(V3 - V2) / L2;
+  double E4 = -(V4 - V3) / L3;
+  double first_chamber_end = L0;
+  double sk_end = L0 + Lsk;
+  double quadrupole_start = L0 + Lsk + L1;
+  double quadrupole_end = L0 + Lsk + L1 + L2;
+  double second_chamber_end = L0 + Lsk + L1 + L2 + L3;
   double total_length = second_chamber_end;
 
   if (LOGLEVEL >= LOGLEVEL_MIN)
@@ -322,15 +322,15 @@ Counters apitof_pinhole(
   auto start = std::chrono::high_resolution_clock::now();
 
   bonding_energy *= boltzmann; // convert in Joules
-  const float q = 1.602e-19; // Coulombs
+  const double q = 1.602e-19; // Coulombs
   double mathieu_factor = q / (m_ion * r_quadrupole * r_quadrupole);
   double angular_velocity = 2.0 * M_PI * radiofrequency;
-  float acc1 = E1 * q * cluster_charge_sign / m_ion;
-  float acc2 = E2 * q * cluster_charge_sign / m_ion;
-  float acc3 = E3 * q * cluster_charge_sign / m_ion;
-  float acc4 = E4 * q * cluster_charge_sign / m_ion;
-  float P1 = pressure_first;
-  float P2 = pressure_second;
+  double acc1 = E1 * q * cluster_charge_sign / m_ion;
+  double acc2 = E2 * q * cluster_charge_sign / m_ion;
+  double acc3 = E3 * q * cluster_charge_sign / m_ion;
+  double acc4 = E4 * q * cluster_charge_sign / m_ion;
+  double P1 = pressure_first;
+  double P2 = pressure_second;
   double gas_mean_free_path = mean_free_path(R_gas, kT, P2);
   if (LOGLEVEL >= LOGLEVEL_MIN)
   {
@@ -342,8 +342,8 @@ Counters apitof_pinhole(
     std::cout << "E3: " << E3 << " V/m, Acceleration: " << acc3 << " m/s^2" << endl;
     std::cout << "E4: " << E4 << " V/m, Acceleration: " << acc4 << " m/s^2" << endl;
   }
-  float n1 = particle_density(P1, kT);
-  float n2 = particle_density(P2, kT);
+  double n1 = particle_density(P1, kT);
+  double n2 = particle_density(P2, kT);
   if (LOGLEVEL >= LOGLEVEL_MIN)
   {
     std::cout << "Fragmentation energy: " << bonding_energy / boltzmann << " K (" << bonding_energy * kcal << " kcal/mol)" << endl;
@@ -742,14 +742,14 @@ int mod_func_int(int a, int b)
   return r;
 };
 
-float particle_density(float pressure, float kT)
+double particle_density(double pressure, double kT)
 {
   using namespace consts;
   return pressure / kT;
 }
 
 // Total collision frequency
-double coll_freq(float n, float mobility_gas, float mobility_gas_inv, float R, double v)
+double coll_freq(double n, double mobility_gas, double mobility_gas_inv, double R, double v)
 {
   using namespace consts;
   if (v > 0)
@@ -760,7 +760,7 @@ double coll_freq(float n, float mobility_gas, float mobility_gas_inv, float R, d
 
 
 // Collision frequency on angle theta
-double coll_freq_theta(double theta, float n, float mobility_gas, float mobility_gas_inv, float R, double v)
+double coll_freq_theta(double theta, double n, double mobility_gas, double mobility_gas_inv, double R, double v)
 {
   using namespace consts;
   double costheta = cos(theta);
@@ -770,7 +770,7 @@ double coll_freq_theta(double theta, float n, float mobility_gas, float mobility
 
 
 // Collision frequency on angle theta and gas velocity
-double coll_freq_theta_u(double u, double theta, float n, float mobility_gas_inv, float R, double v)
+double coll_freq_theta_u(double u, double theta, double n, double mobility_gas_inv, double R, double v)
 {
   using namespace consts;
   double costheta = cos(theta);
@@ -780,7 +780,7 @@ double coll_freq_theta_u(double u, double theta, float n, float mobility_gas_inv
 
 
 // Distribution of angle theta
-double distr_theta(double theta, float n, float mobility_gas, float mobility_gas_inv, float R, double v)
+double distr_theta(double theta, double n, double mobility_gas, double mobility_gas_inv, double R, double v)
 {
   using namespace consts;
   return coll_freq_theta(theta, n, mobility_gas, mobility_gas_inv, R, v) / coll_freq(n, mobility_gas, mobility_gas_inv, R, v);
@@ -788,7 +788,7 @@ double distr_theta(double theta, float n, float mobility_gas, float mobility_gas
 
 
 // Distribution of gas velocity
-double distr_u(double u, double theta, float n, float mobility_gas, float mobility_gas_inv, float R, double v)
+double distr_u(double u, double theta, double n, double mobility_gas, double mobility_gas_inv, double R, double v)
 {
   return coll_freq_theta_u(u, theta, n, mobility_gas_inv, R, v) / coll_freq_theta(theta, n, mobility_gas, mobility_gas_inv, R, v);
 }
@@ -796,7 +796,7 @@ double distr_u(double u, double theta, float n, float mobility_gas, float mobili
 
 // Distribution of 1-dim Maxwell velocity
 template <typename GenT>
-double onedimMaxwell(GenT &gen, normal_distribution<double> &gauss, float m, float kT)
+double onedimMaxwell(GenT &gen, normal_distribution<double> &gauss, double m, double kT)
 {
   return sqrt(kT / m) * gauss(gen);
 }
@@ -804,7 +804,7 @@ double onedimMaxwell(GenT &gen, normal_distribution<double> &gauss, float m, flo
 
 // Distribution of 2-dim Maxwell velocity
 template <typename GenT>
-double twodimMaxwell(GenT &gen, uniform_real_distribution<double> &unif, float m, float kT)
+double twodimMaxwell(GenT &gen, uniform_real_distribution<double> &unif, double m, double kT)
 {
   double r = 0.0;
   while (r == 0.0)
@@ -817,7 +817,7 @@ double twodimMaxwell(GenT &gen, uniform_real_distribution<double> &unif, float m
 
 // Distribution of 1-dim Maxwell angular velocity
 template <typename GenT>
-double onedimMaxwell_angular(GenT &gen, normal_distribution<double> &gauss, float m, float R, float kT)
+double onedimMaxwell_angular(GenT &gen, normal_distribution<double> &gauss, double m, double R, double kT)
 {
   return sqrt(2.5 * kT / (m * R * R)) * gauss(gen);
 }
@@ -878,7 +878,7 @@ void coord_change(double *v_cluster_versor, double *u_versor, double sintheta, d
 
 
 // Evaluate cluster velocity after collision
-void vel_after_coll(double *u_versor, double u_norm, double *v_cluster, double v_cluster_norm, double costheta, float m, float m_gas)
+void vel_after_coll(double *u_versor, double u_norm, double *v_cluster, double v_cluster_norm, double costheta, double m, double m_gas)
 {
   double c1 = m / m_gas - 1.0;
   double c2 = m / m_gas + 1.0;
@@ -906,7 +906,7 @@ void vel_after_coll(double *u_versor, double u_norm, double *v_cluster, double v
 
 // Inizialize the cluster velocity
 template <typename GenT>
-void init_vel(GenT &gen, normal_distribution<double> &gauss, double *v_cluster, float m, float kT)
+void init_vel(GenT &gen, normal_distribution<double> &gauss, double *v_cluster, double m, double kT)
 {
   v_cluster[0] = onedimMaxwell(gen, gauss, m, kT);
   v_cluster[1] = onedimMaxwell(gen, gauss, m, kT);
@@ -915,7 +915,7 @@ void init_vel(GenT &gen, normal_distribution<double> &gauss, double *v_cluster, 
 
 // Inizialize the cluster angular velocity
 template <typename GenT>
-void init_ang_vel(GenT &gen, normal_distribution<double> &gauss, double *omega, float m, float kT, float R)
+void init_ang_vel(GenT &gen, normal_distribution<double> &gauss, double *omega, double m, double kT, double R)
 {
   omega[0] = onedimMaxwell_angular(gen, gauss, m, R, kT);
   omega[1] = onedimMaxwell_angular(gen, gauss, m, R, kT);
@@ -960,7 +960,7 @@ double evaluate_rate_const(const Histogram &rate_const, double energy, WarningHe
 }
 
 
-void update_skimmer_quantities(const SkimmerData &skimmer, double z, float first_chamber_end, double mesh_skimmer, double &v_gas, double &temp, double &pressure)
+void update_skimmer_quantities(const SkimmerData &skimmer, double z, double first_chamber_end, double mesh_skimmer, double &v_gas, double &temp, double &pressure)
 {
   int m;
   double coeff1;
@@ -985,7 +985,7 @@ void update_skimmer_quantities(const SkimmerData &skimmer, double z, float first
   // density=coeff2*density_skimmer[m]+coeff1*density_skimmer[m+1];
 }
 
-void update_physical_quantities(double z, const SkimmerData skimmer, double mesh_skimmer, double &v_gas, double &temperature, double &pressure, double &density, float first_chamber_end, float sk_end, float P1, float P2, float n1, float n2, float T)
+void update_physical_quantities(double z, const SkimmerData skimmer, double mesh_skimmer, double &v_gas, double &temperature, double &pressure, double &density, double first_chamber_end, double sk_end, double P1, double P2, double n1, double n2, double T)
 {
   int m;
   double coeff1;
@@ -1029,7 +1029,7 @@ void update_physical_quantities(double z, const SkimmerData skimmer, double mesh
 
 // Draw initial vibrational energy
 template <typename GenT>
-void init_vib_energy(GenT &gen, uniform_real_distribution<double> &unif, double &vib_energy, float kT, const Histogram &density_cluster)
+void init_vib_energy(GenT &gen, uniform_real_distribution<double> &unif, double &vib_energy, double kT, const Histogram &density_cluster)
 {
   double sum1 = 0.0;
   double sum2 = 0.0;
@@ -1052,7 +1052,7 @@ void init_vib_energy(GenT &gen, uniform_real_distribution<double> &unif, double 
 
 // Evaluate time to next collision
 template <typename GenT>
-void time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &unif, double rate_constant, double *v_cluster, double &v_cluster_norm, float n1, float n2, float mobility_gas, float mobility_gas_inv, float R, double dt1, double dt2, double &z, double &x, double &y, double &delta_t, double &t_fragmentation, float first_chamber_end, float sk_end, float quadrupole_start, float quadrupole_end, float second_chamber_end, float acc1, float acc2, float acc3, float acc4, double &t, float m_gas, const SkimmerData &skimmer, double mesh_skimmer, double angular_velocity, double mathieu_factor, double dc_field, double ac_field, LogHelper tmp_evolution)
+void time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &unif, double rate_constant, double *v_cluster, double &v_cluster_norm, double n1, double n2, double mobility_gas, double mobility_gas_inv, double R, double dt1, double dt2, double &z, double &x, double &y, double &delta_t, double &t_fragmentation, double first_chamber_end, double sk_end, double quadrupole_start, double quadrupole_end, double second_chamber_end, double acc1, double acc2, double acc3, double acc4, double &t, double m_gas, const SkimmerData &skimmer, double mesh_skimmer, double angular_velocity, double mathieu_factor, double dc_field, double ac_field, LogHelper tmp_evolution)
 {
   using namespace consts;
   double integral = 0.0;
@@ -1228,7 +1228,7 @@ void time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &uni
 
 // Draw theta angle of collision UPDATED
 template <typename GenT>
-void draw_theta_skimmer(GenT &gen, uniform_real_distribution<double> &unif, double &theta, double z, float n1, float n2, float m_gas, float mobility_gas, float mobility_gas_inv, float R, double *v_cluster, double v_gas, double pressure, double temperature, double first_chamber_end, double sk_end, WarningHelper warn)
+void draw_theta_skimmer(GenT &gen, uniform_real_distribution<double> &unif, double &theta, double z, double n1, double n2, double m_gas, double mobility_gas, double mobility_gas_inv, double R, double *v_cluster, double v_gas, double pressure, double temperature, double first_chamber_end, double sk_end, WarningHelper warn)
 {
   using namespace consts;
   double r = unif(gen);
@@ -1283,7 +1283,7 @@ void draw_theta_skimmer(GenT &gen, uniform_real_distribution<double> &unif, doub
 // Draw translational energy of cluster after the impact with carrier gas
 // Here we are considering a constant density of states for vibrational mode, i.e. a single vibration (simplified model)
 template <typename GenT>
-double draw_vib_energy(GenT &gen, uniform_real_distribution<double> &unif, double vib_energy_old, const Histogram &density_cluster, float reduced_mass, double u_norm, double v_cluster_norm, double theta)
+double draw_vib_energy(GenT &gen, uniform_real_distribution<double> &unif, double vib_energy_old, const Histogram &density_cluster, double reduced_mass, double u_norm, double v_cluster_norm, double theta)
 {
   using consts::boltzmann;
 
@@ -1384,7 +1384,7 @@ void update_rot_vel(double *omega, double rot_energy_old, double rot_energy)
 
 // Draw normal velocity of carrier gas
 template <typename GenT>
-void draw_u_norm_skimmer(GenT &gen, uniform_real_distribution<double> &unif, double z, double du, double boundary_u, double &u_norm, double theta, float n1, float n2, float m_gas, float mobility_gas, float mobility_gas_inv, float R, double *v_cluster, double v_gas, double pressure, double temperature, double first_chamber_end, double sk_end, double costheta, WarningHelper warn)
+void draw_u_norm_skimmer(GenT &gen, uniform_real_distribution<double> &unif, double z, double du, double boundary_u, double &u_norm, double theta, double n1, double n2, double m_gas, double mobility_gas, double mobility_gas_inv, double R, double *v_cluster, double v_gas, double pressure, double temperature, double first_chamber_end, double sk_end, double costheta, WarningHelper warn)
 {
   using consts::boltzmann;
   double r = unif(gen);
@@ -1447,7 +1447,7 @@ void update_v_cluster_norm(double *v_cluster, double &v_cluster_norm)
 }
 
 // Evaluate (approximation of) kinetic energy of crashing gas molecule
-double evaluate_energy_collision(double *v, double *omega, float inertia, float m_ion)
+double evaluate_energy_collision(double *v, double *omega, double inertia, double m_ion)
 {
   double v_squared = v[0] * v[0] + v[1] * v[1] + v[2] * v[2];
   double omega_squared = omega[0] * omega[0] + omega[1] * omega[1] + omega[2] * omega[2];
@@ -1461,14 +1461,14 @@ double evaluate_internal_energy(double vib_energy, double rot_energy)
 }
 
 // Evaluate rotational energy
-double evaluate_rotational_energy(double *omega, float inertia)
+double evaluate_rotational_energy(double *omega, double inertia)
 {
   double omega_squared = omega[0] * omega[0] + omega[1] * omega[1] + omega[2] * omega[2];
   return 0.5 * inertia * omega_squared;
 }
 
 // Mean free path
-double mean_free_path(float R, float kT, float pressure)
+double mean_free_path(double R, double kT, double pressure)
 {
   using consts::pi;
   return kT / (sqrt(2.0) * pi * 4.0 * R * R * pressure);
@@ -1507,7 +1507,7 @@ void update_velocities(double *v_cluster, double &v_cluster_norm, double *v_rel,
 
 
 // Evaluate the velocities after collision in the rotated reference system
-void eval_velocities(double *v, double *omega, double *u, double vib_energy, double vib_energy_old, float M, float m, double R_cluster)
+void eval_velocities(double *v, double *omega, double *u, double vib_energy, double vib_energy_old, double M, double m, double R_cluster)
 {
   double vx;
   double vy;
@@ -1685,7 +1685,7 @@ double eval_solid_angle_stokes(double R, double L, double xx, double yy, double 
 
 //
 template <typename GenT>
-void eval_collision(GenT &gen, uniform_real_distribution<double> &unif, bool &collision_accepted, double gas_mean_free_path, double x, double y, double z, double L, double radius_pinhole, float quadrupole_end, double *v_cluster, double *omega, double u_norm, double theta, float R_cluster, double vib_energy, double vib_energy_old, float m_ion, float m_gas, float temperature, LogHelper pinhole)
+void eval_collision(GenT &gen, uniform_real_distribution<double> &unif, bool &collision_accepted, double gas_mean_free_path, double x, double y, double z, double L, double radius_pinhole, double quadrupole_end, double *v_cluster, double *omega, double u_norm, double theta, double R_cluster, double vib_energy, double vib_energy_old, double m_ion, double m_gas, double temperature, LogHelper pinhole)
 {
   using namespace consts;
   double x3[3];
@@ -1817,7 +1817,7 @@ void rescale_energies(Histogram &energies)
   energies.bin_width *= boltzmann;
 }
 
-int zone(double z, float first_chamber_end, float sk_end, float quadrupole_start, float quadrupole_end, float second_chamber_end)
+int zone(double z, double first_chamber_end, double sk_end, double quadrupole_start, double quadrupole_end, double second_chamber_end)
 {
   if (z < first_chamber_end)
     return 1;

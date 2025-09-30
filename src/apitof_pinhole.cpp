@@ -30,22 +30,22 @@ void apitof_pinhole_config_in()
   mt19937 root_gen = mt19937(42ull);
   unsigned long long root_seed = root_gen();
 
-  float L0;
-  float Lsk;
-  float L1;
-  float L2;
-  float L3;
-  float V0;
-  float V1;
-  float V2;
-  float V3;
-  float V4;
-  float T;
+  double L0;
+  double Lsk;
+  double L1;
+  double L2;
+  double L3;
+  double V0;
+  double V1;
+  double V2;
+  double V3;
+  double V4;
+  double T;
   double R_gas;
   double m_gas;
-  // float std_gas;
-  float pressure_first;
-  float pressure_second;
+  // double std_gas;
+  double pressure_first;
+  double pressure_second;
   double bonding_energy;
 
   // double rate_const;
@@ -291,9 +291,9 @@ void apitof_pinhole_config_in()
     std::cout << "Realizations: " << realizations << endl;
     std::cout << "Fragments: " << counters[Counter::n_fragmented_total] << endl;
     std::cout << "Intacts: " << counters[Counter::n_escaped_total] << endl;
-    float survival_probability = (float)counters[Counter::n_escaped_total] / realizations;
+    double survival_probability = (double)counters[Counter::n_escaped_total] / realizations;
     // error_survival_probability=sqrt(survival_probability*(1.0-survival_probability)/realizations);
-    float error_survival_probability = evaluate_error(realizations, counters[Counter::n_escaped_total]);
+    double error_survival_probability = evaluate_error(realizations, counters[Counter::n_escaped_total]);
     double avg_ncoll = (double)ncoll_total / N;
     std::cout << "Average number of collisions: " << avg_ncoll << endl;
     std::cout << "Number of collision rejections close to the pinhole: " << counter_collision_rejections << endl;
