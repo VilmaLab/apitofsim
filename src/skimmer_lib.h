@@ -5,14 +5,6 @@
 #include <optional>
 #include <stdlib.h>
 
-#define eV 1.602176565e-19
-#define boltzmann 1.38064852e-23
-
-// Define Pi if it is not already defined
-#ifndef M_PI
-#define M_PI (3.14159265358979323846)
-#endif
-
 using namespace std;
 
 double secant_step(double x0, double x1, double f0, double f1)

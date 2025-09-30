@@ -1,24 +1,10 @@
 #include <Eigen/src/Core/Stride.h>
 #include <iostream>
-#include <fstream>
-#include <iomanip>
 #include <stdlib.h>
 #include <math.h>
 #include "utils.h"
 #include <Eigen/Dense>
-#include <tuple>
-
-
-#define hart 627.509 // 1 hartree in Kcal/mol
-#define R 1.9872e-3 // Gas constant in Kcal/mol/K
-#define hartK 3.157732e+5 // 1 hartree in Kelvin
-#define joulekcal 1.439325e+20 // 1 Joule in kcal/mol
-#define kelvinkcal 1.987216e-03 // 1 K in kcal/mol
-
-// Define Pi if it is not already defined
-#ifndef M_PI
-#define M_PI (3.14159265358979323846)
-#endif
+#include "consts.h"
 
 using namespace std;
 
@@ -109,6 +95,7 @@ DensityResult compute_density_of_states_all(ClusterData &cluster_0, ClusterData 
 
 void compute_k_total(Eigen::ArrayXd &k0, Eigen::ArrayXd &k_rate, double inertia_moment_1, double inertia_moment_2, Eigen::Vector3d &rotations_1, Eigen::Vector3d &rotations_2, const Eigen::Ref<const Eigen::ArrayXd> rho_comb, const Eigen::Ref<const Eigen::ArrayXd> rho_0, double bin_width, int m_max_rate, double fragmentation_energy)
 {
+  using namespace consts;
   double prefactor;
   double rotations_product_1;
   double rotations_product_2;
@@ -385,6 +372,7 @@ DensityResult compute_density_of_states_all(ClusterData &cluster_0, ClusterData 
 
 Eigen::ArrayXd compute_k_total_full(ClusterData &cluster_0, ClusterData &cluster_1, ClusterData &cluster_2, DensityResult &rhos, double fragmentation_energy, double energy_max_rate, double bin_width)
 {
+  using namespace consts;
   // Compute fragmentation energy in Kelvin
   if (fragmentation_energy == 0)
   {
