@@ -16,4 +16,5 @@ dev = [
 ]
 
 [tool.meson-python.args]
+install = ['--skip-subprojects']
 setup = ['-Dpython=enabled']
