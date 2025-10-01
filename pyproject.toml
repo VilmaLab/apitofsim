@@ -11,7 +11,10 @@ dependencies = [
 
 [build-system]
 build-backend = 'mesonpy'
-requires = ["meson-python"]
+requires = [
+    "meson-python",
+    "meson >= 1.3.0",
+]
 
 [dependency-groups]
 dev = [

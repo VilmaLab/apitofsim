@@ -6,8 +6,13 @@ project(
     'cpp_std': 'c++17',
     'b_ndebug': 'if-release',
   },
+  meson_version : '>=1.3.0'
 )
-add_project_arguments('-Wno-unknown-pragmas', language : 'cpp')
+if meson.get_compiler('cpp').get_argument_syntax() == 'msvc'
+  add_project_arguments('/wd4068', language : 'cpp')
+else
+  add_project_arguments('-Wno-unknown-pragmas', language : 'cpp')
+endif
 
 python_feat = get_option('python')
 
