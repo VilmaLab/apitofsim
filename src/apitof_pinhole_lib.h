@@ -30,11 +30,10 @@ const int PRESSURE_SKIMMER = 2;
 template <typename Callback>
 std::string call_with_stringstream(Callback cb)
 {
-  std::string result;
-  stringstream ss(result);
+  stringstream ss;
   ss << std::scientific << std::setprecision(3);
   cb(ss);
-  return result;
+  return ss.str();
 }
 
 class ApiTofError : public std::runtime_error
