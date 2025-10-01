@@ -3,7 +3,14 @@ import numpy
 import json
 from pandas import DataFrame
 
-from _apitofsim import skimmer as _skimmer, ClusterData, Gas, densityandrate
+from _apitofsim import (
+    skimmer as _skimmer,
+    ClusterData,
+    Gas,
+    densityandrate,
+    Histogram,
+    pinhole,
+)
 
 
 __all__ = [
@@ -11,17 +18,37 @@ __all__ = [
     "ClusterData",
     "Gas",
     "densityandrate",
+    "pinhole",
     "skimmer_numpy",
     "skimmer_pandas",
     "parse_config_with_particles",
     "config_to_shortnames",
+    "read_dat",
+    "read_histogram",
+    "read_skimmer",
+    "get_clusters",
 ]
 
 
 def read_dat(fn):
     if os.stat(fn).st_size == 0:
         return None
-    return numpy.loadtxt(fn, dtype=numpy.float64)
+    return numpy.asfortranarray(numpy.loadtxt(fn, dtype=numpy.float64))
+
+
+def read_histogram(fn):
+    arr = read_dat(fn)
+    if arr is None:
+        return None
+    return Histogram(arr[:, 0], arr[:, 1])
+
+
+def read_skimmer(fn):
+    arr = read_dat(fn)
+    if arr is None:
+        return None
+    mesh_skimmer = arr[1, 0] - arr[0, 0]
+    return arr[:, 1:4], mesh_skimmer
 
 
 INT_PARAMS = [
@@ -118,6 +145,23 @@ def parse_config_with_particles(fn):
     for particle in ["cluster", "first_product", "second_product"]:
         result[particle] = get_particle(config, particle)
     return result
+
+
+def get_clusters(full_config):
+    clusters = []
+    for particle in ["cluster", "first_product", "second_product"]:
+        particle_config = full_config[particle]
+        vibrational_temperatures = particle_config["vibrational_temperatures"]
+        if vibrational_temperatures is None:
+            vibrational_temperatures = numpy.empty(0)
+        cluster = ClusterData(
+            particle_config["atomic_mass"],
+            float(particle_config["electronic_energy"]),
+            particle_config["rotational_temperatures"],
+            vibrational_temperatures,
+        )
+        clusters.append(cluster)
+    return clusters
 
 
 def config_to_shortnames(config):

@@ -3,11 +3,15 @@ import sys
 import os
 import numpy
 from apitofsim import (
+    read_histogram,
+    read_skimmer,
     skimmer_pandas,
     parse_config_with_particles,
     config_to_shortnames,
-    ClusterData,
+    get_clusters,
+    Gas,
     densityandrate,
+    pinhole,
 )
 
 
@@ -68,19 +72,7 @@ def main():
         )
         print(skimmer_df)
     if args.command == "densityandrate" or args.command is None:
-        clusters = []
-        for particle in ["cluster", "first_product", "second_product"]:
-            particle_config = full_config[particle]
-            vibrational_temperatures = particle_config["vibrational_temperatures"]
-            if vibrational_temperatures is None:
-                vibrational_temperatures = numpy.empty(0)
-            cluster = ClusterData(
-                particle_config["atomic_mass"],
-                float(particle_config["electronic_energy"]),
-                particle_config["rotational_temperatures"],
-                vibrational_temperatures,
-            )
-            clusters.append(cluster)
+        clusters = get_clusters(full_config)
         rhos, k_rate = densityandrate(
             *clusters,
             *(
@@ -98,6 +90,59 @@ def main():
         print(rhos)
         print("k_rate")
         print(k_rate)
+    if args.command == "apitof_pinhole" or args.command is None:
+        clusters = get_clusters(full_config)
+        gas = Gas(radius=config["R_gas"], mass=config["m_gas"])
+        density_cluster = read_histogram(config["output_file_density_cluster"])
+        rate_constant = read_histogram(config["output_file_rate_constant"])
+        skimmer, mesh_skimmer = read_skimmer(config["Output_file_skimmer"])
+
+        def log_callback(type, message):
+            # print(type, message, end="")
+            pass
+
+        def result_callback(counters):
+            print(counters)
+
+        print("pinhole")
+
+        counters = pinhole(
+            *clusters,
+            gas,
+            config["bonding_energy"],
+            density_cluster,
+            rate_constant,
+            skimmer,
+            mesh_skimmer,
+            *(
+                config[setting]
+                for setting in (
+                    "cluster_charge_sign",
+                    "L0",
+                    "Lsk",
+                    "L1",
+                    "L2",
+                    "L3",
+                    "V0",
+                    "V1",
+                    "V2",
+                    "V3",
+                    "V4",
+                    "T",
+                    "pressure_first",
+                    "pressure_second",
+                    "r_quadrupole",
+                    "radiofrequency",
+                    "dc_field",
+                    "ac_field",
+                    "N",
+                )
+            ),
+            42,
+            None,
+            result_callback,
+        )
+        print("Final counters:", counters)
 
 
 if __name__ == "__main__":
