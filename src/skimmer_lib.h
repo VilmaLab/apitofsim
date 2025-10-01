@@ -1,4 +1,5 @@
 #include "utils.h"
+#include "consts.h"
 #include <fstream>
 #include <iostream>
 #include <math.h>
@@ -118,6 +119,7 @@ struct Skimmer
 
   void next()
   {
+    using consts::pi;
     if (i >= resolution)
     {
       cur_row = std::nullopt;
@@ -127,7 +129,7 @@ struct Skimmer
     if (i == 0)
     {
       rho0 = m * P0 / k / T0;
-      alpha = alpha_factor * M_PI;
+      alpha = alpha_factor * pi;
 
       vc = sqrt(2.0 * ga * k * T0 / (m * (ga + 1)));
       v_alert = sqrt(2.0 * k * ga * T0 / (m * (ga - 1)));

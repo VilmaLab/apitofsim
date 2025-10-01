@@ -111,7 +111,7 @@ void compute_k_total(Eigen::ArrayXd &k0, Eigen::ArrayXd &k_rate, double inertia_
   rotations_product_1 = rotations_1[0] * rotations_1[1] * rotations_1[2];
   rotations_product_2 = rotations_2[0] * rotations_2[1] * rotations_2[2];
 
-  prefactor = 2.0 * kb * kb * (inertia_moment_1 + inertia_moment_2) / (M_PI * hbar * hbar * hbar * pow(pow(rotations_product_1, 1.0 / 3) + pow(rotations_product_2, 1.0 / 3), 1.5));
+  prefactor = 2.0 * kb * kb * (inertia_moment_1 + inertia_moment_2) / (pi * hbar * hbar * hbar * pow(pow(rotations_product_1, 1.0 / 3) + pow(rotations_product_2, 1.0 / 3), 1.5));
   n_fragmentation = int(fragmentation_energy / bin_width);
   for (int m = 0; m < m_max_rate; m++)
   {
@@ -169,6 +169,7 @@ void compute_k_total(Eigen::ArrayXd &k0, Eigen::ArrayXd &k_rate, double inertia_
 
 void compute_k_total_atom(Eigen::ArrayXd &k0, Eigen::ArrayXd &k_rate, double inertia_moment_1, const Eigen::Ref<const Eigen::ArrayXd> rho_comb, const Eigen::Ref<const Eigen::ArrayXd> rho_0, double bin_width, int m_max_rate, double fragmentation_energy)
 {
+  using consts::pi;
   double prefactor;
   // double rotations_product_1;
   // double rotations_product_2;
@@ -184,7 +185,7 @@ void compute_k_total_atom(Eigen::ArrayXd &k0, Eigen::ArrayXd &k_rate, double ine
   // rotations_product_1 = rotations_1[0] * rotations_1[1] * rotations_1[2];
   // rotations_product_2 = rotations_2[0] * rotations_2[1] * rotations_2[2];
 
-  prefactor = kb * kb * (inertia_moment_1) / (M_PI * hbar * hbar * hbar);
+  prefactor = kb * kb * (inertia_moment_1) / (pi * hbar * hbar * hbar);
   n_fragmentation = int(fragmentation_energy / bin_width);
   for (int m = 0; m < m_max_rate; m++)
   {

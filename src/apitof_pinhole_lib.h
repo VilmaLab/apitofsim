@@ -323,7 +323,7 @@ Counters apitof_pinhole(
   bonding_energy *= boltzmann; // convert in Joules
   const double q = 1.602e-19; // Coulombs
   double mathieu_factor = q / (m_ion * r_quadrupole * r_quadrupole);
-  double angular_velocity = 2.0 * M_PI * radiofrequency;
+  double angular_velocity = 2.0 * pi * radiofrequency;
   double acc1 = E1 * q * cluster_charge_sign / m_ion;
   double acc2 = E2 * q * cluster_charge_sign / m_ion;
   double acc3 = E3 * q * cluster_charge_sign / m_ion;
@@ -1556,6 +1556,7 @@ void eval_velocities(double *v, double *omega, double *u, double vib_energy, dou
 // Change of coordinates routine
 void change_coord(double *v_cluster, double theta, double phi, double alpha, double *x3, double *y3, double *z3)
 {
+  using consts::pi;
   double v_cluster_norm = vec_norm(v_cluster);
   double x[3] = {1.0, 0.0, 0.0};
   double y[3] = {0.0, 1.0, 0.0};
@@ -1596,7 +1597,7 @@ void change_coord(double *v_cluster, double theta, double phi, double alpha, dou
   }
 
   // build reference of system centered in point of collision (x2,y2,z2)
-  if (theta > 0 and theta < M_PI)
+  if (theta > 0 and theta < pi)
   {
     for (int i = 0; i < 3; i++)
     {
@@ -1614,7 +1615,7 @@ void change_coord(double *v_cluster, double theta, double phi, double alpha, dou
     cross_norm(z2, x1, y2);
     cross_norm(y2, z2, x2);
   }
-  else if (theta == M_PI)
+  else if (theta == pi)
   {
     for (int i = 0; i < 3; i++)
     {
@@ -1643,6 +1644,7 @@ void change_coord(double *v_cluster, double theta, double phi, double alpha, dou
 // Evaluate solid angle using Stokes theorem (1d integral) (REF: Eq 32, Conway, Nuclear Instruments and Methods in Physics Research A 614, 2010)
 double eval_solid_angle_stokes(double R, double L, double xx, double yy, double z)
 {
+  using consts::pi;
   int N = 1000;
   double dphi;
   double sum = 0.0;
@@ -1653,7 +1655,7 @@ double eval_solid_angle_stokes(double R, double L, double xx, double yy, double 
   double yphi;
   double zz = L - z;
 
-  dphi = 2.0 * M_PI / N;
+  dphi = 2.0 * pi / N;
 
   phi = 0.0;
   xphi = R * xx * cos(phi);
@@ -1672,7 +1674,7 @@ double eval_solid_angle_stokes(double R, double L, double xx, double yy, double 
     sum += integrand;
   }
 
-  phi = 2.0 * M_PI;
+  phi = 2.0 * pi;
   xphi = R * xx * cos(phi);
   yphi = R * yy * sin(phi);
   c = R * R + xx * xx + yy * yy - 2.0 * xphi - 2.0 * yphi;
@@ -1692,8 +1694,8 @@ void eval_collision(GenT &gen, uniform_real_distribution<double> &unif, bool &co
   double z3[3];
   double v2[3];
   double omega2[3];
-  double phi = 2.0 * M_PI * unif(gen);
-  double alpha = 2.0 * M_PI * unif(gen);
+  double phi = 2.0 * pi * unif(gen);
+  double alpha = 2.0 * pi * unif(gen);
   double kT = boltzmann * temperature;
   double u[2];
   double velocity_gas[3];
@@ -1759,9 +1761,9 @@ void eval_collision(GenT &gen, uniform_real_distribution<double> &unif, bool &co
       double r = unif(gen);
       distance = sqrt(x * x + y * y + (L - z) * (L - z));
       // Probability to accept the collision prob_coll
-      prob_coll = (1.0 - exp(-distance / gas_mean_free_path)) * (1.0 - eval_solid_angle_stokes(radius_pinhole, L, x, y, z) / (2.0 * M_PI));
+      prob_coll = (1.0 - exp(-distance / gas_mean_free_path)) * (1.0 - eval_solid_angle_stokes(radius_pinhole, L, x, y, z) / (2.0 * pi));
 
-      // prob_coll=1.0-eval_solid_angle(radius_pinhole, L, x, y, z)/(2.0*M_PI);
+      // prob_coll=1.0-eval_solid_angle(radius_pinhole, L, x, y, z)/(2.0*pi);
       // prob_coll=1.0;
       // prob_coll=0.0;
       if (r > prob_coll)
