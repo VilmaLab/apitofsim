@@ -30,18 +30,12 @@ The binaries are then in `build/src`. You add this directory to your PATH or sym
 
 This will also create a compilation database that `clangd` can use.
 
-There is a debug native build configuration file using clang in `clangdebug.ini`.
+There are debug and sanitize Meson "native build configuration" files using clang in `clangdebug.ini` and `clangsan.ini` respectively.
 On Linux, you may need to install `libc++` (from LLVM rather than GNU) e.g. `apt install 'libc++1' 'libc++-dev'`.
-Use it like so:
+For example:
 
 ```bash
 meson setup --native-file clangdebug.ini debugbuild
-```
-
-This will run leak detection by default, which must be disabled when running under lldb:
-
-```bash
-ASAN_OPTIONS=detect_leaks=0 lldb ./debugbuild/src/densityandrate_win
 ```
 
 ## Using the executables
