@@ -15,7 +15,13 @@ openmp = dependency('openmp', include_type : 'system')
 eigen3 = dependency('eigen3', include_type : 'system')
 nanobind = dependency('nanobind', required : python_feat, include_type : 'system')
 concurrentqueue = dependency('concurrentqueue', include_type : 'system')
-magic_enum = dependency('magic_enum', include_type : 'system')
+magic_enum = dependency(
+  'magic_enum',
+  include_type : 'system',
+  default_options : {
+    'test': false
+  }
+)
 
 subdir('src')
 
