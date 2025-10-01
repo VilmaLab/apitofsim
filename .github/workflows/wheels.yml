@@ -16,12 +16,13 @@ jobs:
 
       - if: matrix.os == 'macos-14'
         run: |
-          brew install libomp
+          brew install libomp@21.1.2
 
       - name: Build wheels
         uses: pypa/cibuildwheel@v3.1.4
         env:
           CIBW_SKIP: "*-win32 *-manylinux_i686 cp3??t-* *-musllinux_*"
+          MACOSX_DEPLOYMENT_TARGET: "14"
 
       - uses: actions/upload-artifact@v4
         with:
