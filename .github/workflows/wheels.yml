@@ -14,21 +14,9 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - uses: conda-incubator/setup-miniconda@v3
-        if: matrix.os == 'macos-14'
-        with:
-          miniforge-version: latest
-
       - if: matrix.os == 'macos-14'
         run: |
-          conda create -n build https://anaconda.org/conda-forge/llvm-openmp/11.1.0/download/osx-arm64/llvm-openmp-11.1.0-hf3c4609_1.tar.bz2
-          PREFIX="$HOME/miniconda3/envs/build"
-          echo "CC=/usr/bin/clang" >> "$GITHUB_ENV"
-          echo "CXX=/usr/bin/clang++" >> "$GITHUB_ENV"
-          echo "CPPFLAGS=$CPPFLAGS -Xpreprocessor -fopenmp" >> "$GITHUB_ENV"
-          echo "CFLAGS=$CFLAGS -I$PREFIX/include" >> "$GITHUB_ENV"
-          echo "CXXFLAGS=$CXXFLAGS -I$PREFIX/include" >> "$GITHUB_ENV"
-          echo "LDFLAGS=$LDFLAGS -Wl,-rpath,$PREFIX/lib -L$PREFIX/lib -lomp" >> "$GITHUB_ENV"
+          brew install libomp
 
       - name: Build wheels
         uses: pypa/cibuildwheel@v3.1.4
