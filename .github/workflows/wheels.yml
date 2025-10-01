@@ -25,10 +25,10 @@ jobs:
           PREFIX="$HOME/miniconda3/envs/build"
           echo "CC=/usr/bin/clang" >> "$GITHUB_ENV"
           echo "CXX=/usr/bin/clang++" >> "$GITHUB_ENV"
-          echo "CPPFLAGS='$CPPFLAGS -Xpreprocessor -fopenmp'" >> "$GITHUB_ENV"
-          echo "CFLAGS='$CFLAGS -I$PREFIX/include'" >> "$GITHUB_ENV"
-          echo "CXXFLAGS='$CXXFLAGS -I$PREFIX/include'" >> "$GITHUB_ENV"
-          echo "LDFLAGS='$LDFLAGS -Wl,-rpath,$PREFIX/lib -L$PREFIX/lib -lomp'" >> "$GITHUB_ENV"
+          echo "CPPFLAGS=$CPPFLAGS -Xpreprocessor -fopenmp" >> "$GITHUB_ENV"
+          echo "CFLAGS=$CFLAGS -I$PREFIX/include" >> "$GITHUB_ENV"
+          echo "CXXFLAGS=$CXXFLAGS -I$PREFIX/include" >> "$GITHUB_ENV"
+          echo "LDFLAGS=$LDFLAGS -Wl,-rpath,$PREFIX/lib -L$PREFIX/lib -lomp" >> "$GITHUB_ENV"
 
       - name: Build wheels
         uses: pypa/cibuildwheel@v3.1.4
