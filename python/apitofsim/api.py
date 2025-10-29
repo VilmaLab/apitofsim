@@ -1,6 +1,3 @@
-# This is imported just to get its bundled version of OpenMP on Windows
-import sklearn  # noqa: F401
-
 import os
 import numpy
 import json
