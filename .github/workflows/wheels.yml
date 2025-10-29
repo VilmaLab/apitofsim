@@ -9,7 +9,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, ubuntu-24.04-arm, windows-latest, macos-14]
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-14]
 
     steps:
       - uses: actions/checkout@v5
@@ -21,8 +21,7 @@ jobs:
       - name: Build wheels
         uses: pypa/cibuildwheel@v3.1.4
         env:
-          CIBW_SKIP: "*-win32 *-manylinux_i686 cp3??t-* *-musllinux_*"
-          CIBW_CONFIG_SETTINGS_WINDOWS: "setup-args=--vsenv"
+          CIBW_SKIP: "*-manylinux_i686 cp3??t-* *-musllinux_*"
           MACOSX_DEPLOYMENT_TARGET: "14"
 
       - uses: actions/upload-artifact@v4
