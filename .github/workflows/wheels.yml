@@ -16,7 +16,7 @@ jobs:
 
       - if: matrix.os == 'macos-14'
         run: |
-          brew install libomp@21.1.2
+          brew install libomp
 
       - name: Build wheels
         uses: pypa/cibuildwheel@v3.1.4
