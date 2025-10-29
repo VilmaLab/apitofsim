@@ -14,7 +14,7 @@ jobs:
 
       - name: Install Python package
         run: |
-          uv install --dev
+          uv sync --dev
 
       - name: Run basedpyright
         run: |
