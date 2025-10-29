@@ -2,17 +2,19 @@ import argparse
 import sys
 import os
 import numpy
-from apitofsim import (
+from apitofsim.api import (
+    skimmer,
+    densityandrate,
+    pinhole,
+    Gas,
+)
+from apitofsim.config import (
     read_histogram,
     read_skimmer,
-    skimmer,
     parse_config_with_particles,
     config_to_shortnames,
     ConfigFile,
     get_clusters,
-    Gas,
-    densityandrate,
-    pinhole,
 )
 
 
@@ -90,9 +92,15 @@ def main():
     if args.command == "apitof_pinhole" or args.command is None:
         config_dict = parse_config_with_particles(args.config)
         clusters = get_clusters(config_dict)
-        density_cluster = read_histogram(config_dict["config"]["output_file_density_cluster"])
-        rate_constant = read_histogram(config_dict["config"]["output_file_rate_constant"])
-        skimmer_data, mesh_skimmer = read_skimmer(config_dict["config"]["Output_file_skimmer"])
+        density_cluster = read_histogram(
+            config_dict["config"]["output_file_density_cluster"]
+        )
+        rate_constant = read_histogram(
+            config_dict["config"]["output_file_rate_constant"]
+        )
+        skimmer_data, mesh_skimmer = read_skimmer(
+            config_dict["config"]["Output_file_skimmer"]
+        )
 
         def log_callback(type, message):
             # print(type, message, end="")

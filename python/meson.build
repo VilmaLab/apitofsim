@@ -6,7 +6,13 @@ apitofsim = python.extension_module(
   include_directories: [inc_src],
   install: true,
 )
-python.install_sources(['apitofsim.py'], pure : true)
+python.install_sources([
+'apitofsim/api.py',
+'apitofsim/cli.py',
+'apitofsim/config.py',
+'apitofsim/__init__.py',
+'apitofsim/__main__.py',
+], subdir: 'apitofsim', pure : true)
 
 stubgen = nanobind.get_variable('stubgen')
 custom_target(
