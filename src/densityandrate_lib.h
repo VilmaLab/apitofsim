@@ -80,12 +80,6 @@ struct ClusterData
   }
 };
 
-struct Gas
-{
-  double radius;
-  double mass;
-};
-
 Eigen::ArrayXd compute_k_total_full(ClusterData &cluster_0, ClusterData &cluster_1, ClusterData &cluster_2, DensityResult &rhos, double fragmentation_energy, double energy_max_rate, double bin_width);
 DensityResult compute_density_of_states_all(ClusterData &cluster_0, ClusterData &cluster_1, ClusterData &cluster_2, double energy_max, double bin_width);
 

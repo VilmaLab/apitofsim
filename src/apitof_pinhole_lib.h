@@ -26,6 +26,9 @@ typedef Eigen::Array<double, Eigen::Dynamic, 3> SkimmerData;
 const int VEL_SKIMMER = 0;
 const int TEMP_SKIMMER = 1;
 const int PRESSURE_SKIMMER = 2;
+typedef Eigen::Array<double, 5, 1> InstrumentDims;
+const int SKIMMER_LENGTH = 4;
+typedef Eigen::Array<double, 5, 1> InstrumentVoltages;
 
 template <typename Callback>
 std::string call_with_stringstream(Callback cb)
@@ -208,6 +211,31 @@ struct Histogram
   }
 };
 
+struct Quadrupole
+{
+  double dc_field;
+  double ac_field;
+  double radiofrequency;
+  double r_quadrupole;
+
+  double mathieu_factor;
+  double angular_velocity;
+
+  Quadrupole(
+    double dc_field,
+    double ac_field,
+    double radiofrequency,
+    double r_quadrupole) : dc_field(dc_field), ac_field(ac_field), radiofrequency(radiofrequency), r_quadrupole(r_quadrupole)
+  {
+    angular_velocity = 2.0 * consts::pi * radiofrequency;
+  }
+
+  void compute_mathieu_factor(double m_ion)
+  {
+    mathieu_factor = consts::eV / (m_ion * r_quadrupole * r_quadrupole);
+  }
+};
+
 // LIST OF FUNCTIONS
 // Here we are
 double particle_density(double pressure, double kT);
@@ -222,7 +250,7 @@ double evaluate_rotational_energy(double *omega, double inertia);
 double evaluate_internal_energy(double vib_energy, double rot_energy);
 double evaluate_rate_const(const Histogram &rate_const, double energy, WarningHelper warn);
 template <typename GenT>
-void time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &unif, double rate_constant, double *v_cluster, double &v_cluster_norm, double n1, double n2, double mobility_gas, double mobility_gas_inv, double R, double dt1, double dt2, double &z, double &x, double &y, double &delta_t, double &t_fragmentation, double first_chamber_end, double sk_end, double quadrupole_start, double quadrupole_end, double second_chamber_end, double acc1, double acc2, double acc3, double acc4, double &t, double m_gas, const SkimmerData &skimmer, double mesh_skimmer, double angular_velocity, double mathieu_factor, double dc_field, double ac_field, LogHelper tmp_evolution);
+void time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &unif, double rate_constant, double *v_cluster, double &v_cluster_norm, double n1, double n2, double mobility_gas, double mobility_gas_inv, double R, double dt1, double dt2, double &z, double &x, double &y, double &delta_t, double &t_fragmentation, double first_chamber_end, double sk_end, double quadrupole_start, double quadrupole_end, double second_chamber_end, double acc1, double acc2, double acc3, double acc4, double &t, double m_gas, const SkimmerData &skimmer, double mesh_skimmer, std::optional<Quadrupole> quadrupole, LogHelper tmp_evolution);
 void update_physical_quantities(double z, const SkimmerData skimmer, double mesh_skimmer, double &v_gas, double &temperature, double &pressure, double &density, double first_chamber_end, double sk_end, double P1, double P2, double n1, double n2, double T);
 template <typename GenT>
 void draw_theta_skimmer(GenT &gen, uniform_real_distribution<double> &unif, double &theta, double z, double n1, double n2, double m_gas, double mobility_gas, double mobility_gas_inv, double R, double *v_cluster, double v_gas, double pressure, double temperature, double first_chamber_end, double sk_end, WarningHelper warn);
@@ -257,24 +285,12 @@ Counters apitof_pinhole(
   double T,
   double pressure_first,
   double pressure_second,
-  double L0,
-  double Lsk,
-  double L1,
-  double L2,
-  double L3,
-  double V0,
-  double V1,
-  double V2,
-  double V3,
-  double V4,
+  InstrumentDims lengths,
+  InstrumentVoltages voltages,
   int N,
   double bonding_energy,
-  double R_gas,
-  double m_gas,
-  double dc_field,
-  double ac_field,
-  double radiofrequency,
-  double r_quadrupole,
+  Gas gas,
+  std::optional<Quadrupole> quadrupole,
   double m_ion,
   double R_cluster,
   const Histogram &density_cluster,
@@ -288,6 +304,8 @@ Counters apitof_pinhole(
   // TO BE DELETED ###############
   //  R_cluster=4.675e-10;
   // #############################
+  double R_gas = gas.radius;
+  double m_gas = gas.mass;
   double kT = boltzmann * T;
   double R_tot = R_cluster + R_gas;
   double reduced_mass = 1. / (1. / m_ion + 1. / m_gas);
@@ -297,15 +315,15 @@ Counters apitof_pinhole(
   double mobility_gas_inv = 1.0 / mobility_gas;
   double boundary_u = 5.0 * sqrt(mobility_gas);
   double du = 1.0e-4 * sqrt(mobility_gas);
-  double E1 = -(V1 - V0) / L0;
-  double E2 = -(V2 - V1) / L1;
-  double E3 = -(V3 - V2) / L2;
-  double E4 = -(V4 - V3) / L3;
-  double first_chamber_end = L0;
-  double sk_end = L0 + Lsk;
-  double quadrupole_start = L0 + Lsk + L1;
-  double quadrupole_end = L0 + Lsk + L1 + L2;
-  double second_chamber_end = L0 + Lsk + L1 + L2 + L3;
+  double E1 = -(voltages[1] - voltages[0]) / lengths[0];
+  double E2 = -(voltages[2] - voltages[1]) / lengths[1];
+  double E3 = -(voltages[3] - voltages[2]) / lengths[2];
+  double E4 = -(voltages[4] - voltages[3]) / lengths[3];
+  double first_chamber_end = lengths[0];
+  double sk_end = first_chamber_end + lengths[SKIMMER_LENGTH];
+  double quadrupole_start = sk_end + lengths[1];
+  double quadrupole_end = quadrupole_start + lengths[2];
+  double second_chamber_end = quadrupole_end + lengths[3];
   double total_length = second_chamber_end;
 
   if (LOGLEVEL >= LOGLEVEL_MIN)
@@ -321,13 +339,14 @@ Counters apitof_pinhole(
   auto start = std::chrono::high_resolution_clock::now();
 
   bonding_energy *= boltzmann; // convert in Joules
-  const double q = 1.602e-19; // Coulombs
-  double mathieu_factor = q / (m_ion * r_quadrupole * r_quadrupole);
-  double angular_velocity = 2.0 * pi * radiofrequency;
-  double acc1 = E1 * q * cluster_charge_sign / m_ion;
-  double acc2 = E2 * q * cluster_charge_sign / m_ion;
-  double acc3 = E3 * q * cluster_charge_sign / m_ion;
-  double acc4 = E4 * q * cluster_charge_sign / m_ion;
+  if (quadrupole)
+  {
+    quadrupole->compute_mathieu_factor(m_ion);
+  }
+  double acc1 = E1 * consts::eV * cluster_charge_sign / m_ion;
+  double acc2 = E2 * consts::eV * cluster_charge_sign / m_ion;
+  double acc3 = E3 * consts::eV * cluster_charge_sign / m_ion;
+  double acc4 = E4 * consts::eV * cluster_charge_sign / m_ion;
   double P1 = pressure_first;
   double P2 = pressure_second;
   double gas_mean_free_path = mean_free_path(R_gas, kT, P2);
@@ -366,8 +385,8 @@ Counters apitof_pinhole(
   // dt1=1.934e-16;
   double dt1 = 1.0e-3 / coll_freq(n1, mobility_gas, mobility_gas_inv, R_tot, 0.0);
   double dt2 = 1.0e-3 / coll_freq(n2, mobility_gas, mobility_gas_inv, R_tot, 0.0);
-  if (dt2 > 1.0 / radiofrequency / 1000.0)
-    dt2 = 1.0 / radiofrequency / 1000.0;
+  if (quadrupole && dt2 > 1.0 / quadrupole->radiofrequency / 1000.0)
+    dt2 = 1.0 / quadrupole->radiofrequency / 1000.0;
 
   if (LOGLEVEL >= LOGLEVEL_MIN)
   {
@@ -397,11 +416,11 @@ Counters apitof_pinhole(
 #pragma omp parallel for default(none) \
   firstprivate( \
       N, T, kT, m_ion, R_cluster, R_tot, density_cluster, rate_const, \
-        inertia, second_chamber_end, mathieu_factor, n1, n2, dt1, dt2, \
-        skimmer, mesh_skimmer, angular_velocity, total_length, mobility_gas, \
+        inertia, second_chamber_end, n1, n2, dt1, dt2, \
+        skimmer, mesh_skimmer, total_length, mobility_gas, \
         mobility_gas_inv, gas_mean_free_path, first_chamber_end, root_seed, \
         sk_end, quadrupole_start, quadrupole_end, acc1, acc2, acc3, acc4, \
-        P1, P2, bonding_energy, m_gas, dc_field, ac_field, du, boundary_u, reduced_mass, pi) \
+        P1, P2, bonding_energy, m_gas, quadrupole, du, boundary_u, reduced_mass, pi) \
   shared(exception_helper, result_queue) \
   reduction(+ : counters)
   for (int j = 0; j < N; j++)
@@ -512,7 +531,7 @@ Counters apitof_pinhole(
           rate_constant = 0.0;
         }
 
-        time_next_coll_quadrupole(gen, unif, rate_constant, v_cluster, v_cluster_norm, n1, n2, mobility_gas, mobility_gas_inv, R_tot, dt1, dt2, z, x, y, delta_t, t_fragmentation, first_chamber_end, sk_end, quadrupole_start, quadrupole_end, second_chamber_end, acc1, acc2, acc3, acc4, t, m_gas, skimmer, mesh_skimmer, angular_velocity, mathieu_factor, dc_field, ac_field, LogHelper{result_queue, LogMessage::tmp_evolution});
+        time_next_coll_quadrupole(gen, unif, rate_constant, v_cluster, v_cluster_norm, n1, n2, mobility_gas, mobility_gas_inv, R_tot, dt1, dt2, z, x, y, delta_t, t_fragmentation, first_chamber_end, sk_end, quadrupole_start, quadrupole_end, second_chamber_end, acc1, acc2, acc3, acc4, t, m_gas, skimmer, mesh_skimmer, quadrupole, LogHelper{result_queue, LogMessage::tmp_evolution});
 
         // tmp << kin_energy << "\t";
         // tmp_evolution << delta_t << " " << z << " " << v_cluster[0] << " " << v_cluster[1] << " " << v_cluster[2] << " " << kin_energy << endl;
@@ -1051,7 +1070,7 @@ void init_vib_energy(GenT &gen, uniform_real_distribution<double> &unif, double 
 
 // Evaluate time to next collision
 template <typename GenT>
-void time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &unif, double rate_constant, double *v_cluster, double &v_cluster_norm, double n1, double n2, double mobility_gas, double mobility_gas_inv, double R, double dt1, double dt2, double &z, double &x, double &y, double &delta_t, double &t_fragmentation, double first_chamber_end, double sk_end, double quadrupole_start, double quadrupole_end, double second_chamber_end, double acc1, double acc2, double acc3, double acc4, double &t, double m_gas, const SkimmerData &skimmer, double mesh_skimmer, double angular_velocity, double mathieu_factor, double dc_field, double ac_field, LogHelper tmp_evolution)
+void time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &unif, double rate_constant, double *v_cluster, double &v_cluster_norm, double n1, double n2, double mobility_gas, double mobility_gas_inv, double R, double dt1, double dt2, double &z, double &x, double &y, double &delta_t, double &t_fragmentation, double first_chamber_end, double sk_end, double quadrupole_start, double quadrupole_end, double second_chamber_end, double acc1, double acc2, double acc3, double acc4, double &t, double m_gas, const SkimmerData &skimmer, double mesh_skimmer, std::optional<Quadrupole> quadrupole, LogHelper tmp_evolution)
 {
   using namespace consts;
   double integral = 0.0;
@@ -1127,10 +1146,13 @@ void time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &uni
 
     else if (z >= quadrupole_start and z < quadrupole_end)
     {
-      accx = mathieu_factor * (-dc_field + ac_field * cos(angular_velocity * t)) * (x + v_cluster[0] * dt2 / 2.0);
-      accy = mathieu_factor * (dc_field - ac_field * cos(angular_velocity * t)) * (y + v_cluster[1] * dt2 / 2.0);
-      v_cluster[0] += accx * dt2;
-      v_cluster[1] += accy * dt2;
+      if (quadrupole)
+      {
+        accx = quadrupole->mathieu_factor * (-quadrupole->dc_field + quadrupole->ac_field * cos(quadrupole->angular_velocity * t)) * (x + v_cluster[0] * dt2 / 2.0);
+        accy = quadrupole->mathieu_factor * (quadrupole->dc_field - quadrupole->ac_field * cos(quadrupole->angular_velocity * t)) * (y + v_cluster[1] * dt2 / 2.0);
+        v_cluster[0] += accx * dt2;
+        v_cluster[1] += accy * dt2;
+      }
       v_cluster[2] += acc3 * dt2;
     }
 

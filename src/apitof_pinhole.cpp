@@ -43,6 +43,7 @@ void apitof_pinhole_config_in()
   double T;
   double R_gas;
   double m_gas;
+  double ga;
   // double std_gas;
   double pressure_first;
   double pressure_second;
@@ -107,7 +108,7 @@ void apitof_pinhole_config_in()
     nullptr,
     &R_gas,
     &m_gas,
-    nullptr, // ga
+    &ga,
     &dc_field,
     &ac_field,
     &radiofrequency,
@@ -176,29 +177,28 @@ void apitof_pinhole_config_in()
     // TODO: Probably want to switch to jthread when possible
     exception_helper.guard([&]
     {
+      InstrumentDims lengths(5);
+      lengths << L0, L1, L2, L3, Lsk;
+      InstrumentVoltages voltages(5);
+      voltages << V0, V1, V2, V3, V4;
       counters = apitof_pinhole(
         cluster_charge_sign,
         T,
         pressure_first,
         pressure_second,
-        L0,
-        Lsk,
-        L1,
-        L2,
-        L3,
-        V0,
-        V1,
-        V2,
-        V3,
-        V4,
+        lengths,
+        voltages,
         N,
         bonding_energy,
-        R_gas,
-        m_gas,
-        dc_field,
-        ac_field,
-        radiofrequency,
-        r_quadrupole,
+        Gas{
+          R_gas,
+          m_gas,
+          ga},
+        Quadrupole(
+          dc_field,
+          ac_field,
+          radiofrequency,
+          r_quadrupole),
         m_ion,
         R_cluster,
         density_cluster,

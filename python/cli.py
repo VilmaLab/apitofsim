@@ -5,9 +5,10 @@ import numpy
 from apitofsim import (
     read_histogram,
     read_skimmer,
-    skimmer_pandas,
+    skimmer,
     parse_config_with_particles,
     config_to_shortnames,
+    ConfigFile,
     get_clusters,
     Gas,
     densityandrate,
@@ -45,38 +46,34 @@ def main():
             )
             sys.exit(1)
 
-    full_config = parse_config_with_particles(args.config)
-    config = config_to_shortnames(full_config["config"])
-    from pprint import pprint
-
-    pprint(full_config)
+    config = ConfigFile(filename=args.config)
 
     if args.command == "skimmer" or args.command is None:
-        skimmer_df = skimmer_pandas(
+        skimmer_df = skimmer(
             *(
-                config[c]
+                config.get(c, by="short_name")
                 for c in (
                     "T",
                     "pressure_first",
                     "Lsk",
                     "dc",
                     "alpha_factor",
-                    "m_gas",
-                    "ga",
+                    "gas",
                     "N_iter",
                     "M_iter",
                     "resolution",
                     "tolerance",
                 )
-            )
+            ),
+            output_pandas=True,
         )
         print(skimmer_df)
     if args.command == "densityandrate" or args.command is None:
-        clusters = get_clusters(full_config)
+        clusters = get_clusters(parse_config_with_particles(args.config))
         rhos, k_rate = densityandrate(
             *clusters,
             *(
-                config[setting]
+                config.get(setting, by="short_name")
                 for setting in (
                     "energy_max",
                     "energy_max_rate",
@@ -91,11 +88,11 @@ def main():
         print("k_rate")
         print(k_rate)
     if args.command == "apitof_pinhole" or args.command is None:
-        clusters = get_clusters(full_config)
-        gas = Gas(radius=config["R_gas"], mass=config["m_gas"])
-        density_cluster = read_histogram(config["output_file_density_cluster"])
-        rate_constant = read_histogram(config["output_file_rate_constant"])
-        skimmer, mesh_skimmer = read_skimmer(config["Output_file_skimmer"])
+        config_dict = parse_config_with_particles(args.config)
+        clusters = get_clusters(config_dict)
+        density_cluster = read_histogram(config_dict["config"]["output_file_density_cluster"])
+        rate_constant = read_histogram(config_dict["config"]["output_file_rate_constant"])
+        skimmer_data, mesh_skimmer = read_skimmer(config_dict["config"]["Output_file_skimmer"])
 
         def log_callback(type, message):
             # print(type, message, end="")
@@ -104,43 +101,25 @@ def main():
         def result_callback(counters):
             print(counters)
 
-        print("pinhole")
-
         counters = pinhole(
             *clusters,
-            gas,
-            config["bonding_energy"],
+            config.get("gas"),
             density_cluster,
             rate_constant,
-            skimmer,
-            mesh_skimmer,
-            *(
-                config[setting]
-                for setting in (
-                    "cluster_charge_sign",
-                    "L0",
-                    "Lsk",
-                    "L1",
-                    "L2",
-                    "L3",
-                    "V0",
-                    "V1",
-                    "V2",
-                    "V3",
-                    "V4",
-                    "T",
-                    "pressure_first",
-                    "pressure_second",
-                    "r_quadrupole",
-                    "radiofrequency",
-                    "dc_field",
-                    "ac_field",
-                    "N",
-                )
-            ),
-            42,
-            None,
-            result_callback,
+            skimmer_data,
+            config.get("lengths"),
+            config.get("voltages"),
+            config.get("T"),
+            config.get("pressure_first"),
+            config.get("pressure_second"),
+            config.get("N"),
+            mesh_skimmer=mesh_skimmer,
+            quadrupole=config.get("quadrupole"),
+            fragmentation_energy=config.get("bonding_energy") or None,
+            cluster_charge_sign=config.get("cluster_charge_sign") or 1,
+            seed=42,
+            log_callback=None,
+            result_callback=result_callback,
         )
         print("Final counters:", counters)
 

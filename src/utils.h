@@ -296,3 +296,10 @@ public:
     }
   }
 };
+
+struct Gas
+{
+  double radius;
+  double mass;
+  double adiabatic_index;
+};

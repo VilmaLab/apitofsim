@@ -1,4 +1,5 @@
 #include <iostream>
+#include <optional>
 #include <stdlib.h>
 
 #include <Eigen/Dense>
@@ -24,8 +25,7 @@ SkimmerResult skimmer(
   double rmax,
   double dc,
   double alpha_factor,
-  double m,
-  double ga,
+  Gas gas,
   int N,
   int M,
   int resolution,
@@ -41,8 +41,8 @@ SkimmerResult skimmer(
     rmax,
     dc,
     alpha_factor,
-    m,
-    ga,
+    gas.mass,
+    gas.adiabatic_index,
     N,
     M,
     resolution,
@@ -95,7 +95,11 @@ nb::tuple densityandrate(
     fragmentation_energy,
     energy_max_rate,
     bin_width);
-  return nb::make_tuple(rhos, k_rate);
+  int m_max_rate = int(energy_max_rate / bin_width);
+  int m_max = int(energy_max / bin_width);
+  auto energies = prepare_energies(bin_width, m_max);
+  auto energies_rate = prepare_energies(bin_width, m_max_rate);
+  return nb::make_tuple(Histogram(energies, rhos.col(COMB_ROW)), Histogram(energies_rate, k_rate));
 }
 
 Counters pinhole(
@@ -103,44 +107,37 @@ Counters pinhole(
   ClusterData &cluster_1,
   ClusterData &cluster_2,
   Gas gas,
-  double fragmentation_energy,
   Histogram &density_cluster,
   Histogram &rate_const,
   SkimmerData skimmer,
   double mesh_skimmer,
-  int cluster_charge_sign,
-  double L0,
-  double Lsk,
-  double L1,
-  double L2,
-  double L3,
-  double V0,
-  double V1,
-  double V2,
-  double V3,
-  double V4,
+  InstrumentDims lengths,
+  InstrumentVoltages voltages,
   double T,
   double pressure_first,
   double pressure_second,
-  double r_quadrupole,
-  double radiofrequency,
-  double dc_field,
-  double ac_field,
   int N,
-  unsigned long long seed,
-  std::optional<std::function<void(std::string_view, std::string)>> log_callback,
-  std::optional<std::function<void(Counters)>> result_callback)
+  std::optional<double> fragmentation_energy = nullopt,
+  std::optional<Quadrupole> quadrupole = nullopt,
+  int cluster_charge_sign = 1,
+  unsigned long long seed = 42ull,
+  std::optional<std::function<void(std::string_view, std::string)>> log_callback = nullopt,
+  std::optional<std::function<void(Counters)>> result_callback = nullopt)
 {
   using magic_enum::enum_name;
   using consts::hartK;
-
   mt19937 root_gen = mt19937(seed);
   unsigned long long root_seed = root_gen();
 
+  double computed_fragmentation_energy;
   // Compute fragmentation energy in Kelvin
-  if (fragmentation_energy == 0)
+  if (fragmentation_energy == nullopt)
   {
-    fragmentation_energy = (cluster_1.electronic_energy + cluster_2.electronic_energy - cluster_0.electronic_energy) * hartK;
+    computed_fragmentation_energy = (cluster_1.electronic_energy + cluster_2.electronic_energy - cluster_0.electronic_energy) * hartK;
+  }
+  else
+  {
+    computed_fragmentation_energy = *fragmentation_energy;
   }
 
   auto inertia = compute_inertia(cluster_0.rotations);
@@ -165,24 +162,12 @@ Counters pinhole(
         T,
         pressure_first,
         pressure_second,
-        L0,
-        Lsk,
-        L1,
-        L2,
-        L3,
-        V0,
-        V1,
-        V2,
-        V3,
-        V4,
+        lengths,
+        voltages,
         N,
-        fragmentation_energy,
-        gas.radius,
-        gas.mass,
-        dc_field,
-        ac_field,
-        radiofrequency,
-        r_quadrupole,
+        computed_fragmentation_energy,
+        gas,
+        quadrupole,
         m_ion,
         R_cluster,
         density_cluster,
@@ -267,11 +252,13 @@ NB_MODULE(_apitofsim, m)
     .def("compute_derived", &ClusterData::compute_derived);
 
   nb::class_<Gas>(m, "Gas")
-    .def(nb::init<double, double>(),
+    .def(nb::init<double, double, double>(),
          nb::arg("radius"),
-         nb::arg("mass"))
+         nb::arg("mass"),
+         nb::arg("adiabatic_index"))
     .def_ro("radius", &Gas::radius)
-    .def_ro("mass", &Gas::mass);
+    .def_ro("mass", &Gas::mass)
+    .def_ro("adiabatic_index", &Gas::adiabatic_index);
 
   nb::class_<Histogram>(m, "Histogram")
     .def(nb::init<Eigen::ArrayXd, Eigen::ArrayXd>(),
@@ -279,6 +266,17 @@ NB_MODULE(_apitofsim, m)
          nb::arg("y"))
     .def_ro("x", &Histogram::x)
     .def_ro("y", &Histogram::y);
+
+  nb::class_<Quadrupole>(m, "Quadrupole")
+    .def(nb::init<double, double, double, double>(),
+         nb::arg("dc_field"),
+         nb::arg("ac_field"),
+         nb::arg("radiofrequency"),
+         nb::arg("r_quadrupole"))
+    .def_ro("dc_field", &Quadrupole::dc_field)
+    .def_ro("ac_field", &Quadrupole::dc_field)
+    .def_ro("radiofrequency", &Quadrupole::dc_field)
+    .def_ro("r_quadrupole", &Quadrupole::dc_field);
 
   m.def("densityandrate", &densityandrate,
         "cluster_0"_a,
@@ -294,31 +292,20 @@ NB_MODULE(_apitofsim, m)
         "cluster_1"_a,
         "cluster_2"_a,
         "gas"_a,
-        "fragmentation_energy"_a,
         "density_cluster"_a,
         "rate_const"_a,
         "skimmer"_a,
         "mesh_skimmer"_a,
-        "cluster_charge_sign"_a,
-        "L0"_a,
-        "Lsk"_a,
-        "L1"_a,
-        "L2"_a,
-        "L3"_a,
-        "V0"_a,
-        "V1"_a,
-        "V2"_a,
-        "V3"_a,
-        "V4"_a,
+        "lengths"_a,
+        "voltages"_a,
         "T"_a,
         "pressure_first"_a,
         "pressure_second"_a,
-        "r_quadrupole"_a,
-        "radiofrequency"_a,
-        "dc_field"_a,
-        "ac_field"_a,
         "N"_a,
-        "seed"_a,
+        "fragmentation_energy"_a  = std::nullopt,
+        "quadrupole"_a = std::nullopt,
+        "cluster_charge_sign"_a = 1,
+        "seed"_a = 42ull,
         "log_callback"_a = std::nullopt,
         "result_callback"_a = std::nullopt);
 }
