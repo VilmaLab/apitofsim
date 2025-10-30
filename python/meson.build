@@ -1,3 +1,5 @@
+fs = import('fs')
+
 python = import('python').find_installation()
 apitofsim = python.extension_module(
   '_apitofsim',
@@ -18,6 +20,8 @@ stubgen = nanobind.get_variable('stubgen')
 custom_target(
   output: '_apitofsim.pyi',
   depends: apitofsim,
-  command: [python, stubgen, '-m', '_apitofsim', '-M', 'py.typed'],
-  #build_by_default: true
+  env: {'PYTHONPATH': fs.parent(apitofsim.full_path())},
+  command: [python, stubgen, '-m', '_apitofsim'],
+  install_dir: python.get_install_dir(),
+  build_by_default: true
 )
