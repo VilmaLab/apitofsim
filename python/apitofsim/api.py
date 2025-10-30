@@ -1,11 +1,12 @@
 import os
 import numpy
 import json
-from typing import Any, Callable
+from typing import Any, Callable, Dict, List, cast
 from dataclasses import dataclass
 from enum import Enum
 from pandas import DataFrame
 from pint import get_application_registry, Quantity
+from pint._typing import Magnitude
 
 from _apitofsim import (
     skimmer as _skimmer,
@@ -16,6 +17,7 @@ from _apitofsim import (
     Quadrupole as _Quadrupole,
     pinhole as _pinhole,
 )
+from pint.facets import MagnitudeT
 
 
 ureg = get_application_registry()
@@ -27,10 +29,10 @@ Q_ = ureg.Quantity
 
 @dataclass
 class ClusterData:
-    mass: Quantity
-    electronic_energy: Quantity
-    rotations: Any
-    frequencies: Any
+    mass: Quantity[float]
+    electronic_energy: Quantity[float]
+    rotations: numpy.ndarray
+    frequencies: numpy.ndarray
 
     def into_cpp(self):
         return _ClusterData(
@@ -43,8 +45,8 @@ class ClusterData:
 
 @dataclass
 class Gas:
-    radius: Quantity
-    mass: Quantity
+    radius: Quantity[float]
+    mass: Quantity[float]
     adiabatic_index: float
 
     def into_cpp(self):
@@ -57,7 +59,7 @@ class Gas:
 
 @dataclass
 class Histogram:
-    x: Quantity
+    x: Quantity[numpy.ndarray]
     y: numpy.ndarray
 
     @classmethod
@@ -70,10 +72,10 @@ class Histogram:
 
 @dataclass
 class Quadrupole:
-    dc_field: Quantity
-    ac_field: Quantity
-    radiofrequency: Quantity
-    r_quadrupole: Quantity
+    dc_field: Quantity[float]
+    ac_field: Quantity[float]
+    radiofrequency: Quantity[float]
+    r_quadrupole: Quantity[float]
 
     def into_cpp(self):
         return _Quadrupole(
@@ -94,21 +96,20 @@ SKIMMER_COLUMNS = [
 ]
 
 
-MaybeQuantity = Quantity | float
-MaybeQuantityArray = Quantity | numpy.ndarray
+type MaybeQuantity = Quantity[float] | float
+type MaybeQuantityArray = Quantity[numpy.ndarray] | numpy.ndarray
 
 
 class QuantityProcessor:
-    def __init__(self, locals, quantities_strict=True):
-        self.locals = locals
+    def __init__(self, quantities_strict=True):
         self.quantities_strict = quantities_strict
 
-    def __call__(self, name, unit):
-        arg = self.locals[name]
+    def __call__[T: Magnitude](self, name: str, arg: Quantity[T] | T, unit: str) -> T:
         if isinstance(arg, Quantity):
             return arg.to(unit).magnitude
         elif not self.quantities_strict:
-            return arg
+            # This is obviously the T -> T case, but pyright won't accept it
+            return cast(Magnitude, arg)  # pyright: ignore [reportReturnType]
         else:
             raise ValueError(
                 f"Argument {name} (Value: {arg}) must be a pint.Quantity when `quantities_strict` is True"
@@ -130,17 +131,18 @@ def skimmer(
     output_pandas=False,
     quantities_strict=True,
 ):
-    process_arg = QuantityProcessor(locals(), quantities_strict)
-    T0 = process_arg("T0", "kelvin")
-    P0 = process_arg("P0", "pascal")
-    rmax = process_arg("rmax", "meters")
-    dc = process_arg("dc", "meters")
-    alpha_factor = process_arg("alpha_factor", "halfturn")
+    process_arg = QuantityProcessor(quantities_strict)
+    T0 = process_arg("T0", T0, "kelvin")
+    P0 = process_arg("P0", P0, "pascal")
+    rmax = process_arg("rmax", rmax, "meters")
+    dc = process_arg("dc", dc, "meters")
+    alpha_factor = process_arg("alpha_factor", alpha_factor, "halfturn")
     if isinstance(gas, Gas):
         gas = gas.into_cpp()
     out = _skimmer(T0, P0, rmax, dc, alpha_factor, gas, N, M, resolution, tolerance)
     if output_pandas:
-        return DataFrame(out, columns=SKIMMER_COLUMNS)
+        # Ignore this because Pandas' types are broken
+        return DataFrame(out, columns=SKIMMER_COLUMNS)  # pyright: ignore [reportArgumentType]
     else:
         return out
 
@@ -156,14 +158,16 @@ def densityandrate(
     *,
     quantities_strict=True,
 ):
-    process_arg = QuantityProcessor(locals(), quantities_strict)
-    energy_max = process_arg("energy_max", "kelvin")
-    energy_max_rate = process_arg("energy_max_rate", "kelvin")
-    bin_width = process_arg("bin_width", "kelvin")
+    process_arg = QuantityProcessor(quantities_strict)
+    energy_max = process_arg("energy_max", energy_max, "kelvin")
+    energy_max_rate = process_arg("energy_max_rate", energy_max_rate, "kelvin")
+    bin_width = process_arg("bin_width", bin_width, "kelvin")
     if fragmentation_energy is None:
         fragmentation_energy = 0
     else:
-        fragmentation_energy = process_arg("fragmentation_energy", "kelvin")
+        fragmentation_energy = process_arg(
+            "fragmentation_energy", fragmentation_energy, "kelvin"
+        )
     density_cluster, rate_const = _densityandrate(
         cluster_0.into_cpp(),
         cluster_1.into_cpp(),
@@ -196,16 +200,20 @@ def pinhole(
     cluster_charge_sign: int = 1,
     fragmentation_energy: MaybeQuantity | None = None,
     seed: int = 42,
-    log_callback: Callable[[int, str], None] | None = None,
+    log_callback: Callable[[str, str], None] | None = None,
     result_callback: Callable[[numpy.ndarray], None] | None = None,
     quantities_strict=True,
 ):
-    process_arg = QuantityProcessor(locals(), quantities_strict)
-    lengths = process_arg("lengths", "meters")
-    voltages = process_arg("voltages", "volts")
-    T = process_arg("T", "kelvin")
-    pressure_first = process_arg("pressure_first", "pascals")
-    pressure_second = process_arg("pressure_second", "pascals")
+    process_arg = QuantityProcessor(quantities_strict)
+    lengths = process_arg("lengths", lengths, "meters")
+    voltages = process_arg("voltages", voltages, "volts")
+    T = process_arg("T", T, "kelvin")
+    pressure_first = process_arg("pressure_first", pressure_first, "pascals")
+    pressure_second = process_arg("pressure_second", pressure_second, "pascals")
+    if fragmentation_energy is not None:
+        fragmentation_energy = process_arg(
+            "fragmentation_energy", fragmentation_energy, "kelvin"
+        )
     if skimmer.shape[1] == 3:
         if mesh_skimmer is None:
             raise ValueError(

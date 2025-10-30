@@ -4,7 +4,7 @@ from typing import Any
 import numpy
 from pint import get_application_registry
 
-from .api import Gas, Quadrupole, Histogram, ureg
+from .api import Gas, _Gas, Quadrupole, _Quadrupole, ClusterData, Histogram, ureg
 
 Q_ = ureg.Quantity
 

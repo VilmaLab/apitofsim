@@ -76,7 +76,7 @@ SkimmerResult skimmer(
   return result;
 }
 
-nb::tuple densityandrate(
+nb::typed<nb::tuple, Histogram, Histogram> densityandrate(
   ClusterData &cluster_0,
   ClusterData &cluster_1,
   ClusterData &cluster_2,
@@ -302,7 +302,7 @@ NB_MODULE(_apitofsim, m)
         "pressure_first"_a,
         "pressure_second"_a,
         "N"_a,
-        "fragmentation_energy"_a  = std::nullopt,
+        "fragmentation_energy"_a = std::nullopt,
         "quadrupole"_a = std::nullopt,
         "cluster_charge_sign"_a = 1,
         "seed"_a = 42ull,
