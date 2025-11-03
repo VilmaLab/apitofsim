@@ -7,6 +7,7 @@ from enum import Enum
 from pandas import DataFrame
 from pint import get_application_registry, Quantity
 from pint._typing import Magnitude
+from abc import ABC, abstractmethod
 
 from _apitofsim import (
     skimmer as _skimmer,
@@ -16,6 +17,10 @@ from _apitofsim import (
     Histogram as _Histogram,
     Quadrupole as _Quadrupole,
     pinhole as _pinhole,
+    KTotalInput,
+    compute_density_of_states_batch as _compute_density_of_states_batch,
+    compute_k_total_batch as _compute_k_total_batch,
+    FragmentationPathway,
 )
 from pint.facets import MagnitudeT
 
@@ -27,8 +32,13 @@ ureg.define(
 Q_ = ureg.Quantity
 
 
+class ClusterLike(ABC):
+    @abstractmethod
+    def get_frequencies(self) -> numpy.ndarray: ...
+
+
 @dataclass
-class ClusterData:
+class ClusterData(ClusterLike):
     mass: Quantity[float]
     electronic_energy: Quantity[float]
     rotations: numpy.ndarray
@@ -39,7 +49,24 @@ class ClusterData:
             self.mass.to("amu").magnitude,
             self.electronic_energy.to("hartree").magnitude,
             self.rotations,
-            numpy.asfortranarray(self.frequencies, dtype=numpy.float64),
+            self.get_frequencies(),
+        )
+
+    def get_frequencies(self) -> numpy.ndarray:
+        return numpy.asfortranarray(self.frequencies, dtype=numpy.float64)
+
+
+@dataclass
+class ProductsCluster(ClusterLike):
+    cluster1: ClusterData
+    cluster2: ClusterData
+
+    def get_frequencies(self) -> numpy.ndarray:
+        return numpy.asfortranarray(
+            numpy.concatenate(
+                (self.cluster1.get_frequencies(), self.cluster2.get_frequencies())
+            ),
+            dtype=numpy.float64,
         )
 
 
@@ -145,6 +172,36 @@ def skimmer(
         return DataFrame(out, columns=SKIMMER_COLUMNS)  # pyright: ignore [reportArgumentType]
     else:
         return out
+
+
+def compute_density_of_states_batch(
+    clusters: List[ClusterLike],
+    energy_max: MaybeQuantity,
+    bin_width: MaybeQuantity,
+    use_old_impl=False,
+    *,
+    quantities_strict=True,
+):
+    process_arg = QuantityProcessor(quantities_strict)
+    energy_max = process_arg("energy_max", energy_max, "kelvin")
+    bin_width = process_arg("bin_width", bin_width, "kelvin")
+    frequencies = [cluster.get_frequencies() for cluster in clusters]
+    return _compute_density_of_states_batch(
+        frequencies, energy_max, bin_width, use_old_impl=use_old_impl
+    )
+
+
+def compute_k_total_batch(
+    inputs: List[KTotalInput],
+    energy_max_rate: MaybeQuantity,
+    bin_width: MaybeQuantity,
+    *,
+    quantities_strict=True,
+):
+    process_arg = QuantityProcessor(quantities_strict)
+    energy_max_rate = process_arg("energy_max", energy_max_rate, "kelvin")
+    bin_width = process_arg("bin_width", bin_width, "kelvin")
+    return _compute_k_total_batch(inputs, energy_max_rate, bin_width)
 
 
 def densityandrate(

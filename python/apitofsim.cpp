@@ -9,6 +9,7 @@
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/string_view.h>
 #include <nanobind/stl/optional.h>
+#include <nanobind/stl/vector.h>
 
 #include "skimmer_lib.h"
 #include "densityandrate_lib.h"
@@ -287,6 +288,30 @@ NB_MODULE(_apitofsim, m)
         "bin_width"_a,
         "fragmentation_energy"_a);
 
+  m.def("compute_density_of_states_batch", &compute_density_of_states_batch,
+        "batch_frequencies"_a,
+        "energy_max"_a,
+        "bin_width"_a,
+        "use_old_impl"_a = false);
+
+  nb::class_<KTotalInput>(m, "KTotalInput")
+    .def(nb::init<ClusterData &, ClusterData &, double, Eigen::Ref<Eigen::ArrayXd>, Eigen::Ref<Eigen::ArrayXd>>(),
+         nb::arg("cluster_1"),
+         nb::arg("cluster_2"),
+         nb::arg("fragmentation_energy"),
+         nb::arg("rho_parent"),
+         nb::arg("rho_comb"))
+    .def_ro("cluster_1", &KTotalInput::cluster_1)
+    .def_ro("cluster_2", &KTotalInput::cluster_2)
+    .def_ro("fragmentation_energy", &KTotalInput::fragmentation_energy)
+    .def_ro("rho_parent", &KTotalInput::rho_parent)
+    .def_ro("rho_comb", &KTotalInput::rho_comb);
+
+  m.def("compute_k_total_batch", &compute_k_total_batch,
+        "batch_input"_a,
+        "energy_max_rate"_a,
+        "bin_width"_a);
+
   m.def("pinhole", &pinhole,
         "cluster_0"_a,
         "cluster_1"_a,
@@ -308,4 +333,11 @@ NB_MODULE(_apitofsim, m)
         "seed"_a = 42ull,
         "log_callback"_a = std::nullopt,
         "result_callback"_a = std::nullopt);
+
+  nb::class_<FragmentationPathway>(m, "FragmentationPathway")
+    .def(nb::init<ClusterData &, ClusterData &, ClusterData &>(),
+         nb::arg("parent"),
+         nb::arg("product1"),
+         nb::arg("product2"))
+    .def("fragmentation_energy_kelvin", &FragmentationPathway::fragmentation_energy_kelvin);
 }
