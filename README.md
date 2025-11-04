@@ -30,12 +30,12 @@ The binaries are then in `build/src`. You add this directory to your PATH or sym
 
 This will also create a compilation database that `clangd` can use.
 
-There are debug and sanitize Meson "native build configuration" files using clang in `clangdebug.ini` and `clangsan.ini` respectively.
+There are debug and sanitize Meson "native build configuration" files using clang in `meson/clangdebug.ini` and `meson/clangsan.ini` respectively.
 On Linux, you may need to install `libc++` (from LLVM rather than GNU) e.g. `apt install 'libc++1' 'libc++-dev'`.
 For example:
 
 ```bash
-meson setup --native-file clangdebug.ini debugbuild
+meson setup --native-file meson/clangdebug.ini debugbuild
 ```
 
 ## Using the executables
@@ -64,4 +64,3 @@ Make the executables with
 cd source
 make
 ```
-
