@@ -16,7 +16,12 @@ else
 endif
 
 python_feat = get_option('python')
+ittnotify_feat = get_option('ittnotify')
 
+if ittnotify_feat.enabled()
+  ittnotify = dependency('ittnotify', include_type : 'system')
+  add_project_dependencies(ittnotify, language: 'cpp')
+endif
 openmp = dependency('openmp', include_type : 'system')
 eigen3 = dependency('eigen3', include_type : 'system')
 nanobind = dependency('nanobind', required : python_feat, include_type : 'system')
