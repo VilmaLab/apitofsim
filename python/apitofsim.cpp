@@ -310,7 +310,8 @@ NB_MODULE(_apitofsim, m)
   m.def("compute_k_total_batch", &compute_k_total_batch,
         "batch_input"_a,
         "energy_max_rate"_a,
-        "bin_width"_a);
+        "bin_width"_a,
+        "mesh_mode"_a = 0);
 
   m.def("pinhole", &pinhole,
         "cluster_0"_a,

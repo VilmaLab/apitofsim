@@ -195,13 +195,14 @@ def compute_k_total_batch(
     inputs: List[KTotalInput],
     energy_max_rate: MaybeQuantity,
     bin_width: MaybeQuantity,
+    mesh_mode: int,
     *,
     quantities_strict=True,
 ):
     process_arg = QuantityProcessor(quantities_strict)
     energy_max_rate = process_arg("energy_max", energy_max_rate, "kelvin")
     bin_width = process_arg("bin_width", bin_width, "kelvin")
-    return _compute_k_total_batch(inputs, energy_max_rate, bin_width)
+    return _compute_k_total_batch(inputs, energy_max_rate, bin_width, mesh_mode)
 
 
 def densityandrate(

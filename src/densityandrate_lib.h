@@ -1,4 +1,5 @@
 #include <iostream>
+#include <optional>
 #include <stdlib.h>
 #include <math.h>
 #include "utils.h"
@@ -87,25 +88,103 @@ DensityResult compute_density_of_states_all(ClusterData &cluster_0, ClusterData 
 // FUNCTIONS
 
 
-void compute_k_total(Eigen::ArrayXd &k0, Eigen::Ref<Eigen::ArrayXd> k_rate, double inertia_moment_1, double inertia_moment_2, Eigen::Vector3d &rotations_1, Eigen::Vector3d &rotations_2, const Eigen::Ref<const Eigen::ArrayXd> rho_comb, const Eigen::Ref<const Eigen::ArrayXd> rho_0, double bin_width, int m_max_rate, double fragmentation_energy)
-{
-  using namespace consts;
-  double prefactor;
-  int n_fragmentation;
-  double integral;
-  double density_cluster;
-  double normalization;
+double get_prefactor_k_total(double inertia_moment_1, double inertia_moment_2, Eigen::Vector3d &rotations_1, Eigen::Vector3d &rotations_2) {
+  using consts::pi;
 
   double rotations_product_1 = rotations_1[0] * rotations_1[1] * rotations_1[2];
   double rotations_product_2 = rotations_2[0] * rotations_2[1] * rotations_2[2];
 
-  prefactor = 2.0 * kb * kb * (inertia_moment_1 + inertia_moment_2) / (pi * hbar * hbar * hbar * pow(pow(rotations_product_1, 1.0 / 3) + pow(rotations_product_2, 1.0 / 3), 1.5));
-  n_fragmentation = int(fragmentation_energy / bin_width);
+  return 2.0 * kb * kb * (inertia_moment_1 + inertia_moment_2) / (pi * hbar * hbar * hbar * pow(pow(rotations_product_1, 1.0 / 3) + pow(rotations_product_2, 1.0 / 3), 1.5));
+}
+
+
+double get_final_rate_k_total(Eigen::ArrayXd &k0, const Eigen::Ref<const Eigen::ArrayXd> rho_0, double bin_width, int m, int n_fragmentation)
+{
+  // Integrate over all rotation energies
+  double normalization = 0.0;
+#pragma omp simd reduction(+ : normalization)
+  for (int i = 0; i <= n_fragmentation + m; i++)
+  {
+    double rotational_energy = bin_width * (i + 0.5);
+    normalization += rho_0[n_fragmentation + m - i] * sqrt(rotational_energy);
+  }
+
+  double integral = 0.0;
+  // Cycle over integral differential
+#pragma omp simd reduction(+ : integral)
+  for (int i = 0; i <= m; i++)
+  {
+    double rotational_energy = bin_width * (i + 0.5);
+    integral += rho_0[n_fragmentation + m - i] * sqrt(rotational_energy) * k0[m - i];
+  }
+
+  return integral / normalization;
+}
+
+Eigen::ArrayXd compute_mesh(double bin_width, int m_max_rate)
+{
+  Eigen::ArrayXd mesh = Eigen::ArrayXd::Zero(m_max_rate);
+#pragma omp simd collapse(2)
+  for (int i = 0; i < m_max_rate; i++) // rotational energy
+  {
+    double rotational_energy_sqrt = sqrt(bin_width * (i + 0.5));
+    for (int j = 0; j < m_max_rate - i; j++)
+    {
+      double translational_energy = bin_width * (j + 0.5);
+      mesh[i + j] += translational_energy * rotational_energy_sqrt;
+    }
+  }
+  return mesh;
+}
+
+Eigen::ArrayXd compute_mesh_rearranged(double bin_width, int m_max_rate)
+{
+  Eigen::ArrayXd mesh = Eigen::ArrayXd(m_max_rate);
+  for (int i_p_j = 0; i_p_j < m_max_rate; i_p_j++)
+  {
+    double mesh_i_p_j = 0;
+#pragma omp simd reduction(+ : mesh_i_p_j)
+    for (int j = 0; j < i_p_j; j++)
+    {
+      int i = i_p_j - j;
+      double rotational_energy_sqrt = sqrt(bin_width * (i + 0.5));
+      double translational_energy = bin_width * (j + 0.5);
+      mesh_i_p_j += translational_energy * rotational_energy_sqrt;
+    }
+    mesh[i_p_j] = mesh_i_p_j;
+  }
+  return mesh;
+}
+
+void compute_k_total_mesh(Eigen::ArrayXd &k0, Eigen::ArrayXd &mesh, Eigen::Ref<Eigen::ArrayXd> k_rate, double inertia_moment_1, double inertia_moment_2, Eigen::Vector3d &rotations_1, Eigen::Vector3d &rotations_2, const Eigen::Ref<const Eigen::ArrayXd> rho_comb, const Eigen::Ref<const Eigen::ArrayXd> rho_0, double bin_width, int m_max_rate, double fragmentation_energy)
+{
+  double prefactor = get_prefactor_k_total(inertia_moment_1, inertia_moment_2, rotations_1, rotations_2);
+  int n_fragmentation = int(fragmentation_energy / bin_width);
   for (int m = 0; m < m_max_rate; m++)
   {
-    density_cluster = rho_0[n_fragmentation + m];
+    double density_cluster = rho_0[n_fragmentation + m];
+    double integral = 0.0;
+#pragma omp simd reduction(+ : integral)
+    for (int i_p_j = 0; i_p_j <= m; i_p_j++)
+    {
+      integral += mesh[i_p_j] * rho_comb[m - i_p_j];
+    }
+
+    k0[m] = prefactor / density_cluster * integral * bin_width * bin_width;
+    k_rate[m] = get_final_rate_k_total(k0, rho_0, bin_width, m, n_fragmentation);
+  }
+}
+
+
+void compute_k_total(Eigen::ArrayXd &k0, Eigen::Ref<Eigen::ArrayXd> k_rate, double inertia_moment_1, double inertia_moment_2, Eigen::Vector3d &rotations_1, Eigen::Vector3d &rotations_2, const Eigen::Ref<const Eigen::ArrayXd> rho_comb, const Eigen::Ref<const Eigen::ArrayXd> rho_0, double bin_width, int m_max_rate, double fragmentation_energy)
+{
+  double prefactor = get_prefactor_k_total(inertia_moment_1, inertia_moment_2, rotations_1, rotations_2);
+  int n_fragmentation = int(fragmentation_energy / bin_width);
+  for (int m = 0; m < m_max_rate; m++)
+  {
+    double density_cluster = rho_0[n_fragmentation + m];
     //  Compute double integral
-    integral = 0.0;
+    double integral = 0.0;
     for (int i = 0; i <= m; i++) // rotational energy
     {
       double rotational_energy_sqrt = sqrt(bin_width * (i + 0.5));
@@ -118,44 +197,20 @@ void compute_k_total(Eigen::ArrayXd &k0, Eigen::Ref<Eigen::ArrayXd> k_rate, doub
     }
 
     k0[m] = prefactor / density_cluster * integral * bin_width * bin_width;
-
-    // Integrate over all rotation energies
-    normalization = 0.0;
-#pragma omp simd reduction(+ : normalization)
-    for (int i = 0; i <= n_fragmentation + m; i++)
-    {
-      double rotational_energy = bin_width * (i + 0.5);
-      normalization += rho_0[n_fragmentation + m - i] * sqrt(rotational_energy);
-    }
-
-    integral = 0.0;
-    // Cycle over integral differential
-#pragma omp simd reduction(+ : integral)
-    for (int i = 0; i <= m; i++)
-    {
-      double rotational_energy = bin_width * (i + 0.5);
-      integral += rho_0[n_fragmentation + m - i] * sqrt(rotational_energy) * k0[m - i];
-    }
-    k_rate[m] = integral / normalization;
+    k_rate[m] = get_final_rate_k_total(k0, rho_0, bin_width, m, n_fragmentation);
   }
 }
 
 void compute_k_total_atom(Eigen::ArrayXd &k0, Eigen::Ref<Eigen::ArrayXd> k_rate, double inertia_moment_1, const Eigen::Ref<const Eigen::ArrayXd> rho_comb, const Eigen::Ref<const Eigen::ArrayXd> rho_0, double bin_width, int m_max_rate, double fragmentation_energy)
 {
   using consts::pi;
-  double prefactor;
-  int n_fragmentation;
-  double integral;
-  double density_cluster;
-  double normalization;
 
-  prefactor = kb * kb * (inertia_moment_1) / (pi * hbar * hbar * hbar);
-  n_fragmentation = int(fragmentation_energy / bin_width);
+  double prefactor = kb * kb * (inertia_moment_1) / (pi * hbar * hbar * hbar);
+  int n_fragmentation = int(fragmentation_energy / bin_width);
   for (int m = 0; m < m_max_rate; m++)
   {
-    density_cluster = rho_0[n_fragmentation + m];
-    //  Compute double integral
-    integral = 0.0;
+    double density_cluster = rho_0[n_fragmentation + m];
+    double integral = 0.0;
 #pragma omp simd reduction(+ : integral)
     for (int i = 0; i <= m; i++) // translational energy
     {
@@ -164,24 +219,7 @@ void compute_k_total_atom(Eigen::ArrayXd &k0, Eigen::Ref<Eigen::ArrayXd> k_rate,
     }
 
     k0[m] = prefactor / density_cluster * integral * bin_width;
-
-    normalization = 0.0;
-#pragma omp simd reduction(+ : normalization)
-    for (int i = 0; i <= n_fragmentation + m; i++)
-    {
-      double rotational_energy = bin_width * (i + 0.5);
-      normalization += rho_0[n_fragmentation + m - i] * sqrt(rotational_energy);
-    }
-
-    integral = 0.0;
-    // Cycle over integral differential
-#pragma omp simd reduction(+ : integral)
-    for (int i = 0; i <= m; i++)
-    {
-      double rotational_energy = bin_width * (i + 0.5);
-      integral += rho_0[n_fragmentation + m - i] * sqrt(rotational_energy) * k0[m - i];
-    }
-    k_rate[m] = integral / normalization;
+    k_rate[m] = get_final_rate_k_total(k0, rho_0, bin_width, m, n_fragmentation);
   }
 }
 
@@ -367,12 +405,16 @@ Eigen::ArrayXXd compute_density_of_states_batch(std::vector<Eigen::ArrayXd> batc
   return result;
 }
 
-void compute_k_total_general(Eigen::ArrayXd &k0, Eigen::Ref<Eigen::ArrayXd> k_rate, ClusterData &cluster_1, ClusterData &cluster_2, double fragmentation_energy, Eigen::Ref<Eigen::ArrayXd> rho_parent, Eigen::Ref<Eigen::ArrayXd> rho_comb, double bin_width, double m_max_rate)
+void compute_k_total_general(Eigen::ArrayXd &k0, Eigen::Ref<Eigen::ArrayXd> k_rate, ClusterData &cluster_1, ClusterData &cluster_2, double fragmentation_energy, Eigen::Ref<Eigen::ArrayXd> rho_parent, Eigen::Ref<Eigen::ArrayXd> rho_comb, double bin_width, double m_max_rate, std::optional<Eigen::ArrayXd> mesh = std::nullopt)
 {
   if (!cluster_1.is_atom_like_product() && !cluster_2.is_atom_like_product())
   {
-    // cout << "Generic products" << endl;
-    compute_k_total(k0, k_rate, cluster_1.inertia_moment, cluster_2.inertia_moment, cluster_1.rotations, cluster_2.rotations, rho_comb, rho_parent, bin_width, m_max_rate, fragmentation_energy);
+    if (mesh) {
+      // cout << "Generic products" << endl;
+      compute_k_total_mesh(k0, *mesh, k_rate, cluster_1.inertia_moment, cluster_2.inertia_moment, cluster_1.rotations, cluster_2.rotations, rho_comb, rho_parent, bin_width, m_max_rate, fragmentation_energy);
+    } else {
+      compute_k_total(k0, k_rate, cluster_1.inertia_moment, cluster_2.inertia_moment, cluster_1.rotations, cluster_2.rotations, rho_comb, rho_parent, bin_width, m_max_rate, fragmentation_energy);
+    }
   }
   else if (!cluster_1.is_atom_like_product())
   {
@@ -428,12 +470,20 @@ struct KTotalInput
   Eigen::Ref<Eigen::ArrayXd> rho_comb;
 };
 
-Eigen::ArrayXXd compute_k_total_batch(std::vector<KTotalInput> batch_input, double energy_max_rate, double bin_width)
+Eigen::ArrayXXd compute_k_total_batch(std::vector<KTotalInput> batch_input, double energy_max_rate, double bin_width, int mesh_mode = 0)
 {
   int m_max_rate = int(energy_max_rate / bin_width);
   Eigen::ArrayXXd k_rate = Eigen::ArrayXXd(m_max_rate, batch_input.size());
+  std::optional<Eigen::ArrayXd> mesh;
+  if (mesh_mode == 0) {
+    mesh = std::nullopt;
+  } else if (mesh_mode == 1) {
+    mesh = compute_mesh(bin_width, m_max_rate);
+  } else if (mesh_mode == 2) {
+    mesh = compute_mesh_rearranged(bin_width, m_max_rate);
+  }
 #pragma omp parallel default(none) \
-  firstprivate(batch_input, bin_width, m_max_rate) \
+  firstprivate(batch_input, bin_width, m_max_rate, mesh) \
   shared(k_rate)
   {
     Eigen::ArrayXd k0 = Eigen::ArrayXd(m_max_rate);
@@ -444,7 +494,7 @@ Eigen::ArrayXXd compute_k_total_batch(std::vector<KTotalInput> batch_input, doub
 
       input.cluster_1.compute_derived();
       input.cluster_2.compute_derived();
-      compute_k_total_general(k0, k_rate.col(i), input.cluster_1, input.cluster_2, input.fragmentation_energy, input.rho_parent, input.rho_comb, bin_width, m_max_rate);
+      compute_k_total_general(k0, k_rate.col(i), input.cluster_1, input.cluster_2, input.fragmentation_energy, input.rho_parent, input.rho_comb, bin_width, m_max_rate, mesh);
     }
   }
   return k_rate;
