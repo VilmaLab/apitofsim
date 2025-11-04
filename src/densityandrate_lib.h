@@ -91,144 +91,98 @@ void compute_k_total(Eigen::ArrayXd &k0, Eigen::Ref<Eigen::ArrayXd> k_rate, doub
 {
   using namespace consts;
   double prefactor;
-  double rotations_product_1;
-  double rotations_product_2;
   int n_fragmentation;
   double integral;
   double density_cluster;
-  double rotational_energy;
-  double translational_energy;
   double normalization;
-  // int a=0;
-  // int m=0;
 
-  rotations_product_1 = rotations_1[0] * rotations_1[1] * rotations_1[2];
-  rotations_product_2 = rotations_2[0] * rotations_2[1] * rotations_2[2];
+  double rotations_product_1 = rotations_1[0] * rotations_1[1] * rotations_1[2];
+  double rotations_product_2 = rotations_2[0] * rotations_2[1] * rotations_2[2];
 
   prefactor = 2.0 * kb * kb * (inertia_moment_1 + inertia_moment_2) / (pi * hbar * hbar * hbar * pow(pow(rotations_product_1, 1.0 / 3) + pow(rotations_product_2, 1.0 / 3), 1.5));
   n_fragmentation = int(fragmentation_energy / bin_width);
   for (int m = 0; m < m_max_rate; m++)
   {
     density_cluster = rho_0[n_fragmentation + m];
-    // if(100*m%m_max_rate==0) cout << "]\033[F\033[J  "<< int(100.0*m/m_max_rate) << "%"<<endl;
-    // cout << "]\033[F\033[J  "<< int(100.0*m/m_max_rate) << "%"<<endl;
     //  Compute double integral
     integral = 0.0;
     for (int i = 0; i <= m; i++) // rotational energy
     {
-      rotational_energy = bin_width * (i + 0.5);
-      for (int j = 0; j <= m - i; j++) // translational energy
+      double rotational_energy_sqrt = sqrt(bin_width * (i + 0.5));
+#pragma omp simd reduction(+ : integral)
+      for (int j = 0; j <= m - i; j++)
       {
-        translational_energy = bin_width * (j + 0.5);
-        integral += translational_energy * sqrt(rotational_energy) * rho_comb[m - i - j];
+        double translational_energy = bin_width * (j + 0.5);
+        integral += translational_energy * rotational_energy_sqrt * rho_comb[m - i - j];
       }
     }
 
     k0[m] = prefactor / density_cluster * integral * bin_width * bin_width;
 
-    // if(m%1000==0 and m>0) cout << std::defaultfloat << 100.0*m/m_max_rate << "%" << endl;
-    //////////////////////////////////////////////////////////////////////////////////////////////////
     // Integrate over all rotation energies
     normalization = 0.0;
+#pragma omp simd reduction(+ : normalization)
     for (int i = 0; i <= n_fragmentation + m; i++)
     {
-      rotational_energy = bin_width * (i + 0.5);
+      double rotational_energy = bin_width * (i + 0.5);
       normalization += rho_0[n_fragmentation + m - i] * sqrt(rotational_energy);
     }
 
     integral = 0.0;
     // Cycle over integral differential
+#pragma omp simd reduction(+ : integral)
     for (int i = 0; i <= m; i++)
     {
-      rotational_energy = bin_width * (i + 0.5);
+      double rotational_energy = bin_width * (i + 0.5);
       integral += rho_0[n_fragmentation + m - i] * sqrt(rotational_energy) * k0[m - i];
     }
     k_rate[m] = integral / normalization;
-
-    // if(k_rate[m]>max_rate) a=1;
-
-    // if ((m + 1) % progress == 0)
-    //{
-    //  cout << defaultfloat << setw(5) << setfill(' ') << fixed << setprecision(1) << 100.0*k_rate[m]/max_rate << "% " << string((int)50.0*k_rate[m]/max_rate,'*') << string(51-(int)50.0*k_rate[m]/max_rate,'-') << " (E="<< bin_width*(m+1) <<" K, k_rate=" << scientific << k_rate[m] << " 1/s)" << endl;
-    // cout << defaultfloat << setw(5) << setfill(' ') << fixed << setprecision(1) << 100.0 * (m + 1) / m_max_rate << "% " << string((int)(50.0 * (m + 1) / m_max_rate), '*') << string(50 - (int)(50.0 * (m + 1) / m_max_rate), '-') << " (E=" << bin_width * (m + 1) << " K, k_rate=" << scientific << k_rate[m] << " 1/s)" << endl;
-    //}
-    // m++;
   }
-  // cout << "100%" << endl;
-  // m_max_rate=m;
-  // if ((m_max_rate) % progress != 0)
-  // cout << defaultfloat << setw(5) << setfill(' ') << fixed << setprecision(1) << 100.0 << "% " << string(50, '*') << " (E=" << bin_width * m_max_rate << " K, k_rate=" << scientific << max_rate << " 1/s)" << endl;
-  // cout <<"]\033[F\033[J";
 }
 
 void compute_k_total_atom(Eigen::ArrayXd &k0, Eigen::Ref<Eigen::ArrayXd> k_rate, double inertia_moment_1, const Eigen::Ref<const Eigen::ArrayXd> rho_comb, const Eigen::Ref<const Eigen::ArrayXd> rho_0, double bin_width, int m_max_rate, double fragmentation_energy)
 {
   using consts::pi;
   double prefactor;
-  // double rotations_product_1;
-  // double rotations_product_2;
   int n_fragmentation;
   double integral;
   double density_cluster;
-  double rotational_energy;
-  double translational_energy;
   double normalization;
-  // int a=0;
-  // int m=0;
-
-  // rotations_product_1 = rotations_1[0] * rotations_1[1] * rotations_1[2];
-  // rotations_product_2 = rotations_2[0] * rotations_2[1] * rotations_2[2];
 
   prefactor = kb * kb * (inertia_moment_1) / (pi * hbar * hbar * hbar);
   n_fragmentation = int(fragmentation_energy / bin_width);
   for (int m = 0; m < m_max_rate; m++)
   {
     density_cluster = rho_0[n_fragmentation + m];
-    // if(100*m%m_max_rate==0) cout << "]\033[F\033[J  "<< int(100.0*m/m_max_rate) << "%"<<endl;
-    // cout << "]\033[F\033[J  "<< int(100.0*m/m_max_rate) << "%"<<endl;
     //  Compute double integral
     integral = 0.0;
+#pragma omp simd reduction(+ : integral)
     for (int i = 0; i <= m; i++) // translational energy
     {
-      translational_energy = bin_width * (i + 0.5);
+      double translational_energy = bin_width * (i + 0.5);
       integral += translational_energy * rho_comb[m - i];
     }
 
     k0[m] = prefactor / density_cluster * integral * bin_width;
 
-    // if(m%1000==0 and m>0) cout << std::defaultfloat << 100.0*m/m_max_rate << "%" << endl;
-    //////////////////////////////////////////////////////////////////////////////////////////////////
-    // Integrate over all rotation energies
     normalization = 0.0;
+#pragma omp simd reduction(+ : normalization)
     for (int i = 0; i <= n_fragmentation + m; i++)
     {
-      rotational_energy = bin_width * (i + 0.5);
+      double rotational_energy = bin_width * (i + 0.5);
       normalization += rho_0[n_fragmentation + m - i] * sqrt(rotational_energy);
     }
 
     integral = 0.0;
     // Cycle over integral differential
+#pragma omp simd reduction(+ : integral)
     for (int i = 0; i <= m; i++)
     {
-      rotational_energy = bin_width * (i + 0.5);
+      double rotational_energy = bin_width * (i + 0.5);
       integral += rho_0[n_fragmentation + m - i] * sqrt(rotational_energy) * k0[m - i];
     }
     k_rate[m] = integral / normalization;
-
-    // if(k_rate[m]>max_rate) a=1;
-
-    // if ((m + 1) % progress == 0)
-    //{
-    //  cout << defaultfloat << setw(5) << setfill(' ') << fixed << setprecision(1) << 100.0*k_rate[m]/max_rate << "% " << string((int)50.0*k_rate[m]/max_rate,'*') << string(51-(int)50.0*k_rate[m]/max_rate,'-') << " (E="<< bin_width*(m+1) <<" K, k_rate=" << scientific << k_rate[m] << " 1/s)" << endl;
-    //  cout << defaultfloat << setw(5) << setfill(' ') << fixed << setprecision(1) << 100.0 * (m + 1) / m_max_rate << "% " << string((int)(50.0 * (m + 1) / m_max_rate), '*') << string(50 - (int)(50.0 * (m + 1) / m_max_rate), '-') << " (E=" << bin_width * (m + 1) << " K, k_rate=" << scientific << k_rate[m] << " 1/s)" << endl;
-    //}
-    // m++;
   }
-  // cout << "100%" << endl;
-  // m_max_rate=m;
-  // if ((m_max_rate) % progress != 0)
-  // cout << defaultfloat << setw(5) << setfill(' ') << fixed << setprecision(1) << 100.0 << "% " << string(50, '*') << " (E=" << bin_width * m_max_rate << " K, k_rate=" << scientific << max_rate << " 1/s)" << endl;
-  // cout <<"]\033[F\033[J";
 }
 
 
