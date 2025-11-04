@@ -12,6 +12,7 @@ if meson.get_compiler('cpp').get_argument_syntax() == 'msvc'
   add_project_arguments('/wd4068', language : 'cpp')
 else
   add_project_arguments('-Wno-unknown-pragmas', language : 'cpp')
+  add_project_arguments('-fno-math-errno', language : 'cpp')
 endif
 
 python_feat = get_option('python')
