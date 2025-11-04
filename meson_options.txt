@@ -1,2 +1,2 @@
 option('python', type : 'feature', value : 'enabled')
-option('ittnotify', type : 'feature', value : 'enabled')
+option('ittnotify', type : 'feature', value : 'disabled')
