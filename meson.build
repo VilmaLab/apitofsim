@@ -31,7 +31,7 @@ if use_intel_openmp
 else
   openmp = dependency('openmp', include_type : 'system')
 endif
-eigen3 = dependency('eigen3', include_type : 'system')
+eigen3 = dependency('eigen3', include_type : 'system', version : '>=5')
 nanobind = dependency('nanobind', required : python_feat, include_type : 'system')
 concurrentqueue = dependency('concurrentqueue', include_type : 'system')
 magic_enum = dependency(
