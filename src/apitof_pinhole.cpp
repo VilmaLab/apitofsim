@@ -18,6 +18,7 @@
 #include <iostream>
 #include <iomanip>
 #include <stdlib.h>
+#include <string>
 #include "apitof_pinhole_lib.h"
 
 Histogram read_histogram(char *filename);
@@ -181,6 +182,13 @@ void apitof_pinhole_config_in()
       lengths << L0, L1, L2, L3, Lsk;
       InstrumentVoltages voltages(5);
       voltages << V0, V1, V2, V3, V4;
+      int sample_mode = 0;
+      char *sample_mode_env = getenv("SAMPLE_MODE");
+      if (sample_mode_env != nullptr && strcmp(sample_mode_env, "1") == 0)
+      {
+        std::cout << "Using SAMPLE_MODE=1\n";
+        sample_mode = 1;
+      }
       counters = apitof_pinhole(
         cluster_charge_sign,
         T,
@@ -206,7 +214,8 @@ void apitof_pinhole_config_in()
         skimmer,
         mesh_skimmer,
         root_seed,
-        result_queue);
+        result_queue,
+        sample_mode);
     });
     result_queue.enqueue(std::monostate{});
   });

@@ -253,13 +253,12 @@ template <typename GenT>
 void time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &unif, double rate_constant, double *v_cluster, double &v_cluster_norm, double n1, double n2, double mobility_gas, double mobility_gas_inv, double R, double dt1, double dt2, double &z, double &x, double &y, double &delta_t, double &t_fragmentation, double first_chamber_end, double sk_end, double quadrupole_start, double quadrupole_end, double second_chamber_end, double acc1, double acc2, double acc3, double acc4, double &t, double m_gas, const SkimmerData &skimmer, double mesh_skimmer, std::optional<Quadrupole> quadrupole, LogHelper tmp_evolution);
 void update_physical_quantities(double z, const SkimmerData skimmer, double mesh_skimmer, double &v_gas, double &temperature, double &pressure, double &density, double first_chamber_end, double sk_end, double P1, double P2, double n1, double n2, double T);
 template <typename GenT>
-void draw_theta_skimmer(GenT &gen, uniform_real_distribution<double> &unif, double &theta, double z, double n1, double n2, double m_gas, double mobility_gas, double mobility_gas_inv, double R, double *v_cluster, double v_gas, double pressure, double temperature, double first_chamber_end, double sk_end, WarningHelper warn);
-void update_param(double &v_cluster_norm, double *v_cluster, double *v_cluster_versor, double theta, double phi, double &sintheta, double &costheta, double &sinphi, double &cosphi);
+double draw_theta_skimmer(GenT &gen, uniform_real_distribution<double> &unif, double z, double n1, double n2, double m_gas, double mobility_gas, double mobility_gas_inv, double R, double *v_cluster, double v_gas, double pressure, double temperature, double first_chamber_end, double sk_end, WarningHelper warn, int mode = 0);
 template <typename GenT>
-void draw_u_norm_skimmer(GenT &gen, uniform_real_distribution<double> &unif, double z, double du, double boundary_u, double &u_norm, double theta, double n1, double n2, double m_gas, double mobility_gas, double mobility_gas_inv, double R, double *v_cluster, double v_gas, double pressure, double temperature, double first_chamber_end, double sk_end, double costheta, WarningHelper warn);
+double draw_u_norm_skimmer(GenT &gen, uniform_real_distribution<double> &unif, double z, double du, double boundary_u, double theta, double n1, double n2, double m_gas, double mobility_gas, double mobility_gas_inv, double R, double *v_cluster, double v_gas, double pressure, double temperature, double first_chamber_end, double sk_end, WarningHelper warn, int mode = 0);
 void evaluate_relative_velocity(double z, double *v_cluster, double &v_rel_norm, double v_gas, double *v_rel, double first_chamber_end, double sk_end);
 template <typename GenT>
-double draw_vib_energy(GenT &gen, uniform_real_distribution<double> &unif, double vib_energy_old, const Histogram &density_cluster, double reduced_mass, double u_norm, double v_cluster_norm, double theta);
+double draw_vib_energy(GenT &gen, uniform_real_distribution<double> &unif, double vib_energy_old, const Histogram &density_cluster, double reduced_mass, double u_norm, double v_cluster_norm, double theta, int mode = 0);
 void update_velocities(double *v_cluster, double &v_cluster_norm, double *v_rel, double v_gas);
 void update_rot_vel(double *omega, double rot_energy_old, double rot_energy);
 int mod_func_int(int a, int b);
@@ -296,9 +295,10 @@ Counters apitof_pinhole(
   const Histogram &density_cluster,
   const Histogram &rate_const,
   const SkimmerData &skimmer,
-  double mesh_skimmer,
+  const double mesh_skimmer,
   unsigned long long root_seed,
-  StreamingResultQueue &result_queue)
+  StreamingResultQueue &result_queue,
+  const int sample_mode = 0)
 {
   using namespace consts;
   // TO BE DELETED ###############
@@ -420,7 +420,8 @@ Counters apitof_pinhole(
         skimmer, mesh_skimmer, total_length, mobility_gas, \
         mobility_gas_inv, gas_mean_free_path, first_chamber_end, root_seed, \
         sk_end, quadrupole_start, quadrupole_end, acc1, acc2, acc3, acc4, \
-        P1, P2, bonding_energy, m_gas, quadrupole, du, boundary_u, reduced_mass, pi) \
+        P1, P2, bonding_energy, m_gas, quadrupole, du, boundary_u, reduced_mass, pi, \
+        sample_mode) \
   shared(exception_helper, result_queue) \
   reduction(+ : counters) \
   schedule(guided)
@@ -452,20 +453,13 @@ Counters apitof_pinhole(
       double v_rel[3];
       double v_rel_norm;
       double omega[3];
-      double v_cluster_versor[3];
       double v_gas;
       double temperature;
       double density;
       double v_cluster_norm;
 
       double theta;
-      double phi;
       double u_norm; // normal velocity of colliding gas molecule
-
-      double sintheta;
-      double costheta;
-      double sinphi;
-      double cosphi;
 
       double vib_energy = 0.0;
       double rot_energy;
@@ -591,15 +585,10 @@ Counters apitof_pinhole(
           update_physical_quantities(z, skimmer, mesh_skimmer, v_gas, temperature, pressure, density, first_chamber_end, sk_end, P1, P2, n1, n2, T);
 
           // Draw theta angle of collision
-          draw_theta_skimmer(gen, unif, theta, z, n1, n2, m_gas, mobility_gas, mobility_gas_inv, R_tot, v_cluster, v_gas, pressure, temperature, first_chamber_end, sk_end, warn);
-
-          phi = 2.0 * pi * unif(gen);
-
-          // Update some parameters useful for calculations
-          update_param(v_cluster_norm, v_cluster, v_cluster_versor, theta, phi, sintheta, costheta, sinphi, cosphi);
+          theta = draw_theta_skimmer(gen, unif, z, n1, n2, m_gas, mobility_gas, mobility_gas_inv, R_tot, v_cluster, v_gas, pressure, temperature, first_chamber_end, sk_end, warn, sample_mode);
 
           // Draw normal velocity of carrier gas
-          draw_u_norm_skimmer(gen, unif, z, du, boundary_u, u_norm, theta, n1, n2, m_gas, mobility_gas, mobility_gas_inv, R_tot, v_cluster, v_gas, pressure, temperature, first_chamber_end, sk_end, costheta, warn);
+          u_norm = draw_u_norm_skimmer(gen, unif, z, du, boundary_u, theta, n1, n2, m_gas, mobility_gas, mobility_gas_inv, R_tot, v_cluster, v_gas, pressure, temperature, first_chamber_end, sk_end, warn, sample_mode);
 
           vib_energy_old = vib_energy;
 
@@ -607,7 +596,7 @@ Counters apitof_pinhole(
 
           // Evaluate the dissipated energy in the collision (energy that goes to vibrational modes)
 
-          vib_energy_new = draw_vib_energy(gen, unif, vib_energy_old, density_cluster, reduced_mass, u_norm, v_rel_norm, theta);
+          vib_energy_new = draw_vib_energy(gen, unif, vib_energy_old, density_cluster, reduced_mass, u_norm, v_rel_norm, theta, sample_mode);
 
           bool collision_accepted = true;
           eval_collision(gen, unif, collision_accepted, gas_mean_free_path, x, y, z, total_length, radius_pinhole, quadrupole_end, v_rel, omega, u_norm, theta, R_cluster, vib_energy_new, vib_energy_old, m_ion, m_gas, temperature, LogHelper{result_queue, LogMessage::pinhole});
@@ -839,87 +828,6 @@ template <typename GenT>
 double onedimMaxwell_angular(GenT &gen, normal_distribution<double> &gauss, double m, double R, double kT)
 {
   return sqrt(2.5 * kT / (m * R * R)) * gauss(gen);
-}
-
-
-// Evaluate parameters
-void update_param(double &v_cluster_norm, double *v_cluster, double *v_cluster_versor, double theta, double phi, double &sintheta, double &costheta, double &sinphi, double &cosphi)
-{
-  v_cluster_norm = sqrt(v_cluster[0] * v_cluster[0] + v_cluster[1] * v_cluster[1] + v_cluster[2] * v_cluster[2]);
-  v_cluster_versor[0] = v_cluster[0] / v_cluster_norm;
-  v_cluster_versor[1] = v_cluster[1] / v_cluster_norm;
-  v_cluster_versor[2] = v_cluster[2] / v_cluster_norm;
-  sintheta = sin(theta);
-  costheta = cos(theta);
-  sinphi = sin(phi);
-  cosphi = cos(phi);
-}
-
-
-// Change of coordinates from the cluster reference system to the laboratory one -- Input vectors are normalized!
-void coord_change(double *v_cluster_versor, double *u_versor, double sintheta, double costheta, double sinphi, double cosphi)
-{
-  double c_x;
-  double c_y;
-  // double sintheta;
-  // double sinphi;
-  // double costheta;
-  // double cosphi;
-  double vel_squared;
-  double versor_collision[3];
-
-  if (v_cluster_versor[2] == 0)
-  {
-    throw ApiTofError("z-component of cluster velocity is zero.");
-  }
-  // Coefficients
-  c_x = 1.0 / sqrt(1.0 + pow(v_cluster_versor[0] / v_cluster_versor[2], 2));
-  vel_squared = v_cluster_versor[0] * v_cluster_versor[0] + v_cluster_versor[2] * v_cluster_versor[2];
-  c_y = 1.0 / sqrt((v_cluster_versor[1] * v_cluster_versor[1] * vel_squared) / (vel_squared * vel_squared) + 1.0);
-
-  // // Trigonometric values
-  // sintheta=sin(theta);
-  // sinphi=sin(phi);
-  // costheta=cos(theta);
-  // cosphi=cos(phi);
-
-  // Returning values
-  versor_collision[0] = sintheta * cosphi * c_x - c_y * sintheta * sinphi * v_cluster_versor[0] * v_cluster_versor[1] / vel_squared + costheta * v_cluster_versor[0];
-  versor_collision[1] = sintheta * sinphi * c_y + costheta * v_cluster_versor[1];
-  versor_collision[2] = -(v_cluster_versor[0] / v_cluster_versor[2]) * sintheta * cosphi * c_x - sintheta * sinphi * c_y * v_cluster_versor[1] * v_cluster_versor[2] / vel_squared + costheta * v_cluster_versor[2];
-
-  // cout << versor_collision[0]*versor_collision[0]+versor_collision[1]*versor_collision[1]+versor_collision[2]*versor_collision[2] << endl;
-
-  u_versor[0] = -versor_collision[0];
-  u_versor[1] = -versor_collision[1];
-  u_versor[2] = -versor_collision[2];
-}
-
-
-// Evaluate cluster velocity after collision
-void vel_after_coll(double *u_versor, double u_norm, double *v_cluster, double v_cluster_norm, double costheta, double m, double m_gas)
-{
-  double c1 = m / m_gas - 1.0;
-  double c2 = m / m_gas + 1.0;
-  double c3 = v_cluster_norm * costheta;
-
-  double v_perp[3];
-  double v_paral[3];
-
-  // Evaluate parallel components
-  v_paral[0] = -u_versor[0] * c3;
-  v_paral[1] = -u_versor[1] * c3;
-  v_paral[2] = -u_versor[2] * c3;
-
-  // Evaluate perpendicular components
-  v_perp[0] = v_cluster[0] - v_paral[0];
-  v_perp[1] = v_cluster[1] - v_paral[1];
-  v_perp[2] = v_cluster[2] - v_paral[2];
-
-  // Final velocity
-  v_cluster[0] = v_perp[0] + (c1 * v_paral[0] + 2.0 * u_versor[0] * u_norm) / c2;
-  v_cluster[1] = v_perp[1] + (c1 * v_paral[1] + 2.0 * u_versor[1] * u_norm) / c2;
-  v_cluster[2] = v_perp[2] + (c1 * v_paral[2] + 2.0 * u_versor[2] * u_norm) / c2;
 }
 
 
@@ -1250,20 +1158,12 @@ void time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &uni
 
 // Draw theta angle of collision UPDATED
 template <typename GenT>
-void draw_theta_skimmer(GenT &gen, uniform_real_distribution<double> &unif, double &theta, double z, double n1, double n2, double m_gas, double mobility_gas, double mobility_gas_inv, double R, double *v_cluster, double v_gas, double pressure, double temperature, double first_chamber_end, double sk_end, WarningHelper warn)
+double draw_theta_skimmer(GenT &gen, uniform_real_distribution<double> &unif, double z, double n1, double n2, double m_gas, double mobility_gas, double mobility_gas_inv, double R, double *v_cluster, double v_gas, double pressure, double temperature, double first_chamber_end, double sk_end, WarningHelper warn, int mode)
 {
   using namespace consts;
   double r = unif(gen);
-  double integral = 0.0;
-  double c;
-  double dtheta = 1.0e-3;
-  double v_rel[3];
   double n;
   double v_rel_norm;
-  double kT;
-
-  theta = 0.0;
-
 
   if (z < first_chamber_end)
   {
@@ -1272,11 +1172,12 @@ void draw_theta_skimmer(GenT &gen, uniform_real_distribution<double> &unif, doub
   }
   else if (z < sk_end)
   {
+    double v_rel[3];
     v_rel[0] = v_cluster[0];
     v_rel[1] = v_cluster[1];
     v_rel[2] = v_cluster[2] - v_gas;
     v_rel_norm = vec_norm(v_rel);
-    kT = boltzmann * temperature;
+    double kT = boltzmann * temperature;
     mobility_gas = kT / m_gas;
     mobility_gas_inv = 1.0 / mobility_gas;
     n = particle_density(pressure, kT);
@@ -1287,11 +1188,29 @@ void draw_theta_skimmer(GenT &gen, uniform_real_distribution<double> &unif, doub
     v_rel_norm = vec_norm(v_cluster);
   }
 
-  while (r > integral && theta < pi)
+  const double dtheta = 1.0e-3;
+  double theta = 0.0;
+  if (mode == 1)
   {
-    c = distr_theta(theta, n, mobility_gas, mobility_gas_inv, R, v_rel_norm);
-    integral += c * dtheta;
-    theta += dtheta;
+    double integral_unnorm = 0.0;
+    double normalization = coll_freq(n, mobility_gas, mobility_gas_inv, R, v_rel_norm);
+    double r_unnorm = r * normalization;
+    while (integral_unnorm < r_unnorm)
+    {
+      double c = coll_freq_theta(theta, n, mobility_gas, mobility_gas_inv, R, v_rel_norm);
+      integral_unnorm += c * dtheta;
+      theta += dtheta;
+    }
+  }
+  else
+  {
+    double integral = 0.0;
+    while (r > integral && theta < pi)
+    {
+      double c = distr_theta(theta, n, mobility_gas, mobility_gas_inv, R, v_rel_norm);
+      integral += c * dtheta;
+      theta += dtheta;
+    }
   }
   if (theta > pi)
   {
@@ -1301,25 +1220,17 @@ void draw_theta_skimmer(GenT &gen, uniform_real_distribution<double> &unif, doub
       warning << "theta exceeded pi. random number r is: " << r << endl;
     });
   }
+  return theta;
 }
 // Draw translational energy of cluster after the impact with carrier gas
 // Here we are considering a constant density of states for vibrational mode, i.e. a single vibration (simplified model)
 template <typename GenT>
-double draw_vib_energy(GenT &gen, uniform_real_distribution<double> &unif, double vib_energy_old, const Histogram &density_cluster, double reduced_mass, double u_norm, double v_cluster_norm, double theta)
+double draw_vib_energy(GenT &gen, uniform_real_distribution<double> &unif, double vib_energy_old, const Histogram &density_cluster, double reduced_mass, double u_norm, double v_cluster_norm, double theta, int mode)
 {
   using consts::boltzmann;
 
-  double r = unif(gen);
   double relative_speed = u_norm + v_cluster_norm * cos(theta);
-  // cout << relative_speed << endl<<endl;
   double E = vib_energy_old + reduced_mass * 0.5 * relative_speed * relative_speed;
-  // double E=reduced_mass*0.5*relative_speed*relative_speed;
-  double integral = 0.0;
-  double integral2 = 0.0;
-  int m;
-
-
-  // 1st step: I evaluate the integral (normalization)
 
   if (E > density_cluster.x_max)
   {
@@ -1329,23 +1240,37 @@ double draw_vib_energy(GenT &gen, uniform_real_distribution<double> &unif, doubl
     });
   }
 
-  m = 0;
+  // 1st step: I evaluate the integral (normalization)
+  double normalization = 0.0;
+  int m = 0;
   while (density_cluster.x[m] < E)
   {
-    // integral+=1.0/sqrt(E-energies_density[m])*density_cluster[m];  // Not sure if the density of states for translational motion is correct (the treated motion is unidimensional, but the density of states is for 3-dim)
-    integral += sqrt(E - density_cluster.x[m]) * density_cluster.y[m];
+    normalization += sqrt(E - density_cluster.x[m]) * density_cluster.y[m];
     m++;
   }
 
   // 2nd step: I evaluate the random transferred energy to the cluster
   m = 0;
-  while (integral2 < r)
+  double r = unif(gen);
+  if (mode == 1)
   {
-    // integral2+=1.0/sqrt(E-energies_density[m])*density_cluster[m]/integral;
-    integral2 += sqrt(E - density_cluster.x[m]) * density_cluster.y[m] / integral;
-    m++;
+    double r_unnorm = r * normalization;
+    double integral_unnorm = 0.0;
+    while (integral_unnorm < r_unnorm)
+    {
+      integral_unnorm += sqrt(E - density_cluster.x[m]) * density_cluster.y[m];
+      m++;
+    }
   }
-  // debug_file << r << "\t" << relative_speed << "\t" << E/boltzmann << "\t" << energies_density[m-1]/boltzmann << endl;
+  else
+  {
+    double integral = 0.0;
+    while (integral < r)
+    {
+      integral += sqrt(E - density_cluster.x[m]) * density_cluster.y[m] / normalization;
+      m++;
+    }
+  }
   return density_cluster.x[m - 1];
 }
 
@@ -1406,14 +1331,10 @@ void update_rot_vel(double *omega, double rot_energy_old, double rot_energy)
 
 // Draw normal velocity of carrier gas
 template <typename GenT>
-void draw_u_norm_skimmer(GenT &gen, uniform_real_distribution<double> &unif, double z, double du, double boundary_u, double &u_norm, double theta, double n1, double n2, double m_gas, double mobility_gas, double mobility_gas_inv, double R, double *v_cluster, double v_gas, double pressure, double temperature, double first_chamber_end, double sk_end, double costheta, WarningHelper warn)
+double draw_u_norm_skimmer(GenT &gen, uniform_real_distribution<double> &unif, double z, double du, double boundary_u, double theta, double n1, double n2, double m_gas, double mobility_gas, double mobility_gas_inv, double R, double *v_cluster, double v_gas, double pressure, double temperature, double first_chamber_end, double sk_end, WarningHelper warn, int mode)
 {
-  using consts::boltzmann;
-  double r = unif(gen);
-  double c;
-  double integral = 0.0;
+  using namespace consts;
   double n;
-  double v_rel[3];
   double v_rel_norm;
   double kT;
 
@@ -1424,6 +1345,7 @@ void draw_u_norm_skimmer(GenT &gen, uniform_real_distribution<double> &unif, dou
   }
   else if (z < sk_end)
   {
+    double v_rel[3];
     v_rel[0] = v_cluster[0];
     v_rel[1] = v_cluster[1];
     v_rel[2] = v_cluster[2] - v_gas;
@@ -1439,27 +1361,71 @@ void draw_u_norm_skimmer(GenT &gen, uniform_real_distribution<double> &unif, dou
     v_rel_norm = vec_norm(v_cluster);
   }
 
-  if (v_rel_norm * costheta > boundary_u)
+  double u_norm;
+  if (mode == 1)
   {
-    u_norm = -boundary_u;
+    double costheta = cos(theta);
+    double sintheta = sin(theta);
+    if (v_rel_norm * costheta > boundary_u)
+    {
+      u_norm = -boundary_u;
+    }
+    else
+    {
+      u_norm = -v_rel_norm * costheta;
+    }
+
+    double r = unif(gen);
+    double normalization = coll_freq_theta(theta, n, mobility_gas, mobility_gas_inv, R, v_rel_norm);
+    double common_factor = 2.0 * pi * n * R * R * sqrt(0.5 * mobility_gas_inv / pi) * sintheta;
+    double r_unnorm = r * normalization / common_factor;
+    double integral_unnorm = 0.0;
+    while (integral_unnorm < r_unnorm)
+    {
+      double c = (u_norm + v_rel_norm * costheta) * exp(-0.5 * mobility_gas_inv * u_norm * u_norm);
+      integral_unnorm += c * du;
+      u_norm += du;
+    }
+
+    if (u_norm > boundary_u)
+    {
+      u_norm = boundary_u;
+      warn([&](auto &warning)
+      {
+        warning << "u_norm exceeded boundary of the integration. random number r is: " << r << endl;
+      });
+    }
   }
   else
-    u_norm = -v_rel_norm * costheta;
-
-  while (r > integral && u_norm < boundary_u)
   {
-    c = distr_u(u_norm, theta, n, mobility_gas, mobility_gas_inv, R, v_rel_norm);
-    integral += c * du;
-    u_norm += du;
-  }
-
-  if (u_norm > boundary_u)
-  {
-    warn([&](auto &warning)
+    double costheta = cos(theta);
+    if (v_rel_norm * costheta > boundary_u)
     {
-      warning << "u_norm exceeded boundary of the integration. random number r is: " << r << endl;
-    });
+      u_norm = -boundary_u;
+    }
+    else
+    {
+      u_norm = -v_rel_norm * costheta;
+    }
+
+    double r = unif(gen);
+    double integral = 0.0;
+    while (r > integral && u_norm < boundary_u)
+    {
+      double c = distr_u(u_norm, theta, n, mobility_gas, mobility_gas_inv, R, v_rel_norm);
+      integral += c * du;
+      u_norm += du;
+    }
+
+    if (u_norm > boundary_u)
+    {
+      warn([&](auto &warning)
+      {
+        warning << "u_norm exceeded boundary of the integration. random number r is: " << r << endl;
+      });
+    }
   }
+  return u_norm;
 }
 
 
