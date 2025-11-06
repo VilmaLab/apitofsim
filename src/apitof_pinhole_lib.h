@@ -422,7 +422,8 @@ Counters apitof_pinhole(
         sk_end, quadrupole_start, quadrupole_end, acc1, acc2, acc3, acc4, \
         P1, P2, bonding_energy, m_gas, quadrupole, du, boundary_u, reduced_mass, pi) \
   shared(exception_helper, result_queue) \
-  reduction(+ : counters)
+  reduction(+ : counters) \
+  schedule(guided)
   for (int j = 0; j < N; j++)
   {
     // shared(nwarnings, collisions, intenergy, warnings, fragments, tmp, tmp_evolution, file_energy_distribution, final_position, pinhole, probabilities, std::cout, exception_helper)
