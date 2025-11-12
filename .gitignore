@@ -6,3 +6,10 @@
 /.python-version
 /compile_commands.json
 /.cache/
+# pixi environments
+.pixi/*
+!.pixi/config.toml
+# Working/output directories
+benchout/
+/work/
+/output/
