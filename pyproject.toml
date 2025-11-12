@@ -3,7 +3,7 @@ name = 'apitofsim'
 version = '0.0.1'
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = ["numpy", "pandas", "pint==0.25.1rc0"]
+dependencies = ["numpy", "pandas", "pint>=0.25.1"]
 
 [build-system]
 build-backend = 'mesonpy'
