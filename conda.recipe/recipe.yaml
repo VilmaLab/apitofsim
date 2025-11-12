@@ -16,7 +16,7 @@ build:
     - if: unix
       then: |
         pip install --config-settings=setup-args=--native-file=$SRC_DIR/meson/pkg/clangwheel.ini .
-    - if: windows
+    - if: win
       then: |
         pip install --config-settings=setup-args=--native-file=%SRC_DIR%/meson/pkg/windowswheel.ini .
   python:
