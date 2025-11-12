@@ -7,6 +7,7 @@ apitofsim = python.extension_module(
   dependencies: [nanobind, eigen3, openmp, concurrentqueue, magic_enum],
   include_directories: [inc_src],
   install: true,
+  limited_api: '3.12',
 )
 python.install_sources([
 'apitofsim/api.py',
