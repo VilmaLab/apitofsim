@@ -6,6 +6,10 @@
 #include <Eigen/Dense>
 #include "consts.h"
 
+#if defined(__GNUC__) && !defined(__llvm__) && !defined(__INTEL_COMPILER)
+#define ACTUALLY_GCC
+#endif
+
 using namespace std;
 
 // LIST OF FUNCTIONS
@@ -124,10 +128,15 @@ double get_final_rate_k_total(Eigen::ArrayXd &k0, const Eigen::Ref<const Eigen::
 Eigen::ArrayXd compute_mesh(double bin_width, int m_max_rate)
 {
   Eigen::ArrayXd mesh = Eigen::ArrayXd::Zero(m_max_rate);
+#if !defined(ACTUALLY_GCC) || __GNUC__ > 13
 #pragma omp simd collapse(2)
+#endif
   for (int i = 0; i < m_max_rate; i++) // rotational energy
   {
     double rotational_energy_sqrt = sqrt(bin_width * (i + 0.5));
+#if defined(ACTUALLY_GCC) && __GNUC__ <= 13
+#pragma omp simd
+#endif
     for (int j = 0; j < m_max_rate - i; j++)
     {
       double translational_energy = bin_width * (j + 0.5);
