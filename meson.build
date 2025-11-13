@@ -14,7 +14,6 @@ if meson.get_compiler('cpp').get_argument_syntax() == 'msvc'
 else
   add_project_arguments('-Wno-unknown-pragmas', language : 'cpp')
   add_project_arguments('-fno-math-errno', language : 'cpp')
-  add_project_arguments('-frecord-gcc-switches', language : 'cpp')
 endif
 
 python_feat = get_option('python')
