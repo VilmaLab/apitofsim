@@ -30,7 +30,7 @@ jobs:
 
       - name: Generate compile_commands.json
         run: |
-          meson setup build
+          pipx run meson setup build
           cp build/compile_commands.json .
 
       - name: Run clang-format style check
