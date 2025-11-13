@@ -17,10 +17,10 @@ build:
   script:
     - if: unix
       then: |
-        pip install --config-settings=setup-args=--native-file=$SRC_DIR/meson/pkg/clangwheel.ini .
+        pip install --config-settings=setup-args=--native-file=$SRC_DIR/meson/pkg/unixconda.ini .
     - if: win
       then: |
-        pip install --config-settings=setup-args=--native-file=%SRC_DIR%/meson/pkg/windowswheel.ini .
+        pip install --config-settings=setup-args=--native-file=%SRC_DIR%/meson/pkg/windowsconda.ini .
   python:
     version_independent: true
 
