@@ -1,11 +1,11 @@
-name: Test
+name: Tests
 
 on: [push, pull_request]
 
 jobs:
-  build_conda:
-    name: Test
-    runs-on: ubuntu-latest
+  linters_python:
+    name: Python linters
+    runs-on: ubuntu-slim
 
     steps:
       - uses: actions/checkout@v5
@@ -18,4 +18,37 @@ jobs:
 
       - name: Run basedpyright
         run: |
-          basedpyright
+          uv run basedpyright
+
+  linters_cpp:
+    name: C++ linters
+    runs-on: ubuntu-slim
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Generate compile_commands.json
+        run: |
+          meson setup build
+          cp build/compile_commands.json .
+
+      - name: Run clang-format style check
+        uses: jidicula/clang-format-action@v4.16.0
+        with:
+          clang-format-version: '21'
+
+      - name: Run clang-tidy style checker
+        run: |
+          ninja -C build clang-tidy
+
+  build_old:
+    name: Test build possible on old Debian (Bullseye)
+    runs-on: ubuntu-latest
+    container:
+      image: debian:bullseye
+    steps:
+      - uses:
+        run: |
+          meson setup build
+          meson compile -C build
