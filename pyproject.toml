@@ -18,6 +18,7 @@ setup = ['-Dpython=enabled']
 
 [tool.cibuildwheel]
 manylinux-x86_64-image = "quay.io/pypa/manylinux_2_34_x86_64:latest"
+archs = ["auto64"]
 
 [tool.cibuildwheel.linux]
 before-build = "bash ci/setup_linux.sh"
