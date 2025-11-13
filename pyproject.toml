@@ -26,5 +26,10 @@ config-settings = {setup-args="--native-file=../meson/pkg/clangwheel.ini"}
 [tool.cibuildwheel.windows]
 config-settings = {setup-args="--native-file=..\\meson\\pkg\\windowswheel.ini"}
 
+[[tool.cibuildwheel.overrides]]
+select = "*-x86_64"
+inherit.environment = "append"
+environment.CPPFLAGS = "-march=x86-64-v3"
+
 [tool.pyright]
 reportConstantRedefinition = false

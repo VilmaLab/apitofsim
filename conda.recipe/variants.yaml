@@ -1,0 +1,7 @@
+microarch_level:
+  - if: not(unix and x86_64)
+    then:
+      - 0
+    else:
+      - 2
+      - 3

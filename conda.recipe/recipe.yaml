@@ -2,6 +2,7 @@ context:
   name: apitofsim
   version: "0.0.1"
   python_min: "3.12"
+  build: 0
 
 package:
   name: ${{ name }}
@@ -11,7 +12,8 @@ source:
   path: ..
 
 build:
-  number: 0
+  # Prioritize builds with a higher microarch level
+  number: ${{ build|int + (microarch_level|int) * 100 }}
   script:
     - if: unix
       then: |
@@ -29,6 +31,8 @@ requirements:
     - llvm-openmp
     - if: win
       then: clang-cl_win-64
+    - if: microarch_level|int > 0
+      then: x86_64-microarch-level ${{ microarch_level }}
   host:
     - python ${{ python_min }}.*
     - python-abi3 ${{ python_min }}.*  
