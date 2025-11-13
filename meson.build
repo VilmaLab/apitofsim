@@ -9,6 +9,7 @@ project(
   meson_version : '>=1.3.0'
 )
 if meson.get_compiler('cpp').get_argument_syntax() == 'msvc'
+  # Equivalent to no-unknown-pragmas
   add_project_arguments('/wd4068', language : 'cpp')
 else
   add_project_arguments('-Wno-unknown-pragmas', language : 'cpp')
