@@ -27,6 +27,8 @@ requirements:
     - clang
     - clangxx
     - llvm-openmp
+    - if: win
+      then: clang-cl_win-64
   host:
     - python ${{ python_min }}.*
     - python-abi3 ${{ python_min }}.*  
