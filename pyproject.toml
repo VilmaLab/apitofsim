@@ -22,6 +22,10 @@ manylinux-x86_64-image = "quay.io/pypa/manylinux_2_34_x86_64:latest"
 [tool.cibuildwheel.linux]
 before-build = "bash ci/setup_linux.sh"
 config-settings = {setup-args="--native-file=../meson/pkg/clangwheel.ini"}
+repair-wheel-command = [
+  "auditwheel repair --disable-isa-ext-check -w {dest_dir} {wheel}",
+  "pipx run abi3audit --strict --report {wheel}",
+]
 
 [tool.cibuildwheel.windows]
 config-settings = {setup-args="--native-file=..\\meson\\pkg\\windowswheel.ini"}
