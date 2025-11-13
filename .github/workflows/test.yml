@@ -48,7 +48,7 @@ jobs:
     container:
       image: debian:bullseye
     steps:
-      - uses:
+      - name: Build / compile
         run: |
           meson setup build
           meson compile -C build
