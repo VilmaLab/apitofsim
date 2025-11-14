@@ -5,3 +5,10 @@ microarch_level:
     else:
       - 2
       - 3
+
+cxx_compiler:
+  - if: win
+    then:
+      - clang-cl
+    else:
+      - clangxx
