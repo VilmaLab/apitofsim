@@ -15,7 +15,19 @@ build:
   # Prioritize builds with a higher microarch level
   number: ${{ build|int + (microarch_level|int) * 100 }}
   script:
-    - if: unix
+    - if: linux and x86_64
+      then: |
+        CXXFLAGS=${CXXFLAGS//-O2/}
+        CXXFLAGS=${CXXFLAGS//-ftree-vectorize/}
+        CXXFLAGS=$(printf '%s\n' "$CXXFLAGS" | sed -E 's/(^|[[:space:]])-march=[^[:space:]]*//g')
+        CXXFLAGS=$(printf '%s\n' "$CXXFLAGS" | sed -E 's/(^|[[:space:]])-mtune=[^[:space:]]*//g')
+        CXXFLAGS="${CXXFLAGS} -mtune=generic"
+        export CXXFLAGS
+        CPPFLAGS=${CPPFLAGS//-O2/}
+        CPPFLAGS="${CPPFLAGS} -O3"
+        export CPPFLAGS
+        pip install --config-settings=setup-args=--native-file=$SRC_DIR/meson/pkg/unixconda.ini .
+    - if: osx or (linux and aarch64)
       then: |
         pip install --config-settings=setup-args=--native-file=$SRC_DIR/meson/pkg/unixconda.ini .
     - if: win
