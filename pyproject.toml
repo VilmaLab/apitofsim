@@ -25,7 +25,7 @@ before-build = "bash ci/setup_linux.sh"
 config-settings = {setup-args="--native-file=../meson/pkg/clangwheel.ini"}
 repair-wheel-command = [
   "auditwheel repair --disable-isa-ext-check -w {dest_dir} {wheel}",
-  "pipx run abi3audit --strict --report {wheel}",
+  "pipx run abi3audit --strict --report {wheel} --assume-minimum-abi3 3.12",
 ]
 
 [tool.cibuildwheel.windows]
