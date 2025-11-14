@@ -996,7 +996,7 @@ void time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &uni
   double T_skimmer;
   double kT_skimmer;
   double P_skimmer;
-  double n_skimmer;
+  double n_skimmer = NAN;
   double v_gas;
   double v_rel_norm;
   double v1x;

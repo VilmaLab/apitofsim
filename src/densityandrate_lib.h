@@ -490,6 +490,8 @@ Eigen::ArrayXXd compute_k_total_batch(std::vector<KTotalInput> batch_input, doub
     mesh = compute_mesh(bin_width, m_max_rate);
   } else if (mesh_mode == 2) {
     mesh = compute_mesh_rearranged(bin_width, m_max_rate);
+  } else {
+    throw invalid_argument("mesh_mode must be 0, 1 or 2");
   }
 #pragma omp parallel default(none) \
   firstprivate(batch_input, bin_width, m_max_rate, mesh) \
