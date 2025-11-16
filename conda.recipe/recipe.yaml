@@ -32,7 +32,7 @@ build:
         pip install --config-settings=setup-args=--native-file=$SRC_DIR/meson/pkg/unixconda.ini .
     - if: win
       then: |
-        pip install --config-settings=setup-args=--native-file=%SRC_DIR%/meson/pkg/windowsconda.ini .
+        pip install --config-settings=setup-args=--native-file=%SRC_DIR%\meson\pkg\windowsconda.ini .
   python:
     version_independent: true
 
