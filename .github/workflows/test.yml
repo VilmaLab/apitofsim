@@ -28,19 +28,18 @@ jobs:
       - name: Checkout source code
         uses: actions/checkout@v4
 
-      - name: Generate compile_commands.json
+      - name: Run clang-tidy
+      - uses: BSFishy/meson-build@v1.0.3
+        action: tidy
+
+      - name: Copy compile_commands.json
         run: |
-          pipx run meson setup build
           cp build/compile_commands.json .
 
       - name: Run clang-format style check
         uses: jidicula/clang-format-action@v4.16.0
         with:
           clang-format-version: '21'
-
-      - name: Run clang-tidy style checker
-        run: |
-          ninja -C build clang-tidy
 
   build_old:
     name: Test build possible on old Debian (Bullseye)
