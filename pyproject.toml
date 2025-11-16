@@ -18,6 +18,8 @@ setup = ['-Dpython=enabled']
 
 [tool.cibuildwheel]
 manylinux-x86_64-image = "quay.io/pypa/manylinux_2_34_x86_64:latest"
+build = "cp313-*"
+skip = "*-manylinux_i686 cp3??t-* *-musllinux_*"
 archs = ["auto64"]
 
 [tool.cibuildwheel.linux]

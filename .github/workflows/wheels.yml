@@ -21,7 +21,6 @@ jobs:
       - name: Build wheels
         uses: pypa/cibuildwheel@v3.1.4
         env:
-          CIBW_SKIP: "*-manylinux_i686 cp3??t-* *-musllinux_*"
           MACOSX_DEPLOYMENT_TARGET: "14.0"
 
       - uses: actions/upload-artifact@v4
