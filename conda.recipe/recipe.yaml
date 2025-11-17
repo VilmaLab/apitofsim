@@ -33,7 +33,7 @@ build:
     - if: win
       then: |
         set "LDFLAGS=%LDFLAGS:/link=%"
-        set "CXXFLAGS=%CXXFLAGS% -O3 -march=x86-64-v2 -mtune=generic"
+        set "CXXFLAGS=%CXXFLAGS% /Ot -march=x86-64-v2 -mtune=generic"
         pip install --config-settings=setup-args=--native-file=%SRC_DIR%\meson\pkg\windowsconda.ini .
   python:
     version_independent: true
