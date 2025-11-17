@@ -30,7 +30,8 @@ jobs:
 
       - name: Run clang-tidy
         uses: BSFishy/meson-build@v1.0.3
-        action: tidy
+        with:
+          action: tidy
 
       - name: Copy compile_commands.json
         run: |
