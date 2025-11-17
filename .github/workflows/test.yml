@@ -34,7 +34,7 @@ jobs:
 
       - name: Install meson
         run: |
-          apt-get install -y meson
+          sudo apt-get install -y meson
 
       - name: Build with meson
         run: |
