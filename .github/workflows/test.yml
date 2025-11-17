@@ -22,7 +22,7 @@ jobs:
 
   linters_cpp:
     name: C++ linters
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout source code
@@ -32,10 +32,18 @@ jobs:
         with:
           python-version: '3.13'
 
+      - name: Install meson
+        run: |
+          apt-get install -y meson
+
+      - name: Build with meson
+        run: |
+          meson setup build
+          meson compile -C build
+
       - name: Run clang-tidy
-        uses: BSFishy/meson-build@v1.0.3
-        with:
-          action: tidy
+        run: |
+          meson tidy -C build
 
       - name: Copy compile_commands.json
         run: |
