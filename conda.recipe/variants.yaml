@@ -9,6 +9,6 @@ microarch_level:
 cxx_compiler:
   - if: win
     then:
-      - clang-cl
+      - clangxx-cl
     else:
       - clangxx
