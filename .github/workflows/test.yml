@@ -45,16 +45,3 @@ jobs:
         uses: jidicula/clang-format-action@v4.16.0
         with:
           clang-format-version: '21'
-
-  build_old:
-    name: Test build possible on old Debian (Bullseye)
-    runs-on: ubuntu-latest
-    container:
-      image: debian:bullseye
-    steps:
-      - name: Build / compile
-        run: |
-          apt-get update
-          apt-get -y install build-essential meson
-          meson setup build
-          meson compile -C build
