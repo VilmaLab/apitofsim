@@ -12,3 +12,10 @@ cxx_compiler:
       - clangxx-cl
     else:
       - clangxx
+
+c_compiler:
+  - if: win
+    then:
+      - clang-cl
+    else:
+      - clang

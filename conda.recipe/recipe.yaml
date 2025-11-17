@@ -40,6 +40,7 @@ build:
 
 requirements:
   build:
+    - ${{ compiler('c') }}
     - ${{ compiler('cxx') }}
     - llvm-openmp
     - if: microarch_level|int > 0
