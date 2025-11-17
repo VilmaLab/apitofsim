@@ -54,6 +54,7 @@ jobs:
     steps:
       - name: Build / compile
         run: |
+          apt-get update
           apt-get -y install build-essential meson
           meson setup build
           meson compile -C build
