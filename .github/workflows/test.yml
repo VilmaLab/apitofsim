@@ -49,8 +49,8 @@ jobs:
           args: "format --check"
           src: "./python"
 
-  linters_cpp:
-    name: Style check C++
+  lint_cpp:
+    name: Build with Clang + C++ style check
     runs-on: ubuntu-latest
 
     steps:
@@ -81,3 +81,24 @@ jobs:
       - name: Run clang-tidy
         run: |
           ninja -C build clang-tidy
+
+  build_gcc:
+    name: Build with GCC
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get install -y meson
+
+      - name: Build
+        run: |
+          meson setup --warnlevel 3 --werror build
+          meson compile -C build
