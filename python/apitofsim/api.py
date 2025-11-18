@@ -9,7 +9,7 @@ from pint import get_application_registry, Quantity
 from pint._typing import Magnitude
 from abc import ABC, abstractmethod
 
-from _apitofsim import (
+from .apitofsimraw import (
     skimmer as _skimmer,
     ClusterData as _ClusterData,
     Gas as _Gas,

@@ -230,7 +230,7 @@ Counters pinhole(
   return counters;
 }
 
-NB_MODULE(_apitofsim, m)
+NB_MODULE(apitofsimraw, m)
 {
   m.doc() = "APi-TOF-MS simulation module";
   m.def("skimmer", &skimmer);
