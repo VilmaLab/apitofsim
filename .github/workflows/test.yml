@@ -53,16 +53,21 @@ jobs:
 
       - name: Install dependencies
         run: |
-          sudo apt-get install -y meson clang-tidy clang-format
+          sudo apt-get install -y meson clang-tidy-20 clang-format-20 clang-20 lld-20
+          sudo ln -s /usr/bin/clang-tidy-20 /usr/bin/clang-tidy
+          sudo ln -s /usr/bin/clang-format-20 /usr/bin/clang-format
+          sudo ln -s /usr/bin/clang++-20 /usr/bin/clang++
+          sudo ln -s /usr/bin/lld-20 /usr/bin/lld
 
       - name: Build with meson
         run: |
-          meson setup --native-file meson/clangdebug.ini debugbuild
+          CXX="clang++" LD="lld" meson setup -warnlevel 3 -werror build
+          meson compile -C build
 
       - name: Run clang-format-check
         run: |
-          ninja -C debugbuild clang-format-check
+          ninja -C build clang-format-check
 
       - name: Run clang-tidy
         run: |
-          ninja -C debugbuild clang-tidy
+          ninja -C build clang-tidy
