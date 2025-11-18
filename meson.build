@@ -12,8 +12,12 @@ if meson.get_compiler('cpp').get_argument_syntax() == 'msvc'
   # Equivalent to no-unknown-pragmas
   add_project_arguments('/wd4068', language : 'cpp')
 else
-  add_project_arguments('-Wno-unknown-pragmas', language : 'cpp')
+  # Turn off errno which inhibits SIMD of math.h
   add_project_arguments('-fno-math-errno', language : 'cpp')
+  # Prevent these warnings from becoming errors
+  # Sometimes OpenMP pragmas are not found or requested transforms can't be applied
+  add_project_arguments('-Wno-error=unknown-pragmas', language : 'cpp')
+  add_project_arguments('-Wno-error=pass-failed', language : 'cpp')
 endif
 
 python_feat = get_option('python')
