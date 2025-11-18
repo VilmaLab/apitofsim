@@ -53,7 +53,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          sudo apt-get install -y meson ninja clang-tidy clang-format
+          sudo apt-get install -y meson clang-tidy clang-format
 
       - name: Build with meson
         run: |
