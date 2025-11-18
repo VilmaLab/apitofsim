@@ -71,7 +71,7 @@ jobs:
 
       - name: Build with meson
         run: |
-          CXX="clang++" LD="lld" meson setup -warnlevel 3 -werror build
+          CXX="clang++" LD="lld" meson setup --warnlevel 3 --werror build
           meson compile -C build
 
       - name: Run clang-format-check
