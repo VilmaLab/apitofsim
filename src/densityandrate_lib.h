@@ -53,7 +53,7 @@ struct ClusterData
   {
     if (this->is_atom_like_product() && !this->rotations.isZero(0))
     {
-      cout << "Atom-like products must have " << endl;
+      cout << "Atom-like products must have 0 rotations" << endl;
       exit(EXIT_FAILURE);
     }
   }
