@@ -18,11 +18,11 @@ jobs:
 
       - name: Run basedpyright
         run: |
-          uv run basedpyright --level=error $(python -c 'import apitofsim; import os; print(os.path.dirname(apitofsim.__file__))')
+          uv run basedpyright --level=error $(uv run python -c 'import apitofsim; import os; print(os.path.dirname(apitofsim.__file__))')
 
       - name: Run basedpyright with warnings
         run: |
-          uv run basedpyright $(python -c 'import apitofsim; import os; print(os.path.dirname(apitofsim.__file__))')
+          uv run basedpyright $(uv run python -c 'import apitofsim; import os; print(os.path.dirname(apitofsim.__file__))')
 
       - name: Run basedpyright coverage
         run: |
