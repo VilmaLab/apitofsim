@@ -70,7 +70,6 @@ double solve_eqn(double c[5], double v0, double v1, double tolerance, int N,
     {
       v2 = v1;
       return v2;
-      break;
     }
     v2 = secant_step(v0, v1, f0, f1);
     v0 = v1;
