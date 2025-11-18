@@ -14,10 +14,12 @@ if meson.get_compiler('cpp').get_argument_syntax() == 'msvc'
 else
   # Turn off errno which inhibits SIMD of math.h
   add_project_arguments('-fno-math-errno', language : 'cpp')
-  # Prevent these warnings from becoming errors
+  # Silence these warnings in order to prevent them from becoming errors
   # Sometimes OpenMP pragmas are not found or requested transforms can't be applied
-  add_project_arguments('-Wno-error=unknown-pragmas', language : 'cpp')
-  add_project_arguments('-Wno-error=pass-failed', language : 'cpp')
+  # It would be better to use -Wno-error=unknown-pragmas -Wno-error=pass-failed
+  # But these don't work for old compilers without these switches(!)
+  add_project_arguments('-Wno-unknown-pragmas', language : 'cpp')
+  add_project_arguments('-Wno-pass-failed', language : 'cpp')
 endif
 
 python_feat = get_option('python')
