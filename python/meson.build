@@ -15,6 +15,7 @@ python.install_sources([
 'apitofsim/config.py',
 'apitofsim/__init__.py',
 'apitofsim/__main__.py',
+'apitofsim/py.typed',
 ], subdir: 'apitofsim', pure : true)
 
 stubgen = nanobind.get_variable('stubgen')
