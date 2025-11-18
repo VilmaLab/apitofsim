@@ -3,8 +3,8 @@ name: Tests
 on: [push, pull_request]
 
 jobs:
-  linters_python:
-    name: Python linters
+  typecheck_python:
+    name: Typecheck Python
     runs-on: ubuntu-slim
 
     steps:
@@ -18,7 +18,32 @@ jobs:
 
       - name: Run basedpyright
         run: |
-          uv run basedpyright
+          uv run basedpyright --level=error $(python -c 'import apitofsim; import os; print(os.path.dirname(apitofsim.__file__))')
+
+      - name: Run basedpyright with warnings
+        run: |
+          uv run basedpyright $(python -c 'import apitofsim; import os; print(os.path.dirname(apitofsim.__file__))')
+
+      - name: Run basedpyright coverage
+        run: |
+          uv run basedpyright --verifytypes apitofsim || true # Ignore failures for now
+
+  lint_python:
+    name: Typecheck Python
+    runs-on: ubuntu-slim
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: astral-sh/setup-uv@v7
+
+      - name: Install Python package
+        run: |
+          uv sync --dev
+
+      - name: Run ruff
+        run: |
+          uv run ruff python
 
   linters_cpp:
     name: C++ linters
