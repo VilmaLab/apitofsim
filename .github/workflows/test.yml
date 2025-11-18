@@ -1,0 +1,108 @@
+name: Tests
+
+on: [push, pull_request]
+
+jobs:
+  typecheck_python:
+    name: Typecheck Python
+    runs-on: ubuntu-slim
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: astral-sh/setup-uv@v7
+
+      - name: Install basedpyright
+        run: |
+          uv tool install basedpyright
+
+      - name: Setup virtualenv
+        run: |
+          uv venv fullinstallenv
+          VIRTUAL_ENV=fullinstallenv uv pip install .
+
+      - name: Run basedpyright
+        run: |
+          basedpyright --pythonpath fullinstallenv/bin/python --level=error $(fullinstallenv/bin/python -c 'import apitofsim; import os; print(os.path.dirname(apitofsim.__file__))')
+
+      - name: Run basedpyright with warnings
+        run: |
+          basedpyright --pythonpath fullinstallenv/bin/python $(fullinstallenv/bin/python -c 'import apitofsim; import os; print(os.path.dirname(apitofsim.__file__))')
+
+      - name: Run basedpyright coverage
+        run: |
+          # For some reason modifying the PATH like this is the only thing that seems to work
+          PATH="$(pwd)/fullinstallenv/bin:$PATH" basedpyright --verifytypes apitofsim || true # Ignore failures for now
+
+  lint_python:
+    name: Style check Python
+    runs-on: ubuntu-slim
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Ruff check
+        uses: astral-sh/ruff-action@v3
+        with:
+          args: "check"
+          src: "./python"
+
+      - name: Ruff format check
+        uses: astral-sh/ruff-action@v3
+        with:
+          args: "format --check"
+          src: "./python"
+
+  lint_cpp:
+    name: Build with Clang + C++ style check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get install -y meson clang-tidy-20 clang-format-20 clang-20 lld-20 libomp5-20 libomp-20-dev
+          sudo ln -sf /usr/bin/clang-tidy-20 /usr/bin/clang-tidy
+          sudo ln -sf /usr/bin/clang-format-20 /usr/bin/clang-format
+          sudo ln -sf /usr/bin/clang++-20 /usr/bin/clang++
+          sudo ln -sf /usr/bin/lld-20 /usr/bin/lld
+
+      - name: Build with meson
+        run: |
+          CXX="clang++" LD="lld" meson setup --warnlevel 3 --werror build
+          meson compile -C build
+
+      - name: Run clang-format-check
+        run: |
+          ninja -C build clang-format-check
+
+      - name: Run clang-tidy
+        run: |
+          ninja -C build clang-tidy
+
+  build_gcc:
+    name: Build with GCC
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get install -y meson
+
+      - name: Build
+        run: |
+          meson setup --warnlevel 3 --werror build
+          meson compile -C build

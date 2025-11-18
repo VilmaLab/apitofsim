@@ -1,0 +1,21 @@
+microarch_level:
+  - if: not(unix and x86_64)
+    then:
+      - 0
+    else:
+      - 2
+      - 3
+
+cxx_compiler:
+  - if: win
+    then:
+      - clang-cl
+    else:
+      - clangxx
+
+c_compiler:
+  - if: win
+    then:
+      - clang-cl
+    else:
+      - clang

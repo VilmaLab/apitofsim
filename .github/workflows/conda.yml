@@ -1,0 +1,25 @@
+name: Build Conda
+
+on: [push, pull_request]
+
+jobs:
+  build_conda:
+    name: Build Conda package on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target-platform: linux-64
+          #- os: windows-latest
+          #  target-platform: win-64
+          - os: macos-15
+            target-platform: osx-arm64
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build conda package
+        uses: prefix-dev/rattler-build-action@v0.2.34
+        with:
+          artifact-name: package-${{ matrix.target-platform }}
+          build-args: --target-platform ${{ matrix.target-platform }}${{ matrix.target-platform == 'linux-aarch64' && ' --no-test' || '' }}

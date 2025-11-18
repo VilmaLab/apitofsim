@@ -3,5 +3,6 @@ Checks: >
   clang-analyzer-*,
   bugprone,
   cppcoreguidelines,
-  clang-analyzer
+  clang-analyzer,
+  openmp
 WarningsAsErrors: true

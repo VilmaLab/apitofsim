@@ -1,0 +1,13 @@
+[wrap-file]
+directory = concurrentqueue-1.0.4
+source_url = https://github.com/cameron314/concurrentqueue/archive/refs/tags/v1.0.4.tar.gz
+source_filename = concurrentqueue-1.0.4.tar.xz
+source_hash = 87fbc9884d60d0d4bf3462c18f4c0ee0a9311d0519341cac7cbd361c885e5281
+patch_filename = concurrentqueue_1.0.4-1_patch.zip
+patch_url = https://wrapdb.mesonbuild.com/v2/concurrentqueue_1.0.4-1/get_patch
+patch_hash = e7db4ead3136808640a5fb8039c4adc1ab380fa30affd9f3eb2500ee28fe086d
+source_fallback_url = https://github.com/mesonbuild/wrapdb/releases/download/concurrentqueue_1.0.4-1/concurrentqueue-1.0.4.tar.xz
+wrapdb_version = 1.0.4-1
+
+[provide]
+concurrentqueue = concurrentqueue_dep

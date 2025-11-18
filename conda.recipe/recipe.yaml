@@ -1,0 +1,77 @@
+context:
+  name: apitofsim
+  version: "0.0.1"
+  python_min: "3.12"
+  build: 0
+
+package:
+  name: ${{ name }}
+  version: ${{ version }}
+
+source:
+  path: ..
+
+build:
+  # Prioritize builds with a higher microarch level
+  number: ${{ build|int + (microarch_level|int) * 100 }}
+  script:
+    - if: linux and x86_64
+      then: |
+        CXXFLAGS=${CXXFLAGS//-O2/}
+        CXXFLAGS=${CXXFLAGS//-ftree-vectorize/}
+        CXXFLAGS=$(printf '%s\n' "$CXXFLAGS" | sed -E 's/(^|[[:space:]])-march=[^[:space:]]*//g')
+        CXXFLAGS=$(printf '%s\n' "$CXXFLAGS" | sed -E 's/(^|[[:space:]])-mtune=[^[:space:]]*//g')
+        CXXFLAGS="${CXXFLAGS} -mtune=generic"
+        export CXXFLAGS
+        CPPFLAGS=${CPPFLAGS//-O2/}
+        CPPFLAGS="${CPPFLAGS} -O3"
+        export CPPFLAGS
+        pip install --config-settings=setup-args=--native-file=$SRC_DIR/meson/pkg/unixconda.ini .
+    - if: osx or (linux and aarch64)
+      then: |
+        pip install --config-settings=setup-args=--native-file=$SRC_DIR/meson/pkg/unixconda.ini .
+    - if: win
+      then: |
+        set "LDFLAGS=%LDFLAGS:/link=%"
+        set "CXXFLAGS=%CXXFLAGS% /Ot -march=x86-64-v2 -mtune=generic"
+        pip install --config-settings=setup-args=--native-file=%SRC_DIR%\meson\pkg\windowsconda.ini .
+  python:
+    version_independent: true
+
+requirements:
+  build:
+    - ${{ compiler('c') }}
+    - ${{ compiler('cxx') }}
+    - llvm-openmp
+    - if: microarch_level|int > 0
+      then: x86_64-microarch-level ==${{ microarch_level }}
+  host:
+    - python ${{ python_min }}.*
+    - python-abi3 ${{ python_min }}.*  
+    - pip
+    - python-build
+    - llvm-openmp
+    - meson-python
+    - ninja
+    - nanobind
+    - eigen
+  run:
+    - python >=${{ python_min }}
+    - numpy
+    - pandas
+    - pint >= 0.25.1
+
+tests:
+  - python:
+      imports:
+        - ${{ name }}
+        - ${{ name }}.${{ name }}raw
+      python_version: ["${{ python_min ~ '.*' }}"]  
+
+about:
+  homepage: https://github.com/VilmaLab/apitofsim
+  license: MIT
+  license_file:
+    - LICENSE
+  summary: Simulation of an APi-TOF Mass Spectrometer 
+  repository: https://github.com/VilmaLab/apitofsim

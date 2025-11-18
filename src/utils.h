@@ -1,29 +1,47 @@
+#pragma once
+
 #include <iostream>
 #include <cstring>
+#include <fstream>
+#include <Eigen/Dense>
 
-void check_field_name(const char *buffer, const char *expected) {
-  if (strcmp(buffer, expected) != 0) {
+#define kb 1.38064852e-23 // Boltzmann constant
+#define hbar 1.054571800e-34 // Reduced Planck constant
+#define protonMass 1.6726219e-27 // relative mass of on proton in kg
+
+void check_field_name(const char *buffer, const char *expected)
+{
+  if (strcmp(buffer, expected) != 0)
+  {
     std::cerr << "Error while reading input configuration: Expected to read field name '" << expected << "' but got field name '" << buffer << "'" << std::endl;
     exit(EXIT_FAILURE);
   }
 }
 
 template <typename T>
-void read_field(std::istream &config_in, T *variable, char *buffer, const char *expected) {
-  if (variable) {
+void read_field(std::istream &config_in, T *variable, char *buffer, const char *expected)
+{
+  if (variable)
+  {
     config_in >> *variable >> buffer;
-  } else {
+  }
+  else
+  {
     config_in >> buffer >> buffer;
   }
   check_field_name(buffer, expected);
 }
 
-  
+
 template <>
-void read_field(std::istream &config_in, char *variable, char *buffer, const char *expected) {
-  if (variable) {
+void read_field(std::istream &config_in, char *variable, char *buffer, const char *expected)
+{
+  if (variable)
+  {
     config_in >> variable >> buffer;
-  } else {
+  }
+  else
+  {
     config_in >> buffer >> buffer;
   }
   check_field_name(buffer, expected);
@@ -35,21 +53,21 @@ void read_config(
   char *title,
   int *cluster_charge_sign,
   AmuT *amu_0,
-  double *amu_1,
-  double *amu_2,
+  AmuT *amu_1,
+  AmuT *amu_2,
   FloatT *T,
   FloatT *pressure_first,
   FloatT *pressure_second,
-  float *L0,
+  double *L0,
   FloatT *Lsk,
-  float *L1,
-  float *L2,
-  float *L3,
-  float *V0,
-  float *V1,
-  float *V2,
-  float *V3,
-  float *V4,
+  double *L1,
+  double *L2,
+  double *L3,
+  double *V0,
+  double *V1,
+  double *V2,
+  double *V3,
+  double *V4,
   int *N,
   double *dc,
   double *alpha_factor,
@@ -83,12 +101,15 @@ void read_config(
   int *N_iter,
   int *M_iter,
   int *resolution,
-  double *tolerance
-) {
+  double *tolerance)
+{
   char buffer[256];
-  if (title) {
+  if (title)
+  {
     config_in >> title; // Title line
-  } else {
+  }
+  else
+  {
     config_in >> buffer; // Skip title line
   }
   read_field(config_in, cluster_charge_sign, buffer, "Cluster_charge_sign");
@@ -148,28 +169,139 @@ const int LOGLEVEL_NONE = 0,
           LOGLEVEL_MIN = 1,
           LOGLEVEL_NORMAL = 2,
           LOGLEVEL_EXTRA = 3;
-const int LOGLEVEL = LOGLEVEL_MIN;
+const int LOGLEVEL = LOGLEVEL_NORMAL;
 
-namespace Filenames {
-  const char* const SKIMMER_WARNINGS = "work/log/warnings_skimmer.dat";
+namespace Filenames
+{
+const char *const SKIMMER_WARNINGS = "work/log/warnings_skimmer.dat";
 
-  const char* const COLLISIONS = "work/log/collisions.dat";
-  const char* const INTENERGY = "work/log/intenergy.dat";
-  const char* const WARNINGS = "work/log/warnings.dat";
-  const char* const FRAGMENTS = "work/log/fragments.dat";
-  const char* const TMP = "work/log/tmp.dat";
-  const char* const TMP_EVOLUTION = "work/log/tmp_evolution.dat";
-  const char* const ENERGY_DISTRIBUTION = "work/log/energy_distribution.dat";
-  const char* const FINAL_POSITION = "work/log/final_position.dat";
-  const char* const PINHOLE = "work/log/pinhole.dat";
-}
+const char *const COLLISIONS = "work/log/collisions.dat";
+const char *const INTENERGY = "work/log/intenergy.dat";
+const char *const WARNINGS = "work/log/warnings.dat";
+const char *const FRAGMENTS = "work/log/fragments.dat";
+const char *const TMP = "work/log/tmp.dat";
+const char *const TMP_EVOLUTION = "work/log/tmp_evolution.dat";
+const char *const ENERGY_DISTRIBUTION = "work/log/energy_distribution.dat";
+const char *const FINAL_POSITION = "work/log/final_position.dat";
+const char *const PINHOLE = "work/log/pinhole.dat";
+} // namespace Filenames
 
 template <typename CallbackT>
-void warn_omp(int &nwarnings, CallbackT callback) {
-  #pragma omp atomic
+void warn_omp(int &nwarnings, CallbackT callback)
+{
+#pragma omp atomic
   nwarnings++;
-  #pragma omp critical
+#pragma omp critical
   {
     callback();
   }
 }
+
+Eigen::Array3d read_rotations(char *filename)
+{
+  Eigen::Array3d rotations;
+  std::ifstream file;
+
+  file.open(filename);
+
+  for (int i = 0; i < 3; i++)
+  {
+    file >> rotations[i];
+  }
+
+  file.close();
+  return rotations;
+}
+
+// Read electronic energy
+double read_electronic_energy(char *filename)
+{
+  std::ifstream file;
+  double electronic_energy;
+
+  file.open(filename);
+
+  file >> electronic_energy;
+
+  file.close();
+
+  return electronic_energy;
+}
+
+// Geometrical mean of moment of inertia
+double compute_inertia(const Eigen::Vector3d &rotations)
+{
+  return 0.5 * hbar * hbar / (kb * pow(rotations[0] * rotations[1] * rotations[2], 1.0 / 3));
+}
+
+// Compute radius of cluster
+void compute_mass_and_radius(double inertia, double amu, double &mass, double &radius)
+{
+  mass = protonMass * amu; // proton mass * nucleons
+  radius = sqrt(2.5 * inertia / mass);
+}
+
+/* Exceptions can't pass between threads.
+ * The solution is to capture and rethrow.
+ * Additionally once the shared exception is set, no other guarded code can run, preventing further processing. */
+class OMPExceptionHelper
+{
+  std::exception_ptr exception = nullptr;
+  bool rethrow_called = false;
+
+public:
+  OMPExceptionHelper()
+  {
+  }
+
+  ~OMPExceptionHelper()
+  {
+    if (!rethrow_called && this->exception)
+    {
+      std::cerr << "\nException lost! OMPExceptionHelper holding exception destroyed without rethrowing\n"
+                << std::flush;
+      std::terminate();
+    }
+  }
+
+  void rethrow()
+  {
+    rethrow_called = true;
+    if (this->exception)
+    {
+      std::rethrow_exception(this->exception);
+    }
+  }
+
+  void capture()
+  {
+#pragma omp critical
+    if (!this->exception)
+    {
+      this->exception = std::current_exception();
+    }
+  }
+
+  template <typename Function, typename... Parameters>
+  void guard(Function f, Parameters... params)
+  {
+    if (!this->exception)
+    {
+      try
+      {
+        f(params...);
+      }
+      catch (...)
+      {
+        capture();
+      }
+    }
+  }
+};
+
+struct Gas
+{
+  double radius;
+  double mass;
+  double adiabatic_index;
+};
