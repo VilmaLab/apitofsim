@@ -12,21 +12,23 @@ jobs:
 
       - uses: astral-sh/setup-uv@v7
 
-      - name: Install Python package
+      - name: Install Python dependencies + setup virtualenv
         run: |
           uv sync --dev
+          uv venv fullinstallenv
+          VIRTUAL_ENV=fullinstallenv uv pip install .
 
       - name: Run basedpyright
         run: |
-          uv run basedpyright --level=error $(uv run python -c 'import apitofsim; import os; print(os.path.dirname(apitofsim.__file__))')
+          uv run basedpyright --venvpath fullinstallenv --level=error $(fullinstallenv/bin/python -c 'import apitofsim; import os; print(os.path.dirname(apitofsim.__file__))')
 
       - name: Run basedpyright with warnings
         run: |
-          uv run basedpyright $(uv run python -c 'import apitofsim; import os; print(os.path.dirname(apitofsim.__file__))')
+          uv run basedpyright --venvpath fullinstallenv $(fullinstallenv/bin/python -c 'import apitofsim; import os; print(os.path.dirname(apitofsim.__file__))')
 
       - name: Run basedpyright coverage
         run: |
-          uv run basedpyright --verifytypes apitofsim || true # Ignore failures for now
+          uv run basedpyright --venvpath fullinstallenv --verifytypes apitofsim || true # Ignore failures for now
 
   lint_python:
     name: Style check Python
