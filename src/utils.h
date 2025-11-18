@@ -223,6 +223,8 @@ double read_electronic_energy(char *filename)
 
   file >> electronic_energy;
 
+  file.close();
+
   return electronic_energy;
 }
 
