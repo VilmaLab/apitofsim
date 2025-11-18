@@ -226,7 +226,7 @@ struct Quadrupole
   double radiofrequency;
   double r_quadrupole;
 
-  double mathieu_factor;
+  double mathieu_factor{};
   double angular_velocity;
 
   Quadrupole(
