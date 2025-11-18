@@ -42,7 +42,7 @@ jobs:
       - run: ruff format --check ./python
 
   linters_cpp:
-    name: C++ linters
+    name: Style check C++
     runs-on: ubuntu-latest
 
     steps:
@@ -53,24 +53,18 @@ jobs:
         with:
           python-version: '3.13'
 
-      - name: Install meson
+      - name: Install dependencies
         run: |
-          sudo apt-get install -y meson
+          sudo apt-get install -y meson ninja clang-tidy clang-format
 
       - name: Build with meson
         run: |
-          meson setup build
-          meson compile -C build
+          meson setup --native-file meson/clangdebug.ini debugbuild
+
+      - name: Run clang-format-check
+        run: |
+          ninja -C debugbuild clang-format-check
 
       - name: Run clang-tidy
         run: |
-          meson tidy -C build
-
-      - name: Copy compile_commands.json
-        run: |
-          cp build/compile_commands.json .
-
-      - name: Run clang-format style check
-        uses: jidicula/clang-format-action@v4.16.0
-        with:
-          clang-format-version: '21'
+          ninja -C debugbuild clang-tidy

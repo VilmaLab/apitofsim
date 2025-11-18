@@ -19,7 +19,8 @@ gen_compute_k_total_bin = executable(
 gen_compute_k_total = custom_target('gen_compute_k_total',
                         input : [],
                         output : ['compute_k_total_data.h'],
-                        command : [gen_compute_k_total_bin, '@OUTPUT0@'])
+                        command : [gen_compute_k_total_bin, '@OUTPUT0@'],
+                        build_by_default : true)
 
 compute_k_total = executable(
    'compute_k_total',
