@@ -64,8 +64,8 @@ requirements:
 tests:
   - python:
       imports:
-        - _${{ name }}
         - ${{ name }}
+        - ${{ name }}.${{ name }}raw
       python_version: ["${{ python_min ~ '.*' }}"]  
 
 about:
