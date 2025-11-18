@@ -31,7 +31,8 @@ jobs:
 
       - name: Run basedpyright coverage
         run: |
-          basedpyright --pythonpath fullinstallenv/bin/python --verifytypes apitofsim || true # Ignore failures for now
+          # For some reason modifying the PATH like this is the only thing that seems to work
+          PATH="$(pwd)/fullinstallenv/bin:$PATH" basedpyright --verifytypes apitofsim || true # Ignore failures for now
 
   lint_python:
     name: Style check Python
