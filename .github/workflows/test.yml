@@ -35,9 +35,17 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - uses: astral-sh/ruff-action@v3
-      - run: ruff check ./python
-      - run: ruff format --check ./python
+      - name: Ruff check
+        uses: astral-sh/ruff-action@v3
+        with:
+          args: "check"
+          src: "./python"
+
+      - name: Ruff format check
+        uses: astral-sh/ruff-action@v3
+        with:
+          args: "format --check"
+          src: "./python"
 
   linters_cpp:
     name: Style check C++
