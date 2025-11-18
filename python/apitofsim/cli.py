@@ -6,13 +6,11 @@ from apitofsim.api import (
     skimmer,
     densityandrate,
     pinhole,
-    Gas,
 )
 from apitofsim.config import (
     read_histogram,
     read_skimmer,
     parse_config_with_particles,
-    config_to_shortnames,
     ConfigFile,
     get_clusters,
 )

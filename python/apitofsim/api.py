@@ -1,5 +1,5 @@
 import numpy
-from typing import Callable, Dict, List, cast
+from typing import Callable, List, cast
 from dataclasses import dataclass
 from pandas import DataFrame
 from pint import get_application_registry, Quantity
