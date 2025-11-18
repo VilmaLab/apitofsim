@@ -1,9 +1,6 @@
-import os
 import numpy
-import json
-from typing import Any, Callable, Dict, List, cast
+from typing import Callable, Dict, List, cast
 from dataclasses import dataclass
-from enum import Enum
 from pandas import DataFrame
 from pint import get_application_registry, Quantity
 from pint._typing import Magnitude
@@ -22,7 +19,23 @@ from .apitofsimraw import (
     compute_k_total_batch as _compute_k_total_batch,
     FragmentationPathway,
 )
-from pint.facets import MagnitudeT
+
+
+__all__ = [
+    "ClusterLike",
+    "ClusterData",
+    "ProductsCluster",
+    "Gas",
+    "Quadrupole",
+    "Histogram",
+    "densityandrate",
+    "pinhole",
+    "skimmer",
+    "compute_density_of_states_batch",
+    "compute_k_total_batch",
+    "KTotalInput",
+    "FragmentationPathway",
+]
 
 
 ureg = get_application_registry()
@@ -44,7 +57,7 @@ class ClusterData(ClusterLike):
     rotations: numpy.ndarray
     frequencies: numpy.ndarray
 
-    def into_cpp(self):
+    def into_cpp(self) -> _ClusterData:
         return _ClusterData(
             self.mass.to("amu").magnitude,
             self.electronic_energy.to("hartree").magnitude,
@@ -76,7 +89,7 @@ class Gas:
     mass: Quantity[float]
     adiabatic_index: float
 
-    def into_cpp(self):
+    def into_cpp(self) -> _Gas:
         return _Gas(
             self.radius.to("m").magnitude,
             self.mass.to("kg").magnitude,
@@ -93,7 +106,7 @@ class Histogram:
     def from_cpp(cls, histogram: _Histogram):
         return cls(Q_(histogram.x, "kelvin"), histogram.y)
 
-    def into_cpp(self):
+    def into_cpp(self) -> _Histogram:
         return _Histogram(self.x.to("kelvin").magnitude, self.y)
 
 
@@ -104,7 +117,7 @@ class Quadrupole:
     radiofrequency: Quantity[float]
     r_quadrupole: Quantity[float]
 
-    def into_cpp(self):
+    def into_cpp(self) -> _Quadrupole:
         return _Quadrupole(
             self.dc_field.to("volts").magnitude,
             self.ac_field.to("volts").magnitude,

@@ -3,6 +3,7 @@ import json
 from typing import Any
 import numpy
 from pint import get_application_registry
+from typing import Tuple
 
 from .api import Gas, _Gas, Quadrupole, _Quadrupole, ClusterData, Histogram, ureg
 
@@ -260,7 +261,7 @@ def parse_config_with_particles(fn):
     return result
 
 
-def get_clusters(full_config, ureg=get_application_registry()):
+def get_clusters(full_config, ureg=get_application_registry()) -> Tuple[ClusterData, ClusterData, ClusterData]:
     clusters = []
     for particle in ["cluster", "first_product", "second_product"]:
         particle_config = full_config[particle]
@@ -274,7 +275,7 @@ def get_clusters(full_config, ureg=get_application_registry()):
             vibrational_temperatures,
         )
         clusters.append(cluster)
-    return clusters
+    return tuple(clusters)
 
 
 def get_gas(config, ureg=get_application_registry()):
