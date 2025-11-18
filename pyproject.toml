@@ -43,3 +43,4 @@ environment.CXXFLAGS = "-march=x86-64-v3"
 
 [tool.pyright]
 reportConstantRedefinition = false
+failOnWarnings = false
