@@ -261,7 +261,9 @@ def parse_config_with_particles(fn):
     return result
 
 
-def get_clusters(full_config, ureg=get_application_registry()) -> Tuple[ClusterData, ClusterData, ClusterData]:
+def get_clusters(
+    full_config, ureg=get_application_registry()
+) -> Tuple[ClusterData, ClusterData, ClusterData]:
     clusters = []
     for particle in ["cluster", "first_product", "second_product"]:
         particle_config = full_config[particle]
