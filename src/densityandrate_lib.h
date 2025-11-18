@@ -44,7 +44,8 @@ struct ClusterData
   {
   }
 
-  ClusterData(int atomic_mass, double electronic_energy, Eigen::Vector3d rotations, Eigen::ArrayXd frequencies) : atomic_mass(atomic_mass), electronic_energy(electronic_energy), rotations(rotations), frequencies(frequencies)
+  ClusterData(int atomic_mass, double electronic_energy, Eigen::Vector3d rotations, Eigen::ArrayXd frequencies)
+      : atomic_mass(atomic_mass), electronic_energy(electronic_energy), rotations(rotations), frequencies(frequencies)
   {
   }
 
@@ -92,7 +93,8 @@ DensityResult compute_density_of_states_all(ClusterData &cluster_0, ClusterData 
 // FUNCTIONS
 
 
-double get_prefactor_k_total(double inertia_moment_1, double inertia_moment_2, Eigen::Vector3d &rotations_1, Eigen::Vector3d &rotations_2) {
+double get_prefactor_k_total(double inertia_moment_1, double inertia_moment_2, Eigen::Vector3d &rotations_1, Eigen::Vector3d &rotations_2)
+{
   using consts::pi;
 
   double rotations_product_1 = rotations_1[0] * rotations_1[1] * rotations_1[2];
@@ -418,10 +420,13 @@ void compute_k_total_general(Eigen::ArrayXd &k0, Eigen::Ref<Eigen::ArrayXd> k_ra
 {
   if (!cluster_1.is_atom_like_product() && !cluster_2.is_atom_like_product())
   {
-    if (mesh) {
+    if (mesh)
+    {
       // cout << "Generic products" << endl;
       compute_k_total_mesh(k0, *mesh, k_rate, cluster_1.inertia_moment, cluster_2.inertia_moment, cluster_1.rotations, cluster_2.rotations, rho_comb, rho_parent, bin_width, m_max_rate, fragmentation_energy);
-    } else {
+    }
+    else
+    {
       compute_k_total(k0, k_rate, cluster_1.inertia_moment, cluster_2.inertia_moment, cluster_1.rotations, cluster_2.rotations, rho_comb, rho_parent, bin_width, m_max_rate, fragmentation_energy);
     }
   }
@@ -484,13 +489,20 @@ Eigen::ArrayXXd compute_k_total_batch(std::vector<KTotalInput> batch_input, doub
   int m_max_rate = int(energy_max_rate / bin_width);
   Eigen::ArrayXXd k_rate = Eigen::ArrayXXd(m_max_rate, batch_input.size());
   std::optional<Eigen::ArrayXd> mesh;
-  if (mesh_mode == 0) {
+  if (mesh_mode == 0)
+  {
     mesh = std::nullopt;
-  } else if (mesh_mode == 1) {
+  }
+  else if (mesh_mode == 1)
+  {
     mesh = compute_mesh(bin_width, m_max_rate);
-  } else if (mesh_mode == 2) {
+  }
+  else if (mesh_mode == 2)
+  {
     mesh = compute_mesh_rearranged(bin_width, m_max_rate);
-  } else {
+  }
+  else
+  {
     throw invalid_argument("mesh_mode must be 0, 1 or 2");
   }
 #pragma omp parallel default(none) \

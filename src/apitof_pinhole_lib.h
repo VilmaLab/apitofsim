@@ -42,16 +42,19 @@ std::string call_with_stringstream(Callback cb)
 class ApiTofError : public std::runtime_error
 {
 public:
-  ApiTofError(const std::string &msg) : std::runtime_error(msg)
+  ApiTofError(const std::string &msg)
+      : std::runtime_error(msg)
   {
   }
 
-  ApiTofError(const char *msg) : std::runtime_error(msg)
+  ApiTofError(const char *msg)
+      : std::runtime_error(msg)
   {
   }
 
   template <typename Callback>
-  ApiTofError(Callback cb) : ApiTofError(call_with_stringstream(cb))
+  ApiTofError(Callback cb)
+      : ApiTofError(call_with_stringstream(cb))
   {
   }
 };
@@ -77,7 +80,8 @@ struct PartialResult
   int thread_id;
   Counters counters;
 
-  PartialResult(Counters counters) : thread_id(omp_get_thread_num()), counters(counters)
+  PartialResult(Counters counters)
+      : thread_id(omp_get_thread_num()), counters(counters)
   {
   }
 };
@@ -101,16 +105,19 @@ struct LogMessage
   LogType type;
   std::string message;
 
-  LogMessage(LogType type, std::string message) : type(type), message(message)
+  LogMessage(LogType type, std::string message)
+      : type(type), message(message)
   {
   }
 
-  LogMessage(LogType type, const char *message) : type(type), message(message)
+  LogMessage(LogType type, const char *message)
+      : type(type), message(message)
   {
   }
 
   template <typename Callback>
-  LogMessage(LogType type, Callback cb) : type(type), message(call_with_stringstream(cb))
+  LogMessage(LogType type, Callback cb)
+      : type(type), message(call_with_stringstream(cb))
   {
   }
 };
@@ -194,7 +201,8 @@ struct Histogram
   double bin_width;
   double x_max;
 
-  Histogram(Eigen::ArrayXd x, Eigen::ArrayXd y) : x(x), y(y)
+  Histogram(Eigen::ArrayXd x, Eigen::ArrayXd y)
+      : x(x), y(y)
   {
     compute_derived();
   }
@@ -225,7 +233,8 @@ struct Quadrupole
     double dc_field,
     double ac_field,
     double radiofrequency,
-    double r_quadrupole) : dc_field(dc_field), ac_field(ac_field), radiofrequency(radiofrequency), r_quadrupole(r_quadrupole)
+    double r_quadrupole)
+      : dc_field(dc_field), ac_field(ac_field), radiofrequency(radiofrequency), r_quadrupole(r_quadrupole)
   {
     angular_velocity = 2.0 * consts::pi * radiofrequency;
   }
