@@ -20,15 +20,15 @@ jobs:
 
       - name: Run basedpyright
         run: |
-          uv run basedpyright --venvpath fullinstallenv --level=error $(fullinstallenv/bin/python -c 'import apitofsim; import os; print(os.path.dirname(apitofsim.__file__))')
+          uv run basedpyright --pythonpath fullinstallenv/bin/python --level=error $(fullinstallenv/bin/python -c 'import apitofsim; import os; print(os.path.dirname(apitofsim.__file__))')
 
       - name: Run basedpyright with warnings
         run: |
-          uv run basedpyright --venvpath fullinstallenv $(fullinstallenv/bin/python -c 'import apitofsim; import os; print(os.path.dirname(apitofsim.__file__))')
+          uv run basedpyright --pythonpath fullinstallenv/bin/python $(fullinstallenv/bin/python -c 'import apitofsim; import os; print(os.path.dirname(apitofsim.__file__))')
 
       - name: Run basedpyright coverage
         run: |
-          uv run basedpyright --venvpath fullinstallenv --verifytypes apitofsim || true # Ignore failures for now
+          uv run basedpyright --pythonpath fullinstallenv/bin/python --verifytypes apitofsim || true # Ignore failures for now
 
   lint_python:
     name: Style check Python
