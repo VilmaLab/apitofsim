@@ -29,7 +29,7 @@ jobs:
           uv run basedpyright --verifytypes apitofsim || true # Ignore failures for now
 
   lint_python:
-    name: Typecheck Python
+    name: Style check Python
     runs-on: ubuntu-slim
 
     steps:
