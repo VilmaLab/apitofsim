@@ -1,6 +1,6 @@
 context:
-  name: apitofsim
-  version: "0.0.1"
+  name: ${{ load_from_file("pyproject.toml").project.name }}
+  version: ${{ load_from_file("pyproject.toml").project.version }}
   python_min: "3.12"
   build: 0
 

@@ -35,7 +35,7 @@ jobs:
         uses: prefix-dev/rattler-build-action@v0.2.34
         with:
           artifact-name: package-${{ matrix.target-platform }}
-          build-args: --target-platform ${{ matrix.target-platform }}${{ matrix.target-platform == 'linux-aarch64' && ' --no-test' || '' }}
+          build-args: --experimental --target-platform ${{ matrix.target-platform }}${{ matrix.target-platform == 'linux-aarch64' && ' --no-test' || '' }}
 
       - name: Upload conda packages to prefix.dev
         shell: bash
