@@ -44,7 +44,7 @@ requirements:
     - ${{ compiler('cxx') }}
     - llvm-openmp
     - if: microarch_level|int > 0
-      then: x86_64-microarch-level ${{ microarch_level }}
+      then: x86_64-microarch-level ==${{ microarch_level }}
   host:
     - python ${{ python_min }}.*
     - python-abi3 ${{ python_min }}.*  
