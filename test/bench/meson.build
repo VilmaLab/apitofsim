@@ -5,7 +5,7 @@ incdir = [
 
 density_of_states = executable(
    'density_of_states',
-   'density_of_states.cpp',
+   ['density_of_states.cpp', gen_compute_k_total],
    dependencies : [eigen3],
    include_directories: incdir
 )
