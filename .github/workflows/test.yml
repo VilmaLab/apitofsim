@@ -93,8 +93,8 @@ jobs:
         run: |
           ninja -C build clang-tidy
 
-  build_gcc:
-    name: Build with GCC
+  build_test_gcc:
+    name: Build with Python + test with GCC
     runs-on: ubuntu-latest
 
     steps:
@@ -113,3 +113,35 @@ jobs:
         run: |
           meson setup --warnlevel 3 --werror build
           meson compile -C build
+
+      - name: Test
+        run: |
+          meson test -C build
+
+  build_test_llvm:
+    name: Test with LLVM sanitisers
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - build: manysan
+          - build: memsan
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get install -y meson
+
+      - name: Build
+        run: |
+          meson setup --native-file=meson/test/${{ matrix.build }}.ini build
+          meson compile -C build
+
+      - name: Test
+        run: |
+          meson test -C build
