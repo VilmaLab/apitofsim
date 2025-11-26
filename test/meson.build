@@ -15,7 +15,7 @@ gen_compute_k_total = custom_target('gen_compute_k_total',
                         output : ['compute_k_total_data.h'],
                         command : [gen_compute_k_total_bin, '@OUTPUT0@'],
                         build_by_default : true)
-doctest_dep = dependency('doctest', required : true)
+doctest_dep = dependency('doctest')
 
 tests = executable('apitofsim-tests',
                    ['main.cpp', gen_compute_k_total],
