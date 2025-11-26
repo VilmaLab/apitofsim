@@ -89,13 +89,13 @@ TEST_CASE("k total smoke tests")
 TEST_CASE("apitof pinhole smoke tests")
 {
   namespace fs = std::filesystem;
-  const char *dir_dir_env = getenv("DATA_DIR");
-  REQUIRE_MESSAGE(dir_dir_env != nullptr, "DATA_DIR environment variable not set");
-  auto density_cluster = read_histogram((string(dir_dir_env) + "/density_cluster.out").c_str());
-  auto rate_const = read_histogram((string(dir_dir_env) + "/rate_constant.out").c_str());
+  const char *data_dir_env = getenv("DATA_DIR");
+  REQUIRE_MESSAGE(data_dir_env != nullptr, "DATA_DIR environment variable not set");
+  auto density_cluster = read_histogram((string(data_dir_env) + "/density_cluster.out").c_str());
+  auto rate_const = read_histogram((string(data_dir_env) + "/rate_constant.out").c_str());
   SkimmerData skimmer;
   double mesh_skimmer;
-  std::tie(skimmer, mesh_skimmer) = read_skimmer((string(dir_dir_env) + "/skimmer.dat").c_str());
+  std::tie(skimmer, mesh_skimmer) = read_skimmer((string(data_dir_env) + "/skimmer.dat").c_str());
   rescale_density(density_cluster);
   rescale_energies(density_cluster);
   rescale_energies(rate_const);
