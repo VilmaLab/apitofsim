@@ -404,7 +404,7 @@ Counters apitof_pinhole(
               << endl;
   }
 
-  Counters counters;
+  Counters counters = Counters::Zero();
 
   if (LOGLEVEL >= LOGLEVEL_MIN)
   {
