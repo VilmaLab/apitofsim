@@ -135,7 +135,12 @@ jobs:
 
       - name: Install dependencies
         run: |
-          sudo apt-get install -y meson
+          sudo apt-get install -y clang-tidy-20 clang-format-20 clang-20 lld-20 libomp5-20 libomp-20-dev
+          sudo ln -sf /usr/bin/clang-tidy-20 /usr/bin/clang-tidy
+          sudo ln -sf /usr/bin/clang-format-20 /usr/bin/clang-format
+          sudo ln -sf /usr/bin/clang++-20 /usr/bin/clang++
+          sudo ln -sf /usr/bin/lld-20 /usr/bin/lld
+          sudo pip install meson
 
       - name: Build
         run: |
