@@ -79,36 +79,37 @@ struct Quadrupole
 double particle_density(double pressure, double kT);
 double coll_freq(double n, double mobility_gas, double mobility_gas_inv, double R, double v);
 template <typename GenT>
-void init_vel(GenT &gen, normal_distribution<double> &gauss, double *v_cluster, double m, double kT);
+Eigen::Vector3d init_vel(GenT &gen, normal_distribution<double> &gauss, double m, double kT);
 template <typename GenT>
-void init_ang_vel(GenT &gen, normal_distribution<double> &gauss, double *omega, double m, double kT, double R);
+Eigen::Vector3d init_ang_vel(GenT &gen, normal_distribution<double> &gauss, double m, double kT, double R);
 template <typename GenT>
 void init_vib_energy(GenT &gen, uniform_real_distribution<double> &unif, double &vib_energy, double kT, const Histogram &density_cluster);
-double evaluate_rotational_energy(double *omega, double inertia);
+double evaluate_rotational_energy(Eigen::Vector3d omega, double inertia);
 double evaluate_internal_energy(double vib_energy, double rot_energy);
 double evaluate_rate_const(const Histogram &rate_const, double energy, WarningHelper warn);
 template <typename GenT>
-void time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &unif, double rate_constant, double *v_cluster, double &v_cluster_norm, double n1, double n2, double mobility_gas, double mobility_gas_inv, double R, double dt1, double dt2, double &z, double &x, double &y, double &delta_t, double &t_fragmentation, double first_chamber_end, double sk_end, double quadrupole_start, double quadrupole_end, double second_chamber_end, double acc1, double acc2, double acc3, double acc4, double &t, double m_gas, const SkimmerData &skimmer, double mesh_skimmer, std::optional<Quadrupole> quadrupole, LogHelper tmp_evolution);
-void update_physical_quantities(double z, const SkimmerData skimmer, double mesh_skimmer, double &v_gas, double &temperature, double &pressure, double &density, double first_chamber_end, double sk_end, double P1, double P2, double n1, double n2, double T);
+double draw_theta_skimmer(GenT &gen, uniform_real_distribution<double> &unif, double z, double n1, double n2, double m_gas, double mobility_gas, double mobility_gas_inv, double R, const Eigen::Vector3d &v_cluster, double v_gas, double pressure, double temperature, double first_chamber_end, double sk_end, WarningHelper warn, int mode = 0);
 template <typename GenT>
-double draw_theta_skimmer(GenT &gen, uniform_real_distribution<double> &unif, double z, double n1, double n2, double m_gas, double mobility_gas, double mobility_gas_inv, double R, double *v_cluster, double v_gas, double pressure, double temperature, double first_chamber_end, double sk_end, WarningHelper warn, int mode = 0);
+double draw_u_norm_skimmer(GenT &gen, uniform_real_distribution<double> &unif, double z, double du, double boundary_u, double theta, double n1, double n2, double m_gas, double mobility_gas, double mobility_gas_inv, double R, const Eigen::Vector3d &v_cluster, double v_gas, double pressure, double temperature, double first_chamber_end, double sk_end, WarningHelper warn, int mode = 0);
 template <typename GenT>
-double draw_u_norm_skimmer(GenT &gen, uniform_real_distribution<double> &unif, double z, double du, double boundary_u, double theta, double n1, double n2, double m_gas, double mobility_gas, double mobility_gas_inv, double R, double *v_cluster, double v_gas, double pressure, double temperature, double first_chamber_end, double sk_end, WarningHelper warn, int mode = 0);
-void evaluate_relative_velocity(double z, double *v_cluster, double &v_rel_norm, double v_gas, double *v_rel, double first_chamber_end, double sk_end);
+void time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &unif, double rate_constant, Eigen::Vector3d &v_cluster, double &v_cluster_norm, double n1, double n2, double mobility_gas, double mobility_gas_inv, double R, double dt1, double dt2, double &z, double &x, double &y, double &delta_t, double &t_fragmentation, double first_chamber_end, double sk_end, double quadrupole_start, double quadrupole_end, double second_chamber_end, double acc1, double acc2, double acc3, double acc4, double &t, double m_gas, const SkimmerData &skimmer, double mesh_skimmer, std::optional<Quadrupole> quadrupole, LogHelper tmp_evolution);
 template <typename GenT>
 double draw_vib_energy(GenT &gen, uniform_real_distribution<double> &unif, double vib_energy_old, const Histogram &density_cluster, double reduced_mass, double u_norm, double v_cluster_norm, double theta, int mode = 0);
-void update_velocities(double *v_cluster, double &v_cluster_norm, double *v_rel, double v_gas);
-void update_rot_vel(double *omega, double rot_energy_old, double rot_energy);
+std::tuple<double, Eigen::Vector3d, double, double, double> get_quantities_for_collision(double z, double n1, double n2, double m_gas, double mobility_gas, double mobility_gas_inv, const Eigen::Vector3d &v_cluster, double v_gas, double pressure, double temperature, double first_chamber_end, double sk_end);
+void update_physical_quantities(double z, const SkimmerData skimmer, double mesh_skimmer, double &v_gas, double &temperature, double &pressure, double &density, double first_chamber_end, double sk_end, double P1, double P2, double n1, double n2, double T);
+void evaluate_relative_velocity(double z, const Eigen::Vector3d &v_cluster, double &v_rel_norm, double v_gas, Eigen::Vector3d &v_rel, double first_chamber_end, double sk_end);
+void update_velocities(Eigen::Vector3d &v_cluster, double &v_cluster_norm, const Eigen::Vector3d &v_rel, double v_gas);
+void update_rot_vel(Eigen::Vector3d &omega, double rot_energy_old, double rot_energy);
 int mod_func_int(int a, int b);
+double boundary_vib_energy(double vib_energy_old, double reduced_mass, double u_norm, double v_cluster_norm, double theta);
 template <typename GenT>
 void redistribute_internal_energy(GenT &gen, uniform_real_distribution<double> &unif, double &vib_energy, double &rot_energy, const Histogram &density_cluster);
 void rescale_density(Eigen::ArrayXd &density, int m_max);
 void rescale_energies(Eigen::ArrayXd &energies, int m_max, double &energy_max, double &bin_width);
-void eval_velocities(double *v, double *omega, double *u, double vib_energy, double vib_energy_old, double M, double m, double R_cluster);
-void change_coord(double *v_cluster, double theta, double phi, double alpha, double *x3, double *y3, double *z3);
+void eval_velocities(Eigen::Vector3d &v, Eigen::Vector3d &omega, const Eigen::Vector2d &u, double vib_energy, double vib_energy_old, double M, double m, double R_cluster);
+void change_coord(const Eigen::Vector3d &v_cluster, double theta, double phi, double alpha, Eigen::Vector3d &x3, Eigen::Vector3d &y3, Eigen::Vector3d &z3);
 template <typename GenT>
-void eval_collision(GenT &gen, uniform_real_distribution<double> &unif, bool &collision_accepted, double gas_mean_free_path, double x, double y, double z, double L, double radius_pinhole, double quadrupole_end, double *v_cluster, double *omega, double u_norm, double theta, double R_cluster, double vib_energy, double vib_energy_old, double m_ion, double m_gas, double temperature, LogHelper pinhole);
-double vec_norm(double *v);
+void eval_collision(GenT &gen, uniform_real_distribution<double> &unif, bool &collision_accepted, double gas_mean_free_path, double x, double y, double z, double L, double radius_pinhole, double quadrupole_end, Eigen::Vector3d &v_cluster, Eigen::Vector3d &omega, double u_norm, double theta, double R_cluster, double vib_energy, double vib_energy_old, double m_ion, double m_gas, double temperature, LogHelper pinhole);
 template <typename GenT>
 double onedimMaxwell(GenT &gen, normal_distribution<double> &gauss, double m, double kT);
 double mean_free_path(double R, double kT, double pressure);
@@ -148,9 +149,9 @@ Counters apitof_pinhole(
   double R_tot = R_cluster + R_gas;
   double reduced_mass = 1. / (1. / m_ion + 1. / m_gas);
   double inertia = 0.4 * m_ion * R_cluster * R_cluster;
-  double mobility_gas = kT / m_gas; // thermal agitation
+  const double mobility_gas = kT / m_gas; // thermal agitation
   // std_gas=sqrt(mobility_gas);
-  double mobility_gas_inv = 1.0 / mobility_gas;
+  const double mobility_gas_inv = 1.0 / mobility_gas;
   double boundary_u = 5.0 * sqrt(mobility_gas);
   double du = 1.0e-4 * sqrt(mobility_gas);
   double E1 = -(voltages[1] - voltages[0]) / lengths[0];
@@ -287,14 +288,12 @@ Counters apitof_pinhole(
       int ncoll = 0;
       double coll_z = 0.0;
 
-      double v_cluster[3];
-      double v_rel[3];
-      double v_rel_norm;
-      double omega[3];
       double v_gas;
       double temperature;
       double density;
       double v_cluster_norm;
+      Eigen::Vector3d v_rel;
+      double v_rel_norm;
 
       double theta;
       double u_norm; // normal velocity of colliding gas molecule
@@ -308,8 +307,8 @@ Counters apitof_pinhole(
       double t_fragmentation;
 
       // Draw initial random velocity from Maxwell-Boltzmann distribution
-      init_vel(gen, gauss, v_cluster, m_ion, kT);
-      init_ang_vel(gen, gauss, omega, m_ion, kT, R_cluster);
+      Eigen::Vector3d v_cluster = init_vel(gen, gauss, m_ion, kT);
+      Eigen::Vector3d omega = init_ang_vel(gen, gauss, m_ion, kT, R_cluster);
       init_vib_energy(gen, unif, vib_energy, kT, density_cluster);
 
       while (z < total_length) // single realization // TO BE CHANGED IN SECOND CHAMBER!!!!!!!!!!!
@@ -324,7 +323,7 @@ Counters apitof_pinhole(
         const double radius_pinhole = 1.0e-3;
         const int max_coll = 1e6;
 
-        v_cluster_norm = vec_norm(v_cluster);
+        v_cluster_norm = v_cluster.norm();
 
         // Checking the collision frequencies during the evolution
         // if(z<sk_end) tmp << coll_freq(n1, mobility_gas, mobility_gas_inv, R_tot, v_cluster_norm)<<endl;
@@ -516,47 +515,14 @@ double evaluate_error(int n, int k)
   return sqrt((6.0 * k * k - k * (6.0 + k) * n + (2.0 + k) * n * n) / (n * n * (3.0 + n) * (2.0 + n)));
 }
 
-// Geometrical mean of moment of inertia
-void compute_inertia(double *rotations, double &inertia_moment)
-{
-  using namespace consts;
-  inertia_moment = 0.5 * hbar * hbar / (boltzmann * pow(rotations[0] * rotations[1] * rotations[2], 1.0 / 3));
-}
-
-double vec_norm(double *v)
-{
-  return sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
-}
-
-
-double scalar(double *in1, double *in2)
-{
-  return in1[0] * in2[0] + in1[1] * in2[1] + in1[2] * in2[2];
-}
-
-// Compute cross product of vectors
-void cross(double *in1, double *in2, double *out) // PRODOTTO VETTORIALE tra due vettori
-{
-  out[0] = in1[1] * in2[2] - in1[2] * in2[1];
-  out[1] = in1[2] * in2[0] - in1[0] * in2[2];
-  out[2] = in1[0] * in2[1] - in1[1] * in2[0];
-}
-
 // Compute normalized cross product of vectors
-void cross_norm(double *in1, double *in2, double *out) // PRODOTTO VETTORIALE tra due vettori
+Eigen::Vector3d cross_norm(const Eigen::Vector3d &in1, const Eigen::Vector3d &in2)
 {
-  double norm;
-
-  out[0] = in1[1] * in2[2] - in1[2] * in2[1];
-  out[1] = in1[2] * in2[0] - in1[0] * in2[2];
-  out[2] = in1[0] * in2[1] - in1[1] * in2[0];
-  norm = sqrt(out[0] * out[0] + out[1] * out[1] + out[2] * out[2]);
-  // cout << norm << endl;
+  Eigen::Vector3d out = in1.cross(in2);
+  double norm = out.norm();
   if (norm > 0)
   {
-    out[0] = out[0] / norm;
-    out[1] = out[1] / norm;
-    out[2] = out[2] / norm;
+    return out / norm;
   }
   else
   {
@@ -671,20 +637,22 @@ double onedimMaxwell_angular(GenT &gen, normal_distribution<double> &gauss, doub
 
 // Inizialize the cluster velocity
 template <typename GenT>
-void init_vel(GenT &gen, normal_distribution<double> &gauss, double *v_cluster, double m, double kT)
+Eigen::Vector3d init_vel(GenT &gen, normal_distribution<double> &gauss, double m, double kT)
 {
-  v_cluster[0] = onedimMaxwell(gen, gauss, m, kT);
-  v_cluster[1] = onedimMaxwell(gen, gauss, m, kT);
-  v_cluster[2] = onedimMaxwell(gen, gauss, m, kT);
+  return Eigen::Vector3d(
+    onedimMaxwell(gen, gauss, m, kT),
+    onedimMaxwell(gen, gauss, m, kT),
+    onedimMaxwell(gen, gauss, m, kT));
 }
 
 // Inizialize the cluster angular velocity
 template <typename GenT>
-void init_ang_vel(GenT &gen, normal_distribution<double> &gauss, double *omega, double m, double kT, double R)
+Eigen::Vector3d init_ang_vel(GenT &gen, normal_distribution<double> &gauss, double m, double kT, double R)
 {
-  omega[0] = onedimMaxwell_angular(gen, gauss, m, R, kT);
-  omega[1] = onedimMaxwell_angular(gen, gauss, m, R, kT);
-  omega[2] = onedimMaxwell_angular(gen, gauss, m, R, kT);
+  return Eigen::Vector3d(
+    onedimMaxwell_angular(gen, gauss, m, R, kT),
+    onedimMaxwell_angular(gen, gauss, m, R, kT),
+    onedimMaxwell_angular(gen, gauss, m, R, kT));
 }
 
 
@@ -817,7 +785,7 @@ void init_vib_energy(GenT &gen, uniform_real_distribution<double> &unif, double 
 
 // Evaluate time to next collision
 template <typename GenT>
-void time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &unif, double rate_constant, double *v_cluster, double &v_cluster_norm, double n1, double n2, double mobility_gas, double mobility_gas_inv, double R, double dt1, double dt2, double &z, double &x, double &y, double &delta_t, double &t_fragmentation, double first_chamber_end, double sk_end, double quadrupole_start, double quadrupole_end, double second_chamber_end, double acc1, double acc2, double acc3, double acc4, double &t, double m_gas, const SkimmerData &skimmer, double mesh_skimmer, std::optional<Quadrupole> quadrupole, LogHelper tmp_evolution)
+void time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &unif, double rate_constant, Eigen::Vector3d &v_cluster, double &v_cluster_norm, double n1, double n2, double mobility_gas, double mobility_gas_inv, double R, double dt1, double dt2, double &z, double &x, double &y, double &delta_t, double &t_fragmentation, double first_chamber_end, double sk_end, double quadrupole_start, double quadrupole_end, double second_chamber_end, double acc1, double acc2, double acc3, double acc4, double &t, double m_gas, const SkimmerData &skimmer, double mesh_skimmer, std::optional<Quadrupole> quadrupole, LogHelper tmp_evolution)
 {
   using namespace consts;
   double integral = 0.0;
@@ -843,7 +811,7 @@ void time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &uni
   double accy;
 
   delta_t = 0.0;
-  v_cluster_norm = sqrt(v_cluster[0] * v_cluster[0] + v_cluster[1] * v_cluster[1] + v_cluster[2] * v_cluster[2]);
+  v_cluster_norm = v_cluster.norm();
 
   if (z < first_chamber_end) // In first chamber
   {
@@ -908,7 +876,7 @@ void time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &uni
       v_cluster[2] += acc4 * dt2;
     }
 
-    v_cluster_norm = sqrt(v_cluster[0] * v_cluster[0] + v_cluster[1] * v_cluster[1] + v_cluster[2] * v_cluster[2]);
+    v_cluster_norm = v_cluster.norm();
 
     if (z < first_chamber_end) // Dynamics in the 1st chamber
     {
@@ -996,25 +964,21 @@ void time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &uni
 
 // Draw theta angle of collision UPDATED
 template <typename GenT>
-double draw_theta_skimmer(GenT &gen, uniform_real_distribution<double> &unif, double z, double n1, double n2, double m_gas, double mobility_gas, double mobility_gas_inv, double R, double *v_cluster, double v_gas, double pressure, double temperature, double first_chamber_end, double sk_end, WarningHelper warn, int mode)
+double draw_theta_skimmer(GenT &gen, uniform_real_distribution<double> &unif, double z, double n1, double n2, double m_gas, double mobility_gas, double mobility_gas_inv, double R, const Eigen::Vector3d &v_cluster, double v_gas, double pressure, double temperature, double first_chamber_end, double sk_end, WarningHelper warn, int mode)
 {
   using namespace consts;
   double r = unif(gen);
   double n;
   double v_rel_norm;
+  Eigen::Vector3d v_rel = v_cluster;
 
   if (z < first_chamber_end)
   {
     n = n1;
-    v_rel_norm = vec_norm(v_cluster);
   }
   else if (z < sk_end)
   {
-    double v_rel[3];
-    v_rel[0] = v_cluster[0];
-    v_rel[1] = v_cluster[1];
-    v_rel[2] = v_cluster[2] - v_gas;
-    v_rel_norm = vec_norm(v_rel);
+    v_rel[2] = v_rel[2] - v_gas;
     double kT = boltzmann * temperature;
     mobility_gas = kT / m_gas;
     mobility_gas_inv = 1.0 / mobility_gas;
@@ -1023,8 +987,8 @@ double draw_theta_skimmer(GenT &gen, uniform_real_distribution<double> &unif, do
   else
   {
     n = n2;
-    v_rel_norm = vec_norm(v_cluster);
   }
+  v_rel_norm = v_rel.norm();
 
   const double dtheta = 1.0e-3;
   double theta = 0.0;
@@ -1156,7 +1120,7 @@ void redistribute_internal_energy(GenT &gen, uniform_real_distribution<double> &
 
 
 // Update angular velocity after redistribution of vibrational and rotational energy
-void update_rot_vel(double *omega, double rot_energy_old, double rot_energy)
+void update_rot_vel(Eigen::Vector3d &omega, double rot_energy_old, double rot_energy)
 {
   omega[0] = omega[0] * sqrt(rot_energy / rot_energy_old);
   omega[1] = omega[1] * sqrt(rot_energy / rot_energy_old);
@@ -1165,26 +1129,21 @@ void update_rot_vel(double *omega, double rot_energy_old, double rot_energy)
 
 // Draw normal velocity of carrier gas
 template <typename GenT>
-double draw_u_norm_skimmer(GenT &gen, uniform_real_distribution<double> &unif, double z, double du, double boundary_u, double theta, double n1, double n2, double m_gas, double mobility_gas, double mobility_gas_inv, double R, double *v_cluster, double v_gas, double pressure, double temperature, double first_chamber_end, double sk_end, WarningHelper warn, int mode)
+double draw_u_norm_skimmer(GenT &gen, uniform_real_distribution<double> &unif, double z, double du, double boundary_u, double theta, double n1, double n2, double m_gas, double mobility_gas, double mobility_gas_inv, double R, const Eigen::Vector3d &v_cluster, double v_gas, double pressure, double temperature, double first_chamber_end, double sk_end, WarningHelper warn, int mode)
 {
   using namespace consts;
   double n;
   double v_rel_norm;
-  double kT;
+  Eigen::Vector3d v_rel = v_cluster;
 
   if (z < first_chamber_end)
   {
     n = n1;
-    v_rel_norm = vec_norm(v_cluster);
   }
   else if (z < sk_end)
   {
-    double v_rel[3];
-    v_rel[0] = v_cluster[0];
-    v_rel[1] = v_cluster[1];
-    v_rel[2] = v_cluster[2] - v_gas;
-    v_rel_norm = vec_norm(v_rel);
-    kT = boltzmann * temperature;
+    v_rel[2] = v_rel[2] - v_gas;
+    double kT = boltzmann * temperature;
     mobility_gas = kT / m_gas;
     mobility_gas_inv = 1.0 / mobility_gas;
     n = particle_density(pressure, kT);
@@ -1192,8 +1151,8 @@ double draw_u_norm_skimmer(GenT &gen, uniform_real_distribution<double> &unif, d
   else
   {
     n = n2;
-    v_rel_norm = vec_norm(v_cluster);
   }
+  v_rel_norm = v_rel.norm();
 
   double u_norm;
   if (mode == 1)
@@ -1263,19 +1222,6 @@ double draw_u_norm_skimmer(GenT &gen, uniform_real_distribution<double> &unif, d
 }
 
 
-void update_v_cluster_norm(double *v_cluster, double &v_cluster_norm)
-{
-  v_cluster_norm = sqrt(v_cluster[0] * v_cluster[0] + v_cluster[1] * v_cluster[1] + v_cluster[2] * v_cluster[2]);
-}
-
-// Evaluate (approximation of) kinetic energy of crashing gas molecule
-double evaluate_energy_collision(double *v, double *omega, double inertia, double m_ion)
-{
-  double v_squared = v[0] * v[0] + v[1] * v[1] + v[2] * v[2];
-  double omega_squared = omega[0] * omega[0] + omega[1] * omega[1] + omega[2] * omega[2];
-  return 0.5 * (m_ion * v_squared + inertia * omega_squared);
-}
-
 // Evaluate internal energy (rotational+vibrational)
 double evaluate_internal_energy(double vib_energy, double rot_energy)
 {
@@ -1283,10 +1229,9 @@ double evaluate_internal_energy(double vib_energy, double rot_energy)
 }
 
 // Evaluate rotational energy
-double evaluate_rotational_energy(double *omega, double inertia)
+double evaluate_rotational_energy(Eigen::Vector3d omega, double inertia)
 {
-  double omega_squared = omega[0] * omega[0] + omega[1] * omega[1] + omega[2] * omega[2];
-  return 0.5 * inertia * omega_squared;
+  return 0.5 * inertia * omega.squaredNorm();
 }
 
 // Mean free path
@@ -1302,7 +1247,7 @@ double energy_in_eV(double energy)
   return energy / 1.602e-19;
 }
 
-void evaluate_relative_velocity(double z, double *v_cluster, double &v_rel_norm, double v_gas, double *v_rel, double first_chamber_end, double sk_end)
+void evaluate_relative_velocity(double z, const Eigen::Vector3d &v_cluster, double &v_rel_norm, double v_gas, Eigen::Vector3d &v_rel, double first_chamber_end, double sk_end)
 {
   if (z > first_chamber_end and z < sk_end)
   {
@@ -1316,20 +1261,20 @@ void evaluate_relative_velocity(double z, double *v_cluster, double &v_rel_norm,
     v_rel[1] = v_cluster[1];
     v_rel[2] = v_cluster[2];
   }
-  v_rel_norm = vec_norm(v_rel);
+  v_rel_norm = v_rel.norm();
 }
 
-void update_velocities(double *v_cluster, double &v_cluster_norm, double *v_rel, double v_gas)
+void update_velocities(Eigen::Vector3d &v_cluster, double &v_cluster_norm, const Eigen::Vector3d &v_rel, double v_gas)
 {
   v_cluster[0] = v_rel[0];
   v_cluster[1] = v_rel[1];
   v_cluster[2] = v_rel[2] + v_gas;
-  v_cluster_norm = vec_norm(v_cluster);
+  v_cluster_norm = v_cluster.norm();
 }
 
 
 // Evaluate the velocities after collision in the rotated reference system
-void eval_velocities(double *v, double *omega, double *u, double vib_energy, double vib_energy_old, double M, double m, double R_cluster)
+void eval_velocities(Eigen::Vector3d &v, Eigen::Vector3d &omega, const Eigen::Vector2d &u, double vib_energy, double vib_energy_old, double M, double m, double R_cluster)
 {
   double vx;
   double vy;
@@ -1377,46 +1322,37 @@ void eval_velocities(double *v, double *omega, double *u, double vib_energy, dou
 
 
 // Change of coordinates routine
-void change_coord(double *v_cluster, double theta, double phi, double alpha, double *x3, double *y3, double *z3)
+void change_coord(const Eigen::Vector3d &v_cluster, double theta, double phi, double alpha, Eigen::Vector3d &x3, Eigen::Vector3d &y3, Eigen::Vector3d &z3)
 {
   using consts::pi;
-  double v_cluster_norm = vec_norm(v_cluster);
-  double x[3] = {1.0, 0.0, 0.0};
-  double y[3] = {0.0, 1.0, 0.0};
-  double x1[3];
-  double y1[3];
-  double z1[3];
-  double x2[3];
-  double y2[3];
-  double z2[3];
-  double foo[3];
+  auto x = Eigen::Vector3d(1.0, 0.0, 0.0);
+  auto y = Eigen::Vector3d(0.0, 1.0, 0.0);
+  Eigen::Vector3d x1;
+  Eigen::Vector3d y1;
+  auto z1 = Eigen::Vector3d(0.0, 0.0, 1.0);
+  Eigen::Vector3d x2;
+  Eigen::Vector3d y2;
+  Eigen::Vector3d z2;
+  Eigen::Vector3d foo;
 
   // check if v_cluster is null
+  double v_cluster_norm = v_cluster.norm();
   if (v_cluster_norm > 0)
   {
-    for (int i = 0; i < 3; i++)
-    {
-      z1[i] = v_cluster[i] / v_cluster_norm;
-    }
-  }
-  else
-  {
-    z1[0] = 0.0;
-    z1[1] = 0.0;
-    z1[2] = 1.0;
+    z1 = v_cluster / v_cluster_norm;
   }
 
   // build reference system with v_cluster aligned to z1 versor
-  cross(z1, x, foo);
-  if (vec_norm(foo) != 0.0)
+  foo = z1.cross(x);
+  if (foo.norm() != 0.0)
   {
-    cross_norm(z1, x, y1);
-    cross_norm(y1, z1, x1);
+    y1 = cross_norm(z1, x);
+    x1 = cross_norm(y1, z1);
   }
   else
   {
-    cross_norm(y, z1, x1);
-    cross_norm(z1, x1, y1);
+    x1 = cross_norm(y, z1);
+    y1 = cross_norm(z1, x1);
   }
 
   // build reference of system centered in point of collision (x2,y2,z2)
@@ -1426,8 +1362,8 @@ void change_coord(double *v_cluster, double theta, double phi, double alpha, dou
     {
       z2[i] = sin(theta) * cos(phi) * x1[i] + sin(theta) * sin(phi) * y1[i] + cos(theta) * z1[i];
     }
-    cross_norm(z2, z1, x2);
-    cross_norm(z2, x2, y2);
+    x2 = cross_norm(z2, z1);
+    y2 = cross_norm(z2, x2);
   }
   else if (theta == 0.0)
   {
@@ -1435,8 +1371,8 @@ void change_coord(double *v_cluster, double theta, double phi, double alpha, dou
     {
       z2[i] = z1[i];
     }
-    cross_norm(z2, x1, y2);
-    cross_norm(y2, z2, x2);
+    y2 = cross_norm(z2, x1);
+    x2 = cross_norm(y2, z2);
   }
   else if (theta == pi)
   {
@@ -1444,8 +1380,8 @@ void change_coord(double *v_cluster, double theta, double phi, double alpha, dou
     {
       z2[i] = -z1[i];
     }
-    cross_norm(z2, x1, y2);
-    cross_norm(y2, z2, x2);
+    y2 = cross_norm(z2, x1);
+    x2 = cross_norm(y2, z2);
   }
   else
   {
@@ -1509,20 +1445,20 @@ double eval_solid_angle_stokes(double R, double L, double xx, double yy, double 
 
 //
 template <typename GenT>
-void eval_collision(GenT &gen, uniform_real_distribution<double> &unif, bool &collision_accepted, double gas_mean_free_path, double x, double y, double z, double L, double radius_pinhole, double quadrupole_end, double *v_cluster, double *omega, double u_norm, double theta, double R_cluster, double vib_energy, double vib_energy_old, double m_ion, double m_gas, double temperature, LogHelper pinhole)
+void eval_collision(GenT &gen, uniform_real_distribution<double> &unif, bool &collision_accepted, double gas_mean_free_path, double x, double y, double z, double L, double radius_pinhole, double quadrupole_end, Eigen::Vector3d &v_cluster, Eigen::Vector3d &omega, double u_norm, double theta, double R_cluster, double vib_energy, double vib_energy_old, double m_ion, double m_gas, double temperature, LogHelper pinhole)
 {
   using namespace consts;
-  double x3[3];
-  double y3[3];
-  double z3[3];
-  double v2[3];
-  double omega2[3];
+  Eigen::Vector3d x3;
+  Eigen::Vector3d y3;
+  Eigen::Vector3d z3;
+  Eigen::Vector3d v2;
+  Eigen::Vector3d omega2;
   double phi = 2.0 * pi * unif(gen);
   double alpha = 2.0 * pi * unif(gen);
   double kT = boltzmann * temperature;
-  double u[2];
-  double velocity_gas[3];
-  double target[2];
+  Eigen::Vector2d u;
+  Eigen::Vector3d velocity_gas;
+  Eigen::Vector2d target;
   bool inside_target = false;
   double prob_coll = 1.0;
   double distance;
@@ -1531,14 +1467,14 @@ void eval_collision(GenT &gen, uniform_real_distribution<double> &unif, bool &co
   change_coord(v_cluster, theta, phi, alpha, x3, y3, z3);
 
 
-  v2[0] = scalar(v_cluster, x3);
-  v2[1] = scalar(v_cluster, y3);
-  v2[2] = scalar(v_cluster, z3);
+  v2[0] = v_cluster.dot(x3);
+  v2[1] = v_cluster.dot(y3);
+  v2[2] = v_cluster.dot(z3);
 
 
-  omega2[0] = scalar(omega, x3);
-  omega2[1] = scalar(omega, y3);
-  omega2[2] = scalar(omega, z3);
+  omega2[0] = omega.dot(x3);
+  omega2[1] = omega.dot(y3);
+  omega2[2] = omega.dot(z3);
 
 
   // Normal component of air molecule velocity
@@ -1613,11 +1549,6 @@ void eval_collision(GenT &gen, uniform_real_distribution<double> &unif, bool &co
       omega[i] = omega2[0] * x3[i] + omega2[1] * y3[i] + omega2[2] * z3[i];
     }
   }
-}
-
-double modulus_squared(double *x)
-{
-  return sqrt(x[0] * x[0] + x[1] * x[1] + x[2] * x[2]);
 }
 
 void rescale_density(Histogram &density)
