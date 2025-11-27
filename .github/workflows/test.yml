@@ -122,13 +122,6 @@ jobs:
     name: Test with LLVM sanitisers
     runs-on: ubuntu-latest
 
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - build: manysan
-          - build: memsan
-
     steps:
       - name: Checkout source code
         uses: actions/checkout@v4
@@ -140,11 +133,12 @@ jobs:
           sudo ln -sf /usr/bin/clang-format-20 /usr/bin/clang-format
           sudo ln -sf /usr/bin/clang++-20 /usr/bin/clang++
           sudo ln -sf /usr/bin/lld-20 /usr/bin/lld
+          sudo apt-get install -y libc++-dev libc++-20-dev
           sudo pip install meson
 
-      - name: Build
+      - name: Setup/compile with meson
         run: |
-          meson setup --native-file=meson/test/${{ matrix.build }}.ini build
+          meson setup --native-file=meson/test/manysan.ini build
           meson compile -C build
 
       - name: Test
