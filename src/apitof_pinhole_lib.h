@@ -1137,9 +1137,7 @@ void redistribute_internal_energy(GenT &gen, uniform_real_distribution<double> &
   m = 0;
   while (density_cluster.x[m] < E)
   {
-    if (E - density_cluster.x[m] < 0)
-      std::cout << "ERROR!!" << endl
-                << endl;
+    assert(E - density_cluster.x[m] >= 0);
     integral += sqrt(E - density_cluster.x[m]) * density_cluster.y[m];
     m++;
   }
@@ -1148,9 +1146,7 @@ void redistribute_internal_energy(GenT &gen, uniform_real_distribution<double> &
   m = 0;
   while (integral2 < r)
   {
-    if (E - density_cluster.x[m] < 0)
-      std::cout << "ERROR!!" << endl
-                << endl;
+    assert(E - density_cluster.x[m] >= 0);
     integral2 += sqrt(E - density_cluster.x[m]) * density_cluster.y[m] / integral;
     m++;
   }
@@ -1454,10 +1450,10 @@ void change_coord(double *v_cluster, double theta, double phi, double alpha, dou
   }
   else
   {
-    std::cout << endl
-              << endl
-              << "ERROR in defining reference system at theta: " << theta << endl
-              << endl;
+    throw ApiTofError([&](auto &msg)
+    {
+      msg << "ERROR in defining reference system at theta: " << theta << endl;
+    });
   }
 
   // find versor of tangential velocity
@@ -1553,12 +1549,11 @@ void eval_collision(GenT &gen, uniform_real_distribution<double> &unif, bool &co
   // cout << kT << endl;
   if (u[0] > v2[2])
   {
-    std::cout << endl
-              << endl
-              << "ERROR: relative velocities prevent collision!" << endl
-              << endl;
+    throw ApiTofError([&](auto &msg)
+    {
+      msg << "ERROR: relative velocities prevent collision! " << u[0] << " > " << v2[2] << endl;
+    });
   }
-
 
   // Check if the gas particle comes from the pinhole
   if (z > quadrupole_end and z < L)
