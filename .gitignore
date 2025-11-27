@@ -13,3 +13,6 @@
 benchout/
 /work/
 /output/
+/builds/
+/trees/
+/.lazy.lua
