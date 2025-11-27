@@ -116,7 +116,7 @@ jobs:
 
       - name: Test
         run: |
-          meson test -C build
+          meson test --print-errorlogs -C build
 
   build_test_llvm:
     name: Test with LLVM sanitisers
@@ -143,7 +143,7 @@ jobs:
 
       - name: Test
         run: |
-          meson test -C build
+          meson test --print-errorlogs -C build
 
   test_valgrind:
     name: Test with Valgrind
@@ -172,4 +172,4 @@ jobs:
 
       - name: Test with valgrind
         run: |
-          meson test --wrapper=valgrind -C build
+          meson test --print-errorlogs --wrapper=valgrind -C build
