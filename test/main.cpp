@@ -1,9 +1,13 @@
-#define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
-#include <doctest.h>
+#include <catch2/catch_test_macros.hpp>
+#include <catch2/catch_message.hpp>
+#include <catch2/matchers/catch_matchers.hpp>
+#include <catch2/matchers/catch_matchers_floating_point.hpp>
 
 #include "skimmer_lib.h"
 #include "densityandrate_smoke.h"
 #include "apitof_pinhole_io.h"
+
+using namespace Catch::Matchers;
 
 TEST_CASE("skimmer smoke tests")
 {
@@ -52,12 +56,12 @@ TEST_CASE("skimmer smoke tests")
     }
   }
 
-  CHECK(fr.r == doctest::Approx(0.000495).epsilon(0.01));
-  CHECK(fr.vel == doctest::Approx(614.574).epsilon(0.01));
-  CHECK(fr.T == doctest::Approx(110.433).epsilon(0.01));
-  CHECK(fr.P == doctest::Approx(5.508).epsilon(0.01));
-  CHECK(fr.rho == doctest::Approx(0.000175229).epsilon(0.01));
-  CHECK(fr.speed_of_sound == doctest::Approx(209.777).epsilon(0.01));
+  CHECK_THAT(fr.r, WithinRel(0.000495, 0.01));
+  CHECK_THAT(fr.vel, WithinRel(614.574, 0.01));
+  CHECK_THAT(fr.T, WithinRel(110.433, 0.01));
+  CHECK_THAT(fr.P, WithinRel(5.508, 0.01));
+  CHECK_THAT(fr.rho, WithinRel(0.000175229, 0.01));
+  CHECK_THAT(fr.speed_of_sound, WithinRel(209.777, 0.01));
 }
 
 bool is_increasing(const Eigen::ArrayXd &arr)
@@ -90,7 +94,8 @@ TEST_CASE("apitof pinhole smoke tests")
 {
   namespace fs = std::filesystem;
   const char *data_dir_env = getenv("DATA_DIR");
-  REQUIRE_MESSAGE(data_dir_env != nullptr, "DATA_DIR environment variable not set");
+  UNSCOPED_INFO("DATA_DIR environment variable not set");
+  REQUIRE(data_dir_env != nullptr);
   auto density_cluster = read_histogram((string(data_dir_env) + "/density_cluster.out").c_str());
   auto rate_const = read_histogram((string(data_dir_env) + "/rate_constant.out").c_str());
   SkimmerData skimmer;
@@ -178,14 +183,14 @@ TEST_CASE("apitof pinhole smoke tests")
     {
       const LogMessage &msg = std::get<LogMessage>(result);
       {
-        INFO("Unexpected log message type: ", msg.type, " content: ", msg.message);
-        CHECK_UNARY(
+        INFO("Unexpected log message type: " << msg.type << " content: " << msg.message);
+        CHECK((
           msg.type == LogMessage::fragments ||
           msg.type == LogMessage::probabilities ||
           msg.type == LogMessage::tmp ||
           msg.type == LogMessage::tmp_evolution ||
           msg.type == LogMessage::final_position ||
-          msg.type == LogMessage::pinhole);
+          msg.type == LogMessage::pinhole));
       }
     }
   }
