@@ -1,6 +1,5 @@
 #include <Eigen/Dense>
 #include <iostream>
-#include <omp.h>
 #include <random>
 #include <fstream>
 #include <iomanip>
@@ -17,6 +16,12 @@
 #include <blockingconcurrentqueue.h>
 #pragma clang attribute pop
 #include "consts.h"
+
+#ifdef _OPENMP
+#include <omp.h>
+#else
+#define omp_get_thread_num() 0
+#endif
 
 using namespace std;
 using magic_enum::enum_count;
@@ -404,7 +409,7 @@ Counters apitof_pinhole(
               << endl;
   }
 
-  Counters counters;
+  Counters counters = Counters::Zero();
 
   if (LOGLEVEL >= LOGLEVEL_MIN)
   {

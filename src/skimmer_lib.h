@@ -21,7 +21,7 @@ double f(double x, double *c)
 // Find lower solution --> a=0 (subsonic flow), find upper solution --> a=1
 // (supersonic flow)
 double solve_eqn(double c[5], double v0, double v1, double tolerance, int N,
-                 int M, int a, int &nwarnings, ofstream &warnings)
+                 int M, int a, int &nwarnings, ostream &warnings)
 {
   double mesh;
   double v;
@@ -104,12 +104,12 @@ struct Skimmer
   int resolution;
   double tolerance;
   int &nwarnings;
-  ofstream &warnings;
+  ostream &warnings;
 
   Skimmer(double T0_, double P0_, double rmax_, double dc_,
           double alpha_factor_, double m_, double ga_, int N_, int M_,
           int resolution_, double tolerance_, int &nwarnings_,
-          ofstream &warnings_)
+          ostream &warnings_)
       : T0(T0_), P0(P0_), rmax(rmax_), dc(dc_), alpha_factor(alpha_factor_),
         m(m_), ga(ga_), N(N_), M(M_), resolution(resolution_),
         tolerance(tolerance_), nwarnings(nwarnings_), warnings(warnings_)

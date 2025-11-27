@@ -93,8 +93,8 @@ jobs:
         run: |
           ninja -C build clang-tidy
 
-  build_gcc:
-    name: Build with GCC
+  build_test_gcc:
+    name: Build with Python + test with GCC
     runs-on: ubuntu-latest
 
     steps:
@@ -113,3 +113,63 @@ jobs:
         run: |
           meson setup --warnlevel 3 --werror build
           meson compile -C build
+
+      - name: Test
+        run: |
+          meson test --print-errorlogs -C build
+
+  build_test_llvm:
+    name: Test with LLVM sanitisers
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get install -y clang-tidy-20 clang-format-20 clang-20 lld-20 libomp5-20 libomp-20-dev
+          sudo ln -sf /usr/bin/clang-tidy-20 /usr/bin/clang-tidy
+          sudo ln -sf /usr/bin/clang-format-20 /usr/bin/clang-format
+          sudo ln -sf /usr/bin/clang++-20 /usr/bin/clang++
+          sudo ln -sf /usr/bin/lld-20 /usr/bin/lld
+          sudo apt-get install -y libc++-20-dev
+          sudo pip install meson
+
+      - name: Setup/compile with meson
+        run: |
+          meson setup --native-file=meson/test/manysan.ini build
+          meson compile -C build
+
+      - name: Test
+        run: |
+          meson test --print-errorlogs -C build
+
+  test_valgrind:
+    name: Test with Valgrind
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get install -y meson clang-tidy-20 clang-format-20 clang-20 lld-20 libomp5-20 libomp-20-dev
+          sudo ln -sf /usr/bin/clang-tidy-20 /usr/bin/clang-tidy
+          sudo ln -sf /usr/bin/clang-format-20 /usr/bin/clang-format
+          sudo ln -sf /usr/bin/clang++-20 /usr/bin/clang++
+          sudo ln -sf /usr/bin/lld-20 /usr/bin/lld
+          sudo apt-get install -y valgrind
+
+      - name: Setup meson
+        run: |
+          meson setup --native-file=meson/test/valgrind.ini build
+
+      - name: Test with valgrind
+        run: |
+          meson test --print-errorlogs --wrapper=valgrind -C build

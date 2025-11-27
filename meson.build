@@ -50,8 +50,9 @@ magic_enum = dependency(
 )
 
 subdir('src')
-subdir('bench')
 
 if python_feat.enabled()
   subdir('python')
 endif
+
+subdir('test')
