@@ -6,8 +6,10 @@
 #include <sstream>
 #include <stdexcept>
 #include <iostream>
+#include <iomanip>
 #include <cstring>
 #include <fstream>
+#include <variant>
 #include <Eigen/Dense>
 #include <magic_enum/magic_enum.hpp>
 #pragma clang attribute push(__attribute__((no_sanitize("unsigned-integer-overflow"))), apply_to = function)
