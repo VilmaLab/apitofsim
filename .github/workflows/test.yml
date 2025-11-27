@@ -133,7 +133,7 @@ jobs:
           sudo ln -sf /usr/bin/clang-format-20 /usr/bin/clang-format
           sudo ln -sf /usr/bin/clang++-20 /usr/bin/clang++
           sudo ln -sf /usr/bin/lld-20 /usr/bin/lld
-          sudo apt-get install -y libc++-dev libc++-20-dev
+          sudo apt-get install -y libc++-20-dev
           sudo pip install meson
 
       - name: Setup/compile with meson
