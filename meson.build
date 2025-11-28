@@ -24,19 +24,22 @@ endif
 
 python_feat = get_option('python')
 ittnotify_feat = get_option('ittnotify')
-use_intel_openmp = get_option('use_intel_openmp')
+openmp_option = get_option('openmp')
 
 if ittnotify_feat.enabled()
   ittnotify = dependency('ittnotify', include_type : 'system')
   add_project_dependencies(ittnotify, language: 'cpp')
 endif
-if use_intel_openmp
+if openmp_option == 'intel'
   openmp = declare_dependency(
     compile_args : ['-fiopenmp'],
     link_args : ['-fiopenmp'],
   )
-else
+elif openmp_option == 'default'
   openmp = dependency('openmp', include_type : 'system')
+else
+  # disabled
+  openmp = declare_dependency()
 endif
 eigen3 = dependency('eigen3', include_type : 'system', version : '>= 3.4')
 nanobind = dependency('nanobind', required : python_feat, include_type : 'system')

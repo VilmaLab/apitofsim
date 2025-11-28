@@ -1,6 +1,7 @@
 #pragma once
 
 #include "utils.h"
+#include "omp_shim.h"
 
 #include <fstream>
 #include <sstream>
@@ -15,12 +16,6 @@
 #pragma clang attribute push(__attribute__((no_sanitize("unsigned-integer-overflow"))), apply_to = function)
 #include <blockingconcurrentqueue.h>
 #pragma clang attribute pop
-
-#ifdef _OPENMP
-#include <omp.h>
-#else
-#define omp_get_thread_num() 0
-#endif
 
 using magic_enum::enum_count;
 using moodycamel::BlockingConcurrentQueue;
