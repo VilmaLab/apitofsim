@@ -10,6 +10,7 @@
 #include <magic_enum/magic_enum.hpp>
 #include "consts.h"
 #include "warnlogcount.h"
+#include "samplers.h"
 
 using namespace std;
 using magic_enum::enum_count;
@@ -22,31 +23,6 @@ const int PRESSURE_SKIMMER = 2;
 typedef Eigen::Array<double, 5, 1> InstrumentDims;
 const int SKIMMER_LENGTH = 4;
 typedef Eigen::Array<double, 5, 1> InstrumentVoltages;
-
-struct Histogram
-{
-  Eigen::ArrayXd x;
-  Eigen::ArrayXd y;
-  double bin_width;
-  double x_max;
-
-  Histogram(Eigen::ArrayXd x, Eigen::ArrayXd y)
-      : x(x), y(y)
-  {
-    compute_derived();
-  }
-
-  void compute_derived()
-  {
-    bin_width = x[1] - x[0];
-    x_max = bin_width * length();
-  }
-
-  int length() const
-  {
-    return x.rows();
-  }
-};
 
 struct Quadrupole
 {
@@ -77,7 +53,6 @@ struct Quadrupole
 // LIST OF FUNCTIONS
 // Here we are
 double particle_density(double pressure, double kT);
-double coll_freq(double n, double mobility_gas, double mobility_gas_inv, double R, double v);
 template <typename GenT>
 Eigen::Vector3d init_vel(GenT &gen, normal_distribution<double> &gauss, double m, double kT);
 template <typename GenT>
@@ -88,16 +63,10 @@ double evaluate_rotational_energy(Eigen::Vector3d omega, double inertia);
 double evaluate_internal_energy(double vib_energy, double rot_energy);
 double evaluate_rate_const(const Histogram &rate_const, double energy, WarningHelper warn);
 template <typename GenT>
-double draw_theta_skimmer(GenT &gen, uniform_real_distribution<double> &unif, double z, double n1, double n2, double m_gas, double mobility_gas, double mobility_gas_inv, double R, const Eigen::Vector3d &v_cluster, double v_gas, double pressure, double temperature, double first_chamber_end, double sk_end, WarningHelper warn, int mode = 0);
-template <typename GenT>
-double draw_u_norm_skimmer(GenT &gen, uniform_real_distribution<double> &unif, double z, double du, double boundary_u, double theta, double n1, double n2, double m_gas, double mobility_gas, double mobility_gas_inv, double R, const Eigen::Vector3d &v_cluster, double v_gas, double pressure, double temperature, double first_chamber_end, double sk_end, WarningHelper warn, int mode = 0);
-template <typename GenT>
 void time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &unif, double rate_constant, Eigen::Vector3d &v_cluster, double &v_cluster_norm, double n1, double n2, double mobility_gas, double mobility_gas_inv, double R, double dt1, double dt2, double &z, double &x, double &y, double &delta_t, double &t_fragmentation, double first_chamber_end, double sk_end, double quadrupole_start, double quadrupole_end, double second_chamber_end, double acc1, double acc2, double acc3, double acc4, double &t, double m_gas, const SkimmerData &skimmer, double mesh_skimmer, std::optional<Quadrupole> quadrupole, LogHelper tmp_evolution);
-template <typename GenT>
-double draw_vib_energy(GenT &gen, uniform_real_distribution<double> &unif, double vib_energy_old, const Histogram &density_cluster, double reduced_mass, double u_norm, double v_cluster_norm, double theta, int mode = 0);
 std::tuple<double, Eigen::Vector3d, double, double, double> get_quantities_for_collision(double z, double n1, double n2, double m_gas, double mobility_gas, double mobility_gas_inv, const Eigen::Vector3d &v_cluster, double v_gas, double pressure, double temperature, double first_chamber_end, double sk_end);
 void update_physical_quantities(double z, const SkimmerData skimmer, double mesh_skimmer, double &v_gas, double &temperature, double &pressure, double &density, double first_chamber_end, double sk_end, double P1, double P2, double n1, double n2, double T);
-void evaluate_relative_velocity(double z, const Eigen::Vector3d &v_cluster, double &v_rel_norm, double v_gas, Eigen::Vector3d &v_rel, double first_chamber_end, double sk_end);
+// void evaluate_relative_velocity(double z, double *v_cluster, double &v_rel_norm, double v_gas, double *v_rel, double first_chamber_end, double sk_end);
 void update_velocities(Eigen::Vector3d &v_cluster, double &v_cluster_norm, const Eigen::Vector3d &v_rel, double v_gas);
 void update_rot_vel(Eigen::Vector3d &omega, double rot_energy_old, double rot_energy);
 int mod_func_int(int a, int b);
@@ -117,7 +86,9 @@ double evaluate_error(int n, int k);
 double eval_solid_angle_stokes(double R, double L, double xx, double yy, double zz);
 int zone(double z, double first_chamber_end, double sk_end, double quadrupole_start, double quadrupole_end, double second_chamber_end);
 
-// MAIN PROGRAM
+template <typename GasCollSamplerT, typename VibEnergySamplerT>
+Counters apitof_pinhole(int cluster_charge_sign, double T, double pressure_first, double pressure_second, InstrumentDims lengths, InstrumentVoltages voltages, int N, double bonding_energy, Gas gas, std::optional<Quadrupole> quadrupole, double m_ion, double R_cluster, const Histogram &density_cluster, const Histogram &rate_const, const SkimmerData &skimmer, const double mesh_skimmer, unsigned long long root_seed, StreamingResultQueue &result_queue, GasCollSamplerT gas_coll_sampler, VibEnergySamplerT vib_energy_sampler);
+
 Counters apitof_pinhole(
   int cluster_charge_sign,
   double T,
@@ -137,7 +108,94 @@ Counters apitof_pinhole(
   const double mesh_skimmer,
   unsigned long long root_seed,
   StreamingResultQueue &result_queue,
-  const int sample_mode = 0)
+  int sample_mode)
+{
+  using consts::boltzmann;
+  double m_gas = gas.mass;
+  double kT = boltzmann * T;
+  double mobility_gas = kT / m_gas; // thermal agitation
+  double boundary_u = 5.0 * sqrt(mobility_gas);
+  const double du = 1.0e-4 * sqrt(mobility_gas);
+  const double dtheta = 1.0e-3;
+  if (sample_mode == 0)
+  {
+    return apitof_pinhole<GasCollCondNormHistDSSSampler, VibEnergyNormSampler>(
+      cluster_charge_sign,
+      T,
+      pressure_first,
+      pressure_second,
+      lengths,
+      voltages,
+      N,
+      bonding_energy,
+      gas,
+      quadrupole,
+      m_ion,
+      R_cluster,
+      density_cluster,
+      rate_const,
+      skimmer,
+      mesh_skimmer,
+      root_seed,
+      result_queue,
+      GasCollCondNormHistDSSSampler(dtheta, du, boundary_u),
+      VibEnergyNormSampler(density_cluster));
+  }
+  else if (sample_mode == 1)
+  {
+    return apitof_pinhole<GasCollCondUnnormHistDSSSampler, VibEnergyUnnormSampler>(
+      cluster_charge_sign,
+      T,
+      pressure_first,
+      pressure_second,
+      lengths,
+      voltages,
+      N,
+      bonding_energy,
+      gas,
+      quadrupole,
+      m_ion,
+      R_cluster,
+      density_cluster,
+      rate_const,
+      skimmer,
+      mesh_skimmer,
+      root_seed,
+      result_queue,
+      GasCollCondUnnormHistDSSSampler(dtheta, du, boundary_u),
+      VibEnergyUnnormSampler(density_cluster));
+  }
+  else
+  {
+    throw ApiTofError([&](auto &msg)
+    {
+      msg << "Unknown sampling mode: " << sample_mode << std::endl;
+    });
+  }
+}
+
+template <typename GasCollSamplerT, typename VibEnergySamplerT>
+Counters apitof_pinhole(
+  int cluster_charge_sign,
+  double T,
+  double pressure_first,
+  double pressure_second,
+  InstrumentDims lengths,
+  InstrumentVoltages voltages,
+  int N,
+  double bonding_energy,
+  Gas gas,
+  std::optional<Quadrupole> quadrupole,
+  double m_ion,
+  double R_cluster,
+  const Histogram &density_cluster,
+  const Histogram &rate_const,
+  const SkimmerData &skimmer,
+  const double mesh_skimmer,
+  unsigned long long root_seed,
+  StreamingResultQueue &result_queue,
+  GasCollSamplerT gas_coll_sampler,
+  VibEnergySamplerT vib_energy_sampler)
 {
   using namespace consts;
   // TO BE DELETED ###############
@@ -152,8 +210,6 @@ Counters apitof_pinhole(
   const double mobility_gas = kT / m_gas; // thermal agitation
   // std_gas=sqrt(mobility_gas);
   const double mobility_gas_inv = 1.0 / mobility_gas;
-  double boundary_u = 5.0 * sqrt(mobility_gas);
-  double du = 1.0e-4 * sqrt(mobility_gas);
   double E1 = -(voltages[1] - voltages[0]) / lengths[0];
   double E2 = -(voltages[2] - voltages[1]) / lengths[1];
   double E3 = -(voltages[3] - voltages[2]) / lengths[2];
@@ -259,8 +315,7 @@ Counters apitof_pinhole(
         skimmer, mesh_skimmer, total_length, mobility_gas, \
         mobility_gas_inv, gas_mean_free_path, first_chamber_end, root_seed, \
         sk_end, quadrupole_start, quadrupole_end, acc1, acc2, acc3, acc4, \
-        P1, P2, bonding_energy, m_gas, quadrupole, du, boundary_u, reduced_mass, pi, \
-        sample_mode) \
+        P1, P2, bonding_energy, m_gas, quadrupole, reduced_mass, pi, vib_energy_sampler, gas_coll_sampler) \
   shared(exception_helper, result_queue) \
   reduction(+ : counters) \
   schedule(guided)
@@ -292,8 +347,6 @@ Counters apitof_pinhole(
       double temperature;
       double density;
       double v_cluster_norm;
-      Eigen::Vector3d v_rel;
-      double v_rel_norm;
 
       double theta;
       double u_norm; // normal velocity of colliding gas molecule
@@ -421,19 +474,18 @@ Counters apitof_pinhole(
 
           update_physical_quantities(z, skimmer, mesh_skimmer, v_gas, temperature, pressure, density, first_chamber_end, sk_end, P1, P2, n1, n2, T);
 
-          // Draw theta angle of collision
-          theta = draw_theta_skimmer(gen, unif, z, n1, n2, m_gas, mobility_gas, mobility_gas_inv, R_tot, v_cluster, v_gas, pressure, temperature, first_chamber_end, sk_end, warn, sample_mode);
-
-          // Draw normal velocity of carrier gas
-          u_norm = draw_u_norm_skimmer(gen, unif, z, du, boundary_u, theta, n1, n2, m_gas, mobility_gas, mobility_gas_inv, R_tot, v_cluster, v_gas, pressure, temperature, first_chamber_end, sk_end, warn, sample_mode);
+          double effective_n;
+          Eigen::Vector3d v_rel;
+          double v_rel_norm;
+          double effective_mobility_gas;
+          double effective_mobility_gas_inv;
+          std::tie(effective_n, v_rel, v_rel_norm, effective_mobility_gas, effective_mobility_gas_inv) = get_quantities_for_collision(z, n1, n2, m_gas, mobility_gas, mobility_gas_inv, v_cluster, v_gas, pressure, temperature, first_chamber_end, sk_end);
+          std::tie(theta, u_norm) = gas_coll_sampler.sample(gen, effective_n, v_rel_norm, effective_mobility_gas, effective_mobility_gas_inv, R_tot, warn);
 
           vib_energy_old = vib_energy;
 
-          evaluate_relative_velocity(z, v_cluster, v_rel_norm, v_gas, v_rel, first_chamber_end, sk_end);
-
           // Evaluate the dissipated energy in the collision (energy that goes to vibrational modes)
-
-          vib_energy_new = draw_vib_energy(gen, unif, vib_energy_old, density_cluster, reduced_mass, u_norm, v_rel_norm, theta, sample_mode);
+          vib_energy_new = vib_energy_sampler.sample(gen, boundary_vib_energy(vib_energy_old, reduced_mass, u_norm, v_rel_norm, theta));
 
           bool collision_accepted = true;
           eval_collision(gen, unif, collision_accepted, gas_mean_free_path, x, y, z, total_length, radius_pinhole, quadrupole_end, v_rel, omega, u_norm, theta, R_cluster, vib_energy_new, vib_energy_old, m_ion, m_gas, temperature, LogHelper{result_queue, LogMessage::pinhole});
@@ -560,51 +612,6 @@ double particle_density(double pressure, double kT)
   return pressure / kT;
 }
 
-// Total collision frequency
-double coll_freq(double n, double mobility_gas, double mobility_gas_inv, double R, double v)
-{
-  using namespace consts;
-  if (v > 0)
-    return 2.0 * pi * n * R * R * (0.5 * (mobility_gas / v + v) * erf(sqrt(0.5 * mobility_gas_inv) * v) + sqrt(0.5 * mobility_gas / pi) * exp(-0.5 * mobility_gas_inv * v * v));
-  else
-    return 2.0 * sqrt(2.0 * pi * mobility_gas) * n * R * R;
-}
-
-
-// Collision frequency on angle theta
-double coll_freq_theta(double theta, double n, double mobility_gas, double mobility_gas_inv, double R, double v)
-{
-  using namespace consts;
-  double costheta = cos(theta);
-  double sintheta = sin(theta);
-  return pi * n * R * R * sintheta * (sqrt(mobility_gas * 2.0 / pi) * exp(-0.5 * mobility_gas_inv * v * v * costheta * costheta) + v * costheta * (erf(sqrt(0.5 * mobility_gas_inv) * v * costheta) + 1));
-}
-
-
-// Collision frequency on angle theta and gas velocity
-double coll_freq_theta_u(double u, double theta, double n, double mobility_gas_inv, double R, double v)
-{
-  using namespace consts;
-  double costheta = cos(theta);
-  double sintheta = sin(theta);
-  return 2.0 * pi * n * R * R * sqrt(0.5 * mobility_gas_inv / pi) * (u + v * costheta) * exp(-0.5 * mobility_gas_inv * u * u) * sintheta;
-}
-
-
-// Distribution of angle theta
-double distr_theta(double theta, double n, double mobility_gas, double mobility_gas_inv, double R, double v)
-{
-  using namespace consts;
-  return coll_freq_theta(theta, n, mobility_gas, mobility_gas_inv, R, v) / coll_freq(n, mobility_gas, mobility_gas_inv, R, v);
-}
-
-
-// Distribution of gas velocity
-double distr_u(double u, double theta, double n, double mobility_gas, double mobility_gas_inv, double R, double v)
-{
-  return coll_freq_theta_u(u, theta, n, mobility_gas_inv, R, v) / coll_freq_theta(theta, n, mobility_gas, mobility_gas_inv, R, v);
-}
-
 
 // Distribution of 1-dim Maxwell velocity
 template <typename GenT>
@@ -716,6 +723,32 @@ void update_skimmer_quantities(const SkimmerData &skimmer, double z, double firs
     pressure = coeff2 * skimmer(m, PRESSURE_SKIMMER) + coeff1 * skimmer(m + 1, PRESSURE_SKIMMER);
   }
   // density=coeff2*density_skimmer[m]+coeff1*density_skimmer[m+1];
+}
+
+std::tuple<double, Eigen::Vector3d, double, double, double> get_quantities_for_collision(double z, double n1, double n2, double m_gas, double mobility_gas, double mobility_gas_inv, const Eigen::Vector3d &v_cluster, double v_gas, double pressure, double temperature, double first_chamber_end, double sk_end)
+{
+  using consts::boltzmann;
+  double n;
+  double v_rel_norm;
+  Eigen::Vector3d v_rel = v_cluster;
+  if (z < first_chamber_end)
+  {
+    n = n1;
+  }
+  else if (z < sk_end)
+  {
+    v_rel[2] = v_rel[2] - v_gas;
+    double kT = boltzmann * temperature;
+    mobility_gas = kT / m_gas;
+    mobility_gas_inv = m_gas / kT;
+    n = particle_density(pressure, kT);
+  }
+  else
+  {
+    n = n2;
+  }
+  v_rel_norm = v_rel.norm();
+  return std::make_tuple(n, v_rel, v_rel_norm, mobility_gas, mobility_gas_inv);
 }
 
 void update_physical_quantities(double z, const SkimmerData skimmer, double mesh_skimmer, double &v_gas, double &temperature, double &pressure, double &density, double first_chamber_end, double sk_end, double P1, double P2, double n1, double n2, double T)
@@ -1074,6 +1107,12 @@ double draw_vib_energy(GenT &gen, uniform_real_distribution<double> &unif, doubl
     }
   }
   return density_cluster.x[m - 1];
+}
+
+double boundary_vib_energy(double vib_energy_old, double reduced_mass, double u_norm, double v_cluster_norm, double theta)
+{
+  double relative_speed = u_norm + v_cluster_norm * cos(theta);
+  return vib_energy_old + reduced_mass * 0.5 * relative_speed * relative_speed;
 }
 
 // Redistribution of internal energy (between vibrational and rotational modes)
@@ -1534,13 +1573,6 @@ void eval_collision(GenT &gen, uniform_real_distribution<double> &unif, bool &co
 
   if (collision_accepted) // Normal procedure
   {
-    // Express new velocities in lab reference system
-    for (int i = 0; i < 3; i++)
-    {
-      v_cluster[i] = v2[0] * x3[i] + v2[1] * y3[i] + v2[2] * z3[i];
-      omega[i] = omega2[0] * x3[i] + omega2[1] * y3[i] + omega2[2] * z3[i];
-    }
-
     eval_velocities(v2, omega2, u, vib_energy, vib_energy_old, m_ion, m_gas, R_cluster);
     // Express new velocities in lab reference system
     for (int i = 0; i < 3; i++)

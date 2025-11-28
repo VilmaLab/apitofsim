@@ -123,7 +123,8 @@ Counters pinhole(
   int cluster_charge_sign = 1,
   unsigned long long seed = 42ull,
   std::optional<std::function<void(std::string_view, std::string)>> log_callback = nullopt,
-  std::optional<std::function<void(Counters)>> result_callback = nullopt)
+  std::optional<std::function<void(Counters)>> result_callback = nullopt,
+  int sample_mode = 0)
 {
   using magic_enum::enum_name;
   using consts::hartK;
@@ -176,7 +177,8 @@ Counters pinhole(
         skimmer,
         mesh_skimmer,
         root_seed,
-        result_queue);
+        result_queue,
+        sample_mode);
     });
     result_queue.enqueue(std::monostate{});
   });
@@ -333,7 +335,8 @@ NB_MODULE(apitofsimraw, m)
         "cluster_charge_sign"_a = 1,
         "seed"_a = 42ull,
         "log_callback"_a = std::nullopt,
-        "result_callback"_a = std::nullopt);
+        "result_callback"_a = std::nullopt,
+        "sample_mode"_a = 0);
 
   nb::class_<FragmentationPathway>(m, "FragmentationPathway")
     .def(nb::init<ClusterData &, ClusterData &, ClusterData &>(),
