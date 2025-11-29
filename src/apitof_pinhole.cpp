@@ -181,10 +181,18 @@ void apitof_pinhole_config_in()
       voltages << V0, V1, V2, V3, V4;
       int sample_mode = 0;
       char *sample_mode_env = getenv("SAMPLE_MODE");
-      if (sample_mode_env != nullptr && strcmp(sample_mode_env, "1") == 0)
+      if (sample_mode_env != nullptr)
       {
-        std::cout << "Using SAMPLE_MODE=1\n";
-        sample_mode = 1;
+        if (strcmp(sample_mode_env, "1") == 0)
+        {
+          std::cout << "Using SAMPLE_MODE=1\n";
+          sample_mode = 1;
+        }
+        if (strcmp(sample_mode_env, "2") == 0)
+        {
+          std::cout << "Using SAMPLE_MODE=2\n";
+          sample_mode = 2;
+        }
       }
       counters = apitof_pinhole(
         cluster_charge_sign,
