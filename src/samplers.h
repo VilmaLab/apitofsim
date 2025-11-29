@@ -238,6 +238,42 @@ struct GasCollCondUnnormHistDSSSampler : GasCollCondHistDSSSamplerBase
   }
 };
 
+struct GasCollRejectionSampler
+{
+  std::uniform_real_distribution<double> theta_unif = std::uniform_real_distribution<>(0.0, consts::pi);
+  double boundary_u;
+
+  GasCollRejectionSampler(double boundary_u) : boundary_u(boundary_u)
+  {
+  }
+
+  template <typename GenT>
+  std::tuple<double, double> sample(GenT &gen, double /*n*/, double v_norm, double mobility_gas, double mobility_gas_inv, double /*R*/, WarningHelper /*warn*/)
+  {
+
+    // First work out a bound on the maximum probability density
+    double u_for_boundary_func_max = (v_norm + sqrt(v_norm * v_norm + 4 * mobility_gas)) / 2;
+    double u_v_diff = u_for_boundary_func_max - v_norm;
+    double max_density = u_for_boundary_func_max * exp(-mobility_gas_inv * u_v_diff * u_v_diff / 2);
+    std::uniform_real_distribution<double> accept_unif = std::uniform_real_distribution<>(0.0, max_density);
+
+    std::uniform_real_distribution<double> u_unif = std::uniform_real_distribution<>(0.0, boundary_u + v_norm);
+    while (true)
+    {
+      double theta = theta_unif(gen);
+      double u = u_unif(gen);
+      double u_norm = u - v_norm * cos(theta);
+      double density = u * exp(-0.5 * mobility_gas_inv * u_norm * u_norm) * sin(theta);
+      if (accept_unif(gen) < density)
+      {
+        // We sampled from a box rather than u_norm which has a range dependent on theta
+        // Convert back now
+        return std::make_tuple(theta, u_norm);
+      }
+    }
+  }
+};
+
 struct VibEnergySamplerBase
 {
   const Histogram &density_cluster;

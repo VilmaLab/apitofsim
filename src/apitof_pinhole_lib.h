@@ -165,6 +165,30 @@ Counters apitof_pinhole(
       GasCollCondUnnormHistDSSSampler(dtheta, du, boundary_u),
       VibEnergyUnnormSampler(density_cluster));
   }
+  else if (sample_mode == 2)
+  {
+    return apitof_pinhole<GasCollRejectionSampler, VibEnergyNormSampler>(
+      cluster_charge_sign,
+      T,
+      pressure_first,
+      pressure_second,
+      lengths,
+      voltages,
+      N,
+      bonding_energy,
+      gas,
+      quadrupole,
+      m_ion,
+      R_cluster,
+      density_cluster,
+      rate_const,
+      skimmer,
+      mesh_skimmer,
+      root_seed,
+      result_queue,
+      GasCollRejectionSampler(boundary_u),
+      VibEnergyNormSampler(density_cluster));
+  }
   else
   {
     throw ApiTofError([&](auto &msg)
@@ -909,6 +933,7 @@ void time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &uni
       v_cluster[2] += acc4 * dt2;
     }
 
+    // XXX: This takes a bunch of time
     v_cluster_norm = v_cluster.norm();
 
     if (z < first_chamber_end) // Dynamics in the 1st chamber
