@@ -5,7 +5,16 @@ import numpy
 from pint import get_application_registry
 from typing import Tuple
 
-from .api import Gas, _Gas, Quadrupole, _Quadrupole, ClusterData, Histogram, ureg
+from .api import (
+    Gas,
+    _Gas,
+    Quadrupole,
+    _Quadrupole,
+    ClusterData,
+    _ClusterData,
+    Histogram,
+    ureg,
+)
 
 Q_ = ureg.Quantity
 
@@ -185,7 +194,8 @@ def parse_config(fn):
 class ConfigFile:
     config: dict[str, Any]
 
-    def __init__(self, *, filename=None, config=None):
+    def __init__(self, *, filename=None, config=None, cwd=None):
+        self.cwd = cwd
         if filename:
             config = parse_config(filename)
         elif config is None:
@@ -225,6 +235,19 @@ class ConfigFile:
                 radiofrequency=self.get("radiofrequency", by="short_name", asa=asa),
                 r_quadrupole=self.get("r_quadrupole", by="short_name", asa=asa),
             )
+        if quantity in ("cluster", "first_product", "second_product"):
+            from contextlib import chdir, nullcontext
+
+            with chdir(self.cwd) if self.cwd else nullcontext():
+                return cluster_from_particle_config(
+                    get_particle(self.config, quantity), asa=asa
+                )
+        if quantity == "clusters":
+            return (
+                self.get("cluster", by=by, asa=asa),
+                self.get("first_product", by=by, asa=asa),
+                self.get("second_product", by=by, asa=asa),
+            )
         entry = METADATA.get(quantity, by=by)
         value = self.config.get(entry["long_name"], DEFAULTS.get(entry["short_name"]))
         if value is None:
@@ -261,21 +284,37 @@ def parse_config_with_particles(fn):
     return result
 
 
+def cluster_from_particle_config(
+    particle_config, asa="measurement", ureg=get_application_registry()
+):
+    vibrational_temperatures = particle_config["vibrational_temperatures"]
+    if vibrational_temperatures is None:
+        vibrational_temperatures = numpy.empty(0)
+    if asa == "measurement":
+        cls = ClusterData
+        atomic_mass = ureg.Quantity(particle_config["atomic_mass"], "amu")
+        electronic_energy = ureg.Quantity(
+            particle_config["electronic_energy"], "hartree"
+        )
+    else:
+        cls = _ClusterData
+        atomic_mass = particle_config["atomic_mass"]
+        electronic_energy = particle_config["electronic_energy"]
+    return cls(
+        atomic_mass,
+        electronic_energy,
+        particle_config["rotational_temperatures"],
+        vibrational_temperatures,
+    )
+
+
 def get_clusters(
     full_config, ureg=get_application_registry()
 ) -> Tuple[ClusterData, ClusterData, ClusterData]:
     clusters = []
     for particle in ["cluster", "first_product", "second_product"]:
         particle_config = full_config[particle]
-        vibrational_temperatures = particle_config["vibrational_temperatures"]
-        if vibrational_temperatures is None:
-            vibrational_temperatures = numpy.empty(0)
-        cluster = ClusterData(
-            ureg.Quantity(particle_config["atomic_mass"], "amu"),
-            ureg.Quantity(particle_config["electronic_energy"], "hartree"),
-            particle_config["rotational_temperatures"],
-            vibrational_temperatures,
-        )
+        cluster = cluster_from_particle_config(particle_config, ureg=ureg)
         clusters.append(cluster)
     return tuple(clusters)
 
