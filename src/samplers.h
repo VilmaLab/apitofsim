@@ -197,7 +197,6 @@ double draw_u_norm_skimmer_dss_norm(GenT &gen, std::uniform_real_distribution<do
   return u_norm;
 }
 
-
 struct GasCollCondHistDSSSamplerBase
 {
   double dtheta;
@@ -252,11 +251,10 @@ struct GasCollRejectionSampler
   {
 
     // First work out a bound on the maximum probability density
-    double u_for_boundary_func_max = (v_norm + sqrt(v_norm * v_norm + 4 * mobility_gas)) / 2;
-    double u_v_diff = u_for_boundary_func_max - v_norm;
-    double max_density = u_for_boundary_func_max * exp(-mobility_gas_inv * u_v_diff * u_v_diff / 2);
+    double u_for_bound_func_max = (v_norm + sqrt(v_norm * v_norm + 4 * mobility_gas)) / 2;
+    double u_v_diff = u_for_bound_func_max - v_norm;
+    double max_density = u_for_bound_func_max * exp(-mobility_gas_inv * u_v_diff * u_v_diff / 2);
     std::uniform_real_distribution<double> accept_unif = std::uniform_real_distribution<>(0.0, max_density);
-
     std::uniform_real_distribution<double> u_unif = std::uniform_real_distribution<>(0.0, boundary_u + v_norm);
     while (true)
     {
@@ -266,8 +264,6 @@ struct GasCollRejectionSampler
       double density = u * exp(-0.5 * mobility_gas_inv * u_norm * u_norm) * sin(theta);
       if (accept_unif(gen) < density)
       {
-        // We sampled from a box rather than u_norm which has a range dependent on theta
-        // Convert back now
         return std::make_tuple(theta, u_norm);
       }
     }
