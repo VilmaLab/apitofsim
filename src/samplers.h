@@ -71,8 +71,8 @@ double distr_u(double u, double theta, double n, double mobility_gas, double mob
   return coll_freq_theta_u(u, theta, n, mobility_gas_inv, R, v) / coll_freq_theta(theta, n, mobility_gas, mobility_gas_inv, R, v);
 }
 
-template <typename GenT>
-double draw_theta_skimmer_dss_norm(GenT &gen, std::uniform_real_distribution<double> &unif, double dtheta, double n, double v_rel_norm, double mobility_gas, double mobility_gas_inv, double R, WarningHelper warn)
+template <typename GenT, typename WarningHelperT>
+double draw_theta_skimmer_dss_norm(GenT &gen, std::uniform_real_distribution<double> &unif, double dtheta, double n, double v_rel_norm, double mobility_gas, double mobility_gas_inv, double R, WarningHelperT warn)
 {
   using namespace consts;
   double r = unif(gen);
@@ -96,8 +96,8 @@ double draw_theta_skimmer_dss_norm(GenT &gen, std::uniform_real_distribution<dou
   return theta;
 }
 
-template <typename GenT>
-double draw_theta_skimmer_dss_unnorm(GenT &gen, std::uniform_real_distribution<double> &unif, double dtheta, double n, double v_rel_norm, double mobility_gas, double mobility_gas_inv, double R, WarningHelper warn)
+template <typename GenT, typename WarningHelperT>
+double draw_theta_skimmer_dss_unnorm(GenT &gen, std::uniform_real_distribution<double> &unif, double dtheta, double n, double v_rel_norm, double mobility_gas, double mobility_gas_inv, double R, WarningHelperT warn)
 {
   using namespace consts;
   double r = unif(gen);
@@ -124,8 +124,8 @@ double draw_theta_skimmer_dss_unnorm(GenT &gen, std::uniform_real_distribution<d
 }
 
 // Draw normal velocity of carrier gas
-template <typename GenT>
-double draw_u_norm_skimmer_dss_unnorm(GenT &gen, std::uniform_real_distribution<double> &unif, double du, double boundary_u, double theta, double n, double v_rel_norm, double mobility_gas, double mobility_gas_inv, double R, WarningHelper warn)
+template <typename GenT, typename WarningHelperT>
+double draw_u_norm_skimmer_dss_unnorm(GenT &gen, std::uniform_real_distribution<double> &unif, double du, double boundary_u, double theta, double n, double v_rel_norm, double mobility_gas, double mobility_gas_inv, double R, WarningHelperT warn)
 {
   using consts::pi;
 
@@ -164,8 +164,8 @@ double draw_u_norm_skimmer_dss_unnorm(GenT &gen, std::uniform_real_distribution<
   return u_norm;
 }
 
-template <typename GenT>
-double draw_u_norm_skimmer_dss_norm(GenT &gen, std::uniform_real_distribution<double> &unif, double du, double boundary_u, double theta, double n, double v_rel_norm, double mobility_gas, double mobility_gas_inv, double R, WarningHelper warn)
+template <typename GenT, typename WarningHelperT>
+double draw_u_norm_skimmer_dss_norm(GenT &gen, std::uniform_real_distribution<double> &unif, double du, double boundary_u, double theta, double n, double v_rel_norm, double mobility_gas, double mobility_gas_inv, double R, WarningHelperT warn)
 {
   double u_norm;
   double costheta = cos(theta);
@@ -214,8 +214,8 @@ struct GasCollCondNormHistDSSSampler : GasCollCondHistDSSSamplerBase
 {
   using GasCollCondHistDSSSamplerBase::GasCollCondHistDSSSamplerBase;
 
-  template <typename GenT>
-  std::tuple<double, double> sample(GenT &gen, double n, double v_rel_norm, double mobility_gas, double mobility_gas_inv, double R, WarningHelper warn)
+  template <typename GenT, typename WarningHelperT>
+  std::tuple<double, double> sample(GenT &gen, double n, double v_rel_norm, double mobility_gas, double mobility_gas_inv, double R, WarningHelperT warn)
   {
     double theta = draw_theta_skimmer_dss_norm(gen, unif, dtheta, n, v_rel_norm, mobility_gas, mobility_gas_inv, R, warn);
     double u_norm = draw_u_norm_skimmer_dss_norm(gen, unif, du, boundary_u, theta, n, v_rel_norm, mobility_gas, mobility_gas_inv, R, warn);
@@ -228,8 +228,8 @@ struct GasCollCondUnnormHistDSSSampler : GasCollCondHistDSSSamplerBase
 {
   using GasCollCondHistDSSSamplerBase::GasCollCondHistDSSSamplerBase;
 
-  template <typename GenT>
-  std::tuple<double, double> sample(GenT &gen, double n, double v_rel_norm, double mobility_gas, double mobility_gas_inv, double R, WarningHelper warn)
+  template <typename GenT, typename WarningHelperT>
+  std::tuple<double, double> sample(GenT &gen, double n, double v_rel_norm, double mobility_gas, double mobility_gas_inv, double R, WarningHelperT warn)
   {
     double theta = draw_theta_skimmer_dss_unnorm(gen, unif, dtheta, n, v_rel_norm, mobility_gas, mobility_gas_inv, R, warn);
     double u_norm = draw_u_norm_skimmer_dss_unnorm(gen, unif, du, boundary_u, theta, n, v_rel_norm, mobility_gas, mobility_gas_inv, R, warn);
@@ -247,8 +247,8 @@ struct GasCollRejectionSampler
   {
   }
 
-  template <typename GenT>
-  std::tuple<double, double> sample(GenT &gen, double /*n*/, double v_norm, double mobility_gas, double mobility_gas_inv, double /*R*/, WarningHelper /*warn*/)
+  template <typename GenT, typename WarningHelperT>
+  std::tuple<double, double> sample(GenT &gen, double /*n*/, double v_norm, double mobility_gas, double mobility_gas_inv, double /*R*/, WarningHelperT /*warn*/)
   {
 
     // First work out a bound on the maximum probability density
