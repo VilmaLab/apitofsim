@@ -29,22 +29,28 @@ std::string call_with_stringstream(Callback cb)
   return ss.str();
 }
 
+std::string prepare_message(const std::string &msg)
+{
+  return msg;
+}
+
+std::string prepare_message(const char *msg)
+{
+  return msg;
+}
+
+template <typename Callback>
+std::string prepare_message(Callback cb)
+{
+  return call_with_stringstream(cb);
+}
+
 class ApiTofError : public std::runtime_error
 {
 public:
-  ApiTofError(const std::string &msg)
-      : std::runtime_error(msg)
-  {
-  }
-
-  ApiTofError(const char *msg)
-      : std::runtime_error(msg)
-  {
-  }
-
-  template <typename Callback>
-  ApiTofError(Callback cb)
-      : ApiTofError(call_with_stringstream(cb))
+  template <typename Arg>
+  ApiTofError(Arg arg)
+      : std::runtime_error(prepare_message(arg))
   {
   }
 };
@@ -95,19 +101,9 @@ struct LogMessage
   LogType type;
   std::string message;
 
-  LogMessage(LogType type, std::string message)
-      : type(type), message(message)
-  {
-  }
-
-  LogMessage(LogType type, const char *message)
-      : type(type), message(message)
-  {
-  }
-
-  template <typename Callback>
-  LogMessage(LogType type, Callback cb)
-      : type(type), message(call_with_stringstream(cb))
+  template <typename Arg>
+  LogMessage(LogType type, Arg arg)
+      : type(type), message(prepare_message(arg))
   {
   }
 };

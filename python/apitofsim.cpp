@@ -3,6 +3,7 @@
 #include <stdlib.h>
 
 #include <Eigen/Dense>
+#include <Python.h>
 #include <nanobind/nanobind.h>
 #include <nanobind/eigen/dense.h>
 #include <nanobind/stl/function.h>
@@ -14,11 +15,21 @@
 #include "skimmer_lib.h"
 #include "densityandrate_lib.h"
 #include "apitof_pinhole_lib.h"
+#include "warnlogcount.h"
 
 namespace nb = nanobind;
 using namespace nb::literals;
 
 typedef Eigen::Array<double, Eigen::Dynamic, 6> SkimmerResult;
+
+struct PythonWarningHelper
+{
+  template <typename Arg>
+  void operator()(Arg msg)
+  {
+    PyErr_WarnEx(PyExc_Warning, prepare_message(msg).c_str(), 1);
+  }
+};
 
 SkimmerResult skimmer(
   double T0,
@@ -123,7 +134,8 @@ Counters pinhole(
   int cluster_charge_sign = 1,
   unsigned long long seed = 42ull,
   std::optional<std::function<void(std::string_view, std::string)>> log_callback = nullopt,
-  std::optional<std::function<void(Counters)>> result_callback = nullopt)
+  std::optional<std::function<void(Counters)>> result_callback = nullopt,
+  int sample_mode = 0)
 {
   using magic_enum::enum_name;
   using consts::hartK;
@@ -176,7 +188,8 @@ Counters pinhole(
         skimmer,
         mesh_skimmer,
         root_seed,
-        result_queue);
+        result_queue,
+        sample_mode);
     });
     result_queue.enqueue(std::monostate{});
   });
@@ -228,6 +241,78 @@ Counters pinhole(
   std::cout << setprecision(3);
 
   return counters;
+}
+
+template <typename SamplerT, typename GenT>
+Eigen::ArrayX2d dispatch_sample_collision(
+  SamplerT sampler,
+  GenT gen,
+  int num_samples,
+  double v_rel_norm,
+  double mobility_gas,
+  double mobility_gas_inv,
+  double R_tot,
+  double n)
+{
+  auto warn = PythonWarningHelper();
+  Eigen::ArrayX2d samples(num_samples, 2);
+  for (int i = 0; i < num_samples; i++)
+  {
+    std::tie(samples(i, 0), samples(i, 1)) = sampler.sample(gen, n, v_rel_norm, mobility_gas, mobility_gas_inv, R_tot, warn);
+  }
+  return samples;
+}
+
+Eigen::ArrayX2d sample_collision(
+  int sample_mode,
+  int num_samples,
+  double v_rel_norm,
+  Gas gas,
+  double R_cluster,
+  double P,
+  double T,
+  unsigned long long seed,
+  double dtheta,
+  std::optional<double> du)
+{
+  mt19937 gen = mt19937(seed);
+  double kT = consts::boltzmann * T;
+  double mobility_gas = kT / gas.mass;
+  double mobility_gas_inv = gas.mass / kT;
+  double boundary_u = 5.0 * sqrt(mobility_gas);
+  double R_tot = gas.radius + R_cluster;
+  double n = particle_density(P, T);
+  double du_val;
+  if (du.has_value())
+  {
+    du_val = *du;
+  }
+  else
+  {
+    du_val = 1.0e-4 * sqrt(mobility_gas);
+  }
+  if (sample_mode == 0)
+  {
+    auto sampler = GasCollCondNormHistDSSSampler(dtheta, du_val, boundary_u);
+    return dispatch_sample_collision(sampler, gen, num_samples, v_rel_norm, mobility_gas, mobility_gas_inv, R_tot, n);
+  }
+  else if (sample_mode == 1)
+  {
+    auto sampler = GasCollCondUnnormHistDSSSampler(dtheta, du_val, boundary_u);
+    return dispatch_sample_collision(sampler, gen, num_samples, v_rel_norm, mobility_gas, mobility_gas_inv, R_tot, n);
+  }
+  else if (sample_mode == 2)
+  {
+    auto sampler = GasCollRejectionSampler(boundary_u);
+    return dispatch_sample_collision(sampler, gen, num_samples, v_rel_norm, mobility_gas, mobility_gas_inv, R_tot, n);
+  }
+  else
+  {
+    throw ApiTofError([&](auto &msg)
+    {
+      msg << "Unknown sampling mode: " << sample_mode << std::endl;
+    });
+  }
 }
 
 NB_MODULE(apitofsimraw, m)
@@ -333,7 +418,8 @@ NB_MODULE(apitofsimraw, m)
         "cluster_charge_sign"_a = 1,
         "seed"_a = 42ull,
         "log_callback"_a = std::nullopt,
-        "result_callback"_a = std::nullopt);
+        "result_callback"_a = std::nullopt,
+        "sample_mode"_a = 0);
 
   nb::class_<FragmentationPathway>(m, "FragmentationPathway")
     .def(nb::init<ClusterData &, ClusterData &, ClusterData &>(),
@@ -341,4 +427,16 @@ NB_MODULE(apitofsimraw, m)
          nb::arg("product1"),
          nb::arg("product2"))
     .def("fragmentation_energy_kelvin", &FragmentationPathway::fragmentation_energy_kelvin);
+
+  m.def("sample_collision", &sample_collision,
+        "sample_mode"_a,
+        "num_samples"_a,
+        "v_rel_norm"_a,
+        "gas"_a,
+        "R_cluster"_a,
+        "P"_a,
+        "T"_a,
+        "seed"_a = 42,
+        "dtheta"_a = 1.0e-3,
+        "du"_a = std::nullopt);
 }
