@@ -63,7 +63,7 @@ double evaluate_rotational_energy(Eigen::Vector3d omega, double inertia);
 double evaluate_internal_energy(double vib_energy, double rot_energy);
 double evaluate_rate_const(const Histogram &rate_const, double energy, WarningHelper warn);
 template <typename GenT>
-void time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &unif, double rate_constant, Eigen::Vector3d &v_cluster, double &v_cluster_norm, double n1, double n2, double mobility_gas, double mobility_gas_inv, double R, double dt1, double dt2, double &z, double &x, double &y, double &delta_t, double &t_fragmentation, double first_chamber_end, double sk_end, double quadrupole_start, double quadrupole_end, double second_chamber_end, double acc1, double acc2, double acc3, double acc4, double &t, double m_gas, const SkimmerData &skimmer, double mesh_skimmer, std::optional<Quadrupole> quadrupole, LogHelper tmp_evolution);
+void time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &unif, double rate_constant, Eigen::Vector3d &v_cluster, double &v_cluster_norm, double n1, double n2, double mobility_gas, double mobility_gas_inv, double R, double dt1, double dt2, double &z, double &x, double &y, double &delta_t, double &t_fragmentation, double first_chamber_end, double sk_end, double quadrupole_start, double quadrupole_end, double second_chamber_end, Eigen::Array4d &acc, double &t, double m_gas, const SkimmerData &skimmer, double mesh_skimmer, std::optional<Quadrupole> quadrupole, LogHelper tmp_evolution);
 std::tuple<double, Eigen::Vector3d, double, double, double> get_quantities_for_collision(double z, double n1, double n2, double m_gas, double mobility_gas, double mobility_gas_inv, const Eigen::Vector3d &v_cluster, double v_gas, double pressure, double temperature, double first_chamber_end, double sk_end);
 void update_physical_quantities(double z, const SkimmerData skimmer, double mesh_skimmer, double &v_gas, double &temperature, double &pressure, double &density, double first_chamber_end, double sk_end, double P1, double P2, double n1, double n2, double T);
 // void evaluate_relative_velocity(double z, double *v_cluster, double &v_rel_norm, double v_gas, double *v_rel, double first_chamber_end, double sk_end);
@@ -234,10 +234,6 @@ Counters apitof_pinhole(
   const double mobility_gas = kT / m_gas; // thermal agitation
   // std_gas=sqrt(mobility_gas);
   const double mobility_gas_inv = 1.0 / mobility_gas;
-  double E1 = -(voltages[1] - voltages[0]) / lengths[0];
-  double E2 = -(voltages[2] - voltages[1]) / lengths[1];
-  double E3 = -(voltages[3] - voltages[2]) / lengths[2];
-  double E4 = -(voltages[4] - voltages[3]) / lengths[3];
   double first_chamber_end = lengths[0];
   double sk_end = first_chamber_end + lengths[SKIMMER_LENGTH];
   double quadrupole_start = sk_end + lengths[1];
@@ -262,10 +258,18 @@ Counters apitof_pinhole(
   {
     quadrupole->compute_mathieu_factor(m_ion);
   }
-  double acc1 = E1 * consts::eV * cluster_charge_sign / m_ion;
-  double acc2 = E2 * consts::eV * cluster_charge_sign / m_ion;
-  double acc3 = E3 * consts::eV * cluster_charge_sign / m_ion;
-  double acc4 = E4 * consts::eV * cluster_charge_sign / m_ion;
+  Eigen::Array4d E = -((
+                         voltages(Eigen::seq(1, 4)) - voltages(Eigen::seq(0, 3))) /
+                       lengths(Eigen::seq(0, 3)));
+  Eigen::Array4d acc = E * consts::eV * cluster_charge_sign / m_ion;
+  // double E1 = -(voltages[1] - voltages[0]) / lengths[0];
+  // double E2 = -(voltages[2] - voltages[1]) / lengths[1];
+  // double E3 = -(voltages[3] - voltages[2]) / lengths[2];
+  // double E4 = -(voltages[4] - voltages[3]) / lengths[3];
+  // double acc1 = E1 * consts::eV * cluster_charge_sign / m_ion;
+  // double acc2 = E2 * consts::eV * cluster_charge_sign / m_ion;
+  // double acc3 = E3 * consts::eV * cluster_charge_sign / m_ion;
+  // double acc4 = E4 * consts::eV * cluster_charge_sign / m_ion;
   double P1 = pressure_first;
   double P2 = pressure_second;
   double gas_mean_free_path = mean_free_path(R_gas, kT, P2);
@@ -274,10 +278,10 @@ Counters apitof_pinhole(
     std::cout << "Cluster charge sign: " << cluster_charge_sign << endl;
     std::cout << "Pressure 1st chamber: " << P1 << " Pa" << endl;
     std::cout << "Pressure 2nd chamber: " << P2 << " Pa" << endl;
-    std::cout << "E1: " << E1 << " V/m, Acceleration: " << acc1 << " m/s^2" << endl;
-    std::cout << "E2: " << E2 << " V/m, Acceleration: " << acc2 << " m/s^2" << endl;
-    std::cout << "E3: " << E3 << " V/m, Acceleration: " << acc3 << " m/s^2" << endl;
-    std::cout << "E4: " << E4 << " V/m, Acceleration: " << acc4 << " m/s^2" << endl;
+    for (int i = 0; i < 4; i++)
+    {
+      std::cout << "E" << (i + 1) << ": " << E[i] << " V/m, Acceleration: " << acc[i] << " m/s^2" << endl;
+    }
   }
   double n1 = particle_density(P1, kT);
   double n2 = particle_density(P2, kT);
@@ -338,7 +342,7 @@ Counters apitof_pinhole(
         inertia, second_chamber_end, n1, n2, dt1, dt2, \
         skimmer, mesh_skimmer, total_length, mobility_gas, \
         mobility_gas_inv, gas_mean_free_path, first_chamber_end, root_seed, \
-        sk_end, quadrupole_start, quadrupole_end, acc1, acc2, acc3, acc4, \
+        sk_end, quadrupole_start, quadrupole_end, acc, \
         P1, P2, bonding_energy, m_gas, quadrupole, reduced_mass, pi, vib_energy_sampler, gas_coll_sampler) \
   shared(exception_helper, result_queue) \
   reduction(+ : counters) \
@@ -440,7 +444,7 @@ Counters apitof_pinhole(
           rate_constant = 0.0;
         }
 
-        time_next_coll_quadrupole(gen, unif, rate_constant, v_cluster, v_cluster_norm, n1, n2, mobility_gas, mobility_gas_inv, R_tot, dt1, dt2, z, x, y, delta_t, t_fragmentation, first_chamber_end, sk_end, quadrupole_start, quadrupole_end, second_chamber_end, acc1, acc2, acc3, acc4, t, m_gas, skimmer, mesh_skimmer, quadrupole, LogHelper{result_queue, LogMessage::tmp_evolution});
+        time_next_coll_quadrupole(gen, unif, rate_constant, v_cluster, v_cluster_norm, n1, n2, mobility_gas, mobility_gas_inv, R_tot, dt1, dt2, z, x, y, delta_t, t_fragmentation, first_chamber_end, sk_end, quadrupole_start, quadrupole_end, second_chamber_end, acc, t, m_gas, skimmer, mesh_skimmer, quadrupole, LogHelper{result_queue, LogMessage::tmp_evolution});
 
         // tmp << kin_energy << "\t";
         // tmp_evolution << delta_t << " " << z << " " << v_cluster[0] << " " << v_cluster[1] << " " << v_cluster[2] << " " << kin_energy << endl;
@@ -842,7 +846,7 @@ void init_vib_energy(GenT &gen, uniform_real_distribution<double> &unif, double 
 
 // Evaluate time to next collision
 template <typename GenT>
-void time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &unif, double rate_constant, Eigen::Vector3d &v_cluster, double &v_cluster_norm, double n1, double n2, double mobility_gas, double mobility_gas_inv, double R, double dt1, double dt2, double &z, double &x, double &y, double &delta_t, double &t_fragmentation, double first_chamber_end, double sk_end, double quadrupole_start, double quadrupole_end, double second_chamber_end, double acc1, double acc2, double acc3, double acc4, double &t, double m_gas, const SkimmerData &skimmer, double mesh_skimmer, std::optional<Quadrupole> quadrupole, LogHelper tmp_evolution)
+void time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &unif, double rate_constant, Eigen::Vector3d &v_cluster, double &v_cluster_norm, double n1, double n2, double mobility_gas, double mobility_gas_inv, double R, double dt1, double dt2, double &z, double &x, double &y, double &delta_t, double &t_fragmentation, double first_chamber_end, double sk_end, double quadrupole_start, double quadrupole_end, double second_chamber_end, Eigen::Array4d &acc, double &t, double m_gas, const SkimmerData &skimmer, double mesh_skimmer, std::optional<Quadrupole> quadrupole, LogHelper tmp_evolution)
 {
   using namespace consts;
   double integral = 0.0;
@@ -908,12 +912,12 @@ void time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &uni
 
     if (z < first_chamber_end)
     {
-      v_cluster[2] += acc1 * dt1;
+      v_cluster[2] += acc[0] * dt1;
     }
 
     else if (z >= sk_end and z < quadrupole_start)
     {
-      v_cluster[2] += acc2 * dt2;
+      v_cluster[2] += acc[1] * dt2;
     }
 
     else if (z >= quadrupole_start and z < quadrupole_end)
@@ -925,12 +929,12 @@ void time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &uni
         v_cluster[0] += accx * dt2;
         v_cluster[1] += accy * dt2;
       }
-      v_cluster[2] += acc3 * dt2;
+      v_cluster[2] += acc[2] * dt2;
     }
 
     else if (z >= quadrupole_end)
     {
-      v_cluster[2] += acc4 * dt2;
+      v_cluster[2] += acc[3] * dt2;
     }
 
     // XXX: This takes a bunch of time
