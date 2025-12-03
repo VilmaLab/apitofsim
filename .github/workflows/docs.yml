@@ -19,4 +19,6 @@ jobs:
           git config user.name github-actions[bot]
           git config user.email github-actions[bot]@users.noreply.github.com
 
+      - run: uv sync --extra docs
+
       - run: uv run mkdocs gh-deploy --force
