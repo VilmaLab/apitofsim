@@ -48,3 +48,9 @@ environment.CXXFLAGS = "-march=x86-64-v3"
 [tool.pyright]
 reportConstantRedefinition = false
 failOnWarnings = false
+
+[tool.uv]
+no-build-isolation-package = ["apitofsim"]
+
+[tool.uv.sources]
+apitofsim = { path = ".", editable = true }
