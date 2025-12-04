@@ -13,6 +13,7 @@ apitofsim = python.extension_module(
 python.install_sources([
 'apitofsim/api.py',
 'apitofsim/cli.py',
+'apitofsim/db.py',
 'apitofsim/config.py',
 'apitofsim/__init__.py',
 'apitofsim/__main__.py',
