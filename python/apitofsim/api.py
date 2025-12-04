@@ -103,6 +103,12 @@ class Histogram:
     y: numpy.ndarray
 
     @classmethod
+    def from_mesh(cls, bin_width, x_max, y):
+        bin_width_mag = bin_width.to("kelvin").magnitude
+        m_max = int(x_max.to("kelvin").magnitude / bin_width_mag)
+        return cls.from_cpp(_Histogram(bin_width_mag, m_max, y))
+
+    @classmethod
     def from_cpp(cls, histogram: _Histogram):
         return cls(Q_(histogram.x, "kelvin"), histogram.y)
 

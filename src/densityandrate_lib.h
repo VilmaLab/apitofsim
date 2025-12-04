@@ -235,17 +235,6 @@ void compute_k_total_atom(Eigen::ArrayXd &k0, Eigen::Ref<Eigen::ArrayXd> k_rate,
 }
 
 
-Eigen::ArrayXd prepare_energies(double bin_width, int m_max)
-{
-  Eigen::ArrayXd energies = Eigen::ArrayXd(m_max);
-  for (int m = 0; m < m_max; m++)
-  {
-    energies[m] = bin_width * (m + 0.5);
-  }
-  return energies;
-}
-
-
 // Compute density of states from vector of frequencies neglecting the zero level energy
 void compute_density_of_states_old(Eigen::ArrayXd &frequencies, Eigen::Ref<Eigen::ArrayXd> rho, double energy_max, double bin_width)
 {

@@ -305,3 +305,44 @@ struct Gas
   double mass;
   double adiabatic_index;
 };
+
+Eigen::ArrayXd prepare_energies(double bin_width, int m_max)
+{
+  Eigen::ArrayXd energies = Eigen::ArrayXd(m_max);
+  for (int m = 0; m < m_max; m++)
+  {
+    energies[m] = bin_width * (m + 0.5);
+  }
+  return energies;
+}
+
+struct Histogram
+{
+  Eigen::ArrayXd x;
+  Eigen::ArrayXd y;
+  double bin_width;
+  double x_max;
+
+  Histogram(Eigen::ArrayXd x, Eigen::ArrayXd y)
+      : x(x), y(y)
+  {
+    compute_derived();
+  }
+
+  Histogram(double bin_width, int m_max, Eigen::ArrayXd y)
+      : x(prepare_energies(bin_width, m_max)), y(y)
+  {
+    compute_derived();
+  }
+
+  void compute_derived()
+  {
+    bin_width = x[1] - x[0];
+    x_max = bin_width * length();
+  }
+
+  int length() const
+  {
+    return x.rows();
+  }
+};

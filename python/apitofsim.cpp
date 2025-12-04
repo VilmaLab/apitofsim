@@ -350,6 +350,10 @@ NB_MODULE(apitofsimraw, m)
     .def(nb::init<Eigen::ArrayXd, Eigen::ArrayXd>(),
          nb::arg("x"),
          nb::arg("y"))
+    .def(nb::init<double, int, Eigen::ArrayXd>(),
+         nb::arg("bin_width"),
+         nb::arg("m_max"),
+         nb::arg("y"))
     .def_ro("x", &Histogram::x)
     .def_ro("y", &Histogram::y);
 
