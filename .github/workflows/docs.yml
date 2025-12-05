@@ -21,4 +21,4 @@ jobs:
 
       - run: uv sync --group docs
 
-      - run: uv run mkdocs gh-deploy --force
+      - run: PYTHONPATH=./python/ uv run mkdocs gh-deploy --force
