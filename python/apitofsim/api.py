@@ -276,7 +276,7 @@ def pinhole(
     loglevel: int = 0,
     mesh_skimmer: float | None = None,
     quadrupole: Quadrupole | None = None,
-    cluster_charge_sign: int = 1,
+    cluster_charge_sign: int = -1,
     fragmentation_energy: MaybeQuantity | None = None,
     seed: int = 42,
     log_callback: Callable[[str, str], None] | None = None,
