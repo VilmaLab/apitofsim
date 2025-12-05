@@ -83,7 +83,7 @@ class ClusterDatabase:
 
     def iter_clusters_dicts(self, *args, **kwargs):
         for cluster in self.clusters_df(*args, **kwargs).itertuples():
-            yield cluster._asdict()
+            yield cluster._asdict() # type: ignore
 
     @staticmethod
     def _cluster_obj_from_tuple(cluster):
@@ -109,9 +109,9 @@ class ClusterDatabase:
         name_lookup = {}
         ret = {}
         for cluster in self.clusters_df(*args, **kwargs).itertuples():
-            ret[cluster.id] = self._cluster_obj_from_tuple(cluster)
+            ret[cluster.id] = self._cluster_obj_from_tuple(cluster) # type: ignore
             if include_name_lookup:
-                name_lookup[cluster.id] = cluster.common_name
+                name_lookup[cluster.id] = cluster.common_name # type: ignore
         if include_name_lookup:
             return ret, name_lookup
         else:
