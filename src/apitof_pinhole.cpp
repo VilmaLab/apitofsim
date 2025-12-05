@@ -195,6 +195,15 @@ void apitof_pinhole_config_in()
           sample_mode = 2;
         }
       }
+      std::optional<Quadrupole> quadrupole = std::nullopt;
+      if (!std::isnan(dc_field))
+      {
+        *quadrupole = Quadrupole(
+          dc_field,
+          ac_field,
+          radiofrequency,
+          r_quadrupole);
+      }
       counters = apitof_pinhole(
         cluster_charge_sign,
         T,
@@ -208,11 +217,7 @@ void apitof_pinhole_config_in()
           R_gas,
           m_gas,
           ga},
-        Quadrupole(
-          dc_field,
-          ac_field,
-          radiofrequency,
-          r_quadrupole),
+        quadrupole,
         m_ion,
         R_cluster,
         density_cluster,

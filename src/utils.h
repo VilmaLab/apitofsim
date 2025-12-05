@@ -20,11 +20,23 @@ void check_field_name(const char *buffer, const char *expected)
 }
 
 template <typename T>
-void read_field(std::istream &config_in, T *variable, char *buffer, const char *expected)
+void read_val(std::istream &config_in, T *variable, char *buffer)
+{
+  config_in >> *variable >> buffer;
+}
+
+template <>
+void read_val(std::istream &config_in, char *variable, char *buffer)
+{
+  config_in >> variable >> buffer;
+}
+
+template <typename T>
+void read_field(std::istream &config_in, T variable, char *buffer, const char *expected)
 {
   if (variable)
   {
-    config_in >> *variable >> buffer;
+    read_val(config_in, variable, buffer);
   }
   else
   {
@@ -33,24 +45,18 @@ void read_field(std::istream &config_in, T *variable, char *buffer, const char *
   check_field_name(buffer, expected);
 }
 
-
-template <>
-void read_field(std::istream &config_in, char *variable, char *buffer, const char *expected)
+bool peek_field_name(std::istream &config_in, char *buffer, const char *expected)
 {
-  if (variable)
-  {
-    config_in >> variable >> buffer;
-  }
-  else
-  {
-    config_in >> buffer >> buffer;
-  }
-  check_field_name(buffer, expected);
+  int pos = config_in.tellg();
+  config_in >> buffer >> buffer;
+  bool success = strcmp(buffer, expected) == 0;
+  config_in.seekg(pos);
+  return success;
 }
 
 template <typename AmuT, typename FloatT>
 void read_config(
-  std::istream &config_in,
+  std::istream &config_stream,
   char *title,
   int *cluster_charge_sign,
   AmuT *amu_0,
@@ -105,6 +111,9 @@ void read_config(
   double *tolerance)
 {
   char buffer[256];
+  std::stringstream config_in;
+  config_in << config_stream.rdbuf();
+  config_in.seekg(0);
   if (title)
   {
     config_in >> title; // Title line
@@ -113,7 +122,17 @@ void read_config(
   {
     config_in >> buffer; // Skip title line
   }
-  read_field(config_in, cluster_charge_sign, buffer, "Cluster_charge_sign");
+  if (peek_field_name(config_in, buffer, "Cluster_charge_sign"))
+  {
+    read_field(config_in, cluster_charge_sign, buffer, "Cluster_charge_sign");
+  }
+  else
+  {
+    if (cluster_charge_sign != nullptr)
+    {
+      *cluster_charge_sign = -1;
+    }
+  }
   read_field(config_in, amu_0, buffer, "Atomic_mass_cluster");
   read_field(config_in, amu_1, buffer, "Atomic_mass_first_product");
   read_field(config_in, amu_2, buffer, "Atomic_mass_second_product");
@@ -140,10 +159,32 @@ void read_config(
   read_field(config_in, R_gas, buffer, "Gas_molecule_radius_(meters)");
   read_field(config_in, m_gas, buffer, "Gas_molecule_mass_(kg)");
   read_field(config_in, ga, buffer, "Adiabatic_index");
-  read_field(config_in, dc_field, buffer, "DC_quadrupole");
-  read_field(config_in, ac_field, buffer, "AC_quadrupole");
-  read_field(config_in, radiofrequency, buffer, "Radiofrequency_quadrupole");
-  read_field(config_in, r_quadrupole, buffer, "Half-distance_between_quadrupole_rods");
+  if (peek_field_name(config_in, buffer, "DC_quadrupole"))
+  {
+    read_field(config_in, dc_field, buffer, "DC_quadrupole");
+    read_field(config_in, ac_field, buffer, "AC_quadrupole");
+    read_field(config_in, radiofrequency, buffer, "Radiofrequency_quadrupole");
+    read_field(config_in, r_quadrupole, buffer, "Half-distance_between_quadrupole_rods");
+  }
+  else
+  {
+    if (dc_field != nullptr)
+    {
+      *dc_field = NAN;
+    }
+    if (ac_field != nullptr)
+    {
+      *ac_field = NAN;
+    }
+    if (radiofrequency != nullptr)
+    {
+      *radiofrequency = NAN;
+    }
+    if (r_quadrupole != nullptr)
+    {
+      *r_quadrupole = NAN;
+    }
+  }
   read_field(config_in, file_skimmer, buffer, "Output_file_skimmer");
   read_field(config_in, file_frequencies_0, buffer, "file_vibrational_temperatures_cluster");
   read_field(config_in, file_frequencies_1, buffer, "file_vibrational_temperatures_first_product");
