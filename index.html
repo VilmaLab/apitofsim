@@ -1,0 +1,767 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://mydomain.org/mysite/">
+      
+      
+      
+        <link rel="next" href="api/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.0">
+    
+    
+      
+        <title>apitofsim docs</title>
+      
+    
+    
+      <link rel="stylesheet" href="assets/stylesheets/main.618322db.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL(".",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#documentation-for-apitofsim" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="." title="apitofsim docs" class="md-header__button md-logo" aria-label="apitofsim docs" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            apitofsim docs
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Documentation for apitofsim
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="." title="apitofsim docs" class="md-nav__button md-logo" aria-label="apitofsim docs" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    apitofsim docs
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Documentation for apitofsim
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="." class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Documentation for apitofsim
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#installation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Installation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#usage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Usage
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Usage">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#python-api" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Python API
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#command-line-tools" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Command line tools
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-does-it-work" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How does it work?
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="How does it work?">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#publications-describing-the-simulation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Publications describing the simulation
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#publications-using-the-simulation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Publications using the simulation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#building-the-sources" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Building the sources
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Building the sources">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#using-meson-to-compile-the-python-extension" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Using Meson to compile the Python extension
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#using-meson-to-compile-the-executables" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Using Meson to compile the executables
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Using the Python API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="notebooks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Running the notebooks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#installation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Installation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#usage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Usage
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Usage">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#python-api" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Python API
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#command-line-tools" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Command line tools
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-does-it-work" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How does it work?
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="How does it work?">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#publications-describing-the-simulation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Publications describing the simulation
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#publications-using-the-simulation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Publications using the simulation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#building-the-sources" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Building the sources
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Building the sources">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#using-meson-to-compile-the-python-extension" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Using Meson to compile the Python extension
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#using-meson-to-compile-the-executables" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Using Meson to compile the executables
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="documentation-for-apitofsim">Documentation for apitofsim</h1>
+<p>This is the documentation for apitofsim, a simulation of cluster fragmentation in an Atmospheric Pressure interface Time of Flight Mass Spectrometer (APi-ToF MS).</p>
+<h2 id="installation">Installation</h2>
+<p>It is recommend to install this package using Conda.
+Users on Windows should use WSL.
+First download <a href="https://github.com/conda-forge/miniforge?tab=readme-ov-file#unix-like-platforms-macos-linux--wsl">miniforge</a> and then run:</p>
+<div class="language-text highlight"><pre><span></span><code>conda install -c https://prefix.dev/vilma apitofsim
+</code></pre></div>
+<h2 id="usage">Usage</h2>
+<p>There are two main entry points to running the simulation: the Python API and the command line tools.
+The Python API is recommended for new users, and new functionality may only be available there.</p>
+<h3 id="python-api">Python API</h3>
+<p>See <a href="api/">Using the Python API</a>.</p>
+<h3 id="command-line-tools">Command line tools</h3>
+<p>If you have installed via Conda, and activated the relevant environment, the command line tools should be installed and in your path.
+If you have compiled the sources yourself, you will need to add build/src to your path for the following example to work.
+You can run the included example pathway like so:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>apitofsim-skimmer<span class="w"> </span>&lt;<span class="w"> </span>inputs/example/config.in
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>apitofsim-densityandrate<span class="w"> </span>&lt;<span class="w"> </span>inputs/example/config.in
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>apitofsim-main<span class="w"> </span>&lt;<span class="w"> </span>inputs/example/config.in
+</span></code></pre></div>
+<p>Outputs are generated in <code>work/out</code> directory.</p>
+<h2 id="how-does-it-work">How does it work?</h2>
+<p>The simulation runs a number of iterations with each one considering a single instance of a cluster travelling through and APi-TOF MS.
+The main simulation loop considers the distributions of the time until the next collision between the cluster and a gas molecules, the speed/angle of that collision, and the time until the cluster fragments. The main quantity of interest is the probability the cluster survives to reach the detector without fragmenting.</p>
+<h3 id="publications-describing-the-simulation">Publications describing the simulation</h3>
+<p>The main principles of the simulation are described across a number of publications.</p>
+<p>Zapadinsky et al. (2019)<sup id="fnref:1"><a class="footnote-ref" href="#fn:1">1</a></sup> describe the simplest version of the simulation, in which only a single pressure and electric field are considered.
+Further information on the equations are given in the supporting information<sup id="fnref:2"><a class="footnote-ref" href="#fn:2">2</a></sup>.
+The main parts described are the overall scheme of simulation.
+The actual code used for this publication was written in Matlab and is not publicly available.</p>
+<p>Zanca et al. (2020)<sup id="fnref:3"><a class="footnote-ref" href="#fn:3">3</a></sup> describe a version of the simulation expanding the above to consider five zones.
+Zone I being the first chamber, II the skimmer, and III-V the second chamber, before, during and after the quadrupole respectively.
+This publication describes the simulation of the skimmer and quadrupole.
+The code used in this publication is an earlier version of the code in this repository.</p>
+<p>Later, Zanca, T. (2025)<sup id="fnref:4"><a class="footnote-ref" href="#fn:4">4</a></sup> added support for atom-like products.</p>
+<p>The current version of the code supports sampling schemes other than the originally described histogram-based technique. The rejection sampling method is described <a href="notebooks/">in one of the notebooks included in the source code repository</a>.</p>
+<h2 id="publications-using-the-simulation">Publications using the simulation</h2>
+<p>These publication make use (previous versions of) this simulation.</p>
+<p><strong>TODO: Complete this section.</strong></p>
+<h2 id="building-the-sources">Building the sources</h2>
+<p>This section describes how to build the sources from scratch.</p>
+<h3 id="using-meson-to-compile-the-python-extension">Using Meson to compile the Python extension</h3>
+<p><a href="https://mesonbuild.com/meson-python/">meson-python</a> is used to build the Python extension.</p>
+<p>You need disable build isolation to install this as a development/editable package which will recompile at import:</p>
+<p>Using <a href="https://docs.astral.sh/uv/">uv</a>:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>uv<span class="w"> </span>sync
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>uv<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>--no-build-isolation<span class="w"> </span>-e<span class="w"> </span>.
+</span></code></pre></div>
+<p>During development you can also run the following to get compiler errors on import, and add debug symbols:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>uv<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>--no-build-isolation<span class="w"> </span>--config-settings<span class="o">=</span>editable-verbose<span class="o">=</span><span class="nb">true</span><span class="w"> </span>-Csetup-args<span class="o">=</span><span class="s2">&quot;-Dbuildtype=debugoptimized&quot;</span><span class="w"> </span>-Cbuild-dir<span class="o">=</span>pydebugbuild<span class="w"> </span>-e<span class="w"> </span>.
+</span></code></pre></div>
+<h3 id="using-meson-to-compile-the-executables">Using Meson to compile the executables</h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>meson<span class="w"> </span>setup<span class="w"> </span>--buildtype<span class="w"> </span>release<span class="w"> </span>build
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>meson<span class="w"> </span>compile<span class="w"> </span>-C<span class="w"> </span>build
+</span></code></pre></div>
+<p>The binaries are then in <code>build/src</code>. You add this directory to your PATH or symlink to them.</p>
+<p>This will also create a compilation database that <code>clangd</code> can use.</p>
+<p>There are debug and sanitize Meson "native build configuration" files using clang in <code>meson/clangdebug.ini</code> and <code>meson/clangsan.ini</code> respectively.
+On Linux, you may need to install <code>libc++</code> (from LLVM rather than GNU) e.g. <code>apt install 'libc++1' 'libc++-dev'</code>.
+For example:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>meson<span class="w"> </span>setup<span class="w"> </span>--native-file<span class="w"> </span>meson/clangdebug.ini<span class="w"> </span>debugbuild
+</span></code></pre></div>
+<div class="footnote">
+<hr />
+<ol>
+<li id="fn:1">
+<p>Zapadinsky, E., Passananti, M., Myllys, N., Kurtén, T., &amp; Vehkamäki, H. (2019).
+Modeling on Fragmentation of Clusters inside a Mass Spectrometer.
+<em>The Journal of Physical Chemistry. A</em>, 123, 611 - 624.
+<a href="https://pubs.acs.org/doi/10.1021/acs.jpca.8b10744">[web]</a> <a href="https://pubs.acs.org/doi/pdf/10.1021/acs.jpca.8b10744?ref=article_openPDF">[pdf]</a> <a href="https://doi.org/10.1021/acs.jpca.8b10744">[doi]</a>&#160;<a class="footnote-backref" href="#fnref:1" title="Jump back to footnote 1 in the text">&#8617;</a></p>
+</li>
+<li id="fn:2">
+<p>Zapadinsky, E., Passananti, M., Myllys, N., Kurtén, T., &amp; Vehkamäki, H. (2019).
+Supporting Information to "Modelling on Fragmentation of Clusters Inside a Mass Spectrometer"
+<a href="https://pubs.acs.org/doi/suppl/10.1021/acs.jpca.8b10744/suppl_file/jp8b10744_si_001.pdf">[pdf]</a>&#160;<a class="footnote-backref" href="#fnref:2" title="Jump back to footnote 2 in the text">&#8617;</a></p>
+</li>
+<li id="fn:3">
+<p>Zanca, T., Kubečka, J., Zapadinsky, E., Passananti, M., Kurtén, T., &amp; Vehkamäki, H. (2020).
+Highly oxygenated organic molecule cluster decomposition in atmospheric pressure interface time-of-flight mass spectrometers.
+<em>Atmospheric Measurement Techniques</em>, 13, 3581-3593.
+<a href="https://amt.copernicus.org/articles/13/3581/2020/">[web]</a> <a href="https://amt.copernicus.org/articles/13/3581/2020/amt-13-3581-2020.pdf">[pdf]</a> <a href="https://doi.org/10.5194/amt-13-3581-2020">[doi]</a>&#160;<a class="footnote-backref" href="#fnref:3" title="Jump back to footnote 3 in the text">&#8617;</a></p>
+</li>
+<li id="fn:4">
+<p>Zanca, T. (2025).
+<em>Note published online.</em>
+<a href="atom-like_product.pdf">[web]</a>&#160;<a class="footnote-backref" href="#fnref:4" title="Jump back to footnote 4 in the text">&#8617;</a></p>
+</li>
+</ol>
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": ".", "features": ["content.footnote.tooltips"], "search": "assets/javascripts/workers/search.7a47a382.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="assets/javascripts/bundle.e71a0d61.min.js"></script>
+      
+    
+  </body>
+</html>
