@@ -742,7 +742,7 @@ void update_skimmer_quantities(const SkimmerData &skimmer, double z, double firs
   {
     v_gas = skimmer(m, VEL_SKIMMER);
     temp = skimmer(m, TEMP_SKIMMER);
-    pressure = skimmer(m, TEMP_SKIMMER);
+    pressure = skimmer(m, PRESSURE_SKIMMER);
   }
   else
   {
