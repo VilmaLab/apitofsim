@@ -1,19 +1,19 @@
 inc_src = include_directories('.')
 
 executable(
-   'skimmer_win',
+   'apitofsim-skimmer',
    'skimmer_win.cpp',
    dependencies : [eigen3, openmp],
    install : true
 )
 executable(
-  'densityandrate_win',
+  'apitofsim-densityandrate',
   'densityandrate_win.cpp',
   dependencies: [eigen3, openmp],
   install : true
 )
 executable(
-  'apitof_pinhole',
+  'apitofsim-main',
   'apitof_pinhole.cpp',
   dependencies: [eigen3, openmp, concurrentqueue, magic_enum],
   install : true
