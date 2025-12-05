@@ -17,7 +17,7 @@ The Python API is recommended for new users, and new functionality may only be a
 
 ### Python API
 
-**TODO: Write this section.**
+See [Using the Python API](api.md).
 
 ### Command line tools
 

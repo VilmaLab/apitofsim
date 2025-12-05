@@ -177,6 +177,9 @@ def skimmer(
     output_pandas=False,
     quantities_strict=True,
 ):
+    """
+    This function precomputes various parameters including gas velocity, temperature and pressure at fixed points along the skimmer's' length.
+    """
     process_arg = QuantityProcessor(quantities_strict)
     T0 = process_arg("T0", T0, "kelvin")
     P0 = process_arg("P0", P0, "pascal")
@@ -235,6 +238,9 @@ def densityandrate(
     *,
     quantities_strict=True,
 ):
+    """
+    This function precomputes the density of states and rate constants histograms for a given set of clusters.
+    """
     process_arg = QuantityProcessor(quantities_strict)
     energy_max = process_arg("energy_max", energy_max, "kelvin")
     energy_max_rate = process_arg("energy_max_rate", energy_max_rate, "kelvin")
@@ -283,6 +289,9 @@ def pinhole(
     result_callback: Callable[[numpy.ndarray], None] | None = None,
     quantities_strict=True,
 ):
+    """
+    This function runs the main simulation of the APi-ToF mass spectrometer.
+    """
     process_arg = QuantityProcessor(quantities_strict)
     lengths = process_arg("lengths", lengths, "meters")
     voltages = process_arg("voltages", voltages, "volts")
