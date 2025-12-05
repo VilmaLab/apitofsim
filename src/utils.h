@@ -312,6 +312,8 @@ extern "C" void set_flag_handler(int signal)
   saved_signal.store(signal);
 }
 
+typedef void (*SignalHandler)(int);
+
 /* Exceptions can't pass between threads.
  * The solution is to capture and rethrow.
  * Additionally once the shared exception is set, no other guarded code can run, preventing further processing. */
@@ -321,7 +323,7 @@ class OMPExceptionHelper
   bool rethrow_called = false;
   static const int NUM_SIGNALS = 3;
   static constexpr int signals[NUM_SIGNALS] = {SIGTERM, SIGINT, SIGABRT};
-  sighandler_t saved_handlers[NUM_SIGNALS];
+  SignalHandler saved_handlers[NUM_SIGNALS];
 
 public:
   OMPExceptionHelper()
