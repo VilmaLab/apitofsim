@@ -63,7 +63,7 @@ double evaluate_rotational_energy(Eigen::Vector3d omega, double inertia);
 double evaluate_internal_energy(double vib_energy, double rot_energy);
 double evaluate_rate_const(const Histogram &rate_const, double energy, WarningHelper warn);
 template <typename GenT>
-void time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &unif, double rate_constant, Eigen::Vector3d &v_cluster, double &v_cluster_norm, double n1, double n2, double mobility_gas, double mobility_gas_inv, double R, double dt1, double dt2, double &z, double &x, double &y, double &delta_t, double &t_fragmentation, double first_chamber_end, double sk_end, double quadrupole_start, double quadrupole_end, double second_chamber_end, double acc1, double acc2, double acc3, double acc4, double &t, double m_gas, const SkimmerData &skimmer, double mesh_skimmer, std::optional<Quadrupole> quadrupole, LogHelper tmp_evolution);
+void time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &unif, double rate_constant, Eigen::Vector3d &v_cluster, double &v_cluster_norm, double n1, double n2, double mobility_gas, double mobility_gas_inv, double R, double dt1, double dt2, double &z, double &x, double &y, double &delta_t, double &t_fragmentation, double first_chamber_end, double sk_end, double quadrupole_start, double quadrupole_end, double second_chamber_end, double acc1, double acc2, double acc3, double acc4, double &t, double m_gas, const SkimmerData &skimmer, double mesh_skimmer, std::optional<Quadrupole> quadrupole, LogHelper tmp_evolution, int loglevel);
 std::tuple<double, Eigen::Vector3d, double, double, double> get_quantities_for_collision(double z, double n1, double n2, double m_gas, double mobility_gas, double mobility_gas_inv, const Eigen::Vector3d &v_cluster, double v_gas, double pressure, double temperature, double first_chamber_end, double sk_end);
 void update_physical_quantities(double z, const SkimmerData skimmer, double mesh_skimmer, double &v_gas, double &temperature, double &pressure, double &density, double first_chamber_end, double sk_end, double P1, double P2, double n1, double n2, double T);
 // void evaluate_relative_velocity(double z, double *v_cluster, double &v_rel_norm, double v_gas, double *v_rel, double first_chamber_end, double sk_end);
@@ -87,7 +87,7 @@ double eval_solid_angle_stokes(double R, double L, double xx, double yy, double 
 int zone(double z, double first_chamber_end, double sk_end, double quadrupole_start, double quadrupole_end, double second_chamber_end);
 
 template <typename GasCollSamplerT, typename VibEnergySamplerT>
-Counters apitof_pinhole(int cluster_charge_sign, double T, double pressure_first, double pressure_second, InstrumentDims lengths, InstrumentVoltages voltages, int N, double bonding_energy, Gas gas, std::optional<Quadrupole> quadrupole, double m_ion, double R_cluster, const Histogram &density_cluster, const Histogram &rate_const, const SkimmerData &skimmer, const double mesh_skimmer, unsigned long long root_seed, StreamingResultQueue &result_queue, GasCollSamplerT gas_coll_sampler, VibEnergySamplerT vib_energy_sampler);
+Counters apitof_pinhole(int cluster_charge_sign, double T, double pressure_first, double pressure_second, InstrumentDims lengths, InstrumentVoltages voltages, int N, double bonding_energy, Gas gas, std::optional<Quadrupole> quadrupole, double m_ion, double R_cluster, const Histogram &density_cluster, const Histogram &rate_const, const SkimmerData &skimmer, const double mesh_skimmer, unsigned long long root_seed, StreamingResultQueue &result_queue, GasCollSamplerT gas_coll_sampler, VibEnergySamplerT vib_energy_sampler, int loglevel = DEFAULT_LOGLEVEL);
 
 Counters apitof_pinhole(
   int cluster_charge_sign,
@@ -108,7 +108,8 @@ Counters apitof_pinhole(
   const double mesh_skimmer,
   unsigned long long root_seed,
   StreamingResultQueue &result_queue,
-  int sample_mode)
+  int sample_mode,
+  int loglevel = DEFAULT_LOGLEVEL)
 {
   using consts::boltzmann;
   double m_gas = gas.mass;
@@ -139,7 +140,8 @@ Counters apitof_pinhole(
       root_seed,
       result_queue,
       GasCollCondNormHistDSSSampler(dtheta, du, boundary_u),
-      VibEnergyNormSampler(density_cluster));
+      VibEnergyNormSampler(density_cluster),
+      loglevel);
   }
   else if (sample_mode == 1)
   {
@@ -163,7 +165,8 @@ Counters apitof_pinhole(
       root_seed,
       result_queue,
       GasCollCondUnnormHistDSSSampler(dtheta, du, boundary_u),
-      VibEnergyUnnormSampler(density_cluster));
+      VibEnergyUnnormSampler(density_cluster),
+      loglevel);
   }
   else if (sample_mode == 2)
   {
@@ -187,7 +190,8 @@ Counters apitof_pinhole(
       root_seed,
       result_queue,
       GasCollRejectionSampler(boundary_u),
-      VibEnergyNormSampler(density_cluster));
+      VibEnergyNormSampler(density_cluster),
+      loglevel);
   }
   else
   {
@@ -219,7 +223,8 @@ Counters apitof_pinhole(
   unsigned long long root_seed,
   StreamingResultQueue &result_queue,
   GasCollSamplerT gas_coll_sampler,
-  VibEnergySamplerT vib_energy_sampler)
+  VibEnergySamplerT vib_energy_sampler,
+  int loglevel)
 {
   using namespace consts;
   // TO BE DELETED ###############
@@ -245,7 +250,7 @@ Counters apitof_pinhole(
   double second_chamber_end = quadrupole_end + lengths[3];
   double total_length = second_chamber_end;
 
-  if (LOGLEVEL >= LOGLEVEL_MIN)
+  if (loglevel >= LOGLEVEL_MIN)
   {
     std::cout << "Physical quantities:" << endl;
     std::cout << "L1: " << first_chamber_end << " m" << endl;
@@ -269,7 +274,7 @@ Counters apitof_pinhole(
   double P1 = pressure_first;
   double P2 = pressure_second;
   double gas_mean_free_path = mean_free_path(R_gas, kT, P2);
-  if (LOGLEVEL >= LOGLEVEL_MIN)
+  if (loglevel >= LOGLEVEL_MIN)
   {
     std::cout << "Cluster charge sign: " << cluster_charge_sign << endl;
     std::cout << "Pressure 1st chamber: " << P1 << " Pa" << endl;
@@ -281,7 +286,7 @@ Counters apitof_pinhole(
   }
   double n1 = particle_density(P1, kT);
   double n2 = particle_density(P2, kT);
-  if (LOGLEVEL >= LOGLEVEL_MIN)
+  if (loglevel >= LOGLEVEL_MIN)
   {
     std::cout << "Fragmentation energy: " << bonding_energy / boltzmann << " K (" << bonding_energy * kcal << " kcal/mol)" << endl;
     std::cout << "Cluster mass: " << m_ion << " Kg" << endl;
@@ -307,7 +312,7 @@ Counters apitof_pinhole(
   if (quadrupole && dt2 > 1.0 / quadrupole->radiofrequency / 1000.0)
     dt2 = 1.0 / quadrupole->radiofrequency / 1000.0;
 
-  if (LOGLEVEL >= LOGLEVEL_MIN)
+  if (loglevel >= LOGLEVEL_MIN)
   {
     std::cout << "Time step t1: " << dt1 << " s" << endl;
     std::cout << "Time step t2: " << dt2 << " s" << endl
@@ -316,7 +321,7 @@ Counters apitof_pinhole(
 
   Counters counters = Counters::Zero();
 
-  if (LOGLEVEL >= LOGLEVEL_MIN)
+  if (loglevel >= LOGLEVEL_MIN)
   {
     result_queue.enqueue(LogMessage{LogMessage::probabilities, "#1_FragmentationEnergy 2_SurvivalProbability 3_Error\n"});
     result_queue.enqueue(LogMessage{LogMessage::fragments, "#1_Realization 2_Time 3_Position 4_FragmentationZone 5_PositionOfCollision 6_CollisionZone 7_VelocityAtCollision\n"});
@@ -324,7 +329,7 @@ Counters apitof_pinhole(
 
   // cout << bin_width_rate << endl;
   //  N realizations
-  if (LOGLEVEL >= LOGLEVEL_MIN)
+  if (loglevel >= LOGLEVEL_MIN)
   {
     std::cout << "Simulating dynamics... (Fragments *, Intacts -)" << endl;
   }
@@ -339,7 +344,8 @@ Counters apitof_pinhole(
         skimmer, mesh_skimmer, total_length, mobility_gas, \
         mobility_gas_inv, gas_mean_free_path, first_chamber_end, root_seed, \
         sk_end, quadrupole_start, quadrupole_end, acc1, acc2, acc3, acc4, \
-        P1, P2, bonding_energy, m_gas, quadrupole, reduced_mass, pi, vib_energy_sampler, gas_coll_sampler) \
+        P1, P2, bonding_energy, m_gas, quadrupole, reduced_mass, pi, \
+        vib_energy_sampler, gas_coll_sampler, loglevel) \
   shared(exception_helper, result_queue) \
   reduction(+ : counters) \
   schedule(guided)
@@ -440,7 +446,7 @@ Counters apitof_pinhole(
           rate_constant = 0.0;
         }
 
-        time_next_coll_quadrupole(gen, unif, rate_constant, v_cluster, v_cluster_norm, n1, n2, mobility_gas, mobility_gas_inv, R_tot, dt1, dt2, z, x, y, delta_t, t_fragmentation, first_chamber_end, sk_end, quadrupole_start, quadrupole_end, second_chamber_end, acc1, acc2, acc3, acc4, t, m_gas, skimmer, mesh_skimmer, quadrupole, LogHelper{result_queue, LogMessage::tmp_evolution});
+        time_next_coll_quadrupole(gen, unif, rate_constant, v_cluster, v_cluster_norm, n1, n2, mobility_gas, mobility_gas_inv, R_tot, dt1, dt2, z, x, y, delta_t, t_fragmentation, first_chamber_end, sk_end, quadrupole_start, quadrupole_end, second_chamber_end, acc1, acc2, acc3, acc4, t, m_gas, skimmer, mesh_skimmer, quadrupole, LogHelper{result_queue, LogMessage::tmp_evolution}, loglevel);
 
         // tmp << kin_energy << "\t";
         // tmp_evolution << delta_t << " " << z << " " << v_cluster[0] << " " << v_cluster[1] << " " << v_cluster[2] << " " << kin_energy << endl;
@@ -455,7 +461,7 @@ Counters apitof_pinhole(
             n_fragmented++;
             // if(a==1) cout << "Fragmentation with max energy for rate exceeded. Realization: " << j+1 << endl;
             // if(coll_z>quadrupole_start && coll_z<quadrupole_end)
-            if (LOGLEVEL >= LOGLEVEL_NORMAL)
+            if (loglevel >= LOGLEVEL_NORMAL)
             {
               fragments([&](auto &fragments)
               {
@@ -538,7 +544,7 @@ Counters apitof_pinhole(
             throw ApiTofError("FATAL ERROR: The internal energy exceeded the max energy related to rate constant (so the cluster should fragment), but the cluster did not fragment");
           }
           n_escaped++; // Count how many clusters reached the end of the box intact
-          if (LOGLEVEL >= LOGLEVEL_NORMAL)
+          if (loglevel >= LOGLEVEL_NORMAL)
           {
             final_position([&](auto &final_position)
             {
@@ -736,7 +742,7 @@ void update_skimmer_quantities(const SkimmerData &skimmer, double z, double firs
   {
     v_gas = skimmer(m, VEL_SKIMMER);
     temp = skimmer(m, TEMP_SKIMMER);
-    pressure = skimmer(m, TEMP_SKIMMER);
+    pressure = skimmer(m, PRESSURE_SKIMMER);
   }
   else
   {
@@ -842,7 +848,7 @@ void init_vib_energy(GenT &gen, uniform_real_distribution<double> &unif, double 
 
 // Evaluate time to next collision
 template <typename GenT>
-void time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &unif, double rate_constant, Eigen::Vector3d &v_cluster, double &v_cluster_norm, double n1, double n2, double mobility_gas, double mobility_gas_inv, double R, double dt1, double dt2, double &z, double &x, double &y, double &delta_t, double &t_fragmentation, double first_chamber_end, double sk_end, double quadrupole_start, double quadrupole_end, double second_chamber_end, double acc1, double acc2, double acc3, double acc4, double &t, double m_gas, const SkimmerData &skimmer, double mesh_skimmer, std::optional<Quadrupole> quadrupole, LogHelper tmp_evolution)
+void time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &unif, double rate_constant, Eigen::Vector3d &v_cluster, double &v_cluster_norm, double n1, double n2, double mobility_gas, double mobility_gas_inv, double R, double dt1, double dt2, double &z, double &x, double &y, double &delta_t, double &t_fragmentation, double first_chamber_end, double sk_end, double quadrupole_start, double quadrupole_end, double second_chamber_end, double acc1, double acc2, double acc3, double acc4, double &t, double m_gas, const SkimmerData &skimmer, double mesh_skimmer, std::optional<Quadrupole> quadrupole, LogHelper tmp_evolution, int loglevel)
 {
   using namespace consts;
   double integral = 0.0;
@@ -1007,7 +1013,7 @@ void time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &uni
     // positionz << t << " " << z << " " << c1 << " " << c2 << " " << v1 << " " << v_cluster[2] << " " << P << " " << r << endl;
   }
   // if(z<first_chamber_end) tmp_evolution << z << " " << c1 << " " << n_skimmer << " " << mobility_gas_skimmer << " " << mobility_gas_inv_skimmer << " " << R << " " << v_rel_norm << endl;
-  if (LOGLEVEL >= LOGLEVEL_NORMAL)
+  if (loglevel >= LOGLEVEL_NORMAL)
   {
     if (z < first_chamber_end)
     {

@@ -4,31 +4,6 @@
 #include "consts.h"
 #include "warnlogcount.h"
 
-struct Histogram
-{
-  Eigen::ArrayXd x;
-  Eigen::ArrayXd y;
-  double bin_width;
-  double x_max;
-
-  Histogram(Eigen::ArrayXd x, Eigen::ArrayXd y)
-      : x(x), y(y)
-  {
-    compute_derived();
-  }
-
-  void compute_derived()
-  {
-    bin_width = x[1] - x[0];
-    x_max = bin_width * length();
-  }
-
-  int length() const
-  {
-    return x.rows();
-  }
-};
-
 // Total collision frequency
 double coll_freq(double n, double mobility_gas, double mobility_gas_inv, double R, double v)
 {

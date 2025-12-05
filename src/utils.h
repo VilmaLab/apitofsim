@@ -1,5 +1,7 @@
 #pragma once
 
+#include <atomic>
+#include <csignal>
 #include <iostream>
 #include <cstring>
 #include <fstream>
@@ -19,11 +21,23 @@ void check_field_name(const char *buffer, const char *expected)
 }
 
 template <typename T>
-void read_field(std::istream &config_in, T *variable, char *buffer, const char *expected)
+void read_val(std::istream &config_in, T *variable, char *buffer)
+{
+  config_in >> *variable >> buffer;
+}
+
+template <>
+void read_val(std::istream &config_in, char *variable, char *buffer)
+{
+  config_in >> variable >> buffer;
+}
+
+template <typename T>
+void read_field(std::istream &config_in, T variable, char *buffer, const char *expected)
 {
   if (variable)
   {
-    config_in >> *variable >> buffer;
+    read_val(config_in, variable, buffer);
   }
   else
   {
@@ -32,24 +46,18 @@ void read_field(std::istream &config_in, T *variable, char *buffer, const char *
   check_field_name(buffer, expected);
 }
 
-
-template <>
-void read_field(std::istream &config_in, char *variable, char *buffer, const char *expected)
+bool peek_field_name(std::istream &config_in, char *buffer, const char *expected)
 {
-  if (variable)
-  {
-    config_in >> variable >> buffer;
-  }
-  else
-  {
-    config_in >> buffer >> buffer;
-  }
-  check_field_name(buffer, expected);
+  int pos = config_in.tellg();
+  config_in >> buffer >> buffer;
+  bool success = strcmp(buffer, expected) == 0;
+  config_in.seekg(pos);
+  return success;
 }
 
 template <typename AmuT, typename FloatT>
 void read_config(
-  std::istream &config_in,
+  std::istream &config_stream,
   char *title,
   int *cluster_charge_sign,
   AmuT *amu_0,
@@ -104,6 +112,9 @@ void read_config(
   double *tolerance)
 {
   char buffer[256];
+  std::stringstream config_in;
+  config_in << config_stream.rdbuf();
+  config_in.seekg(0);
   if (title)
   {
     config_in >> title; // Title line
@@ -112,7 +123,17 @@ void read_config(
   {
     config_in >> buffer; // Skip title line
   }
-  read_field(config_in, cluster_charge_sign, buffer, "Cluster_charge_sign");
+  if (peek_field_name(config_in, buffer, "Cluster_charge_sign"))
+  {
+    read_field(config_in, cluster_charge_sign, buffer, "Cluster_charge_sign");
+  }
+  else
+  {
+    if (cluster_charge_sign != nullptr)
+    {
+      *cluster_charge_sign = -1;
+    }
+  }
   read_field(config_in, amu_0, buffer, "Atomic_mass_cluster");
   read_field(config_in, amu_1, buffer, "Atomic_mass_first_product");
   read_field(config_in, amu_2, buffer, "Atomic_mass_second_product");
@@ -139,10 +160,32 @@ void read_config(
   read_field(config_in, R_gas, buffer, "Gas_molecule_radius_(meters)");
   read_field(config_in, m_gas, buffer, "Gas_molecule_mass_(kg)");
   read_field(config_in, ga, buffer, "Adiabatic_index");
-  read_field(config_in, dc_field, buffer, "DC_quadrupole");
-  read_field(config_in, ac_field, buffer, "AC_quadrupole");
-  read_field(config_in, radiofrequency, buffer, "Radiofrequency_quadrupole");
-  read_field(config_in, r_quadrupole, buffer, "Half-distance_between_quadrupole_rods");
+  if (peek_field_name(config_in, buffer, "DC_quadrupole"))
+  {
+    read_field(config_in, dc_field, buffer, "DC_quadrupole");
+    read_field(config_in, ac_field, buffer, "AC_quadrupole");
+    read_field(config_in, radiofrequency, buffer, "Radiofrequency_quadrupole");
+    read_field(config_in, r_quadrupole, buffer, "Half-distance_between_quadrupole_rods");
+  }
+  else
+  {
+    if (dc_field != nullptr)
+    {
+      *dc_field = NAN;
+    }
+    if (ac_field != nullptr)
+    {
+      *ac_field = NAN;
+    }
+    if (radiofrequency != nullptr)
+    {
+      *radiofrequency = NAN;
+    }
+    if (r_quadrupole != nullptr)
+    {
+      *r_quadrupole = NAN;
+    }
+  }
   read_field(config_in, file_skimmer, buffer, "Output_file_skimmer");
   read_field(config_in, file_frequencies_0, buffer, "file_vibrational_temperatures_cluster");
   read_field(config_in, file_frequencies_1, buffer, "file_vibrational_temperatures_first_product");
@@ -169,7 +212,28 @@ const int LOGLEVEL_NONE = 0,
           LOGLEVEL_MIN = 1,
           LOGLEVEL_NORMAL = 2,
           LOGLEVEL_EXTRA = 3;
-const int LOGLEVEL = LOGLEVEL_NORMAL;
+const int DEFAULT_LOGLEVEL = LOGLEVEL_NORMAL;
+
+int get_loglevel()
+{
+  char *loglevel_env = getenv("LOGLEVEL");
+  if (loglevel_env != nullptr)
+  {
+    int loglevel = atoi(loglevel_env);
+    if (loglevel >= LOGLEVEL_NONE && loglevel <= LOGLEVEL_EXTRA)
+    {
+      return loglevel;
+    }
+    else
+    {
+      throw std::invalid_argument("Invalid LOGLEVEL value: " + std::string(loglevel_env));
+    }
+  }
+  else
+  {
+    return DEFAULT_LOGLEVEL;
+  }
+}
 
 namespace Filenames
 {
@@ -241,6 +305,15 @@ void compute_mass_and_radius(double inertia, double amu, double &mass, double &r
   radius = sqrt(2.5 * inertia / mass);
 }
 
+std::atomic<int> saved_signal = -1;
+
+extern "C" void set_flag_handler(int signal)
+{
+  saved_signal.store(signal);
+}
+
+typedef void (*SignalHandler)(int);
+
 /* Exceptions can't pass between threads.
  * The solution is to capture and rethrow.
  * Additionally once the shared exception is set, no other guarded code can run, preventing further processing. */
@@ -248,19 +321,35 @@ class OMPExceptionHelper
 {
   std::exception_ptr exception = nullptr;
   bool rethrow_called = false;
+  static const int NUM_SIGNALS = 3;
+  static constexpr int signals[NUM_SIGNALS] = {SIGTERM, SIGINT, SIGABRT};
+  SignalHandler saved_handlers[NUM_SIGNALS];
 
 public:
   OMPExceptionHelper()
   {
+    for (int i = 0; i < NUM_SIGNALS; i++)
+    {
+      saved_handlers[i] = std::signal(signals[i], set_flag_handler);
+    }
   }
 
   ~OMPExceptionHelper()
   {
-    if (!rethrow_called && this->exception)
+    if (!rethrow_called)
     {
-      std::cerr << "\nException lost! OMPExceptionHelper holding exception destroyed without rethrowing\n"
-                << std::flush;
-      std::terminate();
+      if (this->exception)
+      {
+        std::cerr << "\nException lost! OMPExceptionHelper holding exception destroyed without rethrowing\n"
+                  << std::flush;
+        std::terminate();
+      }
+      if (saved_signal.load() != -1)
+      {
+        std::cerr << "\nSIGTERM flag set, but OMPExceptionHelper was destroyed without rethrowing\n"
+                  << std::flush;
+        std::terminate();
+      }
     }
   }
 
@@ -270,6 +359,15 @@ public:
     if (this->exception)
     {
       std::rethrow_exception(this->exception);
+    }
+    for (int i = 0; i < NUM_SIGNALS; i++)
+    {
+      std::signal(signals[i], saved_handlers[i]);
+    }
+    int signal = saved_signal.load();
+    if (signal != -1)
+    {
+      raise(signal);
     }
   }
 
@@ -285,7 +383,7 @@ public:
   template <typename Function, typename... Parameters>
   void guard(Function f, Parameters... params)
   {
-    if (!this->exception)
+    if (!this->exception && saved_signal.load() == -1)
     {
       try
       {
@@ -304,4 +402,45 @@ struct Gas
   double radius;
   double mass;
   double adiabatic_index;
+};
+
+Eigen::ArrayXd prepare_energies(double bin_width, int m_max)
+{
+  Eigen::ArrayXd energies = Eigen::ArrayXd(m_max);
+  for (int m = 0; m < m_max; m++)
+  {
+    energies[m] = bin_width * (m + 0.5);
+  }
+  return energies;
+}
+
+struct Histogram
+{
+  Eigen::ArrayXd x;
+  Eigen::ArrayXd y;
+  double bin_width;
+  double x_max;
+
+  Histogram(Eigen::ArrayXd x, Eigen::ArrayXd y)
+      : x(x), y(y)
+  {
+    compute_derived();
+  }
+
+  Histogram(double bin_width, int m_max, Eigen::ArrayXd y)
+      : x(prepare_energies(bin_width, m_max)), y(y)
+  {
+    compute_derived();
+  }
+
+  void compute_derived()
+  {
+    bin_width = x[1] - x[0];
+    x_max = bin_width * length();
+  }
+
+  int length() const
+  {
+    return x.rows();
+  }
 };

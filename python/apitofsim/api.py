@@ -103,6 +103,12 @@ class Histogram:
     y: numpy.ndarray
 
     @classmethod
+    def from_mesh(cls, bin_width, x_max, y):
+        bin_width_mag = bin_width.to("kelvin").magnitude
+        m_max = int(x_max.to("kelvin").magnitude / bin_width_mag)
+        return cls.from_cpp(_Histogram(bin_width_mag, m_max, y))
+
+    @classmethod
     def from_cpp(cls, histogram: _Histogram):
         return cls(Q_(histogram.x, "kelvin"), histogram.y)
 
@@ -266,9 +272,11 @@ def pinhole(
     pressure_second: MaybeQuantity,
     N: int,
     *,
+    sample_mode: int = 0,
+    loglevel: int = 0,
     mesh_skimmer: float | None = None,
     quadrupole: Quadrupole | None = None,
-    cluster_charge_sign: int = 1,
+    cluster_charge_sign: int = -1,
     fragmentation_energy: MaybeQuantity | None = None,
     seed: int = 42,
     log_callback: Callable[[str, str], None] | None = None,
@@ -320,4 +328,6 @@ def pinhole(
         seed=seed,
         log_callback=log_callback,
         result_callback=result_callback,
+        sample_mode=sample_mode,
+        loglevel=loglevel,
     )

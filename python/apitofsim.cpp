@@ -15,6 +15,7 @@
 #include "skimmer_lib.h"
 #include "densityandrate_lib.h"
 #include "apitof_pinhole_lib.h"
+#include "utils.h"
 #include "warnlogcount.h"
 
 namespace nb = nanobind;
@@ -135,7 +136,8 @@ Counters pinhole(
   unsigned long long seed = 42ull,
   std::optional<std::function<void(std::string_view, std::string)>> log_callback = nullopt,
   std::optional<std::function<void(Counters)>> result_callback = nullopt,
-  int sample_mode = 0)
+  int sample_mode = 0,
+  int loglevel = DEFAULT_LOGLEVEL)
 {
   using magic_enum::enum_name;
   using consts::hartK;
@@ -189,7 +191,8 @@ Counters pinhole(
         mesh_skimmer,
         root_seed,
         result_queue,
-        sample_mode);
+        sample_mode,
+        loglevel);
     });
     result_queue.enqueue(std::monostate{});
   });
@@ -350,6 +353,10 @@ NB_MODULE(apitofsimraw, m)
     .def(nb::init<Eigen::ArrayXd, Eigen::ArrayXd>(),
          nb::arg("x"),
          nb::arg("y"))
+    .def(nb::init<double, int, Eigen::ArrayXd>(),
+         nb::arg("bin_width"),
+         nb::arg("m_max"),
+         nb::arg("y"))
     .def_ro("x", &Histogram::x)
     .def_ro("y", &Histogram::y);
 
@@ -419,7 +426,8 @@ NB_MODULE(apitofsimraw, m)
         "seed"_a = 42ull,
         "log_callback"_a = std::nullopt,
         "result_callback"_a = std::nullopt,
-        "sample_mode"_a = 0);
+        "sample_mode"_a = 0,
+        "loglevel"_a = DEFAULT_LOGLEVEL);
 
   nb::class_<FragmentationPathway>(m, "FragmentationPathway")
     .def(nb::init<ClusterData &, ClusterData &, ClusterData &>(),

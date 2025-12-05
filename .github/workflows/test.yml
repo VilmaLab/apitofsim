@@ -12,21 +12,22 @@ on:
 jobs:
   typecheck_python:
     name: Typecheck Python
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v5
 
       - uses: astral-sh/setup-uv@v7
 
-      - name: Install basedpyright
+      - name: Install dependencies
         run: |
+          sudo apt-get install -y ninja-build
           uv tool install basedpyright
 
       - name: Setup virtualenv
         run: |
           uv venv fullinstallenv
-          VIRTUAL_ENV=fullinstallenv uv pip install .
+          VIRTUAL_ENV=fullinstallenv uv run --active pip install .
 
       - name: Run basedpyright
         run: |
