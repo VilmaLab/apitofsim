@@ -1,4 +1,4 @@
-# pyright: ignore[reportAttributeAccessIssue]
+# pyright: reportAttributeAccessIssue=false
 
 import pandas
 import duckdb
