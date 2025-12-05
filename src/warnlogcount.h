@@ -114,19 +114,16 @@ struct LogFileWriter
 
   LogFileWriter(char *file_probabilities)
   {
-    if (LOGLEVEL >= LOGLEVEL_MIN)
-    {
-      this->open(LogMessage::collisions, Filenames::COLLISIONS);
-      this->open(LogMessage::warnings, Filenames::WARNINGS, false);
-      this->open(LogMessage::fragments, Filenames::FRAGMENTS);
-      this->open(LogMessage::probabilities, file_probabilities);
-      this->open(LogMessage::intenergy, Filenames::INTENERGY);
-      this->open(LogMessage::tmp, Filenames::TMP);
-      this->open(LogMessage::tmp_evolution, Filenames::TMP_EVOLUTION);
-      this->open(LogMessage::file_energy_distribution, Filenames::ENERGY_DISTRIBUTION);
-      this->open(LogMessage::final_position, Filenames::FINAL_POSITION);
-      this->open(LogMessage::pinhole, Filenames::PINHOLE);
-    }
+    this->open(LogMessage::collisions, Filenames::COLLISIONS);
+    this->open(LogMessage::warnings, Filenames::WARNINGS, false);
+    this->open(LogMessage::fragments, Filenames::FRAGMENTS);
+    this->open(LogMessage::probabilities, file_probabilities);
+    this->open(LogMessage::intenergy, Filenames::INTENERGY);
+    this->open(LogMessage::tmp, Filenames::TMP);
+    this->open(LogMessage::tmp_evolution, Filenames::TMP_EVOLUTION);
+    this->open(LogMessage::file_energy_distribution, Filenames::ENERGY_DISTRIBUTION);
+    this->open(LogMessage::final_position, Filenames::FINAL_POSITION);
+    this->open(LogMessage::pinhole, Filenames::PINHOLE);
   }
 
   void close()

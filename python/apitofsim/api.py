@@ -273,6 +273,7 @@ def pinhole(
     N: int,
     *,
     sample_mode: int = 0,
+    loglevel: int = 0,
     mesh_skimmer: float | None = None,
     quadrupole: Quadrupole | None = None,
     cluster_charge_sign: int = 1,
@@ -328,4 +329,5 @@ def pinhole(
         log_callback=log_callback,
         result_callback=result_callback,
         sample_mode=sample_mode,
+        loglevel=loglevel,
     )

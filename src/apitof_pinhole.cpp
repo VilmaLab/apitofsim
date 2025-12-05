@@ -134,7 +134,8 @@ void apitof_pinhole_config_in()
   );
 
   std::optional<LogFileWriter> writer = std::nullopt;
-  if (LOGLEVEL >= LOGLEVEL_MIN)
+  const int loglevel = get_loglevel();
+  if (loglevel >= LOGLEVEL_MIN)
   {
     writer = LogFileWriter(file_probabilities);
   }
@@ -249,7 +250,7 @@ void apitof_pinhole_config_in()
     }
     else if (std::holds_alternative<PartialResult>(result))
     {
-      if (LOGLEVEL >= LOGLEVEL_NORMAL)
+      if (loglevel >= LOGLEVEL_NORMAL)
       {
         const PartialResult &partial_result = std::get<PartialResult>(result);
         partial_counters.row(partial_result.thread_id) = partial_result.counters.transpose();
@@ -291,7 +292,7 @@ void apitof_pinhole_config_in()
   }
   else
   {
-    if (LOGLEVEL >= LOGLEVEL_MIN)
+    if (loglevel >= LOGLEVEL_MIN)
     {
       // cout << std::defaultfloat << " 100%" << " Intacts: " << setw(5) << setfill(' ') << n_escaped << " | Fragments: " << setw(5) << setfill (' ') << n_fragmented << " | Survival probability: "  << std::setprecision(3) << 1.0*n_escaped/(n_escaped+n_fragmented)  << endl;
       std::cout << "Simulation completed" << endl
@@ -299,7 +300,7 @@ void apitof_pinhole_config_in()
       // cout << std::defaultfloat << "Intacts: " << setw(5) << setfill(' ') << n_escaped << " | Fragments: " << setw(5) << setfill (' ') << n_fragmented << " | Survival probability: "  << std::setprecision(3) << 1.0*n_escaped/(n_escaped+n_fragmented)  << endl;
     }
   }
-  if (LOGLEVEL >= LOGLEVEL_MIN)
+  if (loglevel >= LOGLEVEL_MIN)
   {
     // cout << "\033[F\033[J";
     std::cout << "Realizations: " << realizations << endl;

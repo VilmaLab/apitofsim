@@ -170,7 +170,28 @@ const int LOGLEVEL_NONE = 0,
           LOGLEVEL_MIN = 1,
           LOGLEVEL_NORMAL = 2,
           LOGLEVEL_EXTRA = 3;
-const int LOGLEVEL = LOGLEVEL_NORMAL;
+const int DEFAULT_LOGLEVEL = LOGLEVEL_NORMAL;
+
+int get_loglevel()
+{
+  char *loglevel_env = getenv("LOGLEVEL");
+  if (loglevel_env != nullptr)
+  {
+    int loglevel = atoi(loglevel_env);
+    if (loglevel >= LOGLEVEL_NONE && loglevel <= LOGLEVEL_EXTRA)
+    {
+      return loglevel;
+    }
+    else
+    {
+      throw std::invalid_argument("Invalid LOGLEVEL value: " + std::string(loglevel_env));
+    }
+  }
+  else
+  {
+    return DEFAULT_LOGLEVEL;
+  }
+}
 
 namespace Filenames
 {
