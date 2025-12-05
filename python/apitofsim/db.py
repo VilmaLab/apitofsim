@@ -3,6 +3,8 @@ import duckdb
 from pint import get_application_registry
 from apitofsim import ClusterData
 
+from os.path import dirname, isfile, basename, expanduser
+
 ureg = get_application_registry()
 Q_ = ureg.Quantity
 
@@ -176,43 +178,57 @@ class ClusterDatabase:
         )
 
 
-def ingest_legacy(db: ClusterDatabase, path, backup_search=None):
+def backup_search(source, data_file):
+    if "backup_search" in source:
+        results = glob(
+            source["backup_search"] + "/**/" + basename(data_file),
+            recursive=True,
+        )
+        if len(results) == 1:
+            return results[0]
+
+
+def fixup_config(config, particle, backup_dir=None):
+    for quantity in [
+        "vibrational_temperatures",
+        "rotational_temperatures",
+        "electronic_energy",
+    ]:
+        config_key = f"file_{quantity}_{particle}"
+        data_file = config[config_key]
+        if not isfile(data_file):
+            particle_failed = True
+            if backup_dir is not None:
+                result = backup_search(backup_dir, data_file)
+                if result is not None:
+                    config[config_key] = result
+                    particle_failed = False
+            if particle_failed:
+                print(f"Could not find {config[config_key]}; skipping particle")
+                return True
+    return False
+
+
+def ingest_legacy(db: ClusterDatabase, path, backup_dir=None):
     from glob import glob
     from contextlib import chdir
-    from os.path import dirname, isfile, basename
     from pprint import pprint
-    from glob import glob
-    from os import chdir
+    from apitofsim.config import (
+        parse_config,
+        get_particle,
+    )
 
-    for filename in glob(path, recursive=True):
+    filenames = glob(expanduser(path), recursive=True)
+    for filename in filenames:
         print("Reading", filename)
         with chdir(dirname(filename)):
             config = parse_config(filename)
             ids = []
             particle_failed = False
             for particle in ["cluster", "first_product", "second_product"]:
-                for quantity in [
-                    "vibrational_temperatures",
-                    "rotational_temperatures",
-                    "electronic_energy",
-                ]:
-                    config_key = f"file_{quantity}_{particle}"
-                    data_file = config[config_key]
-                    if not isfile(data_file):
-                        particle_failed = True
-                        if backup_search is not None:
-                            results = glob(
-                                backup_search + "/**/" + basename(data_file),
-                                recursive=True,
-                            )
-                            if len(results) == 1:
-                                config[config_key] = results[0]
-                                particle_failed = False
-                        if particle_failed:
-                            print(
-                                f"Could not find {config[config_key]}; skipping particle"
-                            )
-                            continue
+                if fixup_config(config, particle, backup_dir):
+                    particle_failed = True
+                    continue
                 pprint(config)
                 particle_config = get_particle(config, particle)
                 inserted, id = db.insert_cluster(
