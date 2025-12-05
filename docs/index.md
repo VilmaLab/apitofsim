@@ -49,8 +49,12 @@ The actual code used for this publication was written in Matlab and is not publi
 
 Zanca et al. (2020)[^3] describe a version of the simulation expanding the above to consider five zones.
 Zone I being the first chamber, II the skimmer, and III-V the second chamber, before, during and after the quadrupole respectively.
-Simulation of the skimmer and quadrupole is described.
-The code used in this publication is an earlier version of the code in this repository, but is not publicly available.
+This publication describes the simulation of the skimmer and quadrupole.
+The code used in this publication is an earlier version of the code in this repository.
+
+Later, Zanca, T. (2025)[^4] added support for atom-like products.
+
+The current version of the code supports sampling schemes other than the originally described histogram-based technique. The rejection sampling method is described [in one of the notebooks included in the source code repository](notebooks.md).
 
 [^1]:
     Zapadinsky, E., Passananti, M., Myllys, N., Kurtén, T., & Vehkamäki, H. (2019).
@@ -60,12 +64,16 @@ The code used in this publication is an earlier version of the code in this repo
 [^2]:
     Zapadinsky, E., Passananti, M., Myllys, N., Kurtén, T., & Vehkamäki, H. (2019).
     Supporting Information to "Modelling on Fragmentation of Clusters Inside a Mass Spectrometer"
-    [[pdf]](https://pubs.acs.org/doi/abs/10.1021/acs.jpca.8b10744)
+    [[pdf]](https://pubs.acs.org/doi/suppl/10.1021/acs.jpca.8b10744/suppl_file/jp8b10744_si_001.pdf)
 [^3]:
     Zanca, T., Kubečka, J., Zapadinsky, E., Passananti, M., Kurtén, T., & Vehkamäki, H. (2020).
     Highly oxygenated organic molecule cluster decomposition in atmospheric pressure interface time-of-flight mass spectrometers.
     *Atmospheric Measurement Techniques*, 13, 3581-3593.
     [[web]](https://amt.copernicus.org/articles/13/3581/2020/) [[pdf]](https://amt.copernicus.org/articles/13/3581/2020/amt-13-3581-2020.pdf) [[doi]](https://doi.org/10.5194/amt-13-3581-2020)
+[^4]:
+    Zanca, T. (2025).
+    *Note published online.*
+    [[web]](atom-like_product.pdf)
 
 ## Publications using the simulation
 
