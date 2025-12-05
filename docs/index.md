@@ -21,20 +21,14 @@ See [Using the Python API](api.md).
 
 ### Command line tools
 
-**TODO: Update this section.**
-
-Then run the simulation with the provided input and data using `run.sh`:
-
-```bash
-./run.sh inputs/example
-```
-
-You can also run each step manually with:
+If you have installed via Conda, and activated the relevant environment, the command line tools should be installed and in your path.
+If you have compiled the sources yourself, you will need to add build/src to your path for the following example to work.
+You can run the included example pathway like so:
 
 ```bash
-./bin/skimmer_win.x < inputs/example/config.in
-./bin/densityandrate_win.x < inputs/example/config.in
-./bin/apitof_pinhole.x < inputs/example/config.in
+apitofsim-skimmer < inputs/example/config.in
+apitofsim-densityandrate < inputs/example/config.in
+apitofsim-main < inputs/example/config.in
 ```
 
 Outputs are generated in `work/out` directory.
