@@ -3,6 +3,7 @@ import duckdb
 from pint import get_application_registry
 from apitofsim import ClusterData
 
+from glob import glob
 from os.path import dirname, isfile, basename, expanduser
 
 ureg = get_application_registry()
@@ -210,7 +211,6 @@ def fixup_config(config, particle, backup_dir=None):
 
 
 def ingest_legacy(db: ClusterDatabase, path, backup_dir=None):
-    from glob import glob
     from contextlib import chdir
     from pprint import pprint
     from apitofsim.config import (
