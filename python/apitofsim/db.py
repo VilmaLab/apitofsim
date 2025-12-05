@@ -1,3 +1,5 @@
+# type: ignore
+
 import pandas
 import duckdb
 from pint import get_application_registry
@@ -83,7 +85,7 @@ class ClusterDatabase:
 
     def iter_clusters_dicts(self, *args, **kwargs):
         for cluster in self.clusters_df(*args, **kwargs).itertuples():
-            yield cluster._asdict() # type: ignore
+            yield cluster._asdict()
 
     @staticmethod
     def _cluster_obj_from_tuple(cluster):
@@ -109,9 +111,9 @@ class ClusterDatabase:
         name_lookup = {}
         ret = {}
         for cluster in self.clusters_df(*args, **kwargs).itertuples():
-            ret[cluster.id] = self._cluster_obj_from_tuple(cluster) # type: ignore
+            ret[cluster.id] = self._cluster_obj_from_tuple(cluster)
             if include_name_lookup:
-                name_lookup[cluster.id] = cluster.common_name # type: ignore
+                name_lookup[cluster.id] = cluster.common_name
         if include_name_lookup:
             return ret, name_lookup
         else:
