@@ -1,5 +1,6 @@
 #pragma once
 
+#include <csignal>
 #include <iostream>
 #include <cstring>
 #include <fstream>
@@ -241,6 +242,13 @@ void compute_mass_and_radius(double inertia, double amu, double &mass, double &r
   radius = sqrt(2.5 * inertia / mass);
 }
 
+std::atomic<int> saved_signal = -1;
+
+extern "C" void set_flag_handler(int signal)
+{
+  saved_signal.store(signal);
+}
+
 /* Exceptions can't pass between threads.
  * The solution is to capture and rethrow.
  * Additionally once the shared exception is set, no other guarded code can run, preventing further processing. */
@@ -248,19 +256,35 @@ class OMPExceptionHelper
 {
   std::exception_ptr exception = nullptr;
   bool rethrow_called = false;
+  static const int NUM_SIGNALS = 3;
+  static constexpr int signals[NUM_SIGNALS] = {SIGTERM, SIGINT, SIGABRT};
+  sighandler_t saved_handlers[NUM_SIGNALS];
 
 public:
   OMPExceptionHelper()
   {
+    for (int i = 0; i < NUM_SIGNALS; i++)
+    {
+      saved_handlers[i] = std::signal(signals[i], set_flag_handler);
+    }
   }
 
   ~OMPExceptionHelper()
   {
-    if (!rethrow_called && this->exception)
+    if (!rethrow_called)
     {
-      std::cerr << "\nException lost! OMPExceptionHelper holding exception destroyed without rethrowing\n"
-                << std::flush;
-      std::terminate();
+      if (this->exception)
+      {
+        std::cerr << "\nException lost! OMPExceptionHelper holding exception destroyed without rethrowing\n"
+                  << std::flush;
+        std::terminate();
+      }
+      if (saved_signal.load() != -1)
+      {
+        std::cerr << "\nSIGTERM flag set, but OMPExceptionHelper was destroyed without rethrowing\n"
+                  << std::flush;
+        std::terminate();
+      }
     }
   }
 
@@ -270,6 +294,15 @@ public:
     if (this->exception)
     {
       std::rethrow_exception(this->exception);
+    }
+    for (int i = 0; i < NUM_SIGNALS; i++)
+    {
+      std::signal(signals[i], saved_handlers[i]);
+    }
+    int signal = saved_signal.load();
+    if (signal != -1)
+    {
+      raise(signal);
     }
   }
 
@@ -285,7 +318,7 @@ public:
   template <typename Function, typename... Parameters>
   void guard(Function f, Parameters... params)
   {
-    if (!this->exception)
+    if (!this->exception && saved_signal.load() == -1)
     {
       try
       {
