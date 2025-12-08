@@ -11,7 +11,7 @@
 !.pixi/config.toml
 # Working/output directories
 benchout/
-/work/
+work/
 /output/
 /builds/
 /trees/

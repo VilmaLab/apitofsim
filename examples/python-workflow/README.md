@@ -1,6 +1,6 @@
 To run this workflow, you must first obtain the data for [^1], which is currently available by request only.
 
-To run the workflow, create a file `config.json` pointing to the dataset:
+To run the workflow, create a file `work/config.json` pointing to the dataset:
 
 ```
 {
@@ -13,13 +13,13 @@ To run the workflow, create a file `config.json` pointing to the dataset:
 Then import the data using the provided script:
 
 ```
-uv run prepare_data.py config.json prepared_data
+uv run prepare_data.py work/config.json work/prepared_data
 ```
 
 You are now ready to run the workflow:
 
 ```
-uv run run.py prepared_data
+uv run run.py work/prepared_data
 ```
 
 Plotting code will be provided later. This dataset may be published as open data at some point in the future.
