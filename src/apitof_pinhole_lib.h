@@ -69,7 +69,6 @@ void update_physical_quantities(double z, const SkimmerData skimmer, double mesh
 // void evaluate_relative_velocity(double z, double *v_cluster, double &v_rel_norm, double v_gas, double *v_rel, double first_chamber_end, double sk_end);
 void update_velocities(Eigen::Vector3d &v_cluster, double &v_cluster_norm, const Eigen::Vector3d &v_rel, double v_gas);
 void update_rot_vel(Eigen::Vector3d &omega, double rot_energy_old, double rot_energy);
-int mod_func_int(int a, int b);
 double boundary_vib_energy(double vib_energy_old, double reduced_mass, double u_norm, double v_cluster_norm, double theta);
 template <typename GenT>
 void redistribute_internal_energy(GenT &gen, uniform_real_distribution<double> &unif, double &vib_energy, double &rot_energy, const Histogram &density_cluster);
@@ -606,29 +605,6 @@ Eigen::Vector3d cross_norm(const Eigen::Vector3d &in1, const Eigen::Vector3d &in
 }
 
 
-// Compute the mod() function for integers
-int mod_func_int(int a, int b)
-{
-  int r, s;
-  if (a < 0)
-  {
-    s = (int)fmod(a, b);
-    if (s < 0)
-    {
-      r = s + b;
-    }
-    else
-    {
-      r = s;
-    }
-  }
-  else
-  {
-    r = (int)fmod(a, b);
-  }
-  return r;
-};
-
 double particle_density(double pressure, double kT)
 {
   using namespace consts;
@@ -1018,121 +994,6 @@ void time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &uni
   }
 }
 
-
-// Draw theta angle of collision UPDATED
-template <typename GenT>
-double draw_theta_skimmer(GenT &gen, uniform_real_distribution<double> &unif, double z, double n1, double n2, double m_gas, double mobility_gas, double mobility_gas_inv, double R, const Eigen::Vector3d &v_cluster, double v_gas, double pressure, double temperature, double first_chamber_end, double sk_end, WarningHelper warn, int mode)
-{
-  using namespace consts;
-  double r = unif(gen);
-  double n;
-  double v_rel_norm;
-  Eigen::Vector3d v_rel = v_cluster;
-
-  if (z < first_chamber_end)
-  {
-    n = n1;
-  }
-  else if (z < sk_end)
-  {
-    v_rel[2] = v_rel[2] - v_gas;
-    double kT = boltzmann * temperature;
-    mobility_gas = kT / m_gas;
-    mobility_gas_inv = 1.0 / mobility_gas;
-    n = particle_density(pressure, kT);
-  }
-  else
-  {
-    n = n2;
-  }
-  v_rel_norm = v_rel.norm();
-
-  const double dtheta = 1.0e-3;
-  double theta = 0.0;
-  if (mode == 1)
-  {
-    double integral_unnorm = 0.0;
-    double normalization = coll_freq(n, mobility_gas, mobility_gas_inv, R, v_rel_norm);
-    double r_unnorm = r * normalization;
-    while (integral_unnorm < r_unnorm)
-    {
-      double c = coll_freq_theta(theta, n, mobility_gas, mobility_gas_inv, R, v_rel_norm);
-      integral_unnorm += c * dtheta;
-      theta += dtheta;
-    }
-  }
-  else
-  {
-    double integral = 0.0;
-    while (r > integral && theta < pi)
-    {
-      double c = distr_theta(theta, n, mobility_gas, mobility_gas_inv, R, v_rel_norm);
-      integral += c * dtheta;
-      theta += dtheta;
-    }
-  }
-  if (theta > pi)
-  {
-    theta = pi - 1.0e-3;
-    warn([&r](auto &warning)
-    {
-      warning << "theta exceeded pi. random number r is: " << r << endl;
-    });
-  }
-  return theta;
-}
-// Draw translational energy of cluster after the impact with carrier gas
-// Here we are considering a constant density of states for vibrational mode, i.e. a single vibration (simplified model)
-template <typename GenT>
-double draw_vib_energy(GenT &gen, uniform_real_distribution<double> &unif, double vib_energy_old, const Histogram &density_cluster, double reduced_mass, double u_norm, double v_cluster_norm, double theta, int mode)
-{
-  using consts::boltzmann;
-
-  double relative_speed = u_norm + v_cluster_norm * cos(theta);
-  double E = vib_energy_old + reduced_mass * 0.5 * relative_speed * relative_speed;
-
-  if (E > density_cluster.x_max)
-  {
-    throw ApiTofError([&](auto &warning)
-    {
-      warning << "Energy is exceeding the density of states file. E: " << E / boltzmann << endl;
-    });
-  }
-
-  // 1st step: I evaluate the integral (normalization)
-  double normalization = 0.0;
-  int m = 0;
-  while (density_cluster.x[m] < E)
-  {
-    normalization += sqrt(E - density_cluster.x[m]) * density_cluster.y[m];
-    m++;
-  }
-
-  // 2nd step: I evaluate the random transferred energy to the cluster
-  m = 0;
-  double r = unif(gen);
-  if (mode == 1)
-  {
-    double r_unnorm = r * normalization;
-    double integral_unnorm = 0.0;
-    while (integral_unnorm < r_unnorm)
-    {
-      integral_unnorm += sqrt(E - density_cluster.x[m]) * density_cluster.y[m];
-      m++;
-    }
-  }
-  else
-  {
-    double integral = 0.0;
-    while (integral < r)
-    {
-      integral += sqrt(E - density_cluster.x[m]) * density_cluster.y[m] / normalization;
-      m++;
-    }
-  }
-  return density_cluster.x[m - 1];
-}
-
 double boundary_vib_energy(double vib_energy_old, double reduced_mass, double u_norm, double v_cluster_norm, double theta)
 {
   double relative_speed = u_norm + v_cluster_norm * cos(theta);
@@ -1190,101 +1051,6 @@ void update_rot_vel(Eigen::Vector3d &omega, double rot_energy_old, double rot_en
   omega[2] = omega[2] * sqrt(rot_energy / rot_energy_old);
 }
 
-// Draw normal velocity of carrier gas
-template <typename GenT>
-double draw_u_norm_skimmer(GenT &gen, uniform_real_distribution<double> &unif, double z, double du, double boundary_u, double theta, double n1, double n2, double m_gas, double mobility_gas, double mobility_gas_inv, double R, const Eigen::Vector3d &v_cluster, double v_gas, double pressure, double temperature, double first_chamber_end, double sk_end, WarningHelper warn, int mode)
-{
-  using namespace consts;
-  double n;
-  double v_rel_norm;
-  Eigen::Vector3d v_rel = v_cluster;
-
-  if (z < first_chamber_end)
-  {
-    n = n1;
-  }
-  else if (z < sk_end)
-  {
-    v_rel[2] = v_rel[2] - v_gas;
-    double kT = boltzmann * temperature;
-    mobility_gas = kT / m_gas;
-    mobility_gas_inv = 1.0 / mobility_gas;
-    n = particle_density(pressure, kT);
-  }
-  else
-  {
-    n = n2;
-  }
-  v_rel_norm = v_rel.norm();
-
-  double u_norm;
-  if (mode == 1)
-  {
-    double costheta = cos(theta);
-    double sintheta = sin(theta);
-    if (v_rel_norm * costheta > boundary_u)
-    {
-      u_norm = -boundary_u;
-    }
-    else
-    {
-      u_norm = -v_rel_norm * costheta;
-    }
-
-    double r = unif(gen);
-    double normalization = coll_freq_theta(theta, n, mobility_gas, mobility_gas_inv, R, v_rel_norm);
-    double common_factor = 2.0 * pi * n * R * R * sqrt(0.5 * mobility_gas_inv / pi) * sintheta;
-    double r_unnorm = r * normalization / common_factor;
-    double integral_unnorm = 0.0;
-    while (integral_unnorm < r_unnorm)
-    {
-      double c = (u_norm + v_rel_norm * costheta) * exp(-0.5 * mobility_gas_inv * u_norm * u_norm);
-      integral_unnorm += c * du;
-      u_norm += du;
-    }
-
-    if (u_norm > boundary_u)
-    {
-      u_norm = boundary_u;
-      warn([&](auto &warning)
-      {
-        warning << "u_norm exceeded boundary of the integration. random number r is: " << r << endl;
-      });
-    }
-  }
-  else
-  {
-    double costheta = cos(theta);
-    if (v_rel_norm * costheta > boundary_u)
-    {
-      u_norm = -boundary_u;
-    }
-    else
-    {
-      u_norm = -v_rel_norm * costheta;
-    }
-
-    double r = unif(gen);
-    double integral = 0.0;
-    while (r > integral && u_norm < boundary_u)
-    {
-      double c = distr_u(u_norm, theta, n, mobility_gas, mobility_gas_inv, R, v_rel_norm);
-      integral += c * du;
-      u_norm += du;
-    }
-
-    if (u_norm > boundary_u)
-    {
-      warn([&](auto &warning)
-      {
-        warning << "u_norm exceeded boundary of the integration. random number r is: " << r << endl;
-      });
-    }
-  }
-  return u_norm;
-}
-
-
 // Evaluate internal energy (rotational+vibrational)
 double evaluate_internal_energy(double vib_energy, double rot_energy)
 {
@@ -1304,11 +1070,6 @@ double mean_free_path(double R, double kT, double pressure)
   return kT / (sqrt(2.0) * pi * 4.0 * R * R * pressure);
 }
 
-
-double energy_in_eV(double energy)
-{
-  return energy / 1.602e-19;
-}
 
 void evaluate_relative_velocity(double z, const Eigen::Vector3d &v_cluster, double &v_rel_norm, double v_gas, Eigen::Vector3d &v_rel, double first_chamber_end, double sk_end)
 {
