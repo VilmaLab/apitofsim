@@ -262,7 +262,7 @@ struct VibEnergySamplerBase
 
     if (E > density_cluster.x_max)
     {
-      throw ApiTofError([&](auto &warning)
+      throw ApiTofDosOverflow([&](auto &warning)
       {
         warning << "Energy is exceeding the density of states file. E: " << E / boltzmann << std::endl;
       });

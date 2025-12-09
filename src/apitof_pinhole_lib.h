@@ -198,7 +198,7 @@ SimulationResult apitof_pinhole(
   }
   else
   {
-    throw ApiTofError([&](auto &msg)
+    throw ApiTofArgumentError([&](auto &msg)
     {
       msg << "Unknown sampling mode: " << sample_mode << std::endl;
     });
@@ -476,7 +476,7 @@ SimulationResult apitof_pinhole(
           if (a == 1)
           {
             {
-              throw ApiTofError([&](auto &msg)
+              throw ApiTofRateConstantOverflow([&](auto &msg)
               {
                 msg << "FATAL ERROR: The internal energy exceeded the max energy related to rate constant (so the cluster should fragment), but the cluster did not fragment. Realization: " << j + 1 << endl
                     << "--> EVALUATE FRAGMENTATION RATE CONSTANT AT HIGHER ENERGIES" << endl
@@ -498,7 +498,7 @@ SimulationResult apitof_pinhole(
 
           if (ncoll > max_coll)
           {
-            throw ApiTofError([&](auto &warning)
+            throw ApiTofMaxCollisions([&](auto &warning)
             {
               warning << "Got to the max collisions " << ncoll << " (max is " << max_coll << ")";
             });
@@ -543,7 +543,7 @@ SimulationResult apitof_pinhole(
         {
           if (a == 1)
           {
-            throw ApiTofError("FATAL ERROR: The internal energy exceeded the max energy related to rate constant (so the cluster should fragment), but the cluster did not fragment");
+            throw ApiTofRateConstantOverflow("FATAL ERROR: The internal energy exceeded the max energy related to rate constant (so the cluster should fragment), but the cluster did not fragment");
           }
           n_escaped++; // Count how many clusters reached the end of the box intact
           if (loglevel >= LOGLEVEL_NORMAL)
@@ -601,7 +601,7 @@ Eigen::Vector3d cross_norm(const Eigen::Vector3d &in1, const Eigen::Vector3d &in
   }
   else
   {
-    throw ApiTofError("Zero result in evaluating the cross product");
+    throw ApiTofUnexpectedNumericalError("Zero result in evaluating the cross product");
   }
 }
 
@@ -1153,7 +1153,7 @@ void redistribute_internal_energy(GenT &gen, uniform_real_distribution<double> &
 
   if (E > density_cluster.x_max)
   {
-    throw ApiTofError([&](auto &msg)
+    throw ApiTofDosOverflow([&](auto &msg)
     {
       msg << "Energy is exceeding the density of states file. E: " << E / boltzmann << endl;
     });
@@ -1363,7 +1363,7 @@ void eval_velocities(Eigen::Vector3d &v, Eigen::Vector3d &omega, const Eigen::Ve
   // cout << radicand << endl;
   if (radicand < 0)
   {
-    throw ApiTofError([&](auto &msg)
+    throw ApiTofUnexpectedNumericalError([&](auto &msg)
     {
       msg << "sqrt of negative number in evaluation of velocities after collision! radicand: " << radicand << endl;
     });
@@ -1448,7 +1448,7 @@ void change_coord(const Eigen::Vector3d &v_cluster, double theta, double phi, do
   }
   else
   {
-    throw ApiTofError([&](auto &msg)
+    throw ApiTofUnexpectedNumericalError([&](auto &msg)
     {
       msg << "ERROR in defining reference system at theta: " << theta << endl;
     });
@@ -1547,7 +1547,7 @@ void eval_collision(GenT &gen, uniform_real_distribution<double> &unif, bool &co
   // cout << kT << endl;
   if (u[0] > v2[2])
   {
-    throw ApiTofError([&](auto &msg)
+    throw ApiTofUnexpectedNumericalError([&](auto &msg)
     {
       msg << "ERROR: relative velocities prevent collision! " << u[0] << " > " << v2[2] << endl;
     });

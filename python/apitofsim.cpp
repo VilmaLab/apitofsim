@@ -314,7 +314,7 @@ Eigen::ArrayX2d sample_collision(
   }
   else
   {
-    throw ApiTofError([&](auto &msg)
+    throw ApiTofArgumentError([&](auto &msg)
     {
       msg << "Unknown sampling mode: " << sample_mode << std::endl;
     });
@@ -451,6 +451,14 @@ NB_MODULE(apitofsimraw, m)
     .def("fragmentation_energy_kelvin", &FragmentationPathway::fragmentation_energy_kelvin);
 
   nb_magic_enum<Counter::Counter>(m, "Counter");
+
+  nb::exception<ApiTofError>(m, "ApiTofError");
+  nb::exception<ApiTofArgumentError>(m, "ApiTofArgumentError", m.attr("ApiTofError"));
+  nb::exception<ApiTofOverflowError>(m, "ApiTofOverflowError", m.attr("ApiTofError"));
+  nb::exception<ApiTofDosOverflow>(m, "ApiTofDosOverflow", m.attr("ApiTofOverflowError"));
+  nb::exception<ApiTofRateConstantOverflow>(m, "ApiTofRateConstantOverflow", m.attr("ApiTofOverflowError"));
+  nb::exception<ApiTofMaxCollisions>(m, "ApiTofMaxCollisions", m.attr("ApiTofOverflowError"));
+  nb::exception<ApiTofUnexpectedNumericalError>(m, "ApiTofUnexpectedNumericalError", m.attr("ApiTofError"));
 
   m.def("sample_collision", &sample_collision,
         "sample_mode"_a,

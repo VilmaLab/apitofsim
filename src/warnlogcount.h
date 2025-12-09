@@ -55,6 +55,36 @@ public:
   }
 };
 
+class ApiTofArgumentError : public ApiTofError
+{
+  using ApiTofError::ApiTofError;
+};
+
+class ApiTofOverflowError : public ApiTofError
+{
+  using ApiTofError::ApiTofError;
+};
+
+class ApiTofDosOverflow : public ApiTofOverflowError
+{
+  using ApiTofOverflowError::ApiTofOverflowError;
+};
+
+class ApiTofRateConstantOverflow : public ApiTofOverflowError
+{
+  using ApiTofOverflowError::ApiTofOverflowError;
+};
+
+class ApiTofMaxCollisions : public ApiTofOverflowError
+{
+  using ApiTofOverflowError::ApiTofOverflowError;
+};
+
+class ApiTofUnexpectedNumericalError : public ApiTofError
+{
+  using ApiTofError::ApiTofError;
+};
+
 namespace Counter
 {
 enum Counter

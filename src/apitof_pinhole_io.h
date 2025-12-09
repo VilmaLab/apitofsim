@@ -18,7 +18,7 @@ Histogram read_histogram(char const *filename)
   file.close();
   if (m_max < 2)
   {
-    throw ApiTofError([&](auto &msg)
+    throw ApiTofArgumentError([&](auto &msg)
     {
       msg << "Error in reading file " << filename << ". It should contain at least two rows." << endl;
     });
