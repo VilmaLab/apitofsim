@@ -5,6 +5,7 @@ from pandas import DataFrame
 from pint import get_application_registry, Quantity
 from pint._typing import Magnitude
 from abc import ABC, abstractmethod
+from collections import namedtuple
 
 from .apitofsimraw import (
     skimmer as _skimmer,
@@ -18,6 +19,7 @@ from .apitofsimraw import (
     compute_density_of_states_batch as _compute_density_of_states_batch,
     compute_k_total_batch as _compute_k_total_batch,
     FragmentationPathway,
+    Counter as Counter,
 )
 
 
@@ -263,6 +265,10 @@ def densityandrate(
     return Histogram.from_cpp(density_cluster), Histogram.from_cpp(rate_const)
 
 
+Counters = namedtuple("Counters", [t.name for t in Counter])
+Timings = namedtuple("Timings", ["loop", "total"])
+
+
 def pinhole(
     cluster_0: ClusterData,
     cluster_1: ClusterData,
@@ -288,6 +294,8 @@ def pinhole(
     log_callback: Callable[[str, str], None] | None = None,
     result_callback: Callable[[numpy.ndarray], None] | None = None,
     quantities_strict=True,
+    output_named_tuple=False,
+    output_timings=False,
 ):
     """
     This function runs the main simulation of the APi-ToF mass spectrometer.
@@ -316,7 +324,7 @@ def pinhole(
         skimmer = skimmer[:, 1:4]
     else:
         raise ValueError("skimmer must have 3 or 6 columns")
-    return _pinhole(
+    counters, loop_time, total_time = _pinhole(
         cluster_0.into_cpp(),
         cluster_1.into_cpp(),
         cluster_2.into_cpp(),
@@ -340,3 +348,9 @@ def pinhole(
         sample_mode=sample_mode,
         loglevel=loglevel,
     )
+    if output_named_tuple:
+        counters = Counters(*counters)
+    if output_timings:
+        return counters, Timings(loop_time, total_time)
+    else:
+        return counters

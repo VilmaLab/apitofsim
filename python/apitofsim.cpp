@@ -11,6 +11,8 @@
 #include <nanobind/stl/string_view.h>
 #include <nanobind/stl/optional.h>
 #include <nanobind/stl/vector.h>
+#include <nanobind/stl/chrono.h>
+#include <nanobind/stl/tuple.h>
 
 #include "skimmer_lib.h"
 #include "densityandrate_lib.h"
@@ -115,7 +117,7 @@ nb::typed<nb::tuple, Histogram, Histogram> densityandrate(
   return nb::make_tuple(Histogram(energies, rhos.col(COMB_ROW)), Histogram(energies_rate, k_rate));
 }
 
-Counters pinhole(
+SimulationResult pinhole(
   ClusterData &cluster_0,
   ClusterData &cluster_1,
   ClusterData &cluster_2,
@@ -165,14 +167,15 @@ Counters pinhole(
   rescale_energies(rate_const);
 
   StreamingResultQueue result_queue;
-  Counters counters;
+
   OMPExceptionHelper exception_helper;
+  SimulationResult result;
   std::thread execution_thread = std::thread([&]
   {
     // TODO: Probably want to switch to jthread when possible
     exception_helper.guard([&]
     {
-      counters = apitof_pinhole(
+      result = apitof_pinhole(
         cluster_charge_sign,
         T,
         pressure_first,
@@ -243,7 +246,7 @@ Counters pinhole(
 
   std::cout << setprecision(3);
 
-  return counters;
+  return result;
 }
 
 template <typename SamplerT, typename GenT>
@@ -316,6 +319,17 @@ Eigen::ArrayX2d sample_collision(
       msg << "Unknown sampling mode: " << sample_mode << std::endl;
     });
   }
+}
+
+template <typename EnumT>
+void nb_magic_enum(nanobind::handle scope, const char *name)
+{
+  auto enum_wrap = nb::enum_<EnumT>(scope, name);
+  for (auto entry : magic_enum::enum_entries<EnumT>())
+  {
+    enum_wrap.value(entry.second.data(), entry.first);
+  }
+  enum_wrap.export_values();
 }
 
 NB_MODULE(apitofsimraw, m)
@@ -435,6 +449,8 @@ NB_MODULE(apitofsimraw, m)
          nb::arg("product1"),
          nb::arg("product2"))
     .def("fragmentation_energy_kelvin", &FragmentationPathway::fragmentation_energy_kelvin);
+
+  nb_magic_enum<Counter::Counter>(m, "Counter");
 
   m.def("sample_collision", &sample_collision,
         "sample_mode"_a,

@@ -105,7 +105,7 @@ TEST_CASE("apitof pinhole smoke tests")
   double m_ion;
   double R_cluster;
   compute_mass_and_radius(inertia, 216, m_ion, R_cluster);
-  auto counters = apitof_pinhole(
+  auto counters = std::get<0>(apitof_pinhole(
     -1,
     300.0,
     182.0,
@@ -141,7 +141,7 @@ TEST_CASE("apitof pinhole smoke tests")
     mesh_skimmer,
     42,
     result_queue,
-    0);
+    0));
   result_queue.enqueue(std::monostate{});
   CHECK(counters[Counter::nwarnings] == 0);
   CHECK(counters[Counter::n_fragmented_total] + counters[Counter::n_escaped_total] == 5);

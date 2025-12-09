@@ -86,10 +86,13 @@ double evaluate_error(int n, int k);
 double eval_solid_angle_stokes(double R, double L, double xx, double yy, double zz);
 int zone(double z, double first_chamber_end, double sk_end, double quadrupole_start, double quadrupole_end, double second_chamber_end);
 
-template <typename GasCollSamplerT, typename VibEnergySamplerT>
-Counters apitof_pinhole(int cluster_charge_sign, double T, double pressure_first, double pressure_second, InstrumentDims lengths, InstrumentVoltages voltages, int N, double bonding_energy, Gas gas, std::optional<Quadrupole> quadrupole, double m_ion, double R_cluster, const Histogram &density_cluster, const Histogram &rate_const, const SkimmerData &skimmer, const double mesh_skimmer, unsigned long long root_seed, StreamingResultQueue &result_queue, GasCollSamplerT gas_coll_sampler, VibEnergySamplerT vib_energy_sampler, int loglevel = DEFAULT_LOGLEVEL);
+typedef std::chrono::high_resolution_clock::duration RuntimeDuration;
+typedef std::tuple<Counters, RuntimeDuration, RuntimeDuration> SimulationResult;
 
-Counters apitof_pinhole(
+template <typename GasCollSamplerT, typename VibEnergySamplerT>
+SimulationResult apitof_pinhole(int cluster_charge_sign, double T, double pressure_first, double pressure_second, InstrumentDims lengths, InstrumentVoltages voltages, int N, double bonding_energy, Gas gas, std::optional<Quadrupole> quadrupole, double m_ion, double R_cluster, const Histogram &density_cluster, const Histogram &rate_const, const SkimmerData &skimmer, const double mesh_skimmer, unsigned long long root_seed, StreamingResultQueue &result_queue, GasCollSamplerT gas_coll_sampler, VibEnergySamplerT vib_energy_sampler, int loglevel = DEFAULT_LOGLEVEL);
+
+SimulationResult apitof_pinhole(
   int cluster_charge_sign,
   double T,
   double pressure_first,
@@ -201,9 +204,8 @@ Counters apitof_pinhole(
     });
   }
 }
-
 template <typename GasCollSamplerT, typename VibEnergySamplerT>
-Counters apitof_pinhole(
+SimulationResult apitof_pinhole(
   int cluster_charge_sign,
   double T,
   double pressure_first,
@@ -576,19 +578,10 @@ Counters apitof_pinhole(
 
   auto end = std::chrono::high_resolution_clock::now();
 
-  auto loop_time = std::chrono::duration_cast<std::chrono::microseconds>(end - loop_start);
-  std::cout << endl
-            << "<loop_time>" << loop_time.count() << "</loop_time>" << endl
-            << endl;
-  auto total_time = end - start;
-  auto seconds_tot = std::chrono::duration_cast<std::chrono::seconds>(total_time).count();
-  auto microseconds_tot = std::chrono::duration_cast<std::chrono::microseconds>(total_time).count();
-  auto hours = (int)(seconds_tot / 3600);
-  auto minutes = mod_func_int(seconds_tot / 60, 60);
-  auto seconds = mod_func_int(seconds_tot, 60);
-  std::cout << "Computational time: " << setw(3) << setfill(' ') << hours << "h" << setw(2) << setfill('0') << minutes << "m" << setw(2) << setfill('0') << seconds << "s" << microseconds_tot << "us" << endl;
+  RuntimeDuration loop_time = end - loop_start;
+  RuntimeDuration total_time = end - start;
 
-  return counters;
+  return std::tuple(counters, loop_time, total_time);
 }
 
 

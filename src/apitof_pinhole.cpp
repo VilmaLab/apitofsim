@@ -170,6 +170,8 @@ void apitof_pinhole_config_in()
 
   StreamingResultQueue result_queue;
   Counters counters;
+  RuntimeDuration loop_time;
+  RuntimeDuration total_time;
   OMPExceptionHelper exception_helper;
   std::thread execution_thread = std::thread([&]
   {
@@ -204,7 +206,7 @@ void apitof_pinhole_config_in()
           radiofrequency,
           r_quadrupole);
       }
-      counters = apitof_pinhole(
+      std::tuple(counters, loop_time, total_time) = apitof_pinhole(
         cluster_charge_sign,
         T,
         pressure_first,
@@ -286,6 +288,14 @@ void apitof_pinhole_config_in()
   std::cout << setprecision(3);
 
   int realizations = counters[Counter::n_fragmented_total] + counters[Counter::n_escaped_total];
+
+  if (loglevel >= LOGLEVEL_MIN)
+  {
+    auto seconds_tot = std::chrono::duration_cast<std::chrono::seconds>(total_time).count();
+    auto minutes = seconds_tot / 60;
+    auto seconds = seconds_tot % 60;
+    std::cout << "Total time: " << setw(2) << setfill('0') << minutes << "m" << seconds << "s" << endl;
+  }
 
   if (N != realizations)
   {
