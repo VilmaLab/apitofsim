@@ -1,33 +1,31 @@
 from os import environ
 import sys
 import pickle
-import duckdb
 from apitofsim import (
     skimmer,
-    densityandrate,
-    pinhole,
-    ClusterData,
     ProductsCluster,
     KTotalInput,
     compute_density_of_states_batch,
     compute_k_total_batch,
     FragmentationPathway,
 )
-from apitofsim.db import ClusterDatabase
+from apitofsim.api import Histogram
+from apitofsim.db import ExperimentDatabase
 from timeit import default_timer as timer
 import pint
-from apitofsim.api import Histogram
 
 
 ureg = pint.UnitRegistry()
 Q_ = ureg.Quantity
 
-db = ClusterDatabase(sys.argv[1] + ".duckdb")
+db = ExperimentDatabase(sys.argv[1] + ".duckdb")
 with open(sys.argv[1] + ".pkl", "rb") as inf:
     config = pickle.load(inf)
 
 cluster_indexed, name_lookup = db.clusters_objects_indexed(include_name_lookup=True)
 print()
+
+db.start_run()
 
 print("Running skimmer")
 skimmer_np = skimmer(
@@ -46,11 +44,11 @@ print("Done")
 
 num_pathways = 0
 density_of_states_inputs = []
-for cluster, _, _ in db.pathways_objs(indexed=cluster_indexed):
+for _, cluster, _, _ in db.pathways_objs(indexed=cluster_indexed):
     density_of_states_inputs.append(cluster)
     num_pathways += 1
 
-for _, product1, product2 in db.pathways_objs(indexed=cluster_indexed):
+for _, _, product1, product2 in db.pathways_objs(indexed=cluster_indexed):
     density_of_states_inputs.append(ProductsCluster(product1, product2))
 
 print("Computing density of states")
@@ -69,7 +67,7 @@ cluster_dos = density_of_states[:, :num_pathways]
 product_dos = density_of_states[:, num_pathways:]
 
 k_total_inputs = []
-for idx, (cluster, product1, product2) in enumerate(
+for idx, (_, cluster, product1, product2) in enumerate(
     db.pathways_objs(indexed=cluster_indexed)
 ):
     k_total_inputs.append(
@@ -98,8 +96,12 @@ print(f"Done in {timer() - start}")
 print("Got")
 print(k_rates)
 
-failures = 0
-for (cluster_id, product1_id, product2_id), rate_const, density_cluster in zip(
+for (
+    pathway_id,
+    cluster_id,
+    product1_id,
+    product2_id,
+), rate_const, density_cluster in zip(
     db.pathways_ids(),
     k_rates.T,
     cluster_dos.T,
@@ -120,31 +122,25 @@ for (cluster_id, product1_id, product2_id), rate_const, density_cluster in zip(
         config["energy_max_rate"],
         rate_const,
     )
-    try:
-        result = pinhole(
-            cluster,
-            product1,
-            product2,
-            config["gas"],
-            density_hist,
-            rate_hist,
-            skimmer_np,
-            config["lengths"],
-            config["voltages"],
-            config["T"],
-            config["pressure_first"],
-            config["pressure_second"],
-            int(environ["N_OVERRIDE"]) if "N_OVERRIDE" in environ else config["N"],
-            quadrupole=config.get("quadrupole"),
-            fragmentation_energy=config.get("fragmentation_energy"),
-            cluster_charge_sign=config.get("cluster_charge_sign", -1),
-            sample_mode=2,
-            loglevel=0,
-        )
-    except Exception as e:
-        failures += 1
-        print(f"Error in simulation: {e}")
-        continue
-    print(f"Fragmented: {result[1]}, Escaped: {result[2]}")
-
-print(f"Total failures: {failures} out of {num_pathways} pathways")
+    db.run_pinhole(
+        cluster,
+        product1,
+        product2,
+        config["gas"],
+        density_hist,
+        rate_hist,
+        skimmer_np,
+        config["lengths"],
+        config["voltages"],
+        config["T"],
+        config["pressure_first"],
+        config["pressure_second"],
+        int(environ["N_OVERRIDE"]) if "N_OVERRIDE" in environ else config["N"],
+        quadrupole=config.get("quadrupole"),
+        fragmentation_energy=config.get("fragmentation_energy"),
+        cluster_charge_sign=config.get("cluster_charge_sign", -1),
+        pathway_id=pathway_id,
+        sample_mode=2,
+        loglevel=0,
+        strict="STRICT" in environ,
+    )

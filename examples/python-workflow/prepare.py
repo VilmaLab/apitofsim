@@ -6,7 +6,7 @@ from os import unlink
 import pickle
 import pint
 
-from apitofsim.db import ingest_legacy, ClusterDatabase
+from apitofsim.db import ingest_legacy, ExperimentDatabase
 from apitofsim.config import (
     ConfigFile,
     TOPLEVEL,
@@ -23,7 +23,7 @@ def main():
     db_name = out_path + ".duckdb"
     if os.path.exists(db_name):
         unlink(db_name)
-    db = ClusterDatabase(db_name)
+    db = ExperimentDatabase(db_name)
     db.create_tables()
 
     with open(infn) as f:
