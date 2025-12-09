@@ -273,7 +273,7 @@ create table experiment_result (
     n_fragmented_total integer,
     n_escaped_total integer,
     ncoll_total integer,
-    counter_collisions_rejections integer
+    counter_collision_rejections integer
 );
 
 create table experiment_failure (
@@ -327,8 +327,8 @@ select
 
     -- Result/failure fields
     res.msg as failure_msg,
-    res.loop_time,
-    res.total_time,
+    res.loop_us,
+    res.total_us,
     res.nwarnings,
     res.n_fragmented_total,
     res.n_escaped_total,
