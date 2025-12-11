@@ -10,7 +10,7 @@
 
 import marimo
 
-__generated_with = "0.17.7"
+__generated_with = "0.18.4"
 app = marimo.App(width="medium")
 
 
@@ -242,9 +242,11 @@ def _(d, func_v, mobility_gas_inv, plt, thetas):
     return (pltv,)
 
 
-@app.cell
-def _(Finally):
-    Finally, 
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    Finally, we can plot the four 2d unnormalized distributions. You can use the `v_norm` slider to change the main parameter, and the theta and u parameters to see different 2d slices.
+    """)
     return
 
 
@@ -281,7 +283,7 @@ def _():
     return (sp,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
     We note that $\Upsilon(\theta, u)$/`func_joint0` is monotonically increasing in the values of the terms $sin(\theta)$ and $cos(\theta)$ and these are both bounded at $1$ so we can create a bound by setting these to 1.
@@ -359,8 +361,29 @@ def _(mo):
     return
 
 
+@app.cell(hide_code=True)
+def _(mo):
+    run_python_rejection_sampler_button = mo.ui.run_button(label="run python rejection sampler")
+    run_python_rejection_sampler_button
+    return (run_python_rejection_sampler_button,)
+
+
 @app.cell
-def _(bound, boundary_u, cos, d, func_joint0, mobility_gas_inv, np, pi, rng):
+def _(
+    bound,
+    boundary_u,
+    cos,
+    d,
+    func_joint0,
+    mo,
+    mobility_gas_inv,
+    np,
+    pi,
+    rng,
+    run_python_rejection_sampler_button,
+):
+    mo.stop(not run_python_rejection_sampler_button.value)
+
     def sample_2d(rng):
         rejections = 0
         while 1:
@@ -419,6 +442,73 @@ def _(mo):
 def _(plt, run_sampling):
     _, samples_c = run_sampling(True)
     plt.hist2d(samples_c[:, 0], samples_c[:, 1], bins=[50, 50])[-1]
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ## Validation
+
+    In this section we compare the samplers implemented in apitofsim, which includes a version of the above rejection sampler. To run this we need to grab so set the `APITOFSIM_ROOT` to the root directory of your checked out copy of apitofsim. You can do this in the "secrets" sidebar on the left.
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    from os import environ
+    from apitofsim.apitofsimraw import sample_collision
+    from apitofsim.api import SampleMode
+    from apitofsim.config import parse_config_with_particles, get_clusters, get_gas, ConfigFile
+    return ConfigFile, SampleMode, environ, sample_collision
+
+
+@app.cell(hide_code=True)
+def _(ConfigFile, environ):
+    root = environ["APITOFSIM_ROOT"]
+    config_file = ConfigFile(filename=root + "/inputs/example/config.in", cwd=root)
+    cluster = config_file.get("cluster", asa="raw")
+    gas = config_file.get("gas", asa="raw")
+    P = config_file.get("pressure_first", asa="raw")
+    T = config_file.get("T", asa="raw")
+    cluster.compute_derived()
+    return P, T, cluster, gas
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    run_sampler_comparison_button = mo.ui.run_button(label="run apitofsim sampler comparison")
+    run_sampler_comparison_button
+    return (run_sampler_comparison_button,)
+
+
+@app.cell
+def _(
+    P,
+    SampleMode,
+    T,
+    cluster,
+    gas,
+    mo,
+    plt,
+    run_sampler_comparison_button,
+    sample_collision,
+    v_norm_w,
+):
+    mo.stop(not run_sampler_comparison_button.value)
+
+    def sample_comparison():
+        fig, axs = plt.subplots(nrows=3, ncols=1, figsize=(6, 15), sharex=True)
+        for sample_mode in SampleMode:
+            samples = sample_collision(sample_mode, 100000, v_norm_w.value, gas, cluster.radius, P, T)
+            axs[sample_mode.value].hist2d(samples[:, 1], samples[:, 0], bins=[50, 50])
+            axs[sample_mode.value].set_title(sample_mode.name)
+        fig.tight_layout()
+        return fig
+
+
+    mo.mpl.interactive(sample_comparison())
     return
 
 
