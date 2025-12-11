@@ -451,6 +451,8 @@ NB_MODULE(apitofsimraw, m)
         "bin_width"_a,
         "mesh"_a = std::nullopt);
 
+  nb_magic_enum<SampleMode>(m, "SampleMode");
+
   m.def("pinhole", &pinhole,
         "cluster_0"_a,
         "cluster_1"_a,
@@ -484,7 +486,6 @@ NB_MODULE(apitofsimraw, m)
 
   nb_magic_enum<Counter::Counter>(m, "Counter");
   nb_magic_enum<MeshMode>(m, "MeshMode");
-  nb_magic_enum<SampleMode>(m, "SampleMode");
 
   nb::exception<ApiTofError>(m, "ApiTofError");
   nb::exception<ApiTofArgumentError>(m, "ApiTofArgumentError", m.attr("ApiTofError"));
