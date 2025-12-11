@@ -2,14 +2,11 @@
 
 There are notebooks in the [`examples/notebooks`](https://github.com/VilmaLab/apitofsim/tree/main/examples/notebooks) directory.
 
-In order to run them, first download them from GitHub, and then install [uv](https://docs.astral.sh/uv/getting-started/installation/) according to the linked instructions and then install marimo like so:
+In order to run them, first you should clone the repository using git:
 
-```
-uv tool install marimo
+```bash
+$ git clone https://github.com/VilmaLab/apitofsim.git
+$ cd apitofsim/examples/notebooks
 ```
 
-You can then run a notebook using:
-
-```
-marimo edit --sandbox rejection-sampler-design.py
-```
+--8<-- "examples/notebooks/README.md"
