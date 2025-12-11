@@ -413,11 +413,22 @@ NB_MODULE(apitofsimraw, m)
     .def_ro("rho_parent", &KTotalInput::rho_parent)
     .def_ro("rho_comb", &KTotalInput::rho_comb);
 
-  m.def("compute_k_total_batch", &compute_k_total_batch,
+  m.def("precompute_mesh", &precompute_mesh,
+        "energy_max_rate"_a,
+        "bin_width"_a,
+        "mesh_mode"_a);
+
+  m.def("compute_k_total_batch", static_cast<Eigen::ArrayXXd (*)(std::vector<KTotalInput>, double, double, MeshMode)>(compute_k_total_batch),
         "batch_input"_a,
         "energy_max_rate"_a,
         "bin_width"_a,
-        "mesh_mode"_a = 0);
+        "mesh_mode"_a);
+
+  m.def("compute_k_total_batch", static_cast<Eigen::ArrayXXd (*)(std::vector<KTotalInput>, double, double, std::optional<Eigen::ArrayXd>)>(compute_k_total_batch),
+        "batch_input"_a,
+        "energy_max_rate"_a,
+        "bin_width"_a,
+        "mesh"_a = std::nullopt);
 
   m.def("pinhole", &pinhole,
         "cluster_0"_a,
@@ -451,6 +462,7 @@ NB_MODULE(apitofsimraw, m)
     .def("fragmentation_energy_kelvin", &FragmentationPathway::fragmentation_energy_kelvin);
 
   nb_magic_enum<Counter::Counter>(m, "Counter");
+  nb_magic_enum<MeshMode>(m, "MeshMode");
 
   nb::exception<ApiTofError>(m, "ApiTofError");
   nb::exception<ApiTofArgumentError>(m, "ApiTofArgumentError", m.attr("ApiTofError"));

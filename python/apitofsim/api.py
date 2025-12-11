@@ -16,10 +16,13 @@ from .apitofsimraw import (
     Quadrupole as _Quadrupole,
     pinhole as _pinhole,
     KTotalInput,
+    precompute_mesh as _precompute_mesh,
     compute_density_of_states_batch as _compute_density_of_states_batch,
     compute_k_total_batch as _compute_k_total_batch,
     FragmentationPathway,
     Counter as Counter,
+    # Enums
+    MeshMode,
 )
 
 
@@ -215,18 +218,31 @@ def compute_density_of_states_batch(
     )
 
 
-def compute_k_total_batch(
-    inputs: List[KTotalInput],
+def precompute_mesh(
     energy_max_rate: MaybeQuantity,
     bin_width: MaybeQuantity,
-    mesh_mode: int,
+    mesh_mode: MeshMode = MeshMode.compute_mesh_diagonal_multithreaded,
     *,
     quantities_strict=True,
 ):
     process_arg = QuantityProcessor(quantities_strict)
     energy_max_rate = process_arg("energy_max", energy_max_rate, "kelvin")
     bin_width = process_arg("bin_width", bin_width, "kelvin")
-    return _compute_k_total_batch(inputs, energy_max_rate, bin_width, mesh_mode)
+    return _precompute_mesh(energy_max_rate, bin_width, mesh_mode)
+
+
+def compute_k_total_batch(
+    inputs: List[KTotalInput],
+    energy_max_rate: MaybeQuantity,
+    bin_width: MaybeQuantity,
+    mesh: MeshMode | numpy.ndarray = MeshMode.compute_mesh_diagonal_multithreaded,
+    *,
+    quantities_strict=True,
+):
+    process_arg = QuantityProcessor(quantities_strict)
+    energy_max_rate = process_arg("energy_max", energy_max_rate, "kelvin")
+    bin_width = process_arg("bin_width", bin_width, "kelvin")
+    return _compute_k_total_batch(inputs, energy_max_rate, bin_width, mesh)
 
 
 def densityandrate(
