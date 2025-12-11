@@ -11,6 +11,8 @@
 #include <nanobind/stl/string_view.h>
 #include <nanobind/stl/optional.h>
 #include <nanobind/stl/vector.h>
+#include <nanobind/stl/chrono.h>
+#include <nanobind/stl/tuple.h>
 
 #include "skimmer_lib.h"
 #include "densityandrate_lib.h"
@@ -115,7 +117,7 @@ nb::typed<nb::tuple, Histogram, Histogram> densityandrate(
   return nb::make_tuple(Histogram(energies, rhos.col(COMB_ROW)), Histogram(energies_rate, k_rate));
 }
 
-Counters pinhole(
+SimulationResult pinhole(
   ClusterData &cluster_0,
   ClusterData &cluster_1,
   ClusterData &cluster_2,
@@ -136,7 +138,7 @@ Counters pinhole(
   unsigned long long seed = 42ull,
   std::optional<std::function<void(std::string_view, std::string)>> log_callback = nullopt,
   std::optional<std::function<void(Counters)>> result_callback = nullopt,
-  int sample_mode = 0,
+  SampleMode sample_mode = SampleMode::rejection,
   int loglevel = DEFAULT_LOGLEVEL)
 {
   using magic_enum::enum_name;
@@ -165,14 +167,15 @@ Counters pinhole(
   rescale_energies(rate_const);
 
   StreamingResultQueue result_queue;
-  Counters counters;
+
   OMPExceptionHelper exception_helper;
+  SimulationResult result;
   std::thread execution_thread = std::thread([&]
   {
     // TODO: Probably want to switch to jthread when possible
     exception_helper.guard([&]
     {
-      counters = apitof_pinhole(
+      result = apitof_pinhole(
         cluster_charge_sign,
         T,
         pressure_first,
@@ -243,7 +246,7 @@ Counters pinhole(
 
   std::cout << setprecision(3);
 
-  return counters;
+  return result;
 }
 
 template <typename SamplerT, typename GenT>
@@ -267,7 +270,7 @@ Eigen::ArrayX2d dispatch_sample_collision(
 }
 
 Eigen::ArrayX2d sample_collision(
-  int sample_mode,
+  SampleMode sample_mode,
   int num_samples,
   double v_rel_norm,
   Gas gas,
@@ -294,28 +297,60 @@ Eigen::ArrayX2d sample_collision(
   {
     du_val = 1.0e-4 * sqrt(mobility_gas);
   }
-  if (sample_mode == 0)
+  if (sample_mode == SampleMode::dss_normalized)
   {
     auto sampler = GasCollCondNormHistDSSSampler(dtheta, du_val, boundary_u);
     return dispatch_sample_collision(sampler, gen, num_samples, v_rel_norm, mobility_gas, mobility_gas_inv, R_tot, n);
   }
-  else if (sample_mode == 1)
+  else if (sample_mode == SampleMode::dss_unnormalized)
   {
     auto sampler = GasCollCondUnnormHistDSSSampler(dtheta, du_val, boundary_u);
     return dispatch_sample_collision(sampler, gen, num_samples, v_rel_norm, mobility_gas, mobility_gas_inv, R_tot, n);
   }
-  else if (sample_mode == 2)
+  else if (sample_mode == SampleMode::rejection)
   {
     auto sampler = GasCollRejectionSampler(boundary_u);
     return dispatch_sample_collision(sampler, gen, num_samples, v_rel_norm, mobility_gas, mobility_gas_inv, R_tot, n);
   }
   else
   {
-    throw ApiTofError([&](auto &msg)
+    throw ApiTofArgumentError([&](auto &msg)
     {
-      msg << "Unknown sampling mode: " << sample_mode << std::endl;
+      msg << "Unknown sampling mode: " << static_cast<int>(sample_mode) << std::endl;
     });
   }
+}
+
+template <typename EnumT>
+void nb_magic_enum(nanobind::handle scope, const char *name)
+{
+  auto enum_wrap = nb::enum_<EnumT>(scope, name);
+  for (auto entry : magic_enum::enum_entries<EnumT>())
+  {
+    enum_wrap.value(entry.second.data(), entry.first);
+  }
+  enum_wrap.export_values();
+}
+
+template <typename CppExceptionT>
+void register_overflow_translator(nb::exception<CppExceptionT> nb_py_exception)
+{
+  nb::register_exception_translator(
+    [](const std::exception_ptr &exc, void *payload)
+  {
+    try
+    {
+      std::rethrow_exception(exc);
+    }
+    catch (const CppExceptionT &err)
+    {
+      auto c_py_exc = (PyObject *)payload;
+      auto py_exc = nb::steal(c_py_exc)(err.what());
+      py_exc.attr("max") = err.max;
+      py_exc.attr("current") = err.current;
+      PyErr_SetObject(c_py_exc, py_exc.ptr());
+    }
+  }, nb_py_exception.ptr());
 }
 
 NB_MODULE(apitofsimraw, m)
@@ -399,11 +434,24 @@ NB_MODULE(apitofsimraw, m)
     .def_ro("rho_parent", &KTotalInput::rho_parent)
     .def_ro("rho_comb", &KTotalInput::rho_comb);
 
-  m.def("compute_k_total_batch", &compute_k_total_batch,
+  m.def("precompute_mesh", &precompute_mesh,
+        "energy_max_rate"_a,
+        "bin_width"_a,
+        "mesh_mode"_a);
+
+  m.def("compute_k_total_batch", static_cast<Eigen::ArrayXXd (*)(std::vector<KTotalInput>, double, double, MeshMode)>(compute_k_total_batch),
         "batch_input"_a,
         "energy_max_rate"_a,
         "bin_width"_a,
-        "mesh_mode"_a = 0);
+        "mesh_mode"_a);
+
+  m.def("compute_k_total_batch", static_cast<Eigen::ArrayXXd (*)(std::vector<KTotalInput>, double, double, std::optional<Eigen::ArrayXd>)>(compute_k_total_batch),
+        "batch_input"_a,
+        "energy_max_rate"_a,
+        "bin_width"_a,
+        "mesh"_a = std::nullopt);
+
+  nb_magic_enum<SampleMode>(m, "SampleMode");
 
   m.def("pinhole", &pinhole,
         "cluster_0"_a,
@@ -426,7 +474,7 @@ NB_MODULE(apitofsimraw, m)
         "seed"_a = 42ull,
         "log_callback"_a = std::nullopt,
         "result_callback"_a = std::nullopt,
-        "sample_mode"_a = 0,
+        "sample_mode"_a = SampleMode::rejection,
         "loglevel"_a = DEFAULT_LOGLEVEL);
 
   nb::class_<FragmentationPathway>(m, "FragmentationPathway")
@@ -435,6 +483,21 @@ NB_MODULE(apitofsimraw, m)
          nb::arg("product1"),
          nb::arg("product2"))
     .def("fragmentation_energy_kelvin", &FragmentationPathway::fragmentation_energy_kelvin);
+
+  nb_magic_enum<Counter::Counter>(m, "Counter");
+  nb_magic_enum<MeshMode>(m, "MeshMode");
+
+  nb::exception<ApiTofError>(m, "ApiTofError");
+  nb::exception<ApiTofArgumentError>(m, "ApiTofArgumentError", m.attr("ApiTofError"));
+  nb::exception<ApiTofOverflowError>(m, "ApiTofOverflowError", m.attr("ApiTofError"));
+  nb::exception<ApiTofDosOverflow> PyApiTofDosOverflow(m, "ApiTofDosOverflow", m.attr("ApiTofOverflowError"));
+  nb::exception<ApiTofRateConstantOverflow> PyApiTofRateConstantOverflow(m, "ApiTofRateConstantOverflow", m.attr("ApiTofOverflowError"));
+  nb::exception<ApiTofMaxCollisions> PyApiTofMaxCollisions(m, "ApiTofMaxCollisions", m.attr("ApiTofOverflowError"));
+  nb::exception<ApiTofUnexpectedNumericalError>(m, "ApiTofUnexpectedNumericalError", m.attr("ApiTofError"));
+
+  register_overflow_translator<ApiTofDosOverflow>(PyApiTofDosOverflow);
+  register_overflow_translator<ApiTofRateConstantOverflow>(PyApiTofRateConstantOverflow);
+  register_overflow_translator<ApiTofMaxCollisions>(PyApiTofMaxCollisions);
 
   m.def("sample_collision", &sample_collision,
         "sample_mode"_a,

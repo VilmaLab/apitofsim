@@ -340,3 +340,40 @@ def parse_config_list(fn):
             with chdir(conf_info["cwd"]):
                 config_dict[k] = parse_config(conf_info["config"])
     return config_dict
+
+
+def into_quantity(obj, default_unit=None):
+    if isinstance(obj, list) and len(obj) == 2:
+        return Q_(obj[0], obj[1])
+    elif isinstance(obj, str):
+        mag, unit = obj.split(" ", 1)
+        return Q_(float(mag), unit)
+    elif isinstance(obj, (int, float)) and default_unit is not None:
+        return Q_(obj, default_unit)
+    else:
+        return obj
+
+
+def into_quantity_obj(obj, key):
+    try:
+        unit = METADATA.get(key, by="short_name")["unit"]
+    except KeyError:
+        unit = None
+    return into_quantity(obj[key], unit)
+
+
+def import_raw_config(config):
+    for k in config:
+        into_cls = None
+        if k == "gas":
+            into_cls = Gas
+        elif k == "quadrupole":
+            into_cls = Quadrupole
+
+        if into_cls is not None:
+            config[k] = into_cls(
+                **{k2: into_quantity_obj(config[k], k2) for k2 in config[k]}  # pyright: ignore
+            )
+        elif k in TOPLEVEL + ["voltages", "lengths"]:
+            config[k] = into_quantity_obj(config, k)
+    return config

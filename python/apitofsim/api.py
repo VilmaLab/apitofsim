@@ -5,6 +5,7 @@ from pandas import DataFrame
 from pint import get_application_registry, Quantity
 from pint._typing import Magnitude
 from abc import ABC, abstractmethod
+from collections import namedtuple
 
 from .apitofsimraw import (
     skimmer as _skimmer,
@@ -15,9 +16,22 @@ from .apitofsimraw import (
     Quadrupole as _Quadrupole,
     pinhole as _pinhole,
     KTotalInput,
+    precompute_mesh as _precompute_mesh,
     compute_density_of_states_batch as _compute_density_of_states_batch,
     compute_k_total_batch as _compute_k_total_batch,
     FragmentationPathway,
+    Counter as Counter,
+    # Exceptions
+    ApiTofError,
+    ApiTofArgumentError,
+    ApiTofOverflowError,
+    ApiTofDosOverflow,
+    ApiTofRateConstantOverflow,
+    ApiTofMaxCollisions,
+    ApiTofUnexpectedNumericalError,
+    # Enums
+    MeshMode,
+    SampleMode,
 )
 
 
@@ -35,6 +49,17 @@ __all__ = [
     "compute_k_total_batch",
     "KTotalInput",
     "FragmentationPathway",
+    # Exceptions
+    "ApiTofError",
+    "ApiTofArgumentError",
+    "ApiTofOverflowError",
+    "ApiTofDosOverflow",
+    "ApiTofRateConstantOverflow",
+    "ApiTofMaxCollisions",
+    "ApiTofUnexpectedNumericalError",
+    # Enums
+    "MeshMode",
+    "SampleMode",
 ]
 
 
@@ -213,18 +238,31 @@ def compute_density_of_states_batch(
     )
 
 
-def compute_k_total_batch(
-    inputs: List[KTotalInput],
+def precompute_mesh(
     energy_max_rate: MaybeQuantity,
     bin_width: MaybeQuantity,
-    mesh_mode: int,
+    mesh_mode: MeshMode = MeshMode.compute_mesh_diagonal_multithreaded,
     *,
     quantities_strict=True,
 ):
     process_arg = QuantityProcessor(quantities_strict)
     energy_max_rate = process_arg("energy_max", energy_max_rate, "kelvin")
     bin_width = process_arg("bin_width", bin_width, "kelvin")
-    return _compute_k_total_batch(inputs, energy_max_rate, bin_width, mesh_mode)
+    return _precompute_mesh(energy_max_rate, bin_width, mesh_mode)
+
+
+def compute_k_total_batch(
+    inputs: List[KTotalInput],
+    energy_max_rate: MaybeQuantity,
+    bin_width: MaybeQuantity,
+    mesh: MeshMode | numpy.ndarray = MeshMode.compute_mesh_diagonal_multithreaded,
+    *,
+    quantities_strict=True,
+):
+    process_arg = QuantityProcessor(quantities_strict)
+    energy_max_rate = process_arg("energy_max", energy_max_rate, "kelvin")
+    bin_width = process_arg("bin_width", bin_width, "kelvin")
+    return _compute_k_total_batch(inputs, energy_max_rate, bin_width, mesh)
 
 
 def densityandrate(
@@ -263,6 +301,10 @@ def densityandrate(
     return Histogram.from_cpp(density_cluster), Histogram.from_cpp(rate_const)
 
 
+Counters = namedtuple("Counters", [t.name for t in Counter])
+Timings = namedtuple("Timings", ["loop", "total"])
+
+
 def pinhole(
     cluster_0: ClusterData,
     cluster_1: ClusterData,
@@ -278,7 +320,7 @@ def pinhole(
     pressure_second: MaybeQuantity,
     N: int,
     *,
-    sample_mode: int = 0,
+    sample_mode: SampleMode = SampleMode.rejection,
     loglevel: int = 0,
     mesh_skimmer: float | None = None,
     quadrupole: Quadrupole | None = None,
@@ -288,6 +330,8 @@ def pinhole(
     log_callback: Callable[[str, str], None] | None = None,
     result_callback: Callable[[numpy.ndarray], None] | None = None,
     quantities_strict=True,
+    output_named_tuple=False,
+    output_timings=False,
 ):
     """
     This function runs the main simulation of the APi-ToF mass spectrometer.
@@ -316,7 +360,7 @@ def pinhole(
         skimmer = skimmer[:, 1:4]
     else:
         raise ValueError("skimmer must have 3 or 6 columns")
-    return _pinhole(
+    counters, loop_time, total_time = _pinhole(
         cluster_0.into_cpp(),
         cluster_1.into_cpp(),
         cluster_2.into_cpp(),
@@ -340,3 +384,9 @@ def pinhole(
         sample_mode=sample_mode,
         loglevel=loglevel,
     )
+    if output_named_tuple:
+        counters = Counters(*counters)
+    if output_timings:
+        return counters, Timings(loop_time, total_time)
+    else:
+        return counters

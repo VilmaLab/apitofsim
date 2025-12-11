@@ -130,15 +130,11 @@ double get_final_rate_k_total(Eigen::ArrayXd &k0, const Eigen::Ref<const Eigen::
 Eigen::ArrayXd compute_mesh(double bin_width, int m_max_rate)
 {
   Eigen::ArrayXd mesh = Eigen::ArrayXd::Zero(m_max_rate);
-#if !defined(ACTUALLY_GCC) || __GNUC__ > 13
-#pragma omp simd collapse(2)
-#endif
+  // It's tempting to use simd collapse(2) here, but this make things significantly slower
   for (int i = 0; i < m_max_rate; i++) // rotational energy
   {
     double rotational_energy_sqrt = sqrt(bin_width * (i + 0.5));
-#if defined(ACTUALLY_GCC) && __GNUC__ <= 13
 #pragma omp simd
-#endif
     for (int j = 0; j < m_max_rate - i; j++)
     {
       double translational_energy = bin_width * (j + 0.5);
@@ -148,8 +144,15 @@ Eigen::ArrayXd compute_mesh(double bin_width, int m_max_rate)
   return mesh;
 }
 
-Eigen::ArrayXd compute_mesh_rearranged(double bin_width, int m_max_rate)
+Eigen::ArrayXd compute_mesh_rearranged_presqrt(double bin_width, int m_max_rate)
 {
+  // A version Without precomputing these, is consistently slower than anything else
+  Eigen::ArrayXd rot_energy_sqrts = Eigen::ArrayXd(m_max_rate);
+#pragma omp simd
+  for (int i = 0; i < m_max_rate; i++)
+  {
+    rot_energy_sqrts[i] = sqrt(bin_width * (i + 0.5));
+  }
   Eigen::ArrayXd mesh = Eigen::ArrayXd(m_max_rate);
   for (int i_p_j = 0; i_p_j < m_max_rate; i_p_j++)
   {
@@ -158,7 +161,59 @@ Eigen::ArrayXd compute_mesh_rearranged(double bin_width, int m_max_rate)
     for (int j = 0; j < i_p_j; j++)
     {
       int i = i_p_j - j;
-      double rotational_energy_sqrt = sqrt(bin_width * (i + 0.5));
+      double rotational_energy_sqrt = rot_energy_sqrts[i];
+      double translational_energy = bin_width * (j + 0.5);
+      mesh_i_p_j += translational_energy * rotational_energy_sqrt;
+    }
+    mesh[i_p_j] = mesh_i_p_j;
+  }
+  return mesh;
+}
+
+#pragma omp declare reduction(+ : Eigen::ArrayXd : omp_out = omp_out + omp_in) \
+  initializer(omp_priv = Eigen::ArrayXd::Zero(omp_orig.size()))
+
+Eigen::ArrayXd compute_mesh_omp(double bin_width, int m_max_rate)
+{
+  Eigen::ArrayXd mesh = Eigen::ArrayXd::Zero(m_max_rate);
+#pragma omp parallel for default(none) \
+  firstprivate(bin_width, m_max_rate) \
+  reduction(+ : mesh)
+  for (int i = 0; i < m_max_rate; i++) // rotational energy
+  {
+    double rotational_energy_sqrt = sqrt(bin_width * (i + 0.5));
+#pragma omp simd
+    for (int j = 0; j < m_max_rate - i; j++)
+    {
+      double translational_energy = bin_width * (j + 0.5);
+      mesh[i + j] += translational_energy * rotational_energy_sqrt;
+    }
+  }
+  return mesh;
+}
+
+Eigen::ArrayXd compute_mesh_rearranged_presqrt_omp(double bin_width, int m_max_rate)
+{
+  Eigen::ArrayXd rot_energy_sqrts = Eigen::ArrayXd(m_max_rate);
+#pragma omp parallel for simd default(none) \
+  firstprivate(bin_width, m_max_rate) \
+  shared(rot_energy_sqrts)
+  for (int i = 0; i < m_max_rate; i++)
+  {
+    rot_energy_sqrts[i] = sqrt(bin_width * (i + 0.5));
+  }
+  Eigen::ArrayXd mesh = Eigen::ArrayXd(m_max_rate);
+#pragma omp parallel for default(none) \
+  firstprivate(bin_width, m_max_rate, rot_energy_sqrts) \
+  shared(mesh)
+  for (int i_p_j = 0; i_p_j < m_max_rate; i_p_j++)
+  {
+    double mesh_i_p_j = 0;
+#pragma omp simd reduction(+ : mesh_i_p_j)
+    for (int j = 0; j < i_p_j; j++)
+    {
+      int i = i_p_j - j;
+      double rotational_energy_sqrt = rot_energy_sqrts[i];
       double translational_energy = bin_width * (j + 0.5);
       mesh_i_p_j += translational_energy * rotational_energy_sqrt;
     }
@@ -464,6 +519,15 @@ compute_k_total_full(ClusterData &cluster_0, ClusterData &cluster_1, ClusterData
   return k_rate;
 }
 
+enum struct MeshMode
+{
+  no_mesh,
+  compute_mesh_single_threaded,
+  compute_mesh_diagonal_single_threaded,
+  compute_mesh_multithreaded,
+  compute_mesh_diagonal_multithreaded
+};
+
 struct KTotalInput
 {
   ClusterData cluster_1;
@@ -473,27 +537,35 @@ struct KTotalInput
   Eigen::Ref<Eigen::ArrayXd> rho_comb;
 };
 
-Eigen::ArrayXXd compute_k_total_batch(std::vector<KTotalInput> batch_input, double energy_max_rate, double bin_width, int mesh_mode = 0)
+Eigen::ArrayXd precompute_mesh(double energy_max_rate, double bin_width, MeshMode mesh_mode = MeshMode::compute_mesh_single_threaded)
 {
   int m_max_rate = int(energy_max_rate / bin_width);
-  Eigen::ArrayXXd k_rate = Eigen::ArrayXXd(m_max_rate, batch_input.size());
-  std::optional<Eigen::ArrayXd> mesh;
-  if (mesh_mode == 0)
+  if (mesh_mode == MeshMode::compute_mesh_single_threaded)
   {
-    mesh = std::nullopt;
+    return compute_mesh(bin_width, m_max_rate);
   }
-  else if (mesh_mode == 1)
+  else if (mesh_mode == MeshMode::compute_mesh_diagonal_single_threaded)
   {
-    mesh = compute_mesh(bin_width, m_max_rate);
+    return compute_mesh_rearranged_presqrt(bin_width, m_max_rate);
   }
-  else if (mesh_mode == 2)
+  else if (mesh_mode == MeshMode::compute_mesh_multithreaded)
   {
-    mesh = compute_mesh_rearranged(bin_width, m_max_rate);
+    return compute_mesh_omp(bin_width, m_max_rate);
+  }
+  else if (mesh_mode == MeshMode::compute_mesh_diagonal_multithreaded)
+  {
+    return compute_mesh_rearranged_presqrt_omp(bin_width, m_max_rate);
   }
   else
   {
-    throw invalid_argument("mesh_mode must be 0, 1 or 2");
+    throw invalid_argument("mesh_mode must be be one of the compute_mesh* modes");
   }
+}
+
+Eigen::ArrayXXd compute_k_total_batch(std::vector<KTotalInput> batch_input, double energy_max_rate, double bin_width, std::optional<Eigen::ArrayXd> mesh)
+{
+  int m_max_rate = int(energy_max_rate / bin_width);
+  Eigen::ArrayXXd k_rate = Eigen::ArrayXXd(m_max_rate, batch_input.size());
 #pragma omp parallel default(none) \
   firstprivate(batch_input, bin_width, m_max_rate, mesh) \
   shared(k_rate)
@@ -510,4 +582,18 @@ Eigen::ArrayXXd compute_k_total_batch(std::vector<KTotalInput> batch_input, doub
     }
   }
   return k_rate;
+}
+
+Eigen::ArrayXXd compute_k_total_batch(std::vector<KTotalInput> batch_input, double energy_max_rate, double bin_width, MeshMode mesh_mode = MeshMode::compute_mesh_diagonal_multithreaded)
+{
+  std::optional<Eigen::ArrayXd> mesh;
+  if (mesh_mode == MeshMode::no_mesh)
+  {
+    mesh = std::nullopt;
+  }
+  else
+  {
+    mesh = precompute_mesh(energy_max_rate, bin_width, mesh_mode);
+  }
+  return compute_k_total_batch(batch_input, energy_max_rate, bin_width, mesh);
 }

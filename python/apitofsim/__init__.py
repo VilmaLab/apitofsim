@@ -11,6 +11,7 @@ from .api import (
     compute_k_total_batch,
     KTotalInput,
     FragmentationPathway,
+    precompute_mesh,
 )
 from .config import (
     parse_config_with_particles,
@@ -24,7 +25,7 @@ from .config import (
 
 
 __all__ = [
-    # Imports
+    # API
     "ClusterData",
     "ProductsCluster",
     "Gas",
@@ -37,6 +38,8 @@ __all__ = [
     "compute_k_total_batch",
     "KTotalInput",
     "FragmentationPathway",
+    "precompute_mesh",
+    # Config
     "parse_config_with_particles",
     "config_to_shortnames",
     "read_dat",

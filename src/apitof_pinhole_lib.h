@@ -50,6 +50,13 @@ struct Quadrupole
   }
 };
 
+enum struct SampleMode
+{
+  dss_normalized,
+  dss_unnormalized,
+  rejection,
+};
+
 // LIST OF FUNCTIONS
 // Here we are
 double particle_density(double pressure, double kT);
@@ -61,7 +68,7 @@ template <typename GenT>
 void init_vib_energy(GenT &gen, uniform_real_distribution<double> &unif, double &vib_energy, double kT, const Histogram &density_cluster);
 double evaluate_rotational_energy(Eigen::Vector3d omega, double inertia);
 double evaluate_internal_energy(double vib_energy, double rot_energy);
-double evaluate_rate_const(const Histogram &rate_const, double energy, WarningHelper warn);
+double evaluate_rate_const(const Histogram &rate_const, double energy);
 template <typename GenT>
 void time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &unif, double rate_constant, Eigen::Vector3d &v_cluster, double &v_cluster_norm, double n1, double n2, double mobility_gas, double mobility_gas_inv, double R, double dt1, double dt2, double &z, double &x, double &y, double &delta_t, double &t_fragmentation, double first_chamber_end, double sk_end, double quadrupole_start, double quadrupole_end, double second_chamber_end, double acc1, double acc2, double acc3, double acc4, double &t, double m_gas, const SkimmerData &skimmer, double mesh_skimmer, std::optional<Quadrupole> quadrupole, LogHelper tmp_evolution, int loglevel);
 std::tuple<double, Eigen::Vector3d, double, double, double> get_quantities_for_collision(double z, double n1, double n2, double m_gas, double mobility_gas, double mobility_gas_inv, const Eigen::Vector3d &v_cluster, double v_gas, double pressure, double temperature, double first_chamber_end, double sk_end);
@@ -69,7 +76,6 @@ void update_physical_quantities(double z, const SkimmerData skimmer, double mesh
 // void evaluate_relative_velocity(double z, double *v_cluster, double &v_rel_norm, double v_gas, double *v_rel, double first_chamber_end, double sk_end);
 void update_velocities(Eigen::Vector3d &v_cluster, double &v_cluster_norm, const Eigen::Vector3d &v_rel, double v_gas);
 void update_rot_vel(Eigen::Vector3d &omega, double rot_energy_old, double rot_energy);
-int mod_func_int(int a, int b);
 double boundary_vib_energy(double vib_energy_old, double reduced_mass, double u_norm, double v_cluster_norm, double theta);
 template <typename GenT>
 void redistribute_internal_energy(GenT &gen, uniform_real_distribution<double> &unif, double &vib_energy, double &rot_energy, const Histogram &density_cluster);
@@ -86,10 +92,13 @@ double evaluate_error(int n, int k);
 double eval_solid_angle_stokes(double R, double L, double xx, double yy, double zz);
 int zone(double z, double first_chamber_end, double sk_end, double quadrupole_start, double quadrupole_end, double second_chamber_end);
 
-template <typename GasCollSamplerT, typename VibEnergySamplerT>
-Counters apitof_pinhole(int cluster_charge_sign, double T, double pressure_first, double pressure_second, InstrumentDims lengths, InstrumentVoltages voltages, int N, double bonding_energy, Gas gas, std::optional<Quadrupole> quadrupole, double m_ion, double R_cluster, const Histogram &density_cluster, const Histogram &rate_const, const SkimmerData &skimmer, const double mesh_skimmer, unsigned long long root_seed, StreamingResultQueue &result_queue, GasCollSamplerT gas_coll_sampler, VibEnergySamplerT vib_energy_sampler, int loglevel = DEFAULT_LOGLEVEL);
+typedef std::chrono::high_resolution_clock::duration RuntimeDuration;
+typedef std::tuple<Counters, RuntimeDuration, RuntimeDuration> SimulationResult;
 
-Counters apitof_pinhole(
+template <typename GasCollSamplerT, typename VibEnergySamplerT>
+SimulationResult apitof_pinhole(int cluster_charge_sign, double T, double pressure_first, double pressure_second, InstrumentDims lengths, InstrumentVoltages voltages, int N, double bonding_energy, Gas gas, std::optional<Quadrupole> quadrupole, double m_ion, double R_cluster, const Histogram &density_cluster, const Histogram &rate_const, const SkimmerData &skimmer, const double mesh_skimmer, unsigned long long root_seed, StreamingResultQueue &result_queue, GasCollSamplerT gas_coll_sampler, VibEnergySamplerT vib_energy_sampler, int loglevel = DEFAULT_LOGLEVEL);
+
+SimulationResult apitof_pinhole(
   int cluster_charge_sign,
   double T,
   double pressure_first,
@@ -108,7 +117,7 @@ Counters apitof_pinhole(
   const double mesh_skimmer,
   unsigned long long root_seed,
   StreamingResultQueue &result_queue,
-  int sample_mode,
+  SampleMode sample_mode,
   int loglevel = DEFAULT_LOGLEVEL)
 {
   using consts::boltzmann;
@@ -118,7 +127,7 @@ Counters apitof_pinhole(
   double boundary_u = 5.0 * sqrt(mobility_gas);
   const double du = 1.0e-4 * sqrt(mobility_gas);
   const double dtheta = 1.0e-3;
-  if (sample_mode == 0)
+  if (sample_mode == SampleMode::dss_normalized)
   {
     return apitof_pinhole<GasCollCondNormHistDSSSampler, VibEnergyNormSampler>(
       cluster_charge_sign,
@@ -143,7 +152,7 @@ Counters apitof_pinhole(
       VibEnergyNormSampler(density_cluster),
       loglevel);
   }
-  else if (sample_mode == 1)
+  else if (sample_mode == SampleMode::dss_unnormalized)
   {
     return apitof_pinhole<GasCollCondUnnormHistDSSSampler, VibEnergyUnnormSampler>(
       cluster_charge_sign,
@@ -168,7 +177,7 @@ Counters apitof_pinhole(
       VibEnergyUnnormSampler(density_cluster),
       loglevel);
   }
-  else if (sample_mode == 2)
+  else if (sample_mode == SampleMode::rejection)
   {
     return apitof_pinhole<GasCollRejectionSampler, VibEnergyNormSampler>(
       cluster_charge_sign,
@@ -195,15 +204,14 @@ Counters apitof_pinhole(
   }
   else
   {
-    throw ApiTofError([&](auto &msg)
+    throw ApiTofArgumentError([&](auto &msg)
     {
-      msg << "Unknown sampling mode: " << sample_mode << std::endl;
+      msg << "Unknown sampling mode: " << static_cast<int>(sample_mode) << std::endl;
     });
   }
 }
-
 template <typename GasCollSamplerT, typename VibEnergySamplerT>
-Counters apitof_pinhole(
+SimulationResult apitof_pinhole(
   int cluster_charge_sign,
   double T,
   double pressure_first,
@@ -344,7 +352,7 @@ Counters apitof_pinhole(
         skimmer, mesh_skimmer, total_length, mobility_gas, \
         mobility_gas_inv, gas_mean_free_path, first_chamber_end, root_seed, \
         sk_end, quadrupole_start, quadrupole_end, acc1, acc2, acc3, acc4, \
-        P1, P2, bonding_energy, m_gas, quadrupole, reduced_mass, pi, \
+        P1, P2, bonding_energy, m_gas, quadrupole, reduced_mass, pi, boltzmann, \
         vib_energy_sampler, gas_coll_sampler, loglevel) \
   shared(exception_helper, result_queue) \
   reduction(+ : counters) \
@@ -427,19 +435,11 @@ Counters apitof_pinhole(
           // tmp << delta_en << endl;
           if (delta_en > energy_max_rate)
           {
-            auto overflow = (delta_en - energy_max_rate) / energy_max_rate;
-            warn([&overflow](auto &warning)
-            {
-              warning << "Internal energy exceeds maximum rate energy by " << setprecision(3) << scientific << overflow << endl;
-            });
-            result_queue.enqueue(LogMessage{LogMessage::probabilities, [&overflow](auto &probabilities)
-            {
-              probabilities << "# Internal energy exceeds maximum rate energy: " << setprecision(3) << scientific << overflow << endl;
-            }});
+            throw ApiTofRateConstantOverflow(energy_max_rate / boltzmann, delta_en / boltzmann);
             delta_en = energy_max_rate;
             a = 1;
           }
-          rate_constant = evaluate_rate_const(rate_const, delta_en, warn);
+          rate_constant = evaluate_rate_const(rate_const, delta_en);
         }
         else
         {
@@ -473,14 +473,7 @@ Counters apitof_pinhole(
 
           if (a == 1)
           {
-            {
-              throw ApiTofError([&](auto &msg)
-              {
-                msg << "FATAL ERROR: The internal energy exceeded the max energy related to rate constant (so the cluster should fragment), but the cluster did not fragment. Realization: " << j + 1 << endl
-                    << "--> EVALUATE FRAGMENTATION RATE CONSTANT AT HIGHER ENERGIES" << endl
-                    << "position= " << scientific << z << endl;
-              });
-            }
+            throw ApiTofRateConstantOverflow(rate_const.x_max / boltzmann, delta_en / boltzmann);
           }
 
           // Keep track on number of collisions per realization
@@ -496,10 +489,7 @@ Counters apitof_pinhole(
 
           if (ncoll > max_coll)
           {
-            throw ApiTofError([&](auto &warning)
-            {
-              warning << "Got to the max collisions " << ncoll << " (max is " << max_coll << ")";
-            });
+            throw ApiTofMaxCollisions(max_coll, ncoll);
           }
 
           update_physical_quantities(z, skimmer, mesh_skimmer, v_gas, temperature, pressure, density, first_chamber_end, sk_end, P1, P2, n1, n2, T);
@@ -541,7 +531,7 @@ Counters apitof_pinhole(
         {
           if (a == 1)
           {
-            throw ApiTofError("FATAL ERROR: The internal energy exceeded the max energy related to rate constant (so the cluster should fragment), but the cluster did not fragment");
+            throw ApiTofRateConstantOverflow(rate_const.x_max / boltzmann, delta_en / boltzmann);
           }
           n_escaped++; // Count how many clusters reached the end of the box intact
           if (loglevel >= LOGLEVEL_NORMAL)
@@ -576,19 +566,10 @@ Counters apitof_pinhole(
 
   auto end = std::chrono::high_resolution_clock::now();
 
-  auto loop_time = std::chrono::duration_cast<std::chrono::microseconds>(end - loop_start);
-  std::cout << endl
-            << "<loop_time>" << loop_time.count() << "</loop_time>" << endl
-            << endl;
-  auto total_time = end - start;
-  auto seconds_tot = std::chrono::duration_cast<std::chrono::seconds>(total_time).count();
-  auto microseconds_tot = std::chrono::duration_cast<std::chrono::microseconds>(total_time).count();
-  auto hours = (int)(seconds_tot / 3600);
-  auto minutes = mod_func_int(seconds_tot / 60, 60);
-  auto seconds = mod_func_int(seconds_tot, 60);
-  std::cout << "Computational time: " << setw(3) << setfill(' ') << hours << "h" << setw(2) << setfill('0') << minutes << "m" << setw(2) << setfill('0') << seconds << "s" << microseconds_tot << "us" << endl;
+  RuntimeDuration loop_time = end - loop_start;
+  RuntimeDuration total_time = end - start;
 
-  return counters;
+  return std::tuple(counters, loop_time, total_time);
 }
 
 
@@ -608,33 +589,10 @@ Eigen::Vector3d cross_norm(const Eigen::Vector3d &in1, const Eigen::Vector3d &in
   }
   else
   {
-    throw ApiTofError("Zero result in evaluating the cross product");
+    throw ApiTofUnexpectedNumericalError("Zero result in evaluating the cross product");
   }
 }
 
-
-// Compute the mod() function for integers
-int mod_func_int(int a, int b)
-{
-  int r, s;
-  if (a < 0)
-  {
-    s = (int)fmod(a, b);
-    if (s < 0)
-    {
-      r = s + b;
-    }
-    else
-    {
-      r = s;
-    }
-  }
-  else
-  {
-    r = (int)fmod(a, b);
-  }
-  return r;
-};
 
 double particle_density(double pressure, double kT)
 {
@@ -693,8 +651,9 @@ Eigen::Vector3d init_ang_vel(GenT &gen, normal_distribution<double> &gauss, doub
 }
 
 
-double evaluate_rate_const(const Histogram &rate_const, double energy, WarningHelper warn)
+double evaluate_rate_const(const Histogram &rate_const, double energy)
 {
+  using namespace consts;
   int m;
   double coeff1;
   double coeff2;
@@ -705,11 +664,7 @@ double evaluate_rate_const(const Histogram &rate_const, double energy, WarningHe
   coeff2 = 1.0 - coeff1;
   if (m >= rate_const.length())
   {
-    warn([&energy](auto &warning)
-    {
-      warning << "delta_energy exceeded upper limit of rate_constant evaluation: delta_energy= " << energy << endl;
-    });
-    return rate_const.y[rate_const.length() - 1];
+    throw ApiTofRateConstantOverflow(rate_const.x_max / boltzmann, energy / boltzmann);
   }
   else if (m > 0)
   {
@@ -721,11 +676,10 @@ double evaluate_rate_const(const Histogram &rate_const, double energy, WarningHe
   }
   else
   {
-    warn([&energy](auto &warning)
+    throw ApiTofUnexpectedNumericalError([&energy, &m](auto &msg)
     {
-      warning << "Rate constant evaluation failed: delta_energy= " << energy << endl;
+      msg << "Rate constant evaluation failed with negative m: delta_energy= " << energy << " m=" << m << endl;
     });
-    return 0;
   }
 }
 
@@ -1025,121 +979,6 @@ void time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &uni
   }
 }
 
-
-// Draw theta angle of collision UPDATED
-template <typename GenT>
-double draw_theta_skimmer(GenT &gen, uniform_real_distribution<double> &unif, double z, double n1, double n2, double m_gas, double mobility_gas, double mobility_gas_inv, double R, const Eigen::Vector3d &v_cluster, double v_gas, double pressure, double temperature, double first_chamber_end, double sk_end, WarningHelper warn, int mode)
-{
-  using namespace consts;
-  double r = unif(gen);
-  double n;
-  double v_rel_norm;
-  Eigen::Vector3d v_rel = v_cluster;
-
-  if (z < first_chamber_end)
-  {
-    n = n1;
-  }
-  else if (z < sk_end)
-  {
-    v_rel[2] = v_rel[2] - v_gas;
-    double kT = boltzmann * temperature;
-    mobility_gas = kT / m_gas;
-    mobility_gas_inv = 1.0 / mobility_gas;
-    n = particle_density(pressure, kT);
-  }
-  else
-  {
-    n = n2;
-  }
-  v_rel_norm = v_rel.norm();
-
-  const double dtheta = 1.0e-3;
-  double theta = 0.0;
-  if (mode == 1)
-  {
-    double integral_unnorm = 0.0;
-    double normalization = coll_freq(n, mobility_gas, mobility_gas_inv, R, v_rel_norm);
-    double r_unnorm = r * normalization;
-    while (integral_unnorm < r_unnorm)
-    {
-      double c = coll_freq_theta(theta, n, mobility_gas, mobility_gas_inv, R, v_rel_norm);
-      integral_unnorm += c * dtheta;
-      theta += dtheta;
-    }
-  }
-  else
-  {
-    double integral = 0.0;
-    while (r > integral && theta < pi)
-    {
-      double c = distr_theta(theta, n, mobility_gas, mobility_gas_inv, R, v_rel_norm);
-      integral += c * dtheta;
-      theta += dtheta;
-    }
-  }
-  if (theta > pi)
-  {
-    theta = pi - 1.0e-3;
-    warn([&r](auto &warning)
-    {
-      warning << "theta exceeded pi. random number r is: " << r << endl;
-    });
-  }
-  return theta;
-}
-// Draw translational energy of cluster after the impact with carrier gas
-// Here we are considering a constant density of states for vibrational mode, i.e. a single vibration (simplified model)
-template <typename GenT>
-double draw_vib_energy(GenT &gen, uniform_real_distribution<double> &unif, double vib_energy_old, const Histogram &density_cluster, double reduced_mass, double u_norm, double v_cluster_norm, double theta, int mode)
-{
-  using consts::boltzmann;
-
-  double relative_speed = u_norm + v_cluster_norm * cos(theta);
-  double E = vib_energy_old + reduced_mass * 0.5 * relative_speed * relative_speed;
-
-  if (E > density_cluster.x_max)
-  {
-    throw ApiTofError([&](auto &warning)
-    {
-      warning << "Energy is exceeding the density of states file. E: " << E / boltzmann << endl;
-    });
-  }
-
-  // 1st step: I evaluate the integral (normalization)
-  double normalization = 0.0;
-  int m = 0;
-  while (density_cluster.x[m] < E)
-  {
-    normalization += sqrt(E - density_cluster.x[m]) * density_cluster.y[m];
-    m++;
-  }
-
-  // 2nd step: I evaluate the random transferred energy to the cluster
-  m = 0;
-  double r = unif(gen);
-  if (mode == 1)
-  {
-    double r_unnorm = r * normalization;
-    double integral_unnorm = 0.0;
-    while (integral_unnorm < r_unnorm)
-    {
-      integral_unnorm += sqrt(E - density_cluster.x[m]) * density_cluster.y[m];
-      m++;
-    }
-  }
-  else
-  {
-    double integral = 0.0;
-    while (integral < r)
-    {
-      integral += sqrt(E - density_cluster.x[m]) * density_cluster.y[m] / normalization;
-      m++;
-    }
-  }
-  return density_cluster.x[m - 1];
-}
-
 double boundary_vib_energy(double vib_energy_old, double reduced_mass, double u_norm, double v_cluster_norm, double theta)
 {
   double relative_speed = u_norm + v_cluster_norm * cos(theta);
@@ -1160,10 +999,7 @@ void redistribute_internal_energy(GenT &gen, uniform_real_distribution<double> &
 
   if (E > density_cluster.x_max)
   {
-    throw ApiTofError([&](auto &msg)
-    {
-      msg << "Energy is exceeding the density of states file. E: " << E / boltzmann << endl;
-    });
+    throw ApiTofDosOverflow(density_cluster.x_max, E / boltzmann);
   }
 
   // 1st step: I evaluate the integral (normalization)
@@ -1197,101 +1033,6 @@ void update_rot_vel(Eigen::Vector3d &omega, double rot_energy_old, double rot_en
   omega[2] = omega[2] * sqrt(rot_energy / rot_energy_old);
 }
 
-// Draw normal velocity of carrier gas
-template <typename GenT>
-double draw_u_norm_skimmer(GenT &gen, uniform_real_distribution<double> &unif, double z, double du, double boundary_u, double theta, double n1, double n2, double m_gas, double mobility_gas, double mobility_gas_inv, double R, const Eigen::Vector3d &v_cluster, double v_gas, double pressure, double temperature, double first_chamber_end, double sk_end, WarningHelper warn, int mode)
-{
-  using namespace consts;
-  double n;
-  double v_rel_norm;
-  Eigen::Vector3d v_rel = v_cluster;
-
-  if (z < first_chamber_end)
-  {
-    n = n1;
-  }
-  else if (z < sk_end)
-  {
-    v_rel[2] = v_rel[2] - v_gas;
-    double kT = boltzmann * temperature;
-    mobility_gas = kT / m_gas;
-    mobility_gas_inv = 1.0 / mobility_gas;
-    n = particle_density(pressure, kT);
-  }
-  else
-  {
-    n = n2;
-  }
-  v_rel_norm = v_rel.norm();
-
-  double u_norm;
-  if (mode == 1)
-  {
-    double costheta = cos(theta);
-    double sintheta = sin(theta);
-    if (v_rel_norm * costheta > boundary_u)
-    {
-      u_norm = -boundary_u;
-    }
-    else
-    {
-      u_norm = -v_rel_norm * costheta;
-    }
-
-    double r = unif(gen);
-    double normalization = coll_freq_theta(theta, n, mobility_gas, mobility_gas_inv, R, v_rel_norm);
-    double common_factor = 2.0 * pi * n * R * R * sqrt(0.5 * mobility_gas_inv / pi) * sintheta;
-    double r_unnorm = r * normalization / common_factor;
-    double integral_unnorm = 0.0;
-    while (integral_unnorm < r_unnorm)
-    {
-      double c = (u_norm + v_rel_norm * costheta) * exp(-0.5 * mobility_gas_inv * u_norm * u_norm);
-      integral_unnorm += c * du;
-      u_norm += du;
-    }
-
-    if (u_norm > boundary_u)
-    {
-      u_norm = boundary_u;
-      warn([&](auto &warning)
-      {
-        warning << "u_norm exceeded boundary of the integration. random number r is: " << r << endl;
-      });
-    }
-  }
-  else
-  {
-    double costheta = cos(theta);
-    if (v_rel_norm * costheta > boundary_u)
-    {
-      u_norm = -boundary_u;
-    }
-    else
-    {
-      u_norm = -v_rel_norm * costheta;
-    }
-
-    double r = unif(gen);
-    double integral = 0.0;
-    while (r > integral && u_norm < boundary_u)
-    {
-      double c = distr_u(u_norm, theta, n, mobility_gas, mobility_gas_inv, R, v_rel_norm);
-      integral += c * du;
-      u_norm += du;
-    }
-
-    if (u_norm > boundary_u)
-    {
-      warn([&](auto &warning)
-      {
-        warning << "u_norm exceeded boundary of the integration. random number r is: " << r << endl;
-      });
-    }
-  }
-  return u_norm;
-}
-
-
 // Evaluate internal energy (rotational+vibrational)
 double evaluate_internal_energy(double vib_energy, double rot_energy)
 {
@@ -1311,11 +1052,6 @@ double mean_free_path(double R, double kT, double pressure)
   return kT / (sqrt(2.0) * pi * 4.0 * R * R * pressure);
 }
 
-
-double energy_in_eV(double energy)
-{
-  return energy / 1.602e-19;
-}
 
 void evaluate_relative_velocity(double z, const Eigen::Vector3d &v_cluster, double &v_rel_norm, double v_gas, Eigen::Vector3d &v_rel, double first_chamber_end, double sk_end)
 {
@@ -1370,7 +1106,7 @@ void eval_velocities(Eigen::Vector3d &v, Eigen::Vector3d &omega, const Eigen::Ve
   // cout << radicand << endl;
   if (radicand < 0)
   {
-    throw ApiTofError([&](auto &msg)
+    throw ApiTofUnexpectedNumericalError([&](auto &msg)
     {
       msg << "sqrt of negative number in evaluation of velocities after collision! radicand: " << radicand << endl;
     });
@@ -1455,7 +1191,7 @@ void change_coord(const Eigen::Vector3d &v_cluster, double theta, double phi, do
   }
   else
   {
-    throw ApiTofError([&](auto &msg)
+    throw ApiTofUnexpectedNumericalError([&](auto &msg)
     {
       msg << "ERROR in defining reference system at theta: " << theta << endl;
     });
@@ -1554,7 +1290,7 @@ void eval_collision(GenT &gen, uniform_real_distribution<double> &unif, bool &co
   // cout << kT << endl;
   if (u[0] > v2[2])
   {
-    throw ApiTofError([&](auto &msg)
+    throw ApiTofUnexpectedNumericalError([&](auto &msg)
     {
       msg << "ERROR: relative velocities prevent collision! " << u[0] << " > " << v2[2] << endl;
     });
