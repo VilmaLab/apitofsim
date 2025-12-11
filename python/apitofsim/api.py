@@ -21,6 +21,14 @@ from .apitofsimraw import (
     compute_k_total_batch as _compute_k_total_batch,
     FragmentationPathway,
     Counter as Counter,
+    # Exceptions
+    ApiTofError,
+    ApiTofArgumentError,
+    ApiTofOverflowError,
+    ApiTofDosOverflow,
+    ApiTofRateConstantOverflow,
+    ApiTofMaxCollisions,
+    ApiTofUnexpectedNumericalError,
     # Enums
     MeshMode,
 )
@@ -40,6 +48,14 @@ __all__ = [
     "compute_k_total_batch",
     "KTotalInput",
     "FragmentationPathway",
+    # Exceptions
+    "ApiTofError",
+    "ApiTofArgumentError",
+    "ApiTofOverflowError",
+    "ApiTofDosOverflow",
+    "ApiTofRateConstantOverflow",
+    "ApiTofMaxCollisions",
+    "ApiTofUnexpectedNumericalError",
 ]
 
 

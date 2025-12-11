@@ -65,19 +65,52 @@ class ApiTofOverflowError : public ApiTofError
   using ApiTofError::ApiTofError;
 };
 
-class ApiTofDosOverflow : public ApiTofOverflowError
+template <typename ScaleT>
+class ApiTofOverflowErrorTmpl : public ApiTofOverflowError
 {
-  using ApiTofOverflowError::ApiTofOverflowError;
+public:
+  template <typename Arg>
+  ApiTofOverflowErrorTmpl(Arg arg, ScaleT max, ScaleT current)
+      : ApiTofOverflowError(arg), max(max), current(current)
+  {
+  }
+  ScaleT max;
+  ScaleT current;
 };
 
-class ApiTofRateConstantOverflow : public ApiTofOverflowError
+template <typename ScaleT>
+auto mk_msg(const char *main_msg, ScaleT max, ScaleT current)
 {
-  using ApiTofOverflowError::ApiTofOverflowError;
+  return ([main_msg, max, current](auto &msg)
+  {
+    msg << std::setprecision(3) << std::scientific;
+    msg << main_msg << " by " << (current - max) << "\n";
+    msg << "Current: " << current << " Max: " << max << "\n";
+  });
+}
+
+class ApiTofDosOverflow : public ApiTofOverflowErrorTmpl<double>
+{
+public:
+  ApiTofDosOverflow(double max, double current) : ApiTofOverflowErrorTmpl(mk_msg("Internal energy exceeds maximum rate energy", max, current), max, current)
+  {
+  }
 };
 
-class ApiTofMaxCollisions : public ApiTofOverflowError
+class ApiTofRateConstantOverflow : public ApiTofOverflowErrorTmpl<double>
 {
-  using ApiTofOverflowError::ApiTofOverflowError;
+public:
+  ApiTofRateConstantOverflow(double max, double current) : ApiTofOverflowErrorTmpl(mk_msg("Energy exceeds density of states", max, current), max, current)
+  {
+  }
+};
+
+class ApiTofMaxCollisions : public ApiTofOverflowErrorTmpl<int>
+{
+public:
+  ApiTofMaxCollisions(int max, int current) : ApiTofOverflowErrorTmpl(mk_msg("Collisions exceeds maximum", max, current), max, current)
+  {
+  }
 };
 
 class ApiTofUnexpectedNumericalError : public ApiTofError

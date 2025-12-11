@@ -61,7 +61,7 @@ template <typename GenT>
 void init_vib_energy(GenT &gen, uniform_real_distribution<double> &unif, double &vib_energy, double kT, const Histogram &density_cluster);
 double evaluate_rotational_energy(Eigen::Vector3d omega, double inertia);
 double evaluate_internal_energy(double vib_energy, double rot_energy);
-double evaluate_rate_const(const Histogram &rate_const, double energy, WarningHelper warn);
+double evaluate_rate_const(const Histogram &rate_const, double energy);
 template <typename GenT>
 void time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &unif, double rate_constant, Eigen::Vector3d &v_cluster, double &v_cluster_norm, double n1, double n2, double mobility_gas, double mobility_gas_inv, double R, double dt1, double dt2, double &z, double &x, double &y, double &delta_t, double &t_fragmentation, double first_chamber_end, double sk_end, double quadrupole_start, double quadrupole_end, double second_chamber_end, double acc1, double acc2, double acc3, double acc4, double &t, double m_gas, const SkimmerData &skimmer, double mesh_skimmer, std::optional<Quadrupole> quadrupole, LogHelper tmp_evolution, int loglevel);
 std::tuple<double, Eigen::Vector3d, double, double, double> get_quantities_for_collision(double z, double n1, double n2, double m_gas, double mobility_gas, double mobility_gas_inv, const Eigen::Vector3d &v_cluster, double v_gas, double pressure, double temperature, double first_chamber_end, double sk_end);
@@ -345,7 +345,7 @@ SimulationResult apitof_pinhole(
         skimmer, mesh_skimmer, total_length, mobility_gas, \
         mobility_gas_inv, gas_mean_free_path, first_chamber_end, root_seed, \
         sk_end, quadrupole_start, quadrupole_end, acc1, acc2, acc3, acc4, \
-        P1, P2, bonding_energy, m_gas, quadrupole, reduced_mass, pi, \
+        P1, P2, bonding_energy, m_gas, quadrupole, reduced_mass, pi, boltzmann, \
         vib_energy_sampler, gas_coll_sampler, loglevel) \
   shared(exception_helper, result_queue) \
   reduction(+ : counters) \
@@ -428,19 +428,11 @@ SimulationResult apitof_pinhole(
           // tmp << delta_en << endl;
           if (delta_en > energy_max_rate)
           {
-            auto overflow = (delta_en - energy_max_rate) / energy_max_rate;
-            warn([&overflow](auto &warning)
-            {
-              warning << "Internal energy exceeds maximum rate energy by " << setprecision(3) << scientific << overflow << endl;
-            });
-            result_queue.enqueue(LogMessage{LogMessage::probabilities, [&overflow](auto &probabilities)
-            {
-              probabilities << "# Internal energy exceeds maximum rate energy: " << setprecision(3) << scientific << overflow << endl;
-            }});
+            throw ApiTofRateConstantOverflow(energy_max_rate / boltzmann, delta_en / boltzmann);
             delta_en = energy_max_rate;
             a = 1;
           }
-          rate_constant = evaluate_rate_const(rate_const, delta_en, warn);
+          rate_constant = evaluate_rate_const(rate_const, delta_en);
         }
         else
         {
@@ -474,14 +466,7 @@ SimulationResult apitof_pinhole(
 
           if (a == 1)
           {
-            {
-              throw ApiTofRateConstantOverflow([&](auto &msg)
-              {
-                msg << "FATAL ERROR: The internal energy exceeded the max energy related to rate constant (so the cluster should fragment), but the cluster did not fragment. Realization: " << j + 1 << endl
-                    << "--> EVALUATE FRAGMENTATION RATE CONSTANT AT HIGHER ENERGIES" << endl
-                    << "position= " << scientific << z << endl;
-              });
-            }
+            throw ApiTofRateConstantOverflow(rate_const.x_max / boltzmann, delta_en / boltzmann);
           }
 
           // Keep track on number of collisions per realization
@@ -497,10 +482,7 @@ SimulationResult apitof_pinhole(
 
           if (ncoll > max_coll)
           {
-            throw ApiTofMaxCollisions([&](auto &warning)
-            {
-              warning << "Got to the max collisions " << ncoll << " (max is " << max_coll << ")";
-            });
+            throw ApiTofMaxCollisions(max_coll, ncoll);
           }
 
           update_physical_quantities(z, skimmer, mesh_skimmer, v_gas, temperature, pressure, density, first_chamber_end, sk_end, P1, P2, n1, n2, T);
@@ -542,7 +524,7 @@ SimulationResult apitof_pinhole(
         {
           if (a == 1)
           {
-            throw ApiTofRateConstantOverflow("FATAL ERROR: The internal energy exceeded the max energy related to rate constant (so the cluster should fragment), but the cluster did not fragment");
+            throw ApiTofRateConstantOverflow(rate_const.x_max / boltzmann, delta_en / boltzmann);
           }
           n_escaped++; // Count how many clusters reached the end of the box intact
           if (loglevel >= LOGLEVEL_NORMAL)
@@ -662,8 +644,9 @@ Eigen::Vector3d init_ang_vel(GenT &gen, normal_distribution<double> &gauss, doub
 }
 
 
-double evaluate_rate_const(const Histogram &rate_const, double energy, WarningHelper warn)
+double evaluate_rate_const(const Histogram &rate_const, double energy)
 {
+  using namespace consts;
   int m;
   double coeff1;
   double coeff2;
@@ -674,11 +657,7 @@ double evaluate_rate_const(const Histogram &rate_const, double energy, WarningHe
   coeff2 = 1.0 - coeff1;
   if (m >= rate_const.length())
   {
-    warn([&energy](auto &warning)
-    {
-      warning << "delta_energy exceeded upper limit of rate_constant evaluation: delta_energy= " << energy << endl;
-    });
-    return rate_const.y[rate_const.length() - 1];
+    throw ApiTofRateConstantOverflow(rate_const.x_max / boltzmann, energy / boltzmann);
   }
   else if (m > 0)
   {
@@ -690,11 +669,10 @@ double evaluate_rate_const(const Histogram &rate_const, double energy, WarningHe
   }
   else
   {
-    warn([&energy](auto &warning)
+    throw ApiTofUnexpectedNumericalError([&energy, &m](auto &msg)
     {
-      warning << "Rate constant evaluation failed: delta_energy= " << energy << endl;
+      msg << "Rate constant evaluation failed with negative m: delta_energy= " << energy << " m=" << m << endl;
     });
-    return 0;
   }
 }
 
@@ -1014,10 +992,7 @@ void redistribute_internal_energy(GenT &gen, uniform_real_distribution<double> &
 
   if (E > density_cluster.x_max)
   {
-    throw ApiTofDosOverflow([&](auto &msg)
-    {
-      msg << "Energy is exceeding the density of states file. E: " << E / boltzmann << endl;
-    });
+    throw ApiTofDosOverflow(density_cluster.x_max, E / boltzmann);
   }
 
   // 1st step: I evaluate the integral (normalization)

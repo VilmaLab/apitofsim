@@ -262,10 +262,7 @@ struct VibEnergySamplerBase
 
     if (E > density_cluster.x_max)
     {
-      throw ApiTofDosOverflow([&](auto &warning)
-      {
-        warning << "Energy is exceeding the density of states file. E: " << E / boltzmann << std::endl;
-      });
+      throw ApiTofDosOverflow(density_cluster.x_max, E / boltzmann);
     }
 
     // 1st step: I evaluate the integral (normalization)

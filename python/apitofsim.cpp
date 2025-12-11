@@ -332,6 +332,27 @@ void nb_magic_enum(nanobind::handle scope, const char *name)
   enum_wrap.export_values();
 }
 
+template <typename CppExceptionT>
+void register_overflow_translator(nb::exception<CppExceptionT> nb_py_exception)
+{
+  nb::register_exception_translator(
+    [](const std::exception_ptr &exc, void *payload)
+  {
+    try
+    {
+      std::rethrow_exception(exc);
+    }
+    catch (const CppExceptionT &err)
+    {
+      auto c_py_exc = (PyObject *)payload;
+      auto py_exc = nb::steal(c_py_exc)(err.what());
+      py_exc.attr("max") = err.max;
+      py_exc.attr("current") = err.current;
+      PyErr_SetObject(c_py_exc, py_exc.ptr());
+    }
+  }, nb_py_exception.ptr());
+}
+
 NB_MODULE(apitofsimraw, m)
 {
   m.doc() = "APi-TOF-MS simulation module";
@@ -467,10 +488,14 @@ NB_MODULE(apitofsimraw, m)
   nb::exception<ApiTofError>(m, "ApiTofError");
   nb::exception<ApiTofArgumentError>(m, "ApiTofArgumentError", m.attr("ApiTofError"));
   nb::exception<ApiTofOverflowError>(m, "ApiTofOverflowError", m.attr("ApiTofError"));
-  nb::exception<ApiTofDosOverflow>(m, "ApiTofDosOverflow", m.attr("ApiTofOverflowError"));
-  nb::exception<ApiTofRateConstantOverflow>(m, "ApiTofRateConstantOverflow", m.attr("ApiTofOverflowError"));
-  nb::exception<ApiTofMaxCollisions>(m, "ApiTofMaxCollisions", m.attr("ApiTofOverflowError"));
+  nb::exception<ApiTofDosOverflow> PyApiTofDosOverflow(m, "ApiTofDosOverflow", m.attr("ApiTofOverflowError"));
+  nb::exception<ApiTofRateConstantOverflow> PyApiTofRateConstantOverflow(m, "ApiTofRateConstantOverflow", m.attr("ApiTofOverflowError"));
+  nb::exception<ApiTofMaxCollisions> PyApiTofMaxCollisions(m, "ApiTofMaxCollisions", m.attr("ApiTofOverflowError"));
   nb::exception<ApiTofUnexpectedNumericalError>(m, "ApiTofUnexpectedNumericalError", m.attr("ApiTofError"));
+
+  register_overflow_translator<ApiTofDosOverflow>(PyApiTofDosOverflow);
+  register_overflow_translator<ApiTofRateConstantOverflow>(PyApiTofRateConstantOverflow);
+  register_overflow_translator<ApiTofMaxCollisions>(PyApiTofMaxCollisions);
 
   m.def("sample_collision", &sample_collision,
         "sample_mode"_a,
