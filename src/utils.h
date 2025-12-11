@@ -305,7 +305,7 @@ void compute_mass_and_radius(double inertia, double amu, double &mass, double &r
   radius = sqrt(2.5 * inertia / mass);
 }
 
-std::atomic<int> saved_signal = -1;
+static std::atomic<int> saved_signal = -1;
 
 extern "C" void set_flag_handler(int signal)
 {
@@ -338,16 +338,21 @@ public:
   {
     if (!rethrow_called)
     {
+      bool should_die = false;
       if (this->exception)
       {
         std::cerr << "\nException lost! OMPExceptionHelper holding exception destroyed without rethrowing\n"
                   << std::flush;
-        std::terminate();
+        should_die = true;
       }
       if (saved_signal.load() != -1)
       {
         std::cerr << "\nSIGTERM flag set, but OMPExceptionHelper was destroyed without rethrowing\n"
                   << std::flush;
+        should_die = true;
+      }
+      if (should_die)
+      {
         std::terminate();
       }
     }
@@ -356,10 +361,6 @@ public:
   void rethrow()
   {
     rethrow_called = true;
-    if (this->exception)
-    {
-      std::rethrow_exception(this->exception);
-    }
     for (int i = 0; i < NUM_SIGNALS; i++)
     {
       std::signal(signals[i], saved_handlers[i]);
@@ -367,7 +368,14 @@ public:
     int signal = saved_signal.load();
     if (signal != -1)
     {
+      // Prefer to raise the signal over the exception
+      // Reason: Application exception is more likely to be caught/ignored
+      saved_signal.store(-1);
       raise(signal);
+    }
+    if (this->exception)
+    {
+      std::rethrow_exception(this->exception);
     }
   }
 
