@@ -320,7 +320,7 @@ def pinhole(
     pressure_second: MaybeQuantity,
     N: int,
     *,
-    sample_mode: int = 0,
+    sample_mode: SampleMode = SampleMode.rejection,
     loglevel: int = 0,
     mesh_skimmer: float | None = None,
     quadrupole: Quadrupole | None = None,

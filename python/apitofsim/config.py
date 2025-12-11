@@ -372,7 +372,7 @@ def import_raw_config(config):
 
         if into_cls is not None:
             config[k] = into_cls(
-                **{k2: into_quantity_obj(config[k], k2) for k2 in config[k]}
+                **{k2: into_quantity_obj(config[k], k2) for k2 in config[k]}  # pyright: ignore
             )
         elif k in TOPLEVEL + ["voltages", "lengths"]:
             config[k] = into_quantity_obj(config, k)

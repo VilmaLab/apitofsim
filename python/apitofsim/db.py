@@ -385,6 +385,7 @@ class ExperimentDatabase(ClusterDatabase):
             "insert into experiment_run values (default, ?, current_timestamp) returning id",
             (config_id,),
         ).fetchone()
+        assert id is not None
         return id[0]
 
     def insert_config(self, name, config):
@@ -396,6 +397,7 @@ class ExperimentDatabase(ClusterDatabase):
             "insert into experiment_config values (default, ?, ?::json) returning id",
             (name, config),
         ).fetchone()
+        assert id is not None
         return id[0]
 
     def iter_configs(self, name=None):
@@ -431,6 +433,7 @@ class ExperimentDatabase(ClusterDatabase):
                 int(counters.counter_collision_rejections),
             ),
         ).fetchone()
+        assert id is not None
         return id[0]
 
     def record_failure(
@@ -440,6 +443,7 @@ class ExperimentDatabase(ClusterDatabase):
             "insert into experiment_failure values (default, ?, ?, ?, ?, ?) returning id",
             (run_id, pathway_id, exc_name, msg, overflow_requested),
         ).fetchone()
+        assert id is not None
         return id[0]
 
     def export(self, out_path, experiment_id=None):
