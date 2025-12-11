@@ -62,7 +62,7 @@ requirements:
     - pint >= 0.25.1
     - duckdb >= 1.4.2
     - matplotlib >=3.10.7
-    - orjson >= 3.11.5
+    - orjson >= 3.11.4
 
 tests:
   - python:
