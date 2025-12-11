@@ -36,31 +36,6 @@ joint_survivals = {}
 
 for cluster in db.clusters_df(parents_only=True).itertuples():
     print("#", name_map[cluster.common_name])
-    """
-    df = (
-        db.pathways_query()
-        .join(
-            db.db.table("experiment_result"),
-            condition="pathway.id = experiment_result.pathway_id",
-        )
-        .filter(
-            (
-                duckdb.ColumnExpression("experiment_result.experiment_run_id")
-                == duckdb.ConstantExpression(er_id)
-            )
-            & (
-                duckdb.ColumnExpression("pathway.cluster_id")
-                == duckdb.ConstantExpression(cluster.id)
-            )
-        )
-        .select(
-            duckdb.SQLExpression(
-                "n_escaped_total / (n_escaped_total + n_fragmented_total)"
-            ).alias("survival_rate"),
-        )
-        .fetchdf()
-    )
-    """
     df = (
         db.db.table("experiment_report")
         .filter(
