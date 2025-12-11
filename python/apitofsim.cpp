@@ -472,7 +472,7 @@ NB_MODULE(apitofsimraw, m)
         "seed"_a = 42ull,
         "log_callback"_a = std::nullopt,
         "result_callback"_a = std::nullopt,
-        "sample_mode"_a = 0,
+        "sample_mode"_a = SampleMode::rejection,
         "loglevel"_a = DEFAULT_LOGLEVEL);
 
   nb::class_<FragmentationPathway>(m, "FragmentationPathway")
