@@ -15,11 +15,11 @@ gen_compute_k_total = custom_target('gen_compute_k_total',
                         output : ['compute_k_total_data.h'],
                         command : [gen_compute_k_total_bin, '@OUTPUT0@'],
                         build_by_default : true)
-doctest_dep = dependency('doctest')
+catch2_dep = dependency('catch2')
 
 tests = executable('apitofsim-tests',
                    ['main.cpp', gen_compute_k_total],
-                   dependencies : [doctest_dep, nanobind, eigen3, concurrentqueue, magic_enum],
+                   dependencies : [catch2_dep, nanobind, eigen3, concurrentqueue, magic_enum],
                    include_directories: incdir,
                    install : false)
 
