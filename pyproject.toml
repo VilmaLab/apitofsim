@@ -4,11 +4,12 @@ version = '0.0.2'
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "duckdb>=1.4.2",
-    "matplotlib>=3.10.7",
-    "numpy",
-    "pandas",
-    "pint>=0.25.1",
+  "duckdb>=1.4.2",
+  "matplotlib>=3.10.7",
+  "numpy",
+  "orjson>=3.11.5",
+  "pandas",
+  "pint>=0.25.1",
 ]
 
 [build-system]
@@ -22,6 +23,7 @@ docs = [
   "mkdocstrings>=1.0.0",
   "mkdocstrings-python>=2.0.1",
 ]
+notebooks = ["scipy>=1.16.3", "sympy>=1.14.0", "marimo"]
 
 [tool.meson-python]
 limited-api = true

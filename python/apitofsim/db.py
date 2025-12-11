@@ -1,5 +1,6 @@
 # pyright: reportAttributeAccessIssue=false
 
+from collections import namedtuple
 import pandas
 import duckdb
 from pint import get_application_registry
@@ -8,6 +9,8 @@ from datetime import timedelta
 
 from glob import glob
 from os.path import dirname, isfile, basename, expanduser
+
+from .api import ApiTofError, ApiTofOverflowError, MeshMode
 
 ureg = get_application_registry()
 Q_ = ureg.Quantity
@@ -209,14 +212,15 @@ def fixup_config(config, particle, backup_dir=None):
                     config[config_key] = result
                     particle_failed = False
             if particle_failed:
-                print(f"Could not find {config[config_key]}; skipping particle")
+                print(
+                    f"Could not find {config_key}='{config[config_key]}'; skipping particle"
+                )
                 return True
     return False
 
 
-def ingest_legacy(db: ClusterDatabase, path, backup_dir=None):
+def ingest_legacy(db: ClusterDatabase, path, backup_dir=None, verbose=False):
     from contextlib import chdir
-    from pprint import pprint
     from apitofsim.config import (
         parse_config,
         get_particle,
@@ -224,7 +228,6 @@ def ingest_legacy(db: ClusterDatabase, path, backup_dir=None):
 
     filenames = glob(expanduser(path), recursive=True)
     for filename in filenames:
-        print("Reading", filename)
         with chdir(dirname(filename)):
             config = parse_config(filename)
             ids = []
@@ -233,7 +236,6 @@ def ingest_legacy(db: ClusterDatabase, path, backup_dir=None):
                 if fixup_config(config, particle, backup_dir):
                     particle_failed = True
                     continue
-                pprint(config)
                 particle_config = get_particle(config, particle)
                 inserted, id = db.insert_cluster(
                     particle_config["name"],
@@ -244,7 +246,8 @@ def ingest_legacy(db: ClusterDatabase, path, backup_dir=None):
                 )
                 ids.append(id)
                 if not inserted:
-                    print("Skipping existing particle", particle_config["name"])
+                    if verbose:
+                        print("Skipping existing particle", particle_config["name"])
             if particle_failed:
                 print("Skipping pathway due to missing particles")
                 continue
@@ -252,13 +255,21 @@ def ingest_legacy(db: ClusterDatabase, path, backup_dir=None):
 
 
 EXPERIMENT_TABLES = """
+create sequence experiment_config_sequence start 1;
 create sequence experiment_run_sequence start 1;
 create sequence experiment_result_sequence start 1;
-create sequence experiment_failure_sequence start 1;
+
+create table experiment_config (
+    id integer default nextval('experiment_config_sequence') primary key,
+    name varchar,
+    config json
+);
 
 create table experiment_run (
     id integer default nextval('experiment_run_sequence') primary key,
-    start_time timestamp,
+    experiment_config_id integer not null,
+    foreign key (experiment_config_id) references experiment_config (id),
+    start_time timestamp
 );
 
 create table experiment_result (
@@ -282,7 +293,9 @@ create table experiment_failure (
     pathway_id integer not null,
     foreign key (experiment_run_id) references experiment_run (id),
     foreign key (pathway_id) references pathway (id),
-    msg varchar
+    exc_name varchar,
+    msg varchar,
+    overflow_requested double
 );
 """
 
@@ -293,6 +306,10 @@ select
     -- Experiment run info
     er.id as experiment_run_id,
     er.start_time,
+
+    -- Config info
+    conf.name as config_name,
+    conf.config as config,
 
     -- Result/Failure info
     res.id as result_id,
@@ -341,6 +358,7 @@ left join (
     union by name
     select * from experiment_failure
 ) as res on res.experiment_run_id = er.id
+inner join experiment_config as conf on conf.id = er.experiment_config_id
 inner join pathway p on p.id = res.pathway_id
 inner join cluster c on c.id = p.cluster_id
 inner join cluster p1 on p1.id = p.product1_id
@@ -350,38 +368,59 @@ inner join cluster p2 on p2.id = p.product2_id
 """
 
 
+ConfigRow = namedtuple("ConfigRow", ["id", "name", "config"])
+
+
 class ExperimentDatabase(ClusterDatabase):
     TABLES = [PATHWAY_TABLES, EXPERIMENT_TABLES, REPORT_VIEW]
 
     def __init__(self, filename):
         super().__init__(filename)
-        self.current_run_id = None
-
-    def _guard_run_started(self):
-        if self.current_run_id is None:
-            raise RuntimeError("No experiment run started; call start_run() first")
 
     def refresh_views(self):
         self.db.execute(REPORT_VIEW)
 
-    def start_run(self):
+    def insert_run(self, config_id=None):
         id = self.db.execute(
-            "insert into experiment_run values (default, current_timestamp) returning id"
+            "insert into experiment_run values (default, ?, current_timestamp) returning id",
+            (config_id,),
         ).fetchone()
-        self.current_run_id = id[0]
-        return self.current_run_id
+        return id[0]
+
+    def insert_config(self, name, config):
+        if isinstance(config, dict):
+            import orjson
+
+            config = orjson.dumps(config).decode("utf-8")
+        id = self.db.execute(
+            "insert into experiment_config values (default, ?, ?::json) returning id",
+            (name, config),
+        ).fetchone()
+        return id[0]
+
+    def iter_configs(self, name=None):
+        import orjson
+        from .config import import_raw_config
+
+        query = self.db.table("experiment_config")
+        if name is not None:
+            query = query.filter(
+                duckdb.ColumnExpression("name") == duckdb.ConstantExpression(name)
+            )
+        for id, name, config in query.fetchall():
+            yield ConfigRow(id, name, import_raw_config(orjson.loads(config)))
 
     def record_result(
         self,
+        run_id,
         pathway_id,
         counters,
         timings,
     ):
-        self._guard_run_started()
         id = self.db.execute(
             "insert into experiment_result values (default, ?, ?, ?, ?, ?, ?, ?, ?, ?) returning id",
             (
-                self.current_run_id,
+                run_id,
                 pathway_id,
                 timings.loop / timedelta(microseconds=1),
                 timings.total / timedelta(microseconds=1),
@@ -394,13 +433,58 @@ class ExperimentDatabase(ClusterDatabase):
         ).fetchone()
         return id[0]
 
-    def record_failure(self, pathway_id, msg):
-        self._guard_run_started()
+    def record_failure(
+        self, run_id, pathway_id, exc_name, msg, overflow_requested=None
+    ):
         id = self.db.execute(
-            "insert into experiment_failure values (default, ?, ?, ?) returning id",
-            (self.current_run_id, pathway_id, msg),
+            "insert into experiment_failure values (default, ?, ?, ?, ?, ?) returning id",
+            (run_id, pathway_id, exc_name, msg, overflow_requested),
         ).fetchone()
         return id[0]
+
+    def export(self, out_path, experiment_id=None):
+        if experiment_id:
+            where_clause = f" where experiment_run_id = {experiment_id}"
+        else:
+            where_clause = ""
+        self.db.execute(
+            f"copy (select * from experiment_report{where_clause}) to '{out_path}' (header, delimiter ',');"
+        )
+
+    def experiment_summary_df(self):
+        return self.db.execute(
+            """
+        select
+            er.id as experiment_run_id,
+            conf.name as config_name,
+            er.start_time,
+            (
+                select count()
+                from experiment_result
+                where experiment_result.experiment_run_id = er.id
+            ) as successes,
+            (
+                select count()
+                from experiment_failure
+                where experiment_failure.experiment_run_id = er.id
+            ) as failures,
+        from experiment_run er
+        join experiment_config conf on conf.id = er.experiment_config_id
+        """
+        ).fetchdf()
+
+
+class ExperimentRunner:
+    def __init__(self, db: ExperimentDatabase):
+        self.db = db
+        self.current_run_id = None
+
+    def _guard_run_started(self):
+        if self.current_run_id is None:
+            raise RuntimeError("No experiment run started; call start_run() first")
+
+    def start_run(self, config_id=None):
+        self.current_run_id = self.db.insert_run(config_id)
 
     def run_pinhole(
         self,
@@ -419,42 +503,178 @@ class ExperimentDatabase(ClusterDatabase):
                 output_named_tuple=True,
                 output_timings=True,
             )
-        except Exception as e:
+        except ApiTofError as e:
             if strict:
                 raise
-            self.record_failure(pathway_id, str(e))
+            overflow_requested = None
+            if isinstance(e, ApiTofOverflowError):
+                overflow_requested = e.current
+            self.db.record_failure(
+                self.current_run_id,
+                pathway_id,
+                type(e).__name__,
+                str(e),
+                overflow_requested,
+            )
         else:
-            self.record_result(
+            self.db.record_result(
+                self.current_run_id,
                 pathway_id,
                 counters,
                 timings,
             )
 
-    def export(self, out_path, experiment_id=None):
-        if experiment_id:
-            where_clause = f" where experiment_run_id = {experiment_id}"
-        else:
-            where_clause = ""
-        self.db.execute(
-            f"copy (select * from experiment_report{where_clause}) to '{out_path}' (header, delimiter ',');"
+    def run_from_config(self, config, run_started=False):
+        from os import environ
+        from apitofsim import (
+            skimmer,
+            ProductsCluster,
+            KTotalInput,
+            compute_density_of_states_batch,
+            compute_k_total_batch,
+            precompute_mesh,
+            FragmentationPathway,
+        )
+        from apitofsim.api import Histogram
+        from timeit import default_timer as timer
+
+        if not run_started:
+            self.db.start_run()
+
+        cluster_indexed, name_lookup = self.db.clusters_objects_indexed(
+            include_name_lookup=True
+        )
+        print()
+
+        print("Running skimmer")
+        skimmer_np = skimmer(
+            T0=config["T"],
+            P0=config["pressure_first"],
+            rmax=config["lengths"][-1],
+            dc=config["dc"],
+            alpha_factor=config["alpha_factor"],
+            gas=config["gas"],
+            N=config["N_iter"],
+            M=config["M_iter"],
+            resolution=config["resolution"],
+            tolerance=config["tolerance"],
+        )
+        print("Done")
+
+        num_pathways = 0
+        density_of_states_inputs = []
+        for _, cluster, _, _ in self.db.pathways_objs(indexed=cluster_indexed):
+            density_of_states_inputs.append(cluster)
+            num_pathways += 1
+
+        for _, _, product1, product2 in self.db.pathways_objs(indexed=cluster_indexed):
+            density_of_states_inputs.append(ProductsCluster(product1, product2))
+
+        print("Computing density of states")
+        start = timer()
+
+        density_of_states = compute_density_of_states_batch(
+            density_of_states_inputs,
+            energy_max=config["energy_max"],
+            bin_width=config["bin_width"],
+        )
+        print(f"Done in {timer() - start}s")
+
+        cluster_dos = density_of_states[:, :num_pathways]
+        product_dos = density_of_states[:, num_pathways:]
+
+        k_total_inputs = []
+        for idx, (_, cluster, product1, product2) in enumerate(
+            self.db.pathways_objs(indexed=cluster_indexed)
+        ):
+            k_total_inputs.append(
+                KTotalInput(
+                    product1.into_cpp(),
+                    product2.into_cpp(),
+                    FragmentationPathway(
+                        cluster.into_cpp(), product1.into_cpp(), product2.into_cpp()
+                    ).fragmentation_energy_kelvin(),
+                    cluster_dos[:, idx],
+                    product_dos[:, idx],
+                )
+            )
+
+        mesh_points = config["energy_max_rate"] / config["bin_width"]
+        print(
+            f"Compute mesh with {mesh_points} points and mesh_mode=MeshMode.compute_mesh_diagonal_multithreaded"
         )
 
-    def experiment_summary_df(self):
-        return self.db.execute(
-            """
-        select
-            er.id as experiment_run_id,
-            er.start_time,
-            (
-                select count()
-                from experiment_result
-                where experiment_result.experiment_run_id = er.id
-            ) as successes,
-            (
-                select count()
-                from experiment_failure
-                where experiment_failure.experiment_run_id = er.id
-            ) as failures,
-        from experiment_run er
-        """
-        ).fetchdf()
+        start = timer()
+        mesh = precompute_mesh(
+            energy_max_rate=config["energy_max_rate"],
+            bin_width=config["bin_width"],
+            mesh_mode=MeshMode.compute_mesh_diagonal_multithreaded,
+        )
+        print(f"Done in {timer() - start}")
+
+        print(f"Compute k total on {len(k_total_inputs)} inputs")
+
+        start = timer()
+        k_rates = compute_k_total_batch(
+            k_total_inputs,
+            energy_max_rate=config["energy_max_rate"],
+            bin_width=config["bin_width"],
+            mesh=mesh,
+        )
+        print(f"Done in {timer() - start}")
+
+        for (
+            pathway_id,
+            cluster_id,
+            product1_id,
+            product2_id,
+        ), rate_const, density_cluster in zip(
+            self.db.pathways_ids(),
+            k_rates.T,
+            cluster_dos.T,
+        ):
+            cluster = cluster_indexed[cluster_id]
+            product1 = cluster_indexed[product1_id]
+            product2 = cluster_indexed[product2_id]
+            print(
+                f"{name_lookup[cluster_id]} -> {name_lookup[product1_id]} + {name_lookup[product2_id]}"
+            )
+            density_hist = Histogram.from_mesh(
+                config["bin_width"],
+                config["energy_max"],
+                density_cluster,
+            )
+            rate_hist = Histogram.from_mesh(
+                config["bin_width"],
+                config["energy_max_rate"],
+                rate_const,
+            )
+            self.run_pinhole(
+                cluster,
+                product1,
+                product2,
+                config["gas"],
+                density_hist,
+                rate_hist,
+                skimmer_np,
+                config["lengths"],
+                config["voltages"],
+                config["T"],
+                config["pressure_first"],
+                config["pressure_second"],
+                int(environ["N_OVERRIDE"]) if "N_OVERRIDE" in environ else config["N"],
+                quadrupole=config.get("quadrupole"),
+                fragmentation_energy=config.get("fragmentation_energy"),
+                cluster_charge_sign=config.get("cluster_charge_sign", -1),
+                pathway_id=pathway_id,
+                sample_mode=2,
+                loglevel=0,
+                strict="STRICT" in environ,
+            )
+
+    def run_prepared_config(self, name=None):
+        for row in self.db.iter_configs(name):
+            print("Running experiment config:", row.name)
+            print(row.config)
+            self.start_run(row.id)
+            self.run_from_config(row.config, run_started=True)

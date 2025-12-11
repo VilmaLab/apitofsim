@@ -1,10 +1,8 @@
 import os
-from glob import glob
 from sys import argv
-from json import load
 from os import unlink
-import pickle
 import pint
+import orjson
 
 from apitofsim.db import ingest_legacy, ExperimentDatabase
 from apitofsim.config import (
@@ -13,31 +11,42 @@ from apitofsim.config import (
 )
 
 
+def default(obj):
+    if isinstance(obj, pint.Quantity):
+        return [obj.magnitude, str(obj.units)]
+    raise TypeError
+
+
+def dump(obj):
+    return orjson.dumps(obj, orjson.OPT_SERIALIZE_NUMPY, default=default)
+
+
+def iter_raw_configs(json):
+    for config in json.get("configs", []):
+        yield config["name"], {**json.get("default_config", {}), **config}
+
+
 ureg = pint.UnitRegistry()
 Q_ = ureg.Quantity
 
 
 def main():
     infn = argv[1]
-    out_path = argv[2]
-    db_name = out_path + ".duckdb"
+    db_name = argv[2]
     if os.path.exists(db_name):
         unlink(db_name)
     db = ExperimentDatabase(db_name)
     db.create_tables()
 
-    with open(infn) as f:
-        source = load(f)
+    with open(infn, "rb") as f:
+        source = orjson.loads(f.read())
 
     ingest_legacy(db, source["path"], source.get("backup_search"))
-    filename = glob(source["path"], recursive=True)[0]
-    config = ConfigFile(filename=filename)
-    common_config_out = {
-        k: config.get(k, by="short_name")
-        for k in (["lengths", "voltages", "gas"] + TOPLEVEL)
-    }
-    with open(out_path + ".pkl", "wb") as outf:
-        pickle.dump(common_config_out, outf)
+
+    for name, config in iter_raw_configs(source):
+        from pprint import pprint
+
+        db.insert_config(name, config)
 
 
 if __name__ == "__main__":
