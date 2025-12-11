@@ -138,7 +138,7 @@ SimulationResult pinhole(
   unsigned long long seed = 42ull,
   std::optional<std::function<void(std::string_view, std::string)>> log_callback = nullopt,
   std::optional<std::function<void(Counters)>> result_callback = nullopt,
-  int sample_mode = 0,
+  SampleMode sample_mode = SampleMode::rejection,
   int loglevel = DEFAULT_LOGLEVEL)
 {
   using magic_enum::enum_name;
@@ -270,7 +270,7 @@ Eigen::ArrayX2d dispatch_sample_collision(
 }
 
 Eigen::ArrayX2d sample_collision(
-  int sample_mode,
+  SampleMode sample_mode,
   int num_samples,
   double v_rel_norm,
   Gas gas,
@@ -297,17 +297,17 @@ Eigen::ArrayX2d sample_collision(
   {
     du_val = 1.0e-4 * sqrt(mobility_gas);
   }
-  if (sample_mode == 0)
+  if (sample_mode == SampleMode::dss_normalized)
   {
     auto sampler = GasCollCondNormHistDSSSampler(dtheta, du_val, boundary_u);
     return dispatch_sample_collision(sampler, gen, num_samples, v_rel_norm, mobility_gas, mobility_gas_inv, R_tot, n);
   }
-  else if (sample_mode == 1)
+  else if (sample_mode == SampleMode::dss_unnormalized)
   {
     auto sampler = GasCollCondUnnormHistDSSSampler(dtheta, du_val, boundary_u);
     return dispatch_sample_collision(sampler, gen, num_samples, v_rel_norm, mobility_gas, mobility_gas_inv, R_tot, n);
   }
-  else if (sample_mode == 2)
+  else if (sample_mode == SampleMode::rejection)
   {
     auto sampler = GasCollRejectionSampler(boundary_u);
     return dispatch_sample_collision(sampler, gen, num_samples, v_rel_norm, mobility_gas, mobility_gas_inv, R_tot, n);
@@ -316,7 +316,7 @@ Eigen::ArrayX2d sample_collision(
   {
     throw ApiTofArgumentError([&](auto &msg)
     {
-      msg << "Unknown sampling mode: " << sample_mode << std::endl;
+      msg << "Unknown sampling mode: " << static_cast<int>(sample_mode) << std::endl;
     });
   }
 }
@@ -484,6 +484,7 @@ NB_MODULE(apitofsimraw, m)
 
   nb_magic_enum<Counter::Counter>(m, "Counter");
   nb_magic_enum<MeshMode>(m, "MeshMode");
+  nb_magic_enum<SampleMode>(m, "SampleMode");
 
   nb::exception<ApiTofError>(m, "ApiTofError");
   nb::exception<ApiTofArgumentError>(m, "ApiTofArgumentError", m.attr("ApiTofError"));

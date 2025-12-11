@@ -31,6 +31,7 @@ from .apitofsimraw import (
     ApiTofUnexpectedNumericalError,
     # Enums
     MeshMode,
+    SampleMode,
 )
 
 
@@ -56,6 +57,9 @@ __all__ = [
     "ApiTofRateConstantOverflow",
     "ApiTofMaxCollisions",
     "ApiTofUnexpectedNumericalError",
+    # Enums
+    "MeshMode",
+    "SampleMode",
 ]
 
 

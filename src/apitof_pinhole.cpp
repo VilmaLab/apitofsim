@@ -17,6 +17,7 @@
 
 #include <iostream>
 #include <iomanip>
+#include <stdexcept>
 #include <stdlib.h>
 #include <string>
 #include "apitof_pinhole_io.h"
@@ -182,20 +183,17 @@ void apitof_pinhole_config_in()
       lengths << L0, L1, L2, L3, Lsk;
       InstrumentVoltages voltages(5);
       voltages << V0, V1, V2, V3, V4;
-      int sample_mode = 0;
+      SampleMode sample_mode = SampleMode::rejection;
       char *sample_mode_env = getenv("SAMPLE_MODE");
       if (sample_mode_env != nullptr)
       {
-        if (strcmp(sample_mode_env, "1") == 0)
+        auto env_sample_mode = magic_enum::enum_cast<SampleMode>(sample_mode_env);
+        if (!env_sample_mode.has_value())
         {
-          std::cout << "Using SAMPLE_MODE=1\n";
-          sample_mode = 1;
+          std::cerr << "Invalid SAMPLE_MODE value: " << sample_mode_env << "\n";
+          throw std::invalid_argument("Invalid SAMPLE_MODE value");
         }
-        if (strcmp(sample_mode_env, "2") == 0)
-        {
-          std::cout << "Using SAMPLE_MODE=2\n";
-          sample_mode = 2;
-        }
+        sample_mode = *env_sample_mode;
       }
       std::optional<Quadrupole> quadrupole = std::nullopt;
       if (!std::isnan(dc_field))

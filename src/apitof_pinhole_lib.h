@@ -50,6 +50,13 @@ struct Quadrupole
   }
 };
 
+enum struct SampleMode
+{
+  dss_normalized,
+  dss_unnormalized,
+  rejection,
+};
+
 // LIST OF FUNCTIONS
 // Here we are
 double particle_density(double pressure, double kT);
@@ -110,7 +117,7 @@ SimulationResult apitof_pinhole(
   const double mesh_skimmer,
   unsigned long long root_seed,
   StreamingResultQueue &result_queue,
-  int sample_mode,
+  SampleMode sample_mode,
   int loglevel = DEFAULT_LOGLEVEL)
 {
   using consts::boltzmann;
@@ -120,7 +127,7 @@ SimulationResult apitof_pinhole(
   double boundary_u = 5.0 * sqrt(mobility_gas);
   const double du = 1.0e-4 * sqrt(mobility_gas);
   const double dtheta = 1.0e-3;
-  if (sample_mode == 0)
+  if (sample_mode == SampleMode::dss_normalized)
   {
     return apitof_pinhole<GasCollCondNormHistDSSSampler, VibEnergyNormSampler>(
       cluster_charge_sign,
@@ -145,7 +152,7 @@ SimulationResult apitof_pinhole(
       VibEnergyNormSampler(density_cluster),
       loglevel);
   }
-  else if (sample_mode == 1)
+  else if (sample_mode == SampleMode::dss_unnormalized)
   {
     return apitof_pinhole<GasCollCondUnnormHistDSSSampler, VibEnergyUnnormSampler>(
       cluster_charge_sign,
@@ -170,7 +177,7 @@ SimulationResult apitof_pinhole(
       VibEnergyUnnormSampler(density_cluster),
       loglevel);
   }
-  else if (sample_mode == 2)
+  else if (sample_mode == SampleMode::rejection)
   {
     return apitof_pinhole<GasCollRejectionSampler, VibEnergyNormSampler>(
       cluster_charge_sign,
@@ -199,7 +206,7 @@ SimulationResult apitof_pinhole(
   {
     throw ApiTofArgumentError([&](auto &msg)
     {
-      msg << "Unknown sampling mode: " << sample_mode << std::endl;
+      msg << "Unknown sampling mode: " << static_cast<int>(sample_mode) << std::endl;
     });
   }
 }

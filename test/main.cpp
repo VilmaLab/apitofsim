@@ -141,7 +141,7 @@ TEST_CASE("apitof pinhole smoke tests")
     mesh_skimmer,
     42,
     result_queue,
-    0));
+    SampleMode::dss_normalized));
   result_queue.enqueue(std::monostate{});
   CHECK(counters[Counter::nwarnings] == 0);
   CHECK(counters[Counter::n_fragmented_total] + counters[Counter::n_escaped_total] == 5);
