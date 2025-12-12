@@ -3,6 +3,7 @@
 #include <random>
 #include "consts.h"
 #include "warnlogcount.h"
+#include "exceptions.h"
 
 // Total collision frequency
 double coll_freq(double n, double mobility_gas, double mobility_gas_inv, double R, double v)

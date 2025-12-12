@@ -10,6 +10,7 @@
 #include <magic_enum/magic_enum.hpp>
 #include "consts.h"
 #include "warnlogcount.h"
+#include "exceptions.h"
 #include "samplers.h"
 
 using namespace std;
