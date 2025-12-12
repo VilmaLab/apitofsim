@@ -93,6 +93,9 @@ class ClusterData(ClusterLike):
     def get_frequencies(self) -> numpy.ndarray:
         return numpy.asfortranarray(self.frequencies, dtype=numpy.float64)
 
+    def is_atom_like_product(self) -> bool:
+        return self.frequencies is None
+
 
 @dataclass
 class ProductsCluster(ClusterLike):
@@ -100,12 +103,13 @@ class ProductsCluster(ClusterLike):
     cluster2: ClusterData
 
     def get_frequencies(self) -> numpy.ndarray:
-        return numpy.asfortranarray(
-            numpy.concatenate(
+        if self.cluster2.is_atom_like_product():
+            frequencies = self.cluster1.get_frequencies()
+        else:
+            frequencies = numpy.concatenate(
                 (self.cluster1.get_frequencies(), self.cluster2.get_frequencies())
-            ),
-            dtype=numpy.float64,
-        )
+            )
+        return numpy.asfortranarray(frequencies, dtype=numpy.float64)
 
 
 @dataclass
