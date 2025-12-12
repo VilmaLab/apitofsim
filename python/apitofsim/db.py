@@ -407,8 +407,6 @@ class ExperimentDatabase(ClusterDatabase):
         from .config import dump_to_raw
 
         if isinstance(config, dict):
-            import orjson
-
             config = dump_to_raw(config).decode("utf-8")
         id = self.db.execute(
             "insert into experiment_config values (default, ?, ?::json) returning id",
