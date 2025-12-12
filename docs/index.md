@@ -111,7 +111,7 @@ meson setup --buildtype release build
 meson compile -C build
 ```
 
-The binaries are then in `build/src`. You add this directory to your PATH or symlink to them.
+The binaries are then in `build/src/cli`. You add this directory to your PATH or symlink to them.
 
 This will also create a compilation database that `clangd` can use.
 
