@@ -1,7 +1,7 @@
 fs = import('fs')
 
 python = import('python').find_installation()
-apitofsim = python.extension_module(
+apitofsim_python = python.extension_module(
   'apitofsimraw',
   sources: ['apitofsim.cpp'],
   dependencies: [nanobind, eigen3, openmp, concurrentqueue, magic_enum],
@@ -10,21 +10,14 @@ apitofsim = python.extension_module(
   install: true,
   limited_api: '3.12',
 )
-python.install_sources([
-'apitofsim/api.py',
-'apitofsim/cli.py',
-'apitofsim/db.py',
-'apitofsim/config.py',
-'apitofsim/__init__.py',
-'apitofsim/__main__.py',
-'apitofsim/py.typed',
-], subdir: 'apitofsim', pure : false)
+
+subdir('apitofsim')
 
 stubgen = nanobind.get_variable('stubgen')
 custom_target(
   output: 'apitofsimraw.pyi',
-  depends: apitofsim,
-  env: {'PYTHONPATH': fs.parent(apitofsim.full_path())},
+  depends: apitofsim_python,
+  env: {'PYTHONPATH': fs.parent(apitofsim_python.full_path())},
   command: [python, stubgen, '-m', 'apitofsimraw'],
   install: true,
   install_dir: python.get_install_dir(pure : false) / 'apitofsim',
