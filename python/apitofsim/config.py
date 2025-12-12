@@ -257,6 +257,12 @@ class ConfigFile:
             return Q_(value, unit)
         return value
 
+    def into_json_config(self):
+        return {
+            k: self.get(k, by="short_name")
+            for k in (["lengths", "voltages", "gas"] + TOPLEVEL)
+        }
+
 
 def get_particle(config, particle):
     particle_data = {}
@@ -340,6 +346,20 @@ def parse_config_list(fn):
             with chdir(conf_info["cwd"]):
                 config_dict[k] = parse_config(conf_info["config"])
     return config_dict
+
+
+def dump_to_raw(obj):
+    import pint
+    import orjson
+
+    def default(obj):
+        if isinstance(obj, pint.Quantity):
+            return [obj.magnitude, str(obj.units)]
+        elif isinstance(obj, Gas | Quadrupole):
+            return vars(obj)
+        raise TypeError
+
+    return orjson.dumps(obj, default=default, option=orjson.OPT_SERIALIZE_NUMPY)
 
 
 def into_quantity(obj, default_unit=None):

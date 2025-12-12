@@ -4,21 +4,7 @@ from os import unlink
 import pint
 import orjson
 
-from apitofsim.db import ingest_legacy, ExperimentDatabase
-from apitofsim.config import (
-    ConfigFile,
-    TOPLEVEL,
-)
-
-
-def default(obj):
-    if isinstance(obj, pint.Quantity):
-        return [obj.magnitude, str(obj.units)]
-    raise TypeError
-
-
-def dump(obj):
-    return orjson.dumps(obj, orjson.OPT_SERIALIZE_NUMPY, default=default)
+from apitofsim.db import ingest_legacy_tree, ExperimentDatabase
 
 
 def iter_raw_configs(json):
@@ -41,11 +27,9 @@ def main():
     with open(infn, "rb") as f:
         source = orjson.loads(f.read())
 
-    ingest_legacy(db, source["path"], source.get("backup_search"))
+    ingest_legacy_tree(db, source["path"], source.get("backup_search"))
 
     for name, config in iter_raw_configs(source):
-        from pprint import pprint
-
         db.insert_config(name, config)
 
 

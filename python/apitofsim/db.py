@@ -196,7 +196,7 @@ def backup_search(source, data_file):
             return results[0]
 
 
-def fixup_config(config, particle, backup_dir=None):
+def fixup_config(config, particle, backup_dir=None, allow_fail=False):
     for quantity in [
         "vibrational_temperatures",
         "rotational_temperatures",
@@ -212,46 +212,61 @@ def fixup_config(config, particle, backup_dir=None):
                     config[config_key] = result
                     particle_failed = False
             if particle_failed:
-                print(
-                    f"Could not find {config_key}='{config[config_key]}'; skipping particle"
-                )
+                msg = f"Could not find {config_key}='{config[config_key]}'"
+                if not allow_fail:
+                    raise RuntimeError(msg)
+                print(msg + "; skipping particle")
                 return True
     return False
 
 
-def ingest_legacy(db: ClusterDatabase, path, backup_dir=None, verbose=False):
+def ingest_legacy_one(
+    db: ClusterDatabase,
+    filename,
+    backup_dir=None,
+    verbose=False,
+    allow_fail=False,
+    allow_skip=False,
+):
     from contextlib import chdir
     from apitofsim.config import (
         parse_config,
         get_particle,
     )
 
+    with chdir(dirname(filename)):
+        config = parse_config(filename)
+        ids = []
+        particle_failed = False
+        for particle in ["cluster", "first_product", "second_product"]:
+            if fixup_config(config, particle, backup_dir, allow_fail):
+                particle_failed = True
+                continue
+            particle_config = get_particle(config, particle)
+            name = particle_config["name"]
+            inserted, id = db.insert_cluster(
+                name,
+                particle_config["atomic_mass"],
+                particle_config["electronic_energy"],
+                particle_config["rotational_temperatures"],
+                particle_config["vibrational_temperatures"],
+            )
+            ids.append(id)
+            if not inserted:
+                if not allow_skip:
+                    raise RuntimeError(f"Particle already exists: {name}")
+                if verbose:
+                    print(f"Skipping existing particle: {name}")
+        if particle_failed:
+            print("Skipping pathway due to missing particles")
+            return
+        db.insert_pathway(*ids)
+
+
+def ingest_legacy_tree(db: ClusterDatabase, path, backup_dir=None, verbose=False):
     filenames = glob(expanduser(path), recursive=True)
     for filename in filenames:
-        with chdir(dirname(filename)):
-            config = parse_config(filename)
-            ids = []
-            particle_failed = False
-            for particle in ["cluster", "first_product", "second_product"]:
-                if fixup_config(config, particle, backup_dir):
-                    particle_failed = True
-                    continue
-                particle_config = get_particle(config, particle)
-                inserted, id = db.insert_cluster(
-                    particle_config["name"],
-                    particle_config["atomic_mass"],
-                    particle_config["electronic_energy"],
-                    particle_config["rotational_temperatures"],
-                    particle_config["vibrational_temperatures"],
-                )
-                ids.append(id)
-                if not inserted:
-                    if verbose:
-                        print("Skipping existing particle", particle_config["name"])
-            if particle_failed:
-                print("Skipping pathway due to missing particles")
-                continue
-            db.insert_pathway(*ids)
+        ingest_legacy_one(db, filename, backup_dir, verbose)
 
 
 EXPERIMENT_TABLES = """
@@ -389,10 +404,12 @@ class ExperimentDatabase(ClusterDatabase):
         return id[0]
 
     def insert_config(self, name, config):
+        from .config import dump_to_raw
+
         if isinstance(config, dict):
             import orjson
 
-            config = orjson.dumps(config).decode("utf-8")
+            config = dump_to_raw(config).decode("utf-8")
         id = self.db.execute(
             "insert into experiment_config values (default, ?, ?::json) returning id",
             (name, config),
