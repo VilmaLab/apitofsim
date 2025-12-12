@@ -26,9 +26,28 @@ tests = executable('apitofsim-tests',
 test(
    'apitofsim-tests',
    tests,
-   env : 'DATA_DIR=' + fs.parent(test_data_files[0].full_path()),
-   depends: test_data_files,
+   env : 'DATA_DIR=' + fs.parent(ready_test_data_files[0].full_path()),
+   depends: ready_test_data_files,
    timeout : 300
 )
+
+if python_feat.enabled()
+   pytest = find_program('pytest')
+
+   env = environment()
+   env.set('DATA_DIR', fs.parent(raw_test_data_files[0].full_path()))
+   env.set(
+      'PYTHONPATH',
+      fs.parent(apitofsim_python.full_path()),
+      fs.parent(apitofsim_python_py_builddir[0].full_path()),
+   )
+   test(
+      'apitofsim-python-tests',
+      pytest,
+      args: files('test_python.py'),
+      env: env,
+      depends: [raw_test_data_files, apitofsim_python, apitofsim_python_py_builddir],
+   )
+endif
 
 subdir('bench')

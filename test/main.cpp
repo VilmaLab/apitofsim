@@ -3,7 +3,7 @@
 
 #include "skimmer_lib.h"
 #include "densityandrate_smoke.h"
-#include "apitof_pinhole_io.h"
+#include "cli/apitof_pinhole_io.h"
 
 TEST_CASE("skimmer smoke tests")
 {
