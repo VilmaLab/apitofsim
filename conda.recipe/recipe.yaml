@@ -71,6 +71,15 @@ tests:
         - ${{ name }}.${{ name }}raw
       python_version: ["${{ python_min ~ '.*' }}"]  
 
+  - script:
+      - pytest ./tests
+    requirements:
+      run:
+        - pytest
+    files:
+      recipe:
+        - tests
+
 about:
   homepage: https://github.com/VilmaLab/apitofsim
   license: MIT
