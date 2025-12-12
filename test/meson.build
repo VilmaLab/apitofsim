@@ -32,7 +32,7 @@ test(
 )
 
 if python_feat.enabled()
-   pytest = find_program('pytest', required: false)
+   pytest = find_program('pytest', disabler: true, required: false)
 
    env = environment()
    env.set('DATA_DIR', fs.parent(raw_test_data_files[0].full_path()))
