@@ -20,6 +20,7 @@
 #include "apitof.h"
 #include "consts.h"
 #include "warnlogcount.h"
+#include "openmp_helper.h"
 
 using namespace std;
 

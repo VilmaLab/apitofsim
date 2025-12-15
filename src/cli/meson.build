@@ -3,7 +3,7 @@ executable(
   'skimmer_win.cpp',
   dependencies : [eigen3, openmp],
   link_with: [libapitofsim],
-  include_directories: [include_dir, inc_src],
+  include_directories: [include_dir],
   install : true
 )
 executable(
@@ -11,7 +11,7 @@ executable(
   'densityandrate_win.cpp',
   dependencies: [eigen3, openmp],
   link_with: [libapitofsim],
-  include_directories: [include_dir, inc_src],
+  include_directories: [include_dir],
   install : true
 )
 executable(
@@ -19,6 +19,6 @@ executable(
   'apitof_pinhole.cpp',
   dependencies: [eigen3, openmp, concurrentqueue, magic_enum],
   link_with: [libapitofsim],
-  include_directories: [include_dir, inc_src],
+  include_directories: [include_dir],
   install : true
 )

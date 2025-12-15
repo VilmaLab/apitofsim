@@ -6,7 +6,7 @@ apitofsim_python = python.extension_module(
   sources: ['apitofsim.cpp'],
   dependencies: [nanobind, eigen3, openmp, concurrentqueue, magic_enum],
   link_with: libapitofsim,
-  include_directories: [inc_src, include_dir],
+  include_directories: [include_dir],
   subdir: 'apitofsim',
   install: true,
   limited_api: '3.12',

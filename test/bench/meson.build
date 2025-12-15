@@ -1,5 +1,4 @@
 incdirs = [
-   inc_src,
    include_dir,
    include_directories('..')
 ]

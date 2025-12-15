@@ -13,6 +13,7 @@
 #include "exceptions.h"
 #include "samplers.h"
 #include "apitof.h"
+#include "openmp_helper.h"
 
 using namespace std;
 using magic_enum::enum_count;
