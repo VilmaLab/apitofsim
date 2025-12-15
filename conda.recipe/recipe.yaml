@@ -72,13 +72,13 @@ tests:
       python_version: ["${{ python_min ~ '.*' }}"]  
 
   - script:
-      - pytest ./tests
+      - DATA_DIR=$(pwd)/test/data/raw pytest ./test
     requirements:
       run:
         - pytest
     files:
-      recipe:
-        - tests
+      source:
+        - test/
 
 about:
   homepage: https://github.com/VilmaLab/apitofsim
