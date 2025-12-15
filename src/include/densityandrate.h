@@ -3,6 +3,7 @@
 #include "apitofsim.h"
 
 #include <Eigen/Dense>
+#include <optional>
 
 typedef Eigen::Array<double, Eigen::Dynamic, 4> DensityResult;
 const int C0_ROW = 0;
