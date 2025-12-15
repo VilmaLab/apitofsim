@@ -5,7 +5,8 @@ gen_compute_k_total_bin = executable(
    'gen_compute_k_total_bin',
    'gen/compute_k_total.cpp',
    dependencies : [eigen3],
-   include_directories: inc_src
+   link_with: libapitofsim,
+   include_directories: [inc_src, include_dir],
 )
 
 gen_compute_k_total = custom_target('gen_compute_k_total',

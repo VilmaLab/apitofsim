@@ -6,6 +6,8 @@
 #include <chrono>
 #include <math.h>
 #include <variant>
+#include "apitofsim.h"
+#include "apitofsim.cpp"
 #include "utils.h"
 #include <magic_enum/magic_enum.hpp>
 #include "consts.h"

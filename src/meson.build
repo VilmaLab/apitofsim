@@ -4,7 +4,7 @@ subdir('include')
 
 libapitofsim = static_library(
   'apitofsim',
-  'skimmer.cpp',
+  ['apitofsim.cpp', 'skimmer.cpp', 'densityandrate.cpp'],
   include_directories: [include_dir],
   dependencies : [eigen3, openmp],
 )

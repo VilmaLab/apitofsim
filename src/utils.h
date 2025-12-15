@@ -6,10 +6,6 @@
 #include <fstream>
 #include <Eigen/Dense>
 
-#define kb 1.38064852e-23 // Boltzmann constant
-#define hbar 1.054571800e-34 // Reduced Planck constant
-#define protonMass 1.6726219e-27 // relative mass of on proton in kg
-
 void check_field_name(const char *buffer, const char *expected)
 {
   if (strcmp(buffer, expected) != 0)
@@ -290,64 +286,3 @@ double read_electronic_energy(char *filename)
 
   return electronic_energy;
 }
-
-// Geometrical mean of moment of inertia
-double compute_inertia(const Eigen::Vector3d &rotations)
-{
-  return 0.5 * hbar * hbar / (kb * pow(rotations[0] * rotations[1] * rotations[2], 1.0 / 3));
-}
-
-// Compute radius of cluster
-void compute_mass_and_radius(double inertia, double amu, double &mass, double &radius)
-{
-  mass = protonMass * amu; // proton mass * nucleons
-  radius = sqrt(2.5 * inertia / mass);
-}
-
-struct Gas
-{
-  double radius;
-  double mass;
-  double adiabatic_index;
-};
-
-Eigen::ArrayXd prepare_energies(double bin_width, int m_max)
-{
-  Eigen::ArrayXd energies = Eigen::ArrayXd(m_max);
-  for (int m = 0; m < m_max; m++)
-  {
-    energies[m] = bin_width * (m + 0.5);
-  }
-  return energies;
-}
-
-struct Histogram
-{
-  Eigen::ArrayXd x;
-  Eigen::ArrayXd y;
-  double bin_width;
-  double x_max;
-
-  Histogram(Eigen::ArrayXd x, Eigen::ArrayXd y)
-      : x(x), y(y)
-  {
-    compute_derived();
-  }
-
-  Histogram(double bin_width, int m_max, Eigen::ArrayXd y)
-      : x(prepare_energies(bin_width, m_max)), y(y)
-  {
-    compute_derived();
-  }
-
-  void compute_derived()
-  {
-    bin_width = x[1] - x[0];
-    x_max = bin_width * length();
-  }
-
-  int length() const
-  {
-    return x.rows();
-  }
-};

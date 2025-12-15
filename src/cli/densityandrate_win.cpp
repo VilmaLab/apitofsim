@@ -3,7 +3,11 @@
 #include <stdlib.h>
 #include <math.h>
 #include <Eigen/Dense>
-#include "densityandrate_lib.h"
+#include "apitofsim.h"
+#include "densityandrate.h"
+#include "utils.h"
+
+using namespace std;
 
 void write_on_file(char *filename, const Eigen::Ref<const Eigen::ArrayXd> x, const Eigen::Ref<const Eigen::ArrayXd> y, int m_max);
 
