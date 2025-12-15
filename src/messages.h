@@ -12,18 +12,18 @@ std::string call_with_stringstream(Callback cb)
   return ss.str();
 }
 
-std::string prepare_message(const std::string &msg)
+static inline std::string prepare_message(const std::string &msg)
 {
   return msg;
 }
 
-std::string prepare_message(const char *msg)
+static inline std::string prepare_message(const char *msg)
 {
   return msg;
 }
 
 template <typename Callback>
-std::string prepare_message(Callback cb)
+static inline std::string prepare_message(Callback cb)
 {
   return call_with_stringstream(cb);
 }

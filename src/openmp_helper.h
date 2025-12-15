@@ -17,9 +17,12 @@
 
 static std::atomic<int> saved_signal = -1;
 
-extern "C" void set_flag_handler(int signal)
+extern "C"
 {
-  saved_signal.store(signal);
+  static inline void set_flag_handler(int signal)
+  {
+    saved_signal.store(signal);
+  }
 }
 
 typedef void (*SignalHandler)(int);

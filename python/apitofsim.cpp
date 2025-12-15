@@ -1,6 +1,7 @@
 #include <iostream>
 #include <optional>
 #include <stdlib.h>
+#include <random>
 
 #include <Eigen/Dense>
 #include <Python.h>
@@ -16,9 +17,11 @@
 
 #include "skimmer.h"
 #include "densityandrate.h"
-#include "apitof_pinhole_lib.h"
-#include "utils.h"
+#include "apitof.h"
+#include "consts.h"
 #include "warnlogcount.h"
+
+using namespace std;
 
 namespace nb = nanobind;
 using namespace nb::literals;

@@ -5,7 +5,7 @@
 #include <Eigen/Dense>
 #include "apitofsim.h"
 #include "densityandrate.h"
-#include "utils.h"
+#include "common_io.h"
 
 using namespace std;
 

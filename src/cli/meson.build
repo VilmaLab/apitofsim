@@ -18,6 +18,7 @@ executable(
   'apitofsim-main',
   'apitof_pinhole.cpp',
   dependencies: [eigen3, openmp, concurrentqueue, magic_enum],
+  link_with: [libapitofsim],
   include_directories: [include_dir, inc_src],
   install : true
 )

@@ -1,6 +1,6 @@
 #include "skimmer.h"
+#include "common_io.h"
 
-#include "utils.h"
 #include <fstream>
 #include <iostream>
 #include <math.h>

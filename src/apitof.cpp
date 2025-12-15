@@ -7,62 +7,34 @@
 #include <math.h>
 #include <variant>
 #include "apitofsim.h"
-#include "apitofsim.cpp"
-#include "utils.h"
 #include <magic_enum/magic_enum.hpp>
 #include "consts.h"
 #include "warnlogcount.h"
 #include "exceptions.h"
 #include "samplers.h"
+#include "apitof.h"
 
 using namespace std;
 using magic_enum::enum_count;
 using moodycamel::BlockingConcurrentQueue;
 
-typedef Eigen::Array<double, Eigen::Dynamic, 3> SkimmerData;
-const int VEL_SKIMMER = 0;
-const int TEMP_SKIMMER = 1;
-const int PRESSURE_SKIMMER = 2;
-typedef Eigen::Array<double, 5, 1> InstrumentDims;
-const int SKIMMER_LENGTH = 4;
-typedef Eigen::Array<double, 5, 1> InstrumentVoltages;
-
-struct Quadrupole
+Quadrupole::Quadrupole(
+  double dc_field,
+  double ac_field,
+  double radiofrequency,
+  double r_quadrupole)
+    : dc_field(dc_field), ac_field(ac_field), radiofrequency(radiofrequency), r_quadrupole(r_quadrupole)
 {
-  double dc_field;
-  double ac_field;
-  double radiofrequency;
-  double r_quadrupole;
+  angular_velocity = 2.0 * consts::pi * radiofrequency;
+}
 
-  double mathieu_factor{};
-  double angular_velocity;
-
-  Quadrupole(
-    double dc_field,
-    double ac_field,
-    double radiofrequency,
-    double r_quadrupole)
-      : dc_field(dc_field), ac_field(ac_field), radiofrequency(radiofrequency), r_quadrupole(r_quadrupole)
-  {
-    angular_velocity = 2.0 * consts::pi * radiofrequency;
-  }
-
-  void compute_mathieu_factor(double m_ion)
-  {
-    mathieu_factor = consts::eV / (m_ion * r_quadrupole * r_quadrupole);
-  }
-};
-
-enum struct SampleMode
+void Quadrupole::compute_mathieu_factor(double m_ion)
 {
-  dss_normalized,
-  dss_unnormalized,
-  rejection,
-};
+  mathieu_factor = consts::eV / (m_ion * r_quadrupole * r_quadrupole);
+}
 
 // LIST OF FUNCTIONS
 // Here we are
-double particle_density(double pressure, double kT);
 template <typename GenT>
 Eigen::Vector3d init_vel(GenT &gen, normal_distribution<double> &gauss, double m, double kT);
 template <typename GenT>
@@ -82,8 +54,6 @@ void update_rot_vel(Eigen::Vector3d &omega, double rot_energy_old, double rot_en
 double boundary_vib_energy(double vib_energy_old, double reduced_mass, double u_norm, double v_cluster_norm, double theta);
 template <typename GenT>
 void redistribute_internal_energy(GenT &gen, uniform_real_distribution<double> &unif, double &vib_energy, double &rot_energy, const Histogram &density_cluster);
-void rescale_density(Eigen::ArrayXd &density, int m_max);
-void rescale_energies(Eigen::ArrayXd &energies, int m_max, double &energy_max, double &bin_width);
 void eval_velocities(Eigen::Vector3d &v, Eigen::Vector3d &omega, const Eigen::Vector2d &u, double vib_energy, double vib_energy_old, double M, double m, double R_cluster);
 void change_coord(const Eigen::Vector3d &v_cluster, double theta, double phi, double alpha, Eigen::Vector3d &x3, Eigen::Vector3d &y3, Eigen::Vector3d &z3);
 template <typename GenT>
@@ -91,12 +61,8 @@ void eval_collision(GenT &gen, uniform_real_distribution<double> &unif, bool &co
 template <typename GenT>
 double onedimMaxwell(GenT &gen, normal_distribution<double> &gauss, double m, double kT);
 double mean_free_path(double R, double kT, double pressure);
-double evaluate_error(int n, int k);
 double eval_solid_angle_stokes(double R, double L, double xx, double yy, double zz);
 int zone(double z, double first_chamber_end, double sk_end, double quadrupole_start, double quadrupole_end, double second_chamber_end);
-
-typedef std::chrono::high_resolution_clock::duration RuntimeDuration;
-typedef std::tuple<Counters, RuntimeDuration, RuntimeDuration> SimulationResult;
 
 template <typename GasCollSamplerT, typename VibEnergySamplerT>
 SimulationResult apitof_pinhole(int cluster_charge_sign, double T, double pressure_first, double pressure_second, InstrumentDims lengths, InstrumentVoltages voltages, int N, double bonding_energy, Gas gas, std::optional<Quadrupole> quadrupole, double m_ion, double R_cluster, const Histogram &density_cluster, const Histogram &rate_const, const SkimmerData &skimmer, const double mesh_skimmer, unsigned long long root_seed, StreamingResultQueue &result_queue, GasCollSamplerT gas_coll_sampler, VibEnergySamplerT vib_energy_sampler, int loglevel = DEFAULT_LOGLEVEL);
@@ -121,7 +87,7 @@ SimulationResult apitof_pinhole(
   unsigned long long root_seed,
   StreamingResultQueue &result_queue,
   SampleMode sample_mode,
-  int loglevel = DEFAULT_LOGLEVEL)
+  int loglevel)
 {
   using consts::boltzmann;
   double m_gas = gas.mass;

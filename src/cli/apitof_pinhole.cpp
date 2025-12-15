@@ -21,6 +21,48 @@
 #include <stdlib.h>
 #include <string>
 #include "apitof_pinhole_io.h"
+#include "common_io.h"
+
+struct LogFileWriter
+{
+  std::ofstream out_streams[10];
+
+  LogFileWriter(char *file_probabilities)
+  {
+    this->open(LogMessage::collisions, Filenames::COLLISIONS);
+    this->open(LogMessage::warnings, Filenames::WARNINGS, false);
+    this->open(LogMessage::fragments, Filenames::FRAGMENTS);
+    this->open(LogMessage::probabilities, file_probabilities);
+    this->open(LogMessage::intenergy, Filenames::INTENERGY);
+    this->open(LogMessage::tmp, Filenames::TMP);
+    this->open(LogMessage::tmp_evolution, Filenames::TMP_EVOLUTION);
+    this->open(LogMessage::file_energy_distribution, Filenames::ENERGY_DISTRIBUTION);
+    this->open(LogMessage::final_position, Filenames::FINAL_POSITION);
+    this->open(LogMessage::pinhole, Filenames::PINHOLE);
+  }
+
+  void close()
+  {
+    for (auto &stream : this->out_streams)
+    {
+      if (stream.is_open())
+      {
+        stream.close();
+      }
+    }
+  }
+
+private:
+  void
+  open(LogMessage::LogType type, const char *const filename, bool scientific = true)
+  {
+    this->out_streams[type].open(filename);
+    if (scientific)
+    {
+      this->out_streams[type] << std::setprecision(12) << std::scientific;
+    }
+  }
+};
 
 void apitof_pinhole_config_in()
 {
