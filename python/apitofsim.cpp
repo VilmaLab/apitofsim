@@ -14,7 +14,7 @@
 #include <nanobind/stl/chrono.h>
 #include <nanobind/stl/tuple.h>
 
-#include "skimmer_lib.h"
+#include "skimmer.h"
 #include "densityandrate_lib.h"
 #include "apitof_pinhole_lib.h"
 #include "utils.h"

@@ -1,9 +1,10 @@
 executable(
-   'apitofsim-skimmer',
-   'skimmer_win.cpp',
-   dependencies : [eigen3, openmp],
-  include_directories: [inc_src],
-   install : true
+  'apitofsim-skimmer',
+  'skimmer_win.cpp',
+  dependencies : [eigen3, openmp],
+  link_with: [libapitofsim],
+  include_directories: [include_dir, inc_src],
+  install : true
 )
 executable(
   'apitofsim-densityandrate',

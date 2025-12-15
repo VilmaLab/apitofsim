@@ -1,7 +1,7 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include <doctest.h>
 
-#include "skimmer_lib.h"
+#include "skimmer.h"
 #include "densityandrate_smoke.h"
 #include "cli/apitof_pinhole_io.h"
 

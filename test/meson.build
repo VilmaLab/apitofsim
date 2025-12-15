@@ -1,13 +1,11 @@
 fs = import('fs')
 subdir('data')
 
-incdir = include_directories('../src')
-
 gen_compute_k_total_bin = executable(
    'gen_compute_k_total_bin',
    'gen/compute_k_total.cpp',
    dependencies : [eigen3],
-   include_directories: incdir
+   include_directories: inc_src
 )
 
 gen_compute_k_total = custom_target('gen_compute_k_total',
@@ -19,8 +17,9 @@ doctest_dep = dependency('doctest')
 
 tests = executable('apitofsim-tests',
                    ['main.cpp', gen_compute_k_total],
-                   dependencies : [doctest_dep, nanobind, eigen3, concurrentqueue, magic_enum],
-                   include_directories: incdir,
+                   dependencies : [doctest_dep, eigen3, concurrentqueue, magic_enum],
+                   link_with: libapitofsim,
+                   include_directories: [inc_src, include_dir],
                    install : false)
 
 test(
