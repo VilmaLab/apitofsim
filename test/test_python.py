@@ -1,6 +1,3 @@
-import sys
-
-print(sys.path)
 import os
 
 from apitofsim.config import ConfigFile
