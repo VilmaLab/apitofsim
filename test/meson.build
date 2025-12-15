@@ -32,8 +32,6 @@ test(
 )
 
 if python_feat.enabled()
-   pytest = find_program('pytest', disabler: true, required: false)
-
    env = environment()
    env.set('DATA_DIR', fs.parent(raw_test_data_files[0].full_path()))
    env.append(
@@ -41,13 +39,20 @@ if python_feat.enabled()
       fs.parent(apitofsim_python.full_path()),
       fs.parent(apitofsim_python_py_builddir[0].full_path()),
    )
-   test(
-      'apitofsim-python-tests',
-      pytest,
-      args: files('test_python.py'),
-      env: env,
-      depends: [raw_test_data_files, apitofsim_python, apitofsim_python_py_builddir],
-   )
+   r = run_command(python, '-c', 'import pytest, pint')
+   if r.returncode() != 0
+      message('Cannot run tests without pytest + other Python requirements, skipping Python tests.')
+      message('Usual fix: Run Python tests with UV like so:')
+      message('uv run meson setup --clearcache --reconfigure mybuilddir && uv run meson test -C mybuilddir')
+   else
+      test(
+         'apitofsim-python-tests',
+         python,
+         args: ['-m', 'pytest', files('test_python.py')],
+         env: env,
+         depends: [raw_test_data_files, apitofsim_python, apitofsim_python_py_builddir],
+      )
+   endif
 endif
 
 subdir('bench')
