@@ -39,7 +39,7 @@ if python_feat.enabled()
       fs.parent(apitofsim_python.full_path()),
       fs.parent(apitofsim_python_py_builddir[0].full_path()),
    )
-   r = run_command(python, '-c', 'import pytest, pint')
+   r = run_command(python, '-c', 'import pytest, pint', check: false)
    if r.returncode() != 0
       message('Cannot run tests without pytest + other Python requirements, skipping Python tests.')
       message('Usual fix: Run Python tests with UV like so:')
