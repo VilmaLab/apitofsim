@@ -24,7 +24,7 @@ tests = executable('apitofsim-tests',
                    install : false)
 
 # Longer timeout needed mainly for Valgrind runs
-timeout = 300
+timeout = 900
 
 test(
    'apitofsim-tests',
