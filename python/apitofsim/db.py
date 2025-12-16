@@ -263,10 +263,14 @@ def ingest_legacy_one(
         db.insert_pathway(*ids)
 
 
-def ingest_legacy_tree(db: ClusterDatabase, path, backup_dir=None, verbose=False):
+def ingest_legacy_tree(
+    db: ClusterDatabase, path, backup_dir=None, verbose=False, allow_fail=False
+):
     filenames = glob(expanduser(path), recursive=True)
     for filename in filenames:
-        ingest_legacy_one(db, filename, backup_dir, verbose)
+        ingest_legacy_one(
+            db, filename, backup_dir, verbose, allow_fail=allow_fail, allow_skip=True
+        )
 
 
 EXPERIMENT_TABLES = """
