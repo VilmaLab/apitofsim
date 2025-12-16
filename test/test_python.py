@@ -1,4 +1,5 @@
 import os
+import pytest
 
 from apitofsim.config import ConfigFile
 from apitofsim.db import ExperimentDatabase, ExperimentRunner, ingest_legacy_one
@@ -18,5 +19,12 @@ def test_runner():
     runner = ExperimentRunner(db)
     runner.run_prepared_config()
     df = db.experiment_summary_df()
-    assert df["successes"].iloc[0] == 1
-    assert df["failures"].iloc[0] == 0
+    if not (df["successes"].iloc[0] == 1 and df["failures"].iloc[0] == 0):
+        if df["successes"].iloc[0] == 0 and df["failures"].iloc[0] == 1:
+            fail_df = db.db.table("experiment_failure").fetchdf()
+            exc_name = fail_df["exc_name"].iloc[0]
+            msg = fail_df["msg"].iloc[0]
+            pytest.fail(f"Test run failed with exception {exc_name}: {msg}")
+        assert df["successes"].iloc[0] == 1 and df["failures"].iloc[0] == 0, (
+            "Unexpected number of successes/failures"
+        )
