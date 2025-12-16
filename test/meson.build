@@ -23,12 +23,15 @@ tests = executable('apitofsim-tests',
                    include_directories: [inc_src, include_dir],
                    install : false)
 
+# Longer timeout needed mainly for Valgrind runs
+timeout = 300
+
 test(
    'apitofsim-tests',
    tests,
    env : 'DATA_DIR=' + fs.parent(ready_test_data_files[0].full_path()),
    depends: ready_test_data_files,
-   timeout : 300
+   timeout : timeout
 )
 
 if python_feat.enabled()
@@ -51,6 +54,7 @@ if python_feat.enabled()
          args: ['-m', 'pytest', files('test_python.py')],
          env: env,
          depends: [raw_test_data_files, apitofsim_python, apitofsim_python_py_builddir],
+         timeout: timeout
       )
    endif
 endif
