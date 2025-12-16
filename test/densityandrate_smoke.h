@@ -1,5 +1,5 @@
 #include <Eigen/Dense>
-#include "densityandrate_lib.h"
+#include "densityandrate.h"
 
 Eigen::ArrayXd dos_smoke()
 {

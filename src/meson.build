@@ -1,20 +1,26 @@
 inc_src = include_directories('.')
 
-executable(
-   'apitofsim-skimmer',
-   'skimmer_win.cpp',
-   dependencies : [eigen3, openmp],
-   install : true
+subdir('include')
+
+libapitofsim_files = ['apitofsim.cpp', 'skimmer.cpp', 'densityandrate.cpp', 'apitof.cpp', 'samplers.cpp']
+
+libapitofsim = static_library(
+  'apitofsim',
+  libapitofsim_files,
+  include_directories: [include_dir],
+  dependencies : [eigen3, openmp, concurrentqueue, magic_enum],
 )
-executable(
-  'apitofsim-densityandrate',
-  'densityandrate_win.cpp',
-  dependencies: [eigen3, openmp],
-  install : true
-)
-executable(
-  'apitofsim-main',
-  'apitof_pinhole.cpp',
-  dependencies: [eigen3, openmp, concurrentqueue, magic_enum],
-  install : true
-)
+
+if openmp_option == 'disabled'
+  libapitofsim_no_omp = libapitofsim
+else
+  libapitofsim_no_omp = static_library(
+    'apitofsim_no_omp',
+    libapitofsim_files,
+    include_directories: [include_dir],
+    dependencies : [eigen3, concurrentqueue, magic_enum],
+    build_by_default : false
+  )
+endif
+
+subdir('cli')

@@ -1,9 +1,9 @@
+#include "densityandrate.h"
+
 #include <iostream>
 #include <optional>
 #include <stdlib.h>
 #include <math.h>
-#include "utils.h"
-#include <Eigen/Dense>
 #include "consts.h"
 
 #if defined(__GNUC__) && !defined(__llvm__) && !defined(__INTEL_COMPILER)
@@ -11,84 +11,6 @@
 #endif
 
 using namespace std;
-
-// LIST OF FUNCTIONS
-
-typedef Eigen::Array<double, Eigen::Dynamic, 4> DensityResult;
-const int C0_ROW = 0;
-const int C1_ROW = 1;
-const int C2_ROW = 2;
-const int COMB_ROW = 3;
-
-void compute_density_of_states(Eigen::ArrayXd &frequencies, Eigen::Ref<Eigen::ArrayXd> rho, double energy_max, double bin_width);
-void compute_combined_density_of_states(Eigen::Ref<Eigen::ArrayXd> rho_comb, Eigen::ArrayXd &frequencies_1, Eigen::ArrayXd &frequencies_2, double energy_max, double bin_width);
-Eigen::ArrayXd combine_frequencies(Eigen::ArrayXd &frequencies_1, Eigen::ArrayXd &frequencies_2);
-Eigen::ArrayXd prepare_energies(double bin_width, int m_max);
-void compute_k_total(Eigen::ArrayXd &k0, Eigen::Ref<Eigen::ArrayXd> k_rate, double inertia_moment_1, double inertia_moment_2, Eigen::Vector3d &rotations_1, Eigen::Vector3d &rotations_2, const Eigen::Ref<const Eigen::ArrayXd> rho_comb, const Eigen::Ref<const Eigen::ArrayXd> rho_0, double bin_width, int m_max_rate, double fragmentation_energy);
-void compute_k_total_atom(Eigen::ArrayXd &k0, Eigen::Ref<Eigen::ArrayXd> k_rate, double inertia_moment_1, const Eigen::Ref<const Eigen::ArrayXd> rho_comb, const Eigen::Ref<const Eigen::ArrayXd> rho_0, double bin_width, int m_max_rate, double fragmentation_energy);
-
-// TODO: Separate struct for atom-like products
-struct ClusterData
-{
-  int atomic_mass;
-  double electronic_energy;
-  Eigen::Vector3d rotations;
-  Eigen::ArrayXd frequencies;
-
-  // Computed members
-  double inertia_moment;
-  double radius;
-  double mass;
-
-  ClusterData()
-  {
-  }
-
-  ClusterData(int atomic_mass, double electronic_energy, Eigen::Vector3d rotations, Eigen::ArrayXd frequencies)
-      : atomic_mass(atomic_mass), electronic_energy(electronic_energy), rotations(rotations), frequencies(frequencies)
-  {
-  }
-
-  void validate()
-  {
-    if (this->is_atom_like_product() && !this->rotations.isZero(0))
-    {
-      cout << "Atom-like products must have 0 rotations" << endl;
-      exit(EXIT_FAILURE);
-    }
-  }
-
-  int num_oscillators()
-  {
-    return this->frequencies.rows();
-  }
-
-  bool is_atom_like_product()
-  {
-    return this->num_oscillators() == 0;
-  }
-
-  void compute_derived()
-  {
-    if (this->is_atom_like_product())
-    {
-      // No rotations, so can't calculate inertia moment/radius
-      inertia_moment = 0;
-      radius = 0;
-      mass = protonMass * this->atomic_mass; // proton mass * nucleons
-    }
-    else
-    {
-      inertia_moment = compute_inertia(rotations);
-      compute_mass_and_radius(inertia_moment, atomic_mass, mass, radius);
-    }
-  }
-};
-
-Eigen::ArrayXd
-compute_k_total_full(ClusterData &cluster_0, ClusterData &cluster_1, ClusterData &cluster_2, DensityResult &rhos, double fragmentation_energy, double energy_max_rate, double bin_width);
-DensityResult compute_density_of_states_all(ClusterData &cluster_0, ClusterData &cluster_1, ClusterData &cluster_2, double energy_max, double bin_width);
-
 
 // FUNCTIONS
 
@@ -100,7 +22,7 @@ double get_prefactor_k_total(double inertia_moment_1, double inertia_moment_2, E
   double rotations_product_1 = rotations_1[0] * rotations_1[1] * rotations_1[2];
   double rotations_product_2 = rotations_2[0] * rotations_2[1] * rotations_2[2];
 
-  return 2.0 * kb * kb * (inertia_moment_1 + inertia_moment_2) / (pi * hbar * hbar * hbar * pow(pow(rotations_product_1, 1.0 / 3) + pow(rotations_product_2, 1.0 / 3), 1.5));
+  return 2.0 * consts::boltzmann * consts::boltzmann * (inertia_moment_1 + inertia_moment_2) / (pi * consts::hbar * consts::hbar * consts::hbar * pow(pow(rotations_product_1, 1.0 / 3) + pow(rotations_product_2, 1.0 / 3), 1.5));
 }
 
 
@@ -269,9 +191,9 @@ void compute_k_total(Eigen::ArrayXd &k0, Eigen::Ref<Eigen::ArrayXd> k_rate, doub
 
 void compute_k_total_atom(Eigen::ArrayXd &k0, Eigen::Ref<Eigen::ArrayXd> k_rate, double inertia_moment_1, const Eigen::Ref<const Eigen::ArrayXd> rho_comb, const Eigen::Ref<const Eigen::ArrayXd> rho_0, double bin_width, int m_max_rate, double fragmentation_energy)
 {
-  using consts::pi;
+  using consts::pi, consts::boltzmann, consts::hbar;
 
-  double prefactor = kb * kb * (inertia_moment_1) / (pi * hbar * hbar * hbar);
+  double prefactor = boltzmann * boltzmann * (inertia_moment_1) / (pi * hbar * hbar * hbar);
   int n_fragmentation = int(fragmentation_energy / bin_width);
   for (int m = 0; m < m_max_rate; m++)
   {
@@ -438,7 +360,7 @@ DensityResult compute_density_of_states_all(ClusterData &cluster_0, ClusterData 
   return rhos;
 }
 
-Eigen::ArrayXXd compute_density_of_states_batch(std::vector<Eigen::ArrayXd> batch_frequencies, double energy_max, double bin_width, bool use_old_impl = false)
+Eigen::ArrayXXd compute_density_of_states_batch(std::vector<Eigen::ArrayXd> batch_frequencies, double energy_max, double bin_width, bool use_old_impl)
 {
   int m_max = int(energy_max / bin_width);
   // Possibly a tiny bit of false sharing here
@@ -486,19 +408,6 @@ void compute_k_total_general(Eigen::ArrayXd &k0, Eigen::Ref<Eigen::ArrayXd> k_ra
 }
 
 
-struct FragmentationPathway
-{
-  ClusterData &parent;
-  ClusterData &product1;
-  ClusterData &product2;
-
-  double fragmentation_energy_kelvin()
-  {
-    return (this->product1.electronic_energy + this->product2.electronic_energy - this->parent.electronic_energy) * consts::hartK;
-  }
-};
-
-
 Eigen::ArrayXd
 compute_k_total_full(ClusterData &cluster_0, ClusterData &cluster_1, ClusterData &cluster_2, DensityResult &rhos, double fragmentation_energy, double energy_max_rate, double bin_width)
 {
@@ -519,25 +428,7 @@ compute_k_total_full(ClusterData &cluster_0, ClusterData &cluster_1, ClusterData
   return k_rate;
 }
 
-enum struct MeshMode
-{
-  no_mesh,
-  compute_mesh_single_threaded,
-  compute_mesh_diagonal_single_threaded,
-  compute_mesh_multithreaded,
-  compute_mesh_diagonal_multithreaded
-};
-
-struct KTotalInput
-{
-  ClusterData cluster_1;
-  ClusterData cluster_2;
-  double fragmentation_energy;
-  Eigen::Ref<Eigen::ArrayXd> rho_parent;
-  Eigen::Ref<Eigen::ArrayXd> rho_comb;
-};
-
-Eigen::ArrayXd precompute_mesh(double energy_max_rate, double bin_width, MeshMode mesh_mode = MeshMode::compute_mesh_single_threaded)
+Eigen::ArrayXd precompute_mesh(double energy_max_rate, double bin_width, MeshMode mesh_mode)
 {
   int m_max_rate = int(energy_max_rate / bin_width);
   if (mesh_mode == MeshMode::compute_mesh_single_threaded)
@@ -584,7 +475,7 @@ Eigen::ArrayXXd compute_k_total_batch(std::vector<KTotalInput> batch_input, doub
   return k_rate;
 }
 
-Eigen::ArrayXXd compute_k_total_batch(std::vector<KTotalInput> batch_input, double energy_max_rate, double bin_width, MeshMode mesh_mode = MeshMode::compute_mesh_diagonal_multithreaded)
+Eigen::ArrayXXd compute_k_total_batch(std::vector<KTotalInput> batch_input, double energy_max_rate, double bin_width, MeshMode mesh_mode)
 {
   std::optional<Eigen::ArrayXd> mesh;
   if (mesh_mode == MeshMode::no_mesh)

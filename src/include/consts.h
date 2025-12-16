@@ -14,4 +14,6 @@ const double hart = 627.509; // 1 hartree in Kcal/mol
 const double R = 1.9872e-3; // Gas constant in Kcal/mol/K
 const double joulekcal = 1.439325e+20; // 1 Joule in kcal/mol
 const double kelvinkcal = 1.987216e-03; // 1 K in kcal/mol
+
+const double hbar = 1.054571800e-34; // Reduced Planck constant
 }; // namespace consts

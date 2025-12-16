@@ -1,6 +1,7 @@
 #include <iostream>
 #include <optional>
 #include <stdlib.h>
+#include <random>
 
 #include <Eigen/Dense>
 #include <Python.h>
@@ -14,11 +15,14 @@
 #include <nanobind/stl/chrono.h>
 #include <nanobind/stl/tuple.h>
 
-#include "skimmer_lib.h"
-#include "densityandrate_lib.h"
-#include "apitof_pinhole_lib.h"
-#include "utils.h"
+#include "skimmer.h"
+#include "densityandrate.h"
+#include "apitof.h"
+#include "consts.h"
 #include "warnlogcount.h"
+#include "openmp_helper.h"
+
+using namespace std;
 
 namespace nb = nanobind;
 using namespace nb::literals;

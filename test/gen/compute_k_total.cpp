@@ -1,4 +1,7 @@
-#include "densityandrate_lib.h"
+#include "densityandrate.h"
+#include "consts.h"
+
+#include <fstream>
 
 double energy_max = 4.0e4;
 double energy_max_rate = 4.0e3;

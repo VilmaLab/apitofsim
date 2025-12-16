@@ -1,4 +1,13 @@
-#include "skimmer_lib.h"
+#include "skimmer.h"
+#include "common_io.h"
+
+#include <fstream>
+#include <iostream>
+#include <math.h>
+#include <optional>
+#include <stdlib.h>
+
+using namespace std;
 
 int main()
 {

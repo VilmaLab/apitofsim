@@ -2,7 +2,11 @@
 #include <iomanip>
 #include <stdlib.h>
 #include <string>
-#include "apitof_pinhole_lib.h"
+#include "apitofsim.h"
+#include "exceptions.h"
+#include "apitof.h"
+
+using namespace std;
 
 Histogram read_histogram(char const *filename)
 {

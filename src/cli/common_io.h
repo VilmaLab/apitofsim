@@ -1,15 +1,10 @@
 #pragma once
 
-#include <atomic>
 #include <csignal>
 #include <iostream>
 #include <cstring>
 #include <fstream>
 #include <Eigen/Dense>
-
-#define kb 1.38064852e-23 // Boltzmann constant
-#define hbar 1.054571800e-34 // Reduced Planck constant
-#define protonMass 1.6726219e-27 // relative mass of on proton in kg
 
 void check_field_name(const char *buffer, const char *expected)
 {
@@ -208,33 +203,6 @@ void read_config(
   read_field(config_in, tolerance, buffer, "Tolerance_in_solving_equation");
 }
 
-const int LOGLEVEL_NONE = 0,
-          LOGLEVEL_MIN = 1,
-          LOGLEVEL_NORMAL = 2,
-          LOGLEVEL_EXTRA = 3;
-const int DEFAULT_LOGLEVEL = LOGLEVEL_NORMAL;
-
-int get_loglevel()
-{
-  char *loglevel_env = getenv("LOGLEVEL");
-  if (loglevel_env != nullptr)
-  {
-    int loglevel = atoi(loglevel_env);
-    if (loglevel >= LOGLEVEL_NONE && loglevel <= LOGLEVEL_EXTRA)
-    {
-      return loglevel;
-    }
-    else
-    {
-      throw std::invalid_argument("Invalid LOGLEVEL value: " + std::string(loglevel_env));
-    }
-  }
-  else
-  {
-    return DEFAULT_LOGLEVEL;
-  }
-}
-
 namespace Filenames
 {
 const char *const SKIMMER_WARNINGS = "work/log/warnings_skimmer.dat";
@@ -291,164 +259,3 @@ double read_electronic_energy(char *filename)
 
   return electronic_energy;
 }
-
-// Geometrical mean of moment of inertia
-double compute_inertia(const Eigen::Vector3d &rotations)
-{
-  return 0.5 * hbar * hbar / (kb * pow(rotations[0] * rotations[1] * rotations[2], 1.0 / 3));
-}
-
-// Compute radius of cluster
-void compute_mass_and_radius(double inertia, double amu, double &mass, double &radius)
-{
-  mass = protonMass * amu; // proton mass * nucleons
-  radius = sqrt(2.5 * inertia / mass);
-}
-
-static std::atomic<int> saved_signal = -1;
-
-extern "C" void set_flag_handler(int signal)
-{
-  saved_signal.store(signal);
-}
-
-typedef void (*SignalHandler)(int);
-
-/* Exceptions can't pass between threads.
- * The solution is to capture and rethrow.
- * Additionally once the shared exception is set, no other guarded code can run, preventing further processing. */
-class OMPExceptionHelper
-{
-  std::exception_ptr exception = nullptr;
-  bool rethrow_called = false;
-  static const int NUM_SIGNALS = 3;
-  static constexpr int signals[NUM_SIGNALS] = {SIGTERM, SIGINT, SIGABRT};
-  SignalHandler saved_handlers[NUM_SIGNALS];
-
-public:
-  OMPExceptionHelper()
-  {
-    for (int i = 0; i < NUM_SIGNALS; i++)
-    {
-      saved_handlers[i] = std::signal(signals[i], set_flag_handler);
-    }
-  }
-
-  ~OMPExceptionHelper()
-  {
-    if (!rethrow_called)
-    {
-      bool should_die = false;
-      if (this->exception)
-      {
-        std::cerr << "\nException lost! OMPExceptionHelper holding exception destroyed without rethrowing\n"
-                  << std::flush;
-        should_die = true;
-      }
-      if (saved_signal.load() != -1)
-      {
-        std::cerr << "\nSIGTERM flag set, but OMPExceptionHelper was destroyed without rethrowing\n"
-                  << std::flush;
-        should_die = true;
-      }
-      if (should_die)
-      {
-        std::terminate();
-      }
-    }
-  }
-
-  void rethrow()
-  {
-    rethrow_called = true;
-    for (int i = 0; i < NUM_SIGNALS; i++)
-    {
-      std::signal(signals[i], saved_handlers[i]);
-    }
-    int signal = saved_signal.load();
-    if (signal != -1)
-    {
-      // Prefer to raise the signal over the exception
-      // Reason: Application exception is more likely to be caught/ignored
-      saved_signal.store(-1);
-      raise(signal);
-    }
-    if (this->exception)
-    {
-      std::rethrow_exception(this->exception);
-    }
-  }
-
-  void capture()
-  {
-#pragma omp critical
-    if (!this->exception)
-    {
-      this->exception = std::current_exception();
-    }
-  }
-
-  template <typename Function, typename... Parameters>
-  void guard(Function f, Parameters... params)
-  {
-    if (!this->exception && saved_signal.load() == -1)
-    {
-      try
-      {
-        f(params...);
-      }
-      catch (...)
-      {
-        capture();
-      }
-    }
-  }
-};
-
-struct Gas
-{
-  double radius;
-  double mass;
-  double adiabatic_index;
-};
-
-Eigen::ArrayXd prepare_energies(double bin_width, int m_max)
-{
-  Eigen::ArrayXd energies = Eigen::ArrayXd(m_max);
-  for (int m = 0; m < m_max; m++)
-  {
-    energies[m] = bin_width * (m + 0.5);
-  }
-  return energies;
-}
-
-struct Histogram
-{
-  Eigen::ArrayXd x;
-  Eigen::ArrayXd y;
-  double bin_width;
-  double x_max;
-
-  Histogram(Eigen::ArrayXd x, Eigen::ArrayXd y)
-      : x(x), y(y)
-  {
-    compute_derived();
-  }
-
-  Histogram(double bin_width, int m_max, Eigen::ArrayXd y)
-      : x(prepare_energies(bin_width, m_max)), y(y)
-  {
-    compute_derived();
-  }
-
-  void compute_derived()
-  {
-    bin_width = x[1] - x[0];
-    x_max = bin_width * length();
-  }
-
-  int length() const
-  {
-    return x.rows();
-  }
-};

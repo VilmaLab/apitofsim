@@ -71,6 +71,15 @@ tests:
         - ${{ name }}.${{ name }}raw
       python_version: ["${{ python_min ~ '.*' }}"]  
 
+  - script:
+      - DATA_DIR=$(pwd)/test/data/raw pytest ./test
+    requirements:
+      run:
+        - pytest
+    files:
+      source:
+        - test/
+
 about:
   homepage: https://github.com/VilmaLab/apitofsim
   license: MIT
