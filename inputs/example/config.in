@@ -21,7 +21,7 @@ GENERAL_INPUT_FOR_APITOF_CODE
 0.25                          Angle_of_skimmer_(multiple_of_PI)
 0                             Fragmentation_energy_(Kelvin)
 2.0e5                         Energy_max_for_density_of_states_(Kelvin)
-3.0e4                         Energy_max_for_rate_constant_(Kelvin)
+1.0e5                         Energy_max_for_rate_constant_(Kelvin)
 1.0                           Energy_resolution_(Kelvin)
 2.46e-10                      Gas_molecule_radius_(meters)
 4.8506e-26                    Gas_molecule_mass_(kg)
