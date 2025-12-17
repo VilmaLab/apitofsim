@@ -172,7 +172,7 @@ jobs:
 
       - name: Run tests
         run: |
-          uv run python -X dev -m pytest test/
+          DATA_DIR=$(pwd)/test/data/raw uv run python -X dev -m pytest test/
 
   # This builds with Clang and runs Valgrind on C++ tests only (slow -- takes around 8 mins at the moment)
   # It may be that this needs to change to manually triggered or run a subset of tests later on
