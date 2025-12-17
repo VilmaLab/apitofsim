@@ -240,13 +240,13 @@ void apitof_pinhole_config_in()
       std::optional<Quadrupole> quadrupole = std::nullopt;
       if (!std::isnan(dc_field))
       {
-        *quadrupole = Quadrupole(
+        quadrupole = Quadrupole(
           dc_field,
           ac_field,
           radiofrequency,
           r_quadrupole);
       }
-      std::tuple(counters, loop_time, total_time) = apitof_pinhole(
+      std::tie(counters, loop_time, total_time) = apitof_pinhole(
         cluster_charge_sign,
         T,
         pressure_first,
