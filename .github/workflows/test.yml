@@ -95,8 +95,9 @@ jobs:
         run: |
           ninja -C build clang-tidy
 
+  # This checks it's possible to build with the default Ubuntu compiler and run C++ tests
   build_test_gcc:
-    name: Build with Python + test with GCC
+    name: Full build with default compiler then C++ tests
     runs-on: ubuntu-latest
 
     steps:
@@ -120,8 +121,9 @@ jobs:
         run: |
           meson test --print-errorlogs -C build
 
+  # This compiles with Clang against many LLVM sanitisers (common ones except for memory and thread) and runs the test suite for C++/Python
   build_test_llvm:
-    name: Test with LLVM sanitisers
+    name: Full build with Clang then C++/Python tests under LLVM sanitisers
     runs-on: ubuntu-latest
 
     steps:
@@ -138,17 +140,44 @@ jobs:
           sudo apt-get install -y libc++-20-dev
           sudo pip install meson
 
+      - uses: astral-sh/setup-uv@v7
+
+      - name: Install Python dependencies
+        run: |
+          uv sync --no-install-project
+
       - name: Setup/compile with meson
         run: |
-          meson setup --native-file=meson/test/manysan.ini build
-          meson compile -C build
+          uv run meson setup --native-file=meson/test/manysan.ini build
+          uv run meson compile -C build
 
-      - name: Test
+      - name: Run tests
         run: |
-          meson test --print-errorlogs -C build
+          uv run meson test --print-errorlogs -C build
 
+  # This compiles with the default compiler via uv/meson-python and runs the Python test suite using the -X dev option
+  build_test_x_dev:
+    name: Full build with default compiler via meson-python then Python tests with -X dev
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v7
+
+      - name: Install Python dependencies
+        run: |
+          uv sync
+
+      - name: Run tests
+        run: |
+          uv run python -X dev -m pytest test/
+
+  # This builds with Clang and runs Valgrind on C++ tests only (slow -- takes around 8 mins at the moment)
+  # It may be that this needs to change to manually triggered or run a subset of tests later on
   test_valgrind:
-    name: Test with Valgrind
+    name: C++ only build with Clang then C++ tests under Valgrind
     runs-on: ubuntu-latest
 
     steps:
