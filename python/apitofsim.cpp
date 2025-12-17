@@ -410,6 +410,12 @@ NB_MODULE(apitofsimraw, m)
     .def_ro("radiofrequency", &Quadrupole::dc_field)
     .def_ro("r_quadrupole", &Quadrupole::dc_field);
 
+  m.def("validate_max_energies", static_cast<void (*)(double, double, double, double)>(validate_max_energies),
+        "fragmentation_energy"_a,
+        "energy_max"_a,
+        "energy_max_rate"_a,
+        "bin_width"_a);
+
   m.def("densityandrate", &densityandrate,
         "cluster_0"_a,
         "cluster_1"_a,

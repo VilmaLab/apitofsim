@@ -558,7 +558,7 @@ class ExperimentRunner:
             precompute_mesh,
             FragmentationPathway,
         )
-        from apitofsim.api import Histogram
+        from apitofsim.api import Histogram, validate_max_energies
         from timeit import default_timer as timer
 
         if not run_started:
@@ -610,13 +610,22 @@ class ExperimentRunner:
         for idx, (_, cluster, product1, product2) in enumerate(
             self.db.pathways_objs(indexed=cluster_indexed)
         ):
+            fragmentation_energy = FragmentationPathway(
+                cluster.into_cpp(), product1.into_cpp(), product2.into_cpp()
+            ).fragmentation_energy_kelvin()
+            validate_max_energies(
+                fragmentation_energy=fragmentation_energy,
+                energy_max_rate=config["energy_max_rate"],
+                energy_max=config["energy_max"],
+                bin_width=config["bin_width"],
+                quantities_strict=False,
+            )
+
             k_total_inputs.append(
                 KTotalInput(
                     product1.into_cpp(),
                     product2.into_cpp(),
-                    FragmentationPathway(
-                        cluster.into_cpp(), product1.into_cpp(), product2.into_cpp()
-                    ).fragmentation_energy_kelvin(),
+                    fragmentation_energy,
                     cluster_dos[:, idx],
                     product_dos[:, idx],
                 )

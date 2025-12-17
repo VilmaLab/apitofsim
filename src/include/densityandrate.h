@@ -30,6 +30,9 @@ struct KTotalInput
 };
 
 
+void validate_max_energies(double fragmentation_energy, double energy_max, double energy_max_rate, double bin_width);
+void validate_max_energies(int n_fragmentation, int m_max, int m_max_rate, double bin_width);
+void validate_max_energies(double fragmentation_energy, int m_max, int m_max_rate, double bin_width);
 void compute_density_of_states(Eigen::ArrayXd &frequencies, Eigen::Ref<Eigen::ArrayXd> rho, double energy_max, double bin_width);
 void compute_combined_density_of_states(Eigen::Ref<Eigen::ArrayXd> rho_comb, Eigen::ArrayXd &frequencies_1, Eigen::ArrayXd &frequencies_2, double energy_max, double bin_width);
 Eigen::ArrayXd combine_frequencies(Eigen::ArrayXd &frequencies_1, Eigen::ArrayXd &frequencies_2);

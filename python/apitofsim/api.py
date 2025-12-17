@@ -14,6 +14,7 @@ from .apitofsimraw import (
     densityandrate as _densityandrate,
     Histogram as _Histogram,
     Quadrupole as _Quadrupole,
+    validate_max_energies as _validate_max_energies,
     pinhole as _pinhole,
     KTotalInput,
     precompute_mesh as _precompute_mesh,
@@ -394,3 +395,20 @@ def pinhole(
         return counters, Timings(loop_time, total_time)
     else:
         return counters
+
+
+def validate_max_energies(
+    fragmentation_energy,
+    energy_max,
+    energy_max_rate,
+    bin_width,
+    quantities_strict=True,
+):
+    process_arg = QuantityProcessor(quantities_strict)
+    fragmentation_energy = process_arg(
+        "fragmentation_energy", fragmentation_energy, "kelvin"
+    )
+    energy_max = process_arg("energy_max", energy_max, "kelvin")
+    energy_max_rate = process_arg("energy_max_rate", energy_max_rate, "kelvin")
+    bin_width = process_arg("bin_width", bin_width, "kelvin")
+    _validate_max_energies(fragmentation_energy, energy_max, energy_max_rate, bin_width)
