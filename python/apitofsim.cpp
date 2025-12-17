@@ -482,7 +482,7 @@ NB_MODULE(apitofsimraw, m)
         "loglevel"_a = DEFAULT_LOGLEVEL);
 
   nb::class_<FragmentationPathway>(m, "FragmentationPathway")
-    .def(nb::init<ClusterData &, ClusterData &, ClusterData &>(),
+    .def(nb::init<ClusterData, ClusterData, ClusterData>(),
          nb::arg("parent"),
          nb::arg("product1"),
          nb::arg("product2"))

@@ -71,9 +71,9 @@ struct ClusterData
 
 struct FragmentationPathway
 {
-  ClusterData &parent;
-  ClusterData &product1;
-  ClusterData &product2;
+  ClusterData parent;
+  ClusterData product1;
+  ClusterData product2;
 
   double fragmentation_energy_kelvin();
 };
