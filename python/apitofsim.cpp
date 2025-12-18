@@ -349,7 +349,7 @@ void register_overflow_translator(nb::exception<CppExceptionT> nb_py_exception)
     catch (const CppExceptionT &err)
     {
       auto c_py_exc = (PyObject *)payload;
-      auto py_exc = nb::steal(c_py_exc)(err.what());
+      auto py_exc = nb::borrow(c_py_exc)(err.what());
       py_exc.attr("max") = err.max;
       py_exc.attr("current") = err.current;
       PyErr_SetObject(c_py_exc, py_exc.ptr());
