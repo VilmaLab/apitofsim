@@ -10,93 +10,9 @@ on:
       - main
 
 jobs:
-  typecheck_python:
-    name: Typecheck Python
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v5
-
-      - uses: astral-sh/setup-uv@v7
-
-      - name: Install dependencies
-        run: |
-          sudo apt-get install -y ninja-build
-          uv tool install basedpyright
-
-      - name: Setup virtualenv
-        run: |
-          uv venv fullinstallenv
-          VIRTUAL_ENV=fullinstallenv uv run --active pip install .
-
-      - name: Run basedpyright
-        run: |
-          basedpyright --pythonpath fullinstallenv/bin/python --level=error $(fullinstallenv/bin/python -c 'import apitofsim; import os; print(os.path.dirname(apitofsim.__file__))')
-
-      - name: Run basedpyright with warnings
-        run: |
-          basedpyright --pythonpath fullinstallenv/bin/python $(fullinstallenv/bin/python -c 'import apitofsim; import os; print(os.path.dirname(apitofsim.__file__))')
-
-      - name: Run basedpyright coverage
-        run: |
-          # For some reason modifying the PATH like this is the only thing that seems to work
-          PATH="$(pwd)/fullinstallenv/bin:$PATH" basedpyright --verifytypes apitofsim || true # Ignore failures for now
-
-  lint_python:
-    name: Style check Python
-    runs-on: ubuntu-slim
-
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Ruff check
-        uses: astral-sh/ruff-action@v3
-        with:
-          args: "check"
-          src: "./python"
-
-      - name: Ruff format check
-        uses: astral-sh/ruff-action@v3
-        with:
-          args: "format --check"
-          src: "./python"
-
-  lint_cpp:
-    name: Build with Clang + C++ style check
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout source code
-        uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v6
-        with:
-          python-version: '3.13'
-
-      - name: Install dependencies
-        run: |
-          sudo apt-get install -y clang-tidy-20 clang-format-20 clang-20 lld-20 libomp5-20 libomp-20-dev
-          sudo ln -sf /usr/bin/clang-tidy-20 /usr/bin/clang-tidy
-          sudo ln -sf /usr/bin/clang-format-20 /usr/bin/clang-format
-          sudo ln -sf /usr/bin/clang++-20 /usr/bin/clang++
-          sudo ln -sf /usr/bin/lld-20 /usr/bin/lld
-          sudo pip install meson
-
-      - name: Build with meson
-        run: |
-          CXX="clang++" LD="lld" meson setup --warnlevel 3 --werror build
-          meson compile -C build
-
-      - name: Run clang-format-check
-        run: |
-          ninja -C build clang-format-check
-
-      - name: Run clang-tidy
-        run: |
-          ninja -C build clang-tidy
-
+  # This checks it's possible to build with the default Ubuntu compiler and run C++ tests
   build_test_gcc:
-    name: Build with Python + test with GCC
+    name: Full build with default compiler then C++ tests
     runs-on: ubuntu-latest
 
     steps:
@@ -120,8 +36,9 @@ jobs:
         run: |
           meson test --print-errorlogs -C build
 
+  # This compiles with Clang against many LLVM sanitisers (common ones except for memory and thread) and runs the test suite for C++/Python
   build_test_llvm:
-    name: Test with LLVM sanitisers
+    name: Full build with Clang then C++/Python tests under LLVM sanitisers
     runs-on: ubuntu-latest
 
     steps:
@@ -138,17 +55,44 @@ jobs:
           sudo apt-get install -y libc++-20-dev
           sudo pip install meson
 
+      - uses: astral-sh/setup-uv@v7
+
+      - name: Install Python dependencies
+        run: |
+          uv sync --no-install-project
+
       - name: Setup/compile with meson
         run: |
-          meson setup --native-file=meson/test/manysan.ini build
-          meson compile -C build
+          uv run meson setup --native-file=meson/test/manysan.ini build
+          uv run meson compile -C build
 
-      - name: Test
+      - name: Run tests
         run: |
-          meson test --print-errorlogs -C build
+          uv run meson test --print-errorlogs -C build
 
+  # This compiles with the default compiler via uv/meson-python and runs the Python test suite using the -X dev option
+  build_test_x_dev:
+    name: Full build with default compiler via meson-python then Python tests with -X dev
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v7
+
+      - name: Install Python dependencies
+        run: |
+          uv sync
+
+      - name: Run tests
+        run: |
+          DATA_DIR=$(pwd)/test/data/raw uv run python -X dev -m pytest test/
+
+  # This builds with Clang and runs Valgrind on C++ tests only (slow -- takes around 8 mins at the moment)
+  # It may be that this needs to change to manually triggered or run a subset of tests later on
   test_valgrind:
-    name: Test with Valgrind
+    name: C++ only build with Clang then C++ tests under Valgrind
     runs-on: ubuntu-latest
 
     steps:

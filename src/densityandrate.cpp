@@ -5,6 +5,8 @@
 #include <stdlib.h>
 #include <math.h>
 #include "consts.h"
+#include "exceptions.h"
+#include "openmp_helper.h"
 
 #if defined(__GNUC__) && !defined(__llvm__) && !defined(__INTEL_COMPILER)
 #define ACTUALLY_GCC
@@ -14,6 +16,49 @@ using namespace std;
 
 // FUNCTIONS
 
+static inline void throw_invalidate_max_energies(double fragmentation_energy, double energy_max, double energy_max_rate, int n_fragmentation, int m_max, int m_max_rate)
+{
+  throw ApiTofArgumentError([&](auto &msg)
+  {
+    msg << "Density of states must be evaluated up to an energy of max rate energy + fragmentation energy\n"
+        << "DOS max energy: " << energy_max << "K (" << m_max << " bins)\n"
+        << "Max rate energy: " << energy_max_rate << "K (" << m_max_rate << " bins)\n"
+        << "Fragmentation energy: " << fragmentation_energy << "K (" << n_fragmentation << " bins)\n";
+  });
+}
+
+void validate_max_energies(double fragmentation_energy, double energy_max, double energy_max_rate, double bin_width)
+{
+  int m_max = int(energy_max / bin_width);
+  int m_max_rate = int(energy_max_rate / bin_width);
+  int n_fragmentation = int(fragmentation_energy / bin_width);
+  if (n_fragmentation + m_max_rate > m_max)
+  {
+    throw_invalidate_max_energies(fragmentation_energy, energy_max, energy_max_rate, n_fragmentation, m_max, m_max_rate);
+  }
+}
+
+void validate_max_energies(int n_fragmentation, int m_max, int m_max_rate, double bin_width)
+{
+  if (n_fragmentation + m_max_rate > m_max)
+  {
+    double energy_max = m_max * bin_width;
+    double energy_max_rate = m_max_rate * bin_width;
+    double fragmentation_energy = n_fragmentation * bin_width;
+    throw_invalidate_max_energies(fragmentation_energy, energy_max, energy_max_rate, n_fragmentation, m_max, m_max_rate);
+  }
+}
+
+void validate_max_energies(double fragmentation_energy, int m_max, int m_max_rate, double bin_width)
+{
+  int n_fragmentation = int(fragmentation_energy / bin_width);
+  if (n_fragmentation + m_max_rate > m_max)
+  {
+    double energy_max = m_max * bin_width;
+    double energy_max_rate = m_max_rate * bin_width;
+    throw_invalidate_max_energies(fragmentation_energy, energy_max, energy_max_rate, n_fragmentation, m_max, m_max_rate);
+  }
+}
 
 double get_prefactor_k_total(double inertia_moment_1, double inertia_moment_2, Eigen::Vector3d &rotations_1, Eigen::Vector3d &rotations_2)
 {
@@ -424,6 +469,9 @@ compute_k_total_full(ClusterData &cluster_0, ClusterData &cluster_1, ClusterData
 
   auto rho_0 = rhos.col(C0_ROW);
   auto rho_comb = rhos.col(COMB_ROW);
+
+  validate_max_energies(fragmentation_energy, rho_0.size(), m_max_rate, bin_width);
+
   compute_k_total_general(k0, k_rate, cluster_1, cluster_2, fragmentation_energy, rho_0, rho_comb, bin_width, m_max_rate);
   return k_rate;
 }
@@ -457,21 +505,28 @@ Eigen::ArrayXXd compute_k_total_batch(std::vector<KTotalInput> batch_input, doub
 {
   int m_max_rate = int(energy_max_rate / bin_width);
   Eigen::ArrayXXd k_rate = Eigen::ArrayXXd(m_max_rate, batch_input.size());
+  OMPExceptionHelper exception_helper;
 #pragma omp parallel default(none) \
   firstprivate(batch_input, bin_width, m_max_rate, mesh) \
-  shared(k_rate)
+  shared(exception_helper, k_rate)
   {
     Eigen::ArrayXd k0 = Eigen::ArrayXd(m_max_rate);
 #pragma omp for
     for (size_t i = 0; i < batch_input.size(); i++)
     {
-      auto input = batch_input[i];
+      exception_helper.guard([&]
+      {
+        auto input = batch_input[i];
+        // TODO: If there were a more encapsulated batch interface for calculating DOS/mesh/k_total, we could prevalidate all inputs before starting any computation
+        validate_max_energies(input.fragmentation_energy, (int)input.rho_parent.size(), (int)k_rate.rows(), bin_width);
 
-      input.cluster_1.compute_derived();
-      input.cluster_2.compute_derived();
-      compute_k_total_general(k0, k_rate.col(i), input.cluster_1, input.cluster_2, input.fragmentation_energy, input.rho_parent, input.rho_comb, bin_width, m_max_rate, mesh);
+        input.cluster_1.compute_derived();
+        input.cluster_2.compute_derived();
+        compute_k_total_general(k0, k_rate.col(i), input.cluster_1, input.cluster_2, input.fragmentation_energy, input.rho_parent, input.rho_comb, bin_width, m_max_rate, mesh);
+      });
     }
   }
+  exception_helper.rethrow();
   return k_rate;
 }
 

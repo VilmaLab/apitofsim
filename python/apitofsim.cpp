@@ -349,7 +349,7 @@ void register_overflow_translator(nb::exception<CppExceptionT> nb_py_exception)
     catch (const CppExceptionT &err)
     {
       auto c_py_exc = (PyObject *)payload;
-      auto py_exc = nb::steal(c_py_exc)(err.what());
+      auto py_exc = nb::borrow(c_py_exc)(err.what());
       py_exc.attr("max") = err.max;
       py_exc.attr("current") = err.current;
       PyErr_SetObject(c_py_exc, py_exc.ptr());
@@ -409,6 +409,12 @@ NB_MODULE(apitofsimraw, m)
     .def_ro("ac_field", &Quadrupole::dc_field)
     .def_ro("radiofrequency", &Quadrupole::dc_field)
     .def_ro("r_quadrupole", &Quadrupole::dc_field);
+
+  m.def("validate_max_energies", static_cast<void (*)(double, double, double, double)>(validate_max_energies),
+        "fragmentation_energy"_a,
+        "energy_max"_a,
+        "energy_max_rate"_a,
+        "bin_width"_a);
 
   m.def("densityandrate", &densityandrate,
         "cluster_0"_a,
@@ -482,7 +488,7 @@ NB_MODULE(apitofsimraw, m)
         "loglevel"_a = DEFAULT_LOGLEVEL);
 
   nb::class_<FragmentationPathway>(m, "FragmentationPathway")
-    .def(nb::init<ClusterData &, ClusterData &, ClusterData &>(),
+    .def(nb::init<ClusterData, ClusterData, ClusterData>(),
          nb::arg("parent"),
          nb::arg("product1"),
          nb::arg("product2"))
