@@ -23,6 +23,7 @@ else
 endif
 
 python_feat = get_option('python')
+stubgen_feat = get_option('stubgen')
 ittnotify_feat = get_option('ittnotify')
 openmp_option = get_option('openmp')
 
