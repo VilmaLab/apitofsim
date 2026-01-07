@@ -1,5 +1,5 @@
-site_name: apitofsim docs
-site_url: https://mydomain.org/mysite
+site_name: Documentation for apitofsim
+site_url: https://vilmalab.github.io/apitofsim/
 theme:
   name: material
   features:
@@ -38,3 +38,9 @@ plugins:
             show_symbol_type_toc: true
             signature_crossrefs: true
             summary: true
+nav:
+  - Getting started: index.md
+  - Background: background.md
+  - Python API: api.md
+  - Notebooks: notebooks.md
+  - Development: development.md
