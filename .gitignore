@@ -17,3 +17,4 @@ work/
 /trees/
 /.lazy.lua
 __marimo__/
+/uv.toml
