@@ -12,7 +12,7 @@
 #include "warnlogcount.h"
 #include "exceptions.h"
 #include "samplers.h"
-#include "apitof.h"
+#include "mass_spec.h"
 #include "openmp_helper.h"
 
 using namespace std;

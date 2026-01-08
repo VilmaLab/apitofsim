@@ -17,7 +17,7 @@
 
 #include "skimmer.h"
 #include "densityandrate.h"
-#include "apitof.h"
+#include "mass_spec.h"
 #include "consts.h"
 #include "warnlogcount.h"
 #include "openmp_helper.h"
