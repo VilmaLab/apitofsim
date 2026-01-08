@@ -1,6 +1,6 @@
 import numpy
 from typing import Callable, List, cast
-from dataclasses import dataclass
+from dataclasses import dataclass, KW_ONLY, MISSING
 from pandas import DataFrame
 from pint import get_application_registry, Quantity
 from pint._typing import Magnitude
@@ -14,6 +14,7 @@ from .apitofsimraw import (
     densityandrate as _densityandrate,
     Histogram as _Histogram,
     Quadrupole as _Quadrupole,
+    MassSpectrometer as _MassSpectrometer,
     validate_max_energies as _validate_max_energies,
     pinhole as _pinhole,
     KTotalInput,
@@ -159,6 +160,47 @@ class Quadrupole:
             self.ac_field.to("volts").magnitude,
             self.radiofrequency.to("hertz").magnitude,
             self.r_quadrupole.to("m").magnitude,
+        )
+
+
+@dataclass
+class MassSpectrometer:
+    skimmer: numpy.ndarray
+    lengths: Quantity[numpy.ndarray]
+    voltages: Quantity[numpy.ndarray]
+    T: Quantity[float]
+    pressures: Quantity[numpy.ndarray]
+    _: KW_ONLY
+    # Only None during init, but can't specify this annoyingly
+    mesh_skimmer: Quantity[float] | None = None
+    quadrupole: Quadrupole | None = None
+
+    def __post_init__(self):
+        if self.skimmer.shape[1] == 3:
+            if self.mesh_skimmer is None:
+                raise ValueError(
+                    "mesh_skimmer must be supplied when 3 column array is given for skimmer"
+                )
+        elif self.skimmer.shape[1] == 6:
+            if self.mesh_skimmer is not None:
+                raise ValueError(
+                    "mesh_skimmer should not be supplied when 6 column array is given for skimmer"
+                )
+            self.mesh_skimmer = Q_(float(self.skimmer[1, 0] - self.skimmer[0, 0]), "m")
+            self.skimmer = self.skimmer[:, 1:4]
+        else:
+            raise ValueError("skimmer must have 3 or 6 columns")
+
+    def into_cpp(self):
+        assert self.mesh_skimmer is not None
+        return _MassSpectrometer(
+            numpy.asfortranarray(self.skimmer),
+            self.mesh_skimmer.to("m").magnitude,
+            self.lengths.to("m").magnitude,
+            self.voltages.to("volts").magnitude,
+            self.T.to("K").magnitude,
+            self.pressures.to("pascals").magnitude,
+            self.quadrupole and self.quadrupole.into_cpp(),
         )
 
 
@@ -311,24 +353,17 @@ Timings = namedtuple("Timings", ["loop", "total"])
 
 
 def pinhole(
+    mass_spec: MassSpectrometer,
     cluster_0: ClusterData,
     cluster_1: ClusterData,
     cluster_2: ClusterData,
     gas: Gas,
     density_cluster: Histogram,
     rate_const: Histogram,
-    skimmer: numpy.ndarray,
-    lengths: MaybeQuantityArray,
-    voltages: MaybeQuantityArray,
-    T: MaybeQuantity,
-    pressure_first: MaybeQuantity,
-    pressure_second: MaybeQuantity,
     N: int,
     *,
     sample_mode: SampleMode = SampleMode.rejection,
     loglevel: int = 0,
-    mesh_skimmer: float | None = None,
-    quadrupole: Quadrupole | None = None,
     cluster_charge_sign: int = -1,
     fragmentation_energy: MaybeQuantity | None = None,
     seed: int = 42,
@@ -342,46 +377,20 @@ def pinhole(
     This function runs the main simulation of the APi-ToF mass spectrometer.
     """
     process_arg = QuantityProcessor(quantities_strict)
-    lengths = process_arg("lengths", lengths, "meters")
-    voltages = process_arg("voltages", voltages, "volts")
-    T = process_arg("T", T, "kelvin")
-    pressure_first = process_arg("pressure_first", pressure_first, "pascals")
-    pressure_second = process_arg("pressure_second", pressure_second, "pascals")
     if fragmentation_energy is not None:
         fragmentation_energy = process_arg(
             "fragmentation_energy", fragmentation_energy, "kelvin"
         )
-    if skimmer.shape[1] == 3:
-        if mesh_skimmer is None:
-            raise ValueError(
-                "mesh_skimmer must be supplied when 3 column array is given for skimmer"
-            )
-    elif skimmer.shape[1] == 6:
-        if mesh_skimmer is not None:
-            raise ValueError(
-                "mesh_skimmer should not be supplied when 6 column array is given for skimmer"
-            )
-        mesh_skimmer = float(skimmer[1, 0] - skimmer[0, 0])
-        skimmer = skimmer[:, 1:4]
-    else:
-        raise ValueError("skimmer must have 3 or 6 columns")
     counters, loop_time, total_time = _pinhole(
+        mass_spec.into_cpp(),
         cluster_0.into_cpp(),
         cluster_1.into_cpp(),
         cluster_2.into_cpp(),
         gas.into_cpp(),
         density_cluster.into_cpp(),
         rate_const.into_cpp(),
-        skimmer,
-        mesh_skimmer,
-        lengths,
-        voltages,
-        T,
-        pressure_first,
-        pressure_second,
         N,
         fragmentation_energy=fragmentation_energy,
-        quadrupole=quadrupole and quadrupole.into_cpp(),
         cluster_charge_sign=cluster_charge_sign,
         seed=seed,
         log_callback=log_callback,

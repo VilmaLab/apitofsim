@@ -105,11 +105,9 @@ TEST_CASE("apitof pinhole smoke tests")
   double m_ion;
   double R_cluster;
   compute_mass_and_radius(inertia, 216, m_ion, R_cluster);
-  auto counters = std::get<0>(apitof_pinhole(
-    -1,
-    300.0,
-    182.0,
-    3.53,
+  MassSpectrometer ms{
+    skimmer,
+    mesh_skimmer,
     InstrumentDims(
       1.0e-3,
       2.44e-3,
@@ -122,23 +120,27 @@ TEST_CASE("apitof pinhole smoke tests")
       -7.0,
       -6.0,
       11.0),
+    300.0,
+    InstrumentPressures{182.0, 3.53},
+    Quadrupole(
+      0.0,
+      200.0,
+      1.3e6,
+      6.0e-3),
+  };
+  auto counters = std::get<0>(apitof_pinhole(
+    ms,
+    -1,
     5,
     23420.7,
     Gas{
       2.46e-10,
       4.8506e-26,
       1.4},
-    Quadrupole(
-      0.0,
-      200.0,
-      1.3e6,
-      6.0e-3),
     m_ion,
     R_cluster,
     density_cluster,
     rate_const,
-    skimmer,
-    mesh_skimmer,
     42,
     result_queue,
     SampleMode::dss_normalized));

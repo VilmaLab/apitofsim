@@ -246,26 +246,27 @@ void apitof_pinhole_config_in()
           radiofrequency,
           r_quadrupole);
       }
-      std::tie(counters, loop_time, total_time) = apitof_pinhole(
-        cluster_charge_sign,
-        T,
-        pressure_first,
-        pressure_second,
+      MassSpectrometer ms{
+        skimmer,
+        mesh_skimmer,
         lengths,
         voltages,
+        T,
+        InstrumentPressures{pressure_first, pressure_second},
+        quadrupole};
+      std::tie(counters, loop_time, total_time) = apitof_pinhole(
+        ms,
+        cluster_charge_sign,
         N,
         bonding_energy,
         Gas{
           R_gas,
           m_gas,
           ga},
-        quadrupole,
         m_ion,
         R_cluster,
         density_cluster,
         rate_const,
-        skimmer,
-        mesh_skimmer,
         root_seed,
         result_queue,
         sample_mode);

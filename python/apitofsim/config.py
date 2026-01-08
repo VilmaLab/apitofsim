@@ -220,12 +220,33 @@ class ConfigFile:
             if asa == "measurement":
                 value = Q_(value, "volts")
             return value
+        if quantity == "pressures":
+            value = numpy.array(
+                [
+                    self.get(f"pressure_{k}", by="short_name", asa="value")
+                    for k in ["first", "second"]
+                ]
+            )
+            if asa == "measurement":
+                value = Q_(value, "Pa")
+            return value
         if quantity == "gas":
             cls = Gas if asa == "measurement" else _Gas
             return cls(
                 adiabatic_index=self.get("ga", by="short_name", asa=asa),
                 radius=self.get("R_gas", by="short_name", asa=asa),
                 mass=self.get("m_gas", by="short_name", asa=asa),
+            )
+        if quantity == "mass_spec":
+            cls = MassSpectrometer if asa == "measurement" else _MassSpectrometer
+            return lambda skimmer, mesh_skimmer=None: cls(
+                skimmer,
+                lengths=self.get("lengths", by="short_name", asa=asa),
+                voltages=self.get("voltages", by="short_name", asa=asa),
+                T=self.get("T", by="short_name", asa=asa),
+                pressures=self.get("pressures", by="short_name", asa=asa),
+                quadrupole=self.get("quadrupole", by="short_name", asa=asa),
+                mesh_skimmer=mesh_skimmer,
             )
         if quantity == "quadrupole":
             cls = Quadrupole if asa == "measurement" else _Quadrupole

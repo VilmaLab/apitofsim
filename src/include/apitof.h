@@ -13,6 +13,7 @@ const int PRESSURE_SKIMMER = 2;
 typedef Eigen::Array<double, 5, 1> InstrumentDims;
 const int SKIMMER_LENGTH = 4;
 typedef Eigen::Array<double, 5, 1> InstrumentVoltages;
+typedef Eigen::Array<double, 2, 1> InstrumentPressures;
 
 struct Quadrupole
 {
@@ -33,6 +34,17 @@ struct Quadrupole
   void compute_mathieu_factor(double m_ion);
 };
 
+struct MassSpectrometer
+{
+  SkimmerData skimmer;
+  double mesh_skimmer;
+  InstrumentDims lengths;
+  InstrumentVoltages voltages;
+  double T;
+  InstrumentPressures pressures;
+  std::optional<Quadrupole> quadrupole = std::nullopt;
+};
+
 enum struct SampleMode
 {
   dss_normalized,
@@ -44,22 +56,15 @@ typedef std::chrono::high_resolution_clock::duration RuntimeDuration;
 typedef std::tuple<Counters, RuntimeDuration, RuntimeDuration> SimulationResult;
 
 SimulationResult apitof_pinhole(
+  const MassSpectrometer &mass_spec,
   int cluster_charge_sign,
-  double T,
-  double pressure_first,
-  double pressure_second,
-  InstrumentDims lengths,
-  InstrumentVoltages voltages,
   int N,
   double bonding_energy,
   Gas gas,
-  std::optional<Quadrupole> quadrupole,
   double m_ion,
   double R_cluster,
   const Histogram &density_cluster,
   const Histogram &rate_const,
-  const SkimmerData &skimmer,
-  const double mesh_skimmer,
   unsigned long long root_seed,
   StreamingResultQueue &result_queue,
   SampleMode sample_mode,

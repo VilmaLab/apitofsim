@@ -122,22 +122,15 @@ nb::typed<nb::tuple, Histogram, Histogram> densityandrate(
 }
 
 SimulationResult pinhole(
+  const MassSpectrometer &ms,
   ClusterData &cluster_0,
   ClusterData &cluster_1,
   ClusterData &cluster_2,
   Gas gas,
   Histogram &density_cluster,
   Histogram &rate_const,
-  SkimmerData skimmer,
-  double mesh_skimmer,
-  InstrumentDims lengths,
-  InstrumentVoltages voltages,
-  double T,
-  double pressure_first,
-  double pressure_second,
   int N,
   std::optional<double> fragmentation_energy = nullopt,
-  std::optional<Quadrupole> quadrupole = nullopt,
   int cluster_charge_sign = 1,
   unsigned long long seed = 42ull,
   std::optional<std::function<void(std::string_view, std::string)>> log_callback = nullopt,
@@ -180,22 +173,15 @@ SimulationResult pinhole(
     exception_helper.guard([&]
     {
       result = apitof_pinhole(
+        ms,
         cluster_charge_sign,
-        T,
-        pressure_first,
-        pressure_second,
-        lengths,
-        voltages,
         N,
         computed_fragmentation_energy,
         gas,
-        quadrupole,
         m_ion,
         R_cluster,
         density_cluster,
         rate_const,
-        skimmer,
-        mesh_skimmer,
         root_seed,
         result_queue,
         sample_mode,
@@ -406,9 +392,26 @@ NB_MODULE(apitofsimraw, m)
          nb::arg("radiofrequency"),
          nb::arg("r_quadrupole"))
     .def_ro("dc_field", &Quadrupole::dc_field)
-    .def_ro("ac_field", &Quadrupole::dc_field)
-    .def_ro("radiofrequency", &Quadrupole::dc_field)
-    .def_ro("r_quadrupole", &Quadrupole::dc_field);
+    .def_ro("ac_field", &Quadrupole::ac_field)
+    .def_ro("radiofrequency", &Quadrupole::radiofrequency)
+    .def_ro("r_quadrupole", &Quadrupole::r_quadrupole);
+
+  nb::class_<MassSpectrometer>(m, "MassSpectrometer")
+    .def(nb::init<SkimmerData, double, InstrumentDims, InstrumentVoltages, double, InstrumentPressures, std::optional<Quadrupole>>(),
+         "skimmer"_a,
+         "mesh_skimmer"_a,
+         "lengths"_a,
+         "voltages"_a,
+         "T"_a,
+         "pressures"_a,
+         "quadrupole"_a = std::nullopt)
+    .def_ro("skimmer", &MassSpectrometer::skimmer)
+    .def_ro("mesh_skimmer", &MassSpectrometer::mesh_skimmer)
+    .def_ro("lengths", &MassSpectrometer::lengths)
+    .def_ro("voltages", &MassSpectrometer::voltages)
+    .def_ro("T", &MassSpectrometer::T)
+    .def_ro("pressures", &MassSpectrometer::pressures)
+    .def_ro("quadrupole", &MassSpectrometer::quadrupole);
 
   m.def("validate_max_energies", static_cast<void (*)(double, double, double, double)>(validate_max_energies),
         "fragmentation_energy"_a,
@@ -464,22 +467,15 @@ NB_MODULE(apitofsimraw, m)
   nb_magic_enum<SampleMode>(m, "SampleMode");
 
   m.def("pinhole", &pinhole,
+        "ms"_a,
         "cluster_0"_a,
         "cluster_1"_a,
         "cluster_2"_a,
         "gas"_a,
         "density_cluster"_a,
         "rate_const"_a,
-        "skimmer"_a,
-        "mesh_skimmer"_a,
-        "lengths"_a,
-        "voltages"_a,
-        "T"_a,
-        "pressure_first"_a,
-        "pressure_second"_a,
         "N"_a,
         "fragmentation_energy"_a = std::nullopt,
-        "quadrupole"_a = std::nullopt,
         "cluster_charge_sign"_a = 1,
         "seed"_a = 42ull,
         "log_callback"_a = std::nullopt,
