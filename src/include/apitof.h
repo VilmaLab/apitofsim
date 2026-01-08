@@ -68,7 +68,8 @@ SimulationResult apitof_pinhole(
   unsigned long long root_seed,
   StreamingResultQueue &result_queue,
   SampleMode sample_mode,
-  int loglevel = DEFAULT_LOGLEVEL);
+  int loglevel = DEFAULT_LOGLEVEL,
+  bool on_main_thread = false);
 
 void rescale_density(Histogram &density);
 void rescale_energies(Histogram &energies);

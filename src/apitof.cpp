@@ -117,7 +117,8 @@ SimulationResult apitof_pinhole(
   StreamingResultQueue &result_queue,
   GasCollSamplerT gas_coll_sampler,
   VibEnergySamplerT vib_energy_sampler,
-  int loglevel = DEFAULT_LOGLEVEL);
+  int loglevel = DEFAULT_LOGLEVEL,
+  bool on_main_thread = false);
 
 SimulationResult apitof_pinhole(
   const MassSpectrometer &mass_spec,
@@ -132,7 +133,8 @@ SimulationResult apitof_pinhole(
   unsigned long long root_seed,
   StreamingResultQueue &result_queue,
   SampleMode sample_mode,
-  int loglevel)
+  int loglevel,
+  bool on_main_thread)
 {
   using consts::boltzmann;
   double m_gas = gas.mass;
@@ -157,7 +159,8 @@ SimulationResult apitof_pinhole(
       result_queue,
       GasCollCondNormHistDSSSampler(dtheta, du, boundary_u),
       VibEnergyNormSampler(density_cluster),
-      loglevel);
+      loglevel,
+      on_main_thread);
   }
   else if (sample_mode == SampleMode::dss_unnormalized)
   {
@@ -175,7 +178,8 @@ SimulationResult apitof_pinhole(
       result_queue,
       GasCollCondUnnormHistDSSSampler(dtheta, du, boundary_u),
       VibEnergyUnnormSampler(density_cluster),
-      loglevel);
+      loglevel,
+      on_main_thread);
   }
   else if (sample_mode == SampleMode::rejection)
   {
@@ -193,7 +197,8 @@ SimulationResult apitof_pinhole(
       result_queue,
       GasCollRejectionSampler(boundary_u),
       VibEnergyNormSampler(density_cluster),
-      loglevel);
+      loglevel,
+      on_main_thread);
   }
   else
   {
@@ -219,7 +224,8 @@ SimulationResult apitof_pinhole(
   StreamingResultQueue &result_queue,
   GasCollSamplerT gas_coll_sampler,
   VibEnergySamplerT vib_energy_sampler,
-  int loglevel)
+  int loglevel,
+  bool on_main_thread)
 {
   using namespace consts;
   // TO BE DELETED ###############
@@ -541,7 +547,7 @@ SimulationResult apitof_pinhole(
       // }
     });
   }
-  exception_helper.rethrow();
+  exception_helper.rethrow(!on_main_thread);
   // End of parallel loop
 
   // realizations = n_fragmented_total + n_escaped_total;
