@@ -64,6 +64,13 @@ struct CumulativeLengths
   }
 };
 
+enum struct TimeNextCollOutcome
+{
+  fragmentation,
+  gas_collision,
+  escape
+};
+
 // LIST OF FUNCTIONS
 // Here we are
 template <typename GenT>
@@ -76,7 +83,7 @@ double evaluate_rotational_energy(Eigen::Vector3d omega, double inertia);
 double evaluate_internal_energy(double vib_energy, double rot_energy);
 double evaluate_rate_const(const Histogram &rate_const, double energy);
 template <typename GenT>
-void time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &unif, double rate_constant, Eigen::Vector3d &v_cluster, double &v_cluster_norm, double n1, double n2, double mobility_gas, double mobility_gas_inv, double R, double dt1, double dt2, double &z, double &x, double &y, double &delta_t, double &t_fragmentation, const CumulativeLengths &clens, Eigen::Array4d &acc, double &t, double m_gas, const SkimmerData &skimmer, double mesh_skimmer, std::optional<Quadrupole> quadrupole, LogHelper tmp_evolution, int loglevel);
+TimeNextCollOutcome time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &unif, double rate_constant, Eigen::Vector3d &v_cluster, double &v_cluster_norm, double n1, double n2, double mobility_gas, double mobility_gas_inv, double R, double dt1, double dt2, double &z, double &x, double &y, double &delta_t, double &t_fragmentation, const CumulativeLengths &clens, Eigen::Array4d &acc, double &t, double m_gas, const SkimmerData &skimmer, double mesh_skimmer, std::optional<Quadrupole> quadrupole);
 std::tuple<double, Eigen::Vector3d, double, double, double> get_quantities_for_collision(double z, double n1, double n2, double m_gas, double mobility_gas, double mobility_gas_inv, const Eigen::Vector3d &v_cluster, double v_gas, double pressure, double temperature, double first_chamber_end, double sk_end);
 void update_physical_quantities(double z, const SkimmerData skimmer, double mesh_skimmer, double &v_gas, double &temperature, double &pressure, double &density, double first_chamber_end, double sk_end, double P1, double P2, double n1, double n2, double T);
 // void evaluate_relative_velocity(double z, double *v_cluster, double &v_rel_norm, double v_gas, double *v_rel, double first_chamber_end, double sk_end);
@@ -415,102 +422,108 @@ SimulationResult apitof_pinhole(
           rate_constant = 0.0;
         }
 
-        time_next_coll_quadrupole(gen, unif, rate_constant, v_cluster, v_cluster_norm, n1, n2, mobility_gas, mobility_gas_inv, R_tot, dt1, dt2, z, x, y, delta_t, t_fragmentation, clens, acc, t, m_gas, skimmer, mesh_skimmer, quadrupole, LogHelper{result_queue, LogMessage::tmp_evolution}, loglevel);
+        TimeNextCollOutcome outcome = time_next_coll_quadrupole(gen, unif, rate_constant, v_cluster, v_cluster_norm, n1, n2, mobility_gas, mobility_gas_inv, R_tot, dt1, dt2, z, x, y, delta_t, t_fragmentation, clens, acc, t, m_gas, skimmer, mesh_skimmer, quadrupole);
+
+        if (loglevel >= LOGLEVEL_NORMAL)
+        {
+          if (z < clens.first_chamber_end)
+          {
+            LogHelper tmp_evolution = LogHelper{result_queue, LogMessage::tmp_evolution};
+            tmp_evolution([&](auto &tmp_evolution)
+            {
+              tmp_evolution << z << " " << delta_t << " " << v_gas << " " << v_cluster_norm << " " << endl;
+            });
+          }
+        }
 
         // tmp << kin_energy << "\t";
         // tmp_evolution << delta_t << " " << z << " " << v_cluster[0] << " " << v_cluster[1] << " " << v_cluster[2] << " " << kin_energy << endl;
 
-
-        // In case we are still in the box
-        if (z < clens.total_length)
+        if (outcome == TimeNextCollOutcome::fragmentation)
         {
-          // Evaluate if the cluster fragments or not
-          if (rate_constant > 0 && delta_t >= t_fragmentation)
+          n_fragmented++;
+          // if(a==1) cout << "Fragmentation with max energy for rate exceeded. Realization: " << j+1 << endl;
+          // if(coll_z>quadrupole_start && coll_z<quadrupole_end)
+          if (loglevel >= LOGLEVEL_NORMAL)
           {
-            n_fragmented++;
-            // if(a==1) cout << "Fragmentation with max energy for rate exceeded. Realization: " << j+1 << endl;
-            // if(coll_z>quadrupole_start && coll_z<quadrupole_end)
-            if (loglevel >= LOGLEVEL_NORMAL)
+            fragments([&](auto &fragments)
             {
-              fragments([&](auto &fragments)
-              {
-                fragments << j + 1 << "\t" << t << "\t" << z << "\t" << zone(z, clens) << "\t" << coll_z << "\t" << zone(coll_z, clens) << endl;
-              });
-            }
-            break;
+              fragments << j + 1 << "\t" << t << "\t" << z << "\t" << zone(z, clens) << "\t" << coll_z << "\t" << zone(coll_z, clens) << endl;
+            });
           }
-
-          if (a == 1)
-          {
-            throw ApiTofRateConstantOverflow(rate_const.x_max / boltzmann, delta_en / boltzmann);
-          }
-
-          // Keep track on number of collisions per realization
-          ncoll++;
-          // cout << "Collision number: " << ncoll << endl;
-          // cout << "Position z: " << z << endl;
-          // if(z>quadrupole_start && z<quadrupole_end)
-          // collisions << j+1 << "\t" << delta_t << "\t" << t << "\t" << x << '\t' << y << "\t" << z << "\t" << ncoll << "\t" << v_cluster_norm << endl;
-
-          // XXX: For some reason these are written after they are read above
-
-          // coll_z = z;
-
-          if (ncoll > max_coll)
-          {
-            throw ApiTofMaxCollisions(max_coll, ncoll);
-          }
-
-          update_physical_quantities(z, skimmer, mesh_skimmer, v_gas, temperature, pressure, density, clens.first_chamber_end, clens.sk_end, P1, P2, n1, n2, T);
-
-          double effective_n;
-          Eigen::Vector3d v_rel;
-          double v_rel_norm;
-          double effective_mobility_gas;
-          double effective_mobility_gas_inv;
-          std::tie(effective_n, v_rel, v_rel_norm, effective_mobility_gas, effective_mobility_gas_inv) = get_quantities_for_collision(z, n1, n2, m_gas, mobility_gas, mobility_gas_inv, v_cluster, v_gas, pressure, temperature, clens.first_chamber_end, clens.sk_end);
-          std::tie(theta, u_norm) = gas_coll_sampler.sample(gen, effective_n, v_rel_norm, effective_mobility_gas, effective_mobility_gas_inv, R_tot, warn);
-
-          vib_energy_old = vib_energy;
-
-          // Evaluate the dissipated energy in the collision (energy that goes to vibrational modes)
-          vib_energy_new = vib_energy_sampler.sample(gen, boundary_vib_energy(vib_energy_old, reduced_mass, u_norm, v_rel_norm, theta));
-
-          bool collision_accepted = true;
-          eval_collision(gen, unif, collision_accepted, gas_mean_free_path, x, y, z, clens.total_length, radius_pinhole, clens.quadrupole_end, v_rel, omega, u_norm, theta, R_cluster, vib_energy_new, vib_energy_old, m_ion, m_gas, temperature, LogHelper{result_queue, LogMessage::pinhole});
-
-          if (collision_accepted)
-          {
-            vib_energy = vib_energy_new;
-            update_velocities(v_cluster, v_cluster_norm, v_rel, v_gas);
-            // tmp << kin_energy << endl;
-
-            rot_energy_old = evaluate_rotational_energy(omega, inertia);
-            rot_energy = rot_energy_old;
-            redistribute_internal_energy(gen, unif, vib_energy, rot_energy, density_cluster);
-            update_rot_vel(omega, rot_energy_old, rot_energy);
-          }
-          else
-          {
-            counters[Counter::counter_collision_rejections]++;
-          }
+          break;
         }
-
         else
         {
           if (a == 1)
           {
             throw ApiTofRateConstantOverflow(rate_const.x_max / boltzmann, delta_en / boltzmann);
           }
-          n_escaped++; // Count how many clusters reached the end of the box intact
-          if (loglevel >= LOGLEVEL_NORMAL)
+
+          if (outcome == TimeNextCollOutcome::gas_collision)
           {
-            final_position([&](auto &final_position)
+            // Keep track on number of collisions per realization
+            ncoll++;
+            // cout << "Collision number: " << ncoll << endl;
+            // cout << "Position z: " << z << endl;
+            // if(z>quadrupole_start && z<quadrupole_end)
+            // collisions << j+1 << "\t" << delta_t << "\t" << t << "\t" << x << '\t' << y << "\t" << z << "\t" << ncoll << "\t" << v_cluster_norm << endl;
+
+            // XXX: For some reason these are written after they are read above
+
+            // coll_z = z;
+
+            if (ncoll > max_coll)
             {
-              final_position << x << "\t" << y << endl;
-            });
+              throw ApiTofMaxCollisions(max_coll, ncoll);
+            }
+
+            update_physical_quantities(z, skimmer, mesh_skimmer, v_gas, temperature, pressure, density, clens.first_chamber_end, clens.sk_end, P1, P2, n1, n2, T);
+
+            double effective_n;
+            Eigen::Vector3d v_rel;
+            double v_rel_norm;
+            double effective_mobility_gas;
+            double effective_mobility_gas_inv;
+            std::tie(effective_n, v_rel, v_rel_norm, effective_mobility_gas, effective_mobility_gas_inv) = get_quantities_for_collision(z, n1, n2, m_gas, mobility_gas, mobility_gas_inv, v_cluster, v_gas, pressure, temperature, clens.first_chamber_end, clens.sk_end);
+            std::tie(theta, u_norm) = gas_coll_sampler.sample(gen, effective_n, v_rel_norm, effective_mobility_gas, effective_mobility_gas_inv, R_tot, warn);
+
+            vib_energy_old = vib_energy;
+
+            // Evaluate the dissipated energy in the collision (energy that goes to vibrational modes)
+            vib_energy_new = vib_energy_sampler.sample(gen, boundary_vib_energy(vib_energy_old, reduced_mass, u_norm, v_rel_norm, theta));
+
+            bool collision_accepted = true;
+            eval_collision(gen, unif, collision_accepted, gas_mean_free_path, x, y, z, clens.total_length, radius_pinhole, clens.quadrupole_end, v_rel, omega, u_norm, theta, R_cluster, vib_energy_new, vib_energy_old, m_ion, m_gas, temperature, LogHelper{result_queue, LogMessage::pinhole});
+
+            if (collision_accepted)
+            {
+              vib_energy = vib_energy_new;
+              update_velocities(v_cluster, v_cluster_norm, v_rel, v_gas);
+              // tmp << kin_energy << endl;
+
+              rot_energy_old = evaluate_rotational_energy(omega, inertia);
+              rot_energy = rot_energy_old;
+              redistribute_internal_energy(gen, unif, vib_energy, rot_energy, density_cluster);
+              update_rot_vel(omega, rot_energy_old, rot_energy);
+            }
+            else
+            {
+              counters[Counter::counter_collision_rejections]++;
+            }
           }
-          // cout << "Distance from exit on x: " << x << "and y: " << y << endl; // Distance from the exit on x and y axes
+          else // outcome == TimeNextCollOutcome::escape
+          {
+            n_escaped++; // Count how many clusters reached the end of the box intact
+            if (loglevel >= LOGLEVEL_NORMAL)
+            {
+              final_position([&](auto &final_position)
+              {
+                final_position << x << "\t" << y << endl;
+              });
+            }
+            // cout << "Distance from exit on x: " << x << "and y: " << y << endl; // Distance from the exit on x and y axes
+          }
         }
       }
 
@@ -771,7 +784,7 @@ void init_vib_energy(GenT &gen, uniform_real_distribution<double> &unif, double 
 
 // Evaluate time to next collision
 template <typename GenT>
-void time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &unif, double rate_constant, Eigen::Vector3d &v_cluster, double &v_cluster_norm, double n1, double n2, double mobility_gas, double mobility_gas_inv, double R, double dt1, double dt2, double &z, double &x, double &y, double &delta_t, double &t_fragmentation, const CumulativeLengths &clens, Eigen::Array4d &acc, double &t, double m_gas, const SkimmerData &skimmer, double mesh_skimmer, std::optional<Quadrupole> quadrupole, LogHelper tmp_evolution, int loglevel)
+TimeNextCollOutcome time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &unif, double rate_constant, Eigen::Vector3d &v_cluster, double &v_cluster_norm, double n1, double n2, double mobility_gas, double mobility_gas_inv, double R, double dt1, double dt2, double &z, double &x, double &y, double &delta_t, double &t_fragmentation, const CumulativeLengths &clens, Eigen::Array4d &acc, double &t, double m_gas, const SkimmerData &skimmer, double mesh_skimmer, std::optional<Quadrupole> quadrupole)
 {
   using namespace consts;
   double integral = 0.0;
@@ -829,8 +842,20 @@ void time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &uni
   {
     t_fragmentation = 1.0e10; // Set huge fragmentation time for no fragmentation happening
   }
-  while (r2 < P && z < clens.second_chamber_end && delta_t < t_fragmentation)
+  while (true)
   {
+    if (z >= clens.second_chamber_end)
+    {
+      return TimeNextCollOutcome::escape;
+    }
+    if (delta_t >= t_fragmentation)
+    {
+      return TimeNextCollOutcome::fragmentation;
+    }
+    if (r2 >= P)
+    {
+      return TimeNextCollOutcome::gas_collision;
+    }
     v1 = v_cluster[2];
     v1x = v_cluster[0];
     v1y = v_cluster[1];
@@ -936,16 +961,6 @@ void time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &uni
     // positionz << t << " " << z << " " << c1 << " " << c2 << " " << v1 << " " << v_cluster[2] << " " << P << " " << r << endl;
   }
   // if(z<first_chamber_end) tmp_evolution << z << " " << c1 << " " << n_skimmer << " " << mobility_gas_skimmer << " " << mobility_gas_inv_skimmer << " " << R << " " << v_rel_norm << endl;
-  if (loglevel >= LOGLEVEL_NORMAL)
-  {
-    if (z < clens.first_chamber_end)
-    {
-      tmp_evolution([&](auto &tmp_evolution)
-      {
-        tmp_evolution << z << " " << delta_t << " " << v_gas << " " << v_cluster_norm << " " << n_skimmer << endl;
-      });
-    }
-  }
 }
 
 double boundary_vib_energy(double vib_energy_old, double reduced_mass, double u_norm, double v_cluster_norm, double theta)
