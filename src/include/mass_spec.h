@@ -43,6 +43,7 @@ struct MassSpectrometer
   double T;
   InstrumentPressures pressures;
   std::optional<Quadrupole> quadrupole = std::nullopt;
+  std::optional<double> radius_pinhole = 1.0e-3;
 };
 
 enum struct SampleMode

@@ -174,6 +174,7 @@ class MassSpectrometer:
     # Only None during init, but can't specify this annoyingly
     mesh_skimmer: Quantity[float] | None = None
     quadrupole: Quadrupole | None = None
+    radius_pinhole: Quantity[float] | None = Q_(1, "mm")
 
     def __post_init__(self):
         if self.skimmer.shape[1] == 3:
@@ -201,6 +202,7 @@ class MassSpectrometer:
             self.T.to("K").magnitude,
             self.pressures.to("pascals").magnitude,
             self.quadrupole and self.quadrupole.into_cpp(),
+            self.radius_pinhole and self.radius_pinhole.to("m").magnitude,
         )
 
 

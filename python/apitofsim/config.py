@@ -88,6 +88,7 @@ NAME_MAP = {
     "Number_of_iterations_in_solving_equation2": "M_iter",
     "Number_of_solved_points": "resolution",
     "Tolerance_in_solving_equation": "tolerance",
+    "Radius_at_pinhole": "radius_pinhole",
 }
 
 UNITS = {
@@ -112,6 +113,7 @@ TOPLEVEL = [
     "bin_width",
     "resolution",
     "tolerance",
+    "radius_pinhole",
 ]
 
 DEFAULTS = {
