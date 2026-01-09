@@ -15,11 +15,6 @@
 #include <csignal>
 #include <exception>
 
-extern "C"
-{
-  static inline void set_flag_handler(int signal);
-}
-
 extern std::atomic<int> saved_signal;
 
 typedef void (*SignalHandler)(int);
