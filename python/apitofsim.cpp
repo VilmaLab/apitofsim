@@ -121,7 +121,7 @@ nb::typed<nb::tuple, Histogram, Histogram> densityandrate(
   return nb::make_tuple(Histogram(energies, rhos.col(COMB_ROW)), Histogram(energies_rate, k_rate));
 }
 
-SimulationResult pinhole(
+SimulationResult mass_spec(
   const MassSpectrometer &ms,
   ClusterData &cluster_0,
   ClusterData &cluster_1,
@@ -172,7 +172,7 @@ SimulationResult pinhole(
     // TODO: Probably want to switch to jthread when possible
     exception_helper.guard([&]
     {
-      result = apitof_pinhole(
+      result = apitof_mass_spec(
         ms,
         cluster_charge_sign,
         N,
@@ -466,7 +466,7 @@ NB_MODULE(apitofsimraw, m)
 
   nb_magic_enum<SampleMode>(m, "SampleMode");
 
-  m.def("pinhole", &pinhole,
+  m.def("mass_spec", &mass_spec,
         "ms"_a,
         "cluster_0"_a,
         "cluster_1"_a,

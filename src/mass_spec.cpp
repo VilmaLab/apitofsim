@@ -103,7 +103,7 @@ double eval_solid_angle_stokes(double R, double L, double xx, double yy, double 
 int zone(double z, CumulativeLengths &clens);
 
 template <typename GasCollSamplerT, typename VibEnergySamplerT>
-SimulationResult apitof_pinhole(
+SimulationResult apitof_mass_spec(
   const MassSpectrometer &mass_spec,
   int cluster_charge_sign,
   int N,
@@ -120,7 +120,7 @@ SimulationResult apitof_pinhole(
   int loglevel = DEFAULT_LOGLEVEL,
   bool on_main_thread = false);
 
-SimulationResult apitof_pinhole(
+SimulationResult apitof_mass_spec(
   const MassSpectrometer &mass_spec,
   int cluster_charge_sign,
   int N,
@@ -145,7 +145,7 @@ SimulationResult apitof_pinhole(
   const double dtheta = 1.0e-3;
   if (sample_mode == SampleMode::dss_normalized)
   {
-    return apitof_pinhole<GasCollCondNormHistDSSSampler, VibEnergyNormSampler>(
+    return apitof_mass_spec<GasCollCondNormHistDSSSampler, VibEnergyNormSampler>(
       mass_spec,
       cluster_charge_sign,
       N,
@@ -164,7 +164,7 @@ SimulationResult apitof_pinhole(
   }
   else if (sample_mode == SampleMode::dss_unnormalized)
   {
-    return apitof_pinhole<GasCollCondUnnormHistDSSSampler, VibEnergyUnnormSampler>(
+    return apitof_mass_spec<GasCollCondUnnormHistDSSSampler, VibEnergyUnnormSampler>(
       mass_spec,
       cluster_charge_sign,
       N,
@@ -183,7 +183,7 @@ SimulationResult apitof_pinhole(
   }
   else if (sample_mode == SampleMode::rejection)
   {
-    return apitof_pinhole<GasCollRejectionSampler, VibEnergyNormSampler>(
+    return apitof_mass_spec<GasCollRejectionSampler, VibEnergyNormSampler>(
       mass_spec,
       cluster_charge_sign,
       N,
@@ -210,7 +210,7 @@ SimulationResult apitof_pinhole(
 }
 
 template <typename GasCollSamplerT, typename VibEnergySamplerT>
-SimulationResult apitof_pinhole(
+SimulationResult apitof_mass_spec(
   const MassSpectrometer &ms,
   int cluster_charge_sign,
   int N,

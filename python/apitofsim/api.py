@@ -16,7 +16,7 @@ from .apitofsimraw import (
     Quadrupole as _Quadrupole,
     MassSpectrometer as _MassSpectrometer,
     validate_max_energies as _validate_max_energies,
-    pinhole as _pinhole,
+    mass_spec as _mass_spec,
     KTotalInput,
     precompute_mesh as _precompute_mesh,
     compute_density_of_states_batch as _compute_density_of_states_batch,
@@ -45,7 +45,7 @@ __all__ = [
     "Quadrupole",
     "Histogram",
     "densityandrate",
-    "pinhole",
+    "mass_spec",
     "skimmer",
     "compute_density_of_states_batch",
     "compute_k_total_batch",
@@ -352,7 +352,7 @@ Counters = namedtuple("Counters", [t.name for t in Counter])
 Timings = namedtuple("Timings", ["loop", "total"])
 
 
-def pinhole(
+def mass_spec(
     mass_spec: MassSpectrometer,
     cluster_0: ClusterData,
     cluster_1: ClusterData,
@@ -381,7 +381,7 @@ def pinhole(
         fragmentation_energy = process_arg(
             "fragmentation_energy", fragmentation_energy, "kelvin"
         )
-    counters, loop_time, total_time = _pinhole(
+    counters, loop_time, total_time = _mass_spec(
         mass_spec.into_cpp(),
         cluster_0.into_cpp(),
         cluster_1.into_cpp(),

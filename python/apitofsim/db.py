@@ -510,7 +510,7 @@ class ExperimentRunner:
     def start_run(self, config_id=None):
         self.current_run_id = self.db.insert_run(config_id)
 
-    def run_pinhole(
+    def run_mass_spec(
         self,
         *args,
         pathway_id,
@@ -518,10 +518,10 @@ class ExperimentRunner:
         **kwargs,
     ):
         self._guard_run_started()
-        from .api import pinhole
+        from .api import mass_spec
 
         try:
-            counters, timings = pinhole(
+            counters, timings = mass_spec(
                 *args,
                 **kwargs,
                 output_named_tuple=True,
@@ -699,7 +699,7 @@ class ExperimentRunner:
                 config["energy_max_rate"],
                 rate_const,
             )
-            self.run_pinhole(
+            self.run_mass_spec(
                 mass_spec,
                 cluster,
                 product1,

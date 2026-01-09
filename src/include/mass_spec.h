@@ -55,7 +55,7 @@ enum struct SampleMode
 typedef std::chrono::high_resolution_clock::duration RuntimeDuration;
 typedef std::tuple<Counters, RuntimeDuration, RuntimeDuration> SimulationResult;
 
-SimulationResult apitof_pinhole(
+SimulationResult apitof_mass_spec(
   const MassSpectrometer &mass_spec,
   int cluster_charge_sign,
   int N,

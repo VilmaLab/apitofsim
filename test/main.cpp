@@ -3,7 +3,7 @@
 
 #include "skimmer.h"
 #include "densityandrate_smoke.h"
-#include "cli/apitof_pinhole_io.h"
+#include "cli/mass_spec_io.h"
 
 TEST_CASE("skimmer smoke tests")
 {
@@ -128,7 +128,7 @@ TEST_CASE("apitof pinhole smoke tests")
       1.3e6,
       6.0e-3),
   };
-  auto counters = std::get<0>(apitof_pinhole(
+  auto counters = std::get<0>(apitof_mass_spec(
     ms,
     -1,
     5,

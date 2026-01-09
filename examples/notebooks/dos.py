@@ -13,7 +13,7 @@ def _():
     from apitofsim import (
         skimmer,
         densityandrate,
-        pinhole,
+        mass_spec,
         ClusterData,
         ProductsCluster,
         compute_density_of_states_batch,
