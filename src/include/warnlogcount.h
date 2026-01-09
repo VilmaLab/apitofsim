@@ -11,9 +11,7 @@
 #include <variant>
 #include <Eigen/Dense>
 #include <magic_enum/magic_enum.hpp>
-#pragma clang attribute push(__attribute__((no_sanitize("unsigned-integer-overflow"))), apply_to = function)
 #include <blockingconcurrentqueue.h>
-#pragma clang attribute pop
 
 using magic_enum::enum_count;
 using moodycamel::BlockingConcurrentQueue;
