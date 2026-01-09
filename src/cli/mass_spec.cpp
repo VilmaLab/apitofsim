@@ -95,9 +95,7 @@ void mass_spec_config_in()
   double radiofrequency;
   double dc_field;
   double ac_field;
-  int counter_collision_rejections = 0;
 
-  int ncoll_total = 0;
   int N;
   int nwarnings = 0;
   int amu;
@@ -365,8 +363,10 @@ void mass_spec_config_in()
     double survival_probability = (double)counters[Counter::n_escaped_total] / realizations;
     // error_survival_probability=sqrt(survival_probability*(1.0-survival_probability)/realizations);
     double error_survival_probability = evaluate_error(realizations, counters[Counter::n_escaped_total]);
+    int ncoll_total = counters[Counter::ncoll_total];
     double avg_ncoll = (double)ncoll_total / N;
     std::cout << "Average number of collisions: " << avg_ncoll << endl;
+    int counter_collision_rejections = counters[Counter::counter_collision_rejections];
     std::cout << "Number of collision rejections close to the pinhole: " << counter_collision_rejections << endl;
     std::cout << endl
               << "SURVIVAL PROBABILITY: " << std::setprecision(6) << survival_probability << " +/-" << std::setprecision(4) << error_survival_probability << endl
