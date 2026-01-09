@@ -5,7 +5,7 @@ import numpy
 from apitofsim.api import (
     skimmer,
     densityandrate,
-    pinhole,
+    mass_spec,
 )
 from apitofsim.config import (
     read_histogram,
@@ -21,7 +21,7 @@ def main():
     parser.add_argument(
         "command",
         nargs="?",
-        choices=["skimmer", "densityandrate", "apitof_pinhole"],
+        choices=["skimmer", "densityandrate", "mass_spec"],
         help="Command to execute",
     )
     parser.add_argument("config", help="Path to the configuration file")
@@ -77,7 +77,7 @@ def main():
         print(rhos)
         print("k_rate")
         print(k_rate)
-    if args.command == "apitof_pinhole" or args.command is None:
+    if args.command == "mass_spec" or args.command is None:
         config_dict = parse_config_with_particles(args.config)
         clusters = get_clusters(config_dict)
         density_cluster = read_histogram(
@@ -98,7 +98,7 @@ def main():
         def result_callback(counters):
             print(counters)
 
-        counters = pinhole(
+        counters = mass_spec(
             *clusters,
             config.get("gas"),  # pyright: ignore [reportArgumentType]
             density_cluster,  # pyright: ignore [reportArgumentType]

@@ -1,5 +1,6 @@
 # pyright: reportAttributeAccessIssue=false
 
+import numpy
 from collections import namedtuple
 import pandas
 import duckdb
@@ -10,7 +11,7 @@ from datetime import timedelta
 from glob import glob
 from os.path import dirname, isfile, basename, expanduser
 
-from .api import ApiTofError, ApiTofOverflowError, MeshMode
+from .api import ApiTofError, ApiTofOverflowError, MeshMode, MassSpectrometer
 
 ureg = get_application_registry()
 Q_ = ureg.Quantity
@@ -509,7 +510,7 @@ class ExperimentRunner:
     def start_run(self, config_id=None):
         self.current_run_id = self.db.insert_run(config_id)
 
-    def run_pinhole(
+    def run_mass_spec(
         self,
         *args,
         pathway_id,
@@ -517,10 +518,10 @@ class ExperimentRunner:
         **kwargs,
     ):
         self._guard_run_started()
-        from .api import pinhole
+        from .api import mass_spec
 
         try:
-            counters, timings = pinhole(
+            counters, timings = mass_spec(
                 *args,
                 **kwargs,
                 output_named_tuple=True,
@@ -654,6 +655,23 @@ class ExperimentRunner:
             mesh=mesh,
         )
         print(f"Done in {timer() - start}")
+        assert isinstance(skimmer_np, numpy.ndarray)
+        mass_spec = MassSpectrometer(
+            skimmer_np,
+            config["lengths"],
+            config["voltages"],
+            config["T"],
+            Q_(
+                numpy.array(
+                    [
+                        config["pressure_first"].to("pascals").magnitude,
+                        config["pressure_second"].to("pascals").magnitude,
+                    ]
+                ),
+                "pascals",
+            ),
+            quadrupole=config.get("quadrupole"),
+        )
 
         for (
             pathway_id,
@@ -681,21 +699,15 @@ class ExperimentRunner:
                 config["energy_max_rate"],
                 rate_const,
             )
-            self.run_pinhole(
+            self.run_mass_spec(
+                mass_spec,
                 cluster,
                 product1,
                 product2,
                 config["gas"],
                 density_hist,
                 rate_hist,
-                skimmer_np,
-                config["lengths"],
-                config["voltages"],
-                config["T"],
-                config["pressure_first"],
-                config["pressure_second"],
                 int(environ["N_OVERRIDE"]) if "N_OVERRIDE" in environ else config["N"],
-                quadrupole=config.get("quadrupole"),
                 fragmentation_energy=config.get("fragmentation_energy"),
                 cluster_charge_sign=config.get("cluster_charge_sign", -1),
                 pathway_id=pathway_id,

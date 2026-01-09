@@ -13,23 +13,16 @@
 
 #include <atomic>
 #include <csignal>
-#include <iostream>
+#include <exception>
 
-static std::atomic<int> saved_signal = -1;
-
-extern "C"
-{
-  static inline void set_flag_handler(int signal)
-  {
-    saved_signal.store(signal);
-  }
-}
+extern std::atomic<int> saved_signal;
 
 typedef void (*SignalHandler)(int);
 
 /* Exceptions can't pass between threads.
  * The solution is to capture and rethrow.
- * Additionally once the shared exception is set, no other guarded code can run, preventing further processing. */
+ * Additionally once the shared exception is set, no other guarded code can run, preventing further processing.
+ * This feature is useful for OpenMP loops, which can't otherwise be cancelled. */
 class OMPExceptionHelper
 {
   std::exception_ptr exception = nullptr;
@@ -39,67 +32,10 @@ class OMPExceptionHelper
   SignalHandler saved_handlers[NUM_SIGNALS];
 
 public:
-  OMPExceptionHelper()
-  {
-    for (int i = 0; i < NUM_SIGNALS; i++)
-    {
-      saved_handlers[i] = std::signal(signals[i], set_flag_handler);
-    }
-  }
-
-  ~OMPExceptionHelper()
-  {
-    if (!rethrow_called)
-    {
-      bool should_die = false;
-      if (this->exception)
-      {
-        std::cerr << "\nException lost! OMPExceptionHelper holding exception destroyed without rethrowing\n"
-                  << std::flush;
-        should_die = true;
-      }
-      if (saved_signal.load() != -1)
-      {
-        std::cerr << "\nSIGTERM flag set, but OMPExceptionHelper was destroyed without rethrowing\n"
-                  << std::flush;
-        should_die = true;
-      }
-      if (should_die)
-      {
-        std::terminate();
-      }
-    }
-  }
-
-  void rethrow()
-  {
-    rethrow_called = true;
-    for (int i = 0; i < NUM_SIGNALS; i++)
-    {
-      std::signal(signals[i], saved_handlers[i]);
-    }
-    int signal = saved_signal.load();
-    if (signal != -1)
-    {
-      // Prefer to raise the signal over the exception
-      // Reason: Application exception is more likely to be caught
-      saved_signal.store(-1);
-      raise(signal);
-    }
-    if (this->exception)
-    {
-      std::rethrow_exception(this->exception);
-    }
-  }
-
-  void capture()
-  {
-#pragma omp critical
-    if (!this->exception)
-    {
-      this->exception = std::current_exception();
-    }
-  }
+  OMPExceptionHelper();
+  ~OMPExceptionHelper();
+  void rethrow(bool signals_as_exceptions = false);
+  void capture();
 
   template <typename Function, typename... Parameters>
   void guard(Function f, Parameters... params)

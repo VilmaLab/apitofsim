@@ -76,7 +76,7 @@ for cluster in db.clusters_df(parents_only=True).itertuples():
         continue
     # This seems a bit naughty
     survival_rate = df["survival_rate"][df["survival_rate"] > 0]
-    joint_survivals[name_map[cluster.common_name]] = reduce(mul, survival_rate)
+    joint_survivals[name_map[cluster.common_name]] = reduce(mul, survival_rate, 1.0)
 
 pprint(joint_survivals)
 

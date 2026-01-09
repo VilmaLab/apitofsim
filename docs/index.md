@@ -30,7 +30,7 @@ You can run the included example pathway like so:
 ```bash
 apitofsim-skimmer < inputs/example/config.in
 apitofsim-densityandrate < inputs/example/config.in
-apitofsim-main < inputs/example/config.in
+apitofsim-mass-spec < inputs/example/config.in
 ```
 
 Outputs are generated in `work/out` directory.

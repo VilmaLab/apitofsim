@@ -12,7 +12,7 @@ These classes hold data to be
 
 ## Simulation functions
 
-::: apitofsim.pinhole
+::: apitofsim.mass_spec
 
 ::: apitofsim.densityandrate
 

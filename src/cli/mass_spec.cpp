@@ -20,7 +20,7 @@
 #include <stdexcept>
 #include <stdlib.h>
 #include <string>
-#include "apitof_pinhole_io.h"
+#include "mass_spec_io.h"
 #include "common_io.h"
 
 struct LogFileWriter
@@ -64,7 +64,7 @@ private:
   }
 };
 
-void apitof_pinhole_config_in()
+void mass_spec_config_in()
 {
   using namespace consts;
   // Mersenne-Twister uniform random number generator
@@ -246,26 +246,27 @@ void apitof_pinhole_config_in()
           radiofrequency,
           r_quadrupole);
       }
-      std::tie(counters, loop_time, total_time) = apitof_pinhole(
-        cluster_charge_sign,
-        T,
-        pressure_first,
-        pressure_second,
+      MassSpectrometer ms{
+        skimmer,
+        mesh_skimmer,
         lengths,
         voltages,
+        T,
+        InstrumentPressures{pressure_first, pressure_second},
+        quadrupole};
+      std::tie(counters, loop_time, total_time) = apitof_mass_spec(
+        ms,
+        cluster_charge_sign,
         N,
         bonding_energy,
         Gas{
           R_gas,
           m_gas,
           ga},
-        quadrupole,
         m_ion,
         R_cluster,
         density_cluster,
         rate_const,
-        skimmer,
-        mesh_skimmer,
         root_seed,
         result_queue,
         sample_mode);
@@ -401,7 +402,7 @@ int main()
 {
   try
   {
-    apitof_pinhole_config_in();
+    mass_spec_config_in();
   }
   catch (std::exception &ex)
   {

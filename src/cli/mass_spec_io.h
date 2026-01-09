@@ -4,7 +4,7 @@
 #include <string>
 #include "apitofsim.h"
 #include "exceptions.h"
-#include "apitof.h"
+#include "mass_spec.h"
 
 using namespace std;
 
