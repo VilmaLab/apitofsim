@@ -653,32 +653,24 @@ Eigen::Vector3d init_ang_vel(GenT &gen, normal_distribution<double> &gauss, doub
 double evaluate_rate_const(const Histogram &rate_const, double energy)
 {
   using namespace consts;
-  int m;
-  double coeff1;
-  double coeff2;
-  // m=int(energy/bin_width_rate);
-  m = int((energy + 0.5 * rate_const.bin_width) / rate_const.bin_width);
-  // coeff1=(energy-m*bin_width_rate)/bin_width_rate;
-  coeff1 = (energy - (m - 0.5) * rate_const.bin_width) / rate_const.bin_width;
-  coeff2 = 1.0 - coeff1;
-  if (m >= rate_const.length())
+  auto result = rate_const.get_lerp(energy);
+  if (std::holds_alternative<double>(result))
   {
-    throw ApiTofRateConstantOverflow(rate_const.x_max / boltzmann, energy / boltzmann);
-  }
-  else if (m > 0)
-  {
-    return coeff2 * rate_const.y[m - 1] + coeff1 * rate_const.y[m];
-  }
-  else if (m == 0)
-  {
-    return rate_const.y[0];
+    return std::get<double>(result);
   }
   else
   {
-    throw ApiTofUnexpectedNumericalError([&energy, &m](auto &msg)
+    if (std::get<Histogram::OutOfBounds>(result) == Histogram::OutOfBounds::underflow)
     {
-      msg << "Rate constant evaluation failed with negative m: delta_energy= " << energy << " m=" << m << endl;
-    });
+      throw ApiTofUnexpectedNumericalError([&energy](auto &msg)
+      {
+        msg << "Rate constant evaluation failed underflow: delta_energy= " << energy << endl;
+      });
+    }
+    else
+    {
+      throw ApiTofRateConstantOverflow(rate_const.x_max / boltzmann, energy / boltzmann);
+    }
   }
 }
 

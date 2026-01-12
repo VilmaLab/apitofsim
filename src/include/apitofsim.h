@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cassert>
+#include <variant>
 #include <Eigen/Dense>
 
 // Geometrical mean of moment of inertia
@@ -24,6 +26,12 @@ struct Histogram
   double bin_width;
   double x_max;
 
+  enum OutOfBounds
+  {
+    underflow,
+    overflow
+  };
+
   Histogram(Eigen::ArrayXd x, Eigen::ArrayXd y)
       : x(x), y(y)
   {
@@ -34,6 +42,38 @@ struct Histogram
       : x(prepare_energies(bin_width, m_max)), y(y)
   {
     compute_derived();
+  }
+
+  std::variant<double, OutOfBounds> get_lerp(double x) const
+  {
+    double bin_right = x + 0.5 * bin_width;
+    int m = int(bin_right / bin_width);
+    double coeff1 = (x - (m - 0.5) * bin_width) / bin_width;
+    double coeff2 = 1.0 - coeff1;
+    if (m >= length())
+    {
+      if (x > x_max)
+      {
+        return OutOfBounds::overflow;
+      }
+      else
+      {
+        return y[length() - 1];
+      }
+    }
+    else if (m > 0)
+    {
+      assert(coeff1 >= 0.0 && coeff1 <= 1.0);
+      return coeff2 * y[m - 1] + coeff1 * y[m];
+    }
+    else if (m == 0 && x >= 0)
+    {
+      return y[0];
+    }
+    else
+    {
+      return OutOfBounds::underflow;
+    }
   }
 
   void compute_derived()
