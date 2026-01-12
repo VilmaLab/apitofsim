@@ -397,21 +397,23 @@ NB_MODULE(apitofsimraw, m)
     .def_ro("r_quadrupole", &Quadrupole::r_quadrupole);
 
   nb::class_<MassSpectrometer>(m, "MassSpectrometer")
-    .def(nb::init<SkimmerData, double, InstrumentDims, InstrumentVoltages, double, InstrumentPressures, std::optional<Quadrupole>>(),
+    .def(nb::init<SkimmerData, double, InstrumentDims, InstrumentVoltages, double, InstrumentPressures, std::optional<Quadrupole>, std::optional<double>>(),
          "skimmer"_a,
          "mesh_skimmer"_a,
          "lengths"_a,
          "voltages"_a,
          "T"_a,
          "pressures"_a,
-         "quadrupole"_a = std::nullopt)
+         "quadrupole"_a = std::nullopt,
+         "radius_pinhole"_a = 0.001)
     .def_ro("skimmer", &MassSpectrometer::skimmer)
     .def_ro("mesh_skimmer", &MassSpectrometer::mesh_skimmer)
     .def_ro("lengths", &MassSpectrometer::lengths)
     .def_ro("voltages", &MassSpectrometer::voltages)
     .def_ro("T", &MassSpectrometer::T)
     .def_ro("pressures", &MassSpectrometer::pressures)
-    .def_ro("quadrupole", &MassSpectrometer::quadrupole);
+    .def_ro("quadrupole", &MassSpectrometer::quadrupole)
+    .def_ro("radius_pinhole", &MassSpectrometer::radius_pinhole);
 
   m.def("validate_max_energies", static_cast<void (*)(double, double, double, double)>(validate_max_energies),
         "fragmentation_energy"_a,
