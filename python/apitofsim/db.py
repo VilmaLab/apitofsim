@@ -515,6 +515,7 @@ class ExperimentRunner:
         *args,
         pathway_id,
         strict=False,
+        strict_dos=True,
         **kwargs,
     ):
         self._guard_run_started()
@@ -526,6 +527,7 @@ class ExperimentRunner:
                 **kwargs,
                 output_named_tuple=True,
                 output_timings=True,
+                strict=strict_dos,
             )
         except ApiTofError as e:
             if strict:
@@ -548,7 +550,7 @@ class ExperimentRunner:
                 timings,
             )
 
-    def run_from_config(self, config, run_started=False):
+    def run_from_config(self, config, run_started=False, strict_dos=True):
         from os import environ
         from apitofsim import (
             skimmer,
@@ -714,11 +716,12 @@ class ExperimentRunner:
                 sample_mode=2,
                 loglevel=0,
                 strict="STRICT" in environ,
+                strict_dos=strict_dos,
             )
 
-    def run_prepared_config(self, name=None):
+    def run_prepared_config(self, name=None, **kwargs):
         for row in self.db.iter_configs(name):
             print("Running experiment config:", row.name)
             print(row.config)
             self.start_run(row.id)
-            self.run_from_config(row.config, run_started=True)
+            self.run_from_config(row.config, run_started=True, **kwargs)
