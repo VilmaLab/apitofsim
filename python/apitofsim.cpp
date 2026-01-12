@@ -123,15 +123,8 @@ nb::typed<nb::tuple, Histogram, Histogram> densityandrate(
 
 SimulationResult mass_spec(
   const MassSpectrometer &ms,
-  ClusterData &cluster_0,
-  ClusterData &cluster_1,
-  ClusterData &cluster_2,
-  Gas gas,
-  Histogram &density_cluster,
-  Histogram &rate_const,
+  const MassSpecSubstanceInput &subs,
   int N,
-  std::optional<double> fragmentation_energy = nullopt,
-  int cluster_charge_sign = 1,
   unsigned long long seed = 42ull,
   std::optional<std::function<void(std::string_view, std::string)>> log_callback = nullopt,
   std::optional<std::function<void(Counters)>> result_callback = nullopt,
@@ -140,29 +133,8 @@ SimulationResult mass_spec(
   int loglevel = DEFAULT_LOGLEVEL)
 {
   using magic_enum::enum_name;
-  using consts::hartK;
   mt19937 root_gen = mt19937(seed);
   unsigned long long root_seed = root_gen();
-
-  double computed_fragmentation_energy;
-  // Compute fragmentation energy in Kelvin
-  if (fragmentation_energy == nullopt)
-  {
-    computed_fragmentation_energy = (cluster_1.electronic_energy + cluster_2.electronic_energy - cluster_0.electronic_energy) * hartK;
-  }
-  else
-  {
-    computed_fragmentation_energy = *fragmentation_energy;
-  }
-
-  auto inertia = compute_inertia(cluster_0.rotations);
-  double m_ion;
-  double R_cluster;
-  compute_mass_and_radius(inertia, cluster_0.atomic_mass, m_ion, R_cluster);
-
-  rescale_density(density_cluster);
-  rescale_energies(density_cluster);
-  rescale_energies(rate_const);
 
   StreamingResultQueue result_queue;
 
@@ -175,14 +147,8 @@ SimulationResult mass_spec(
     {
       result = apitof_mass_spec(
         ms,
-        cluster_charge_sign,
+        subs,
         N,
-        computed_fragmentation_energy,
-        gas,
-        m_ion,
-        R_cluster,
-        density_cluster,
-        rate_const,
         root_seed,
         result_queue,
         sample_mode,
@@ -417,6 +383,41 @@ NB_MODULE(apitofsimraw, m)
     .def_ro("quadrupole", &MassSpectrometer::quadrupole)
     .def_ro("radius_pinhole", &MassSpectrometer::radius_pinhole);
 
+  nb::class_<MassSpecInputFragmentationPathway>(m, "MassSpecInputFragmentationPathway")
+    .def(nb::init<ClusterData &, ClusterData &, ClusterData &, const Histogram &, std::optional<double>>(),
+         "cluster_0"_a,
+         "cluster_1"_a,
+         "cluster_2"_a,
+         "rate_const"_a,
+         "bonding_energy"_a = std::nullopt)
+    .def(nb::init<Histogram, double>(), "rate_const"_a, "bonding_energy"_a)
+    .def_ro("rate_const", &MassSpecInputFragmentationPathway::rate_const)
+    .def_ro("bonding_energy", &MassSpecInputFragmentationPathway::bonding_energy);
+
+  nb::class_<MassSpecSubstanceInput>(m, "MassSpecSubstanceInput")
+    .def(nb::init<ClusterData &, ClusterData &, ClusterData &, Gas, const Histogram &, const Histogram &, std::optional<double>, int>(),
+         "cluster_0"_a,
+         "cluster_1"_a,
+         "cluster_2"_a,
+         "gas"_a,
+         "density_cluster"_a,
+         "rate_const"_a,
+         "fragmentation_energy"_a = std::nullopt,
+         "cluster_charge_sign"_a = 1)
+    .def(nb::init<int, double, double, const Histogram, const MassSpecInputFragmentationPathway, const Gas>(),
+         "cluster_charge_sign"_a,
+         "m_ion"_a,
+         "R_cluster"_a,
+         "density_cluster"_a,
+         "pathway"_a,
+         "gas"_a)
+    .def_ro("cluster_charge_sign", &MassSpecSubstanceInput::cluster_charge_sign)
+    .def_ro("m_ion", &MassSpecSubstanceInput::m_ion)
+    .def_ro("R_cluster", &MassSpecSubstanceInput::R_cluster)
+    .def_ro("density_cluster", &MassSpecSubstanceInput::density_cluster)
+    .def_ro("pathway", &MassSpecSubstanceInput::pathway)
+    .def_ro("gas", &MassSpecSubstanceInput::gas);
+
   m.def("validate_max_energies", static_cast<void (*)(double, double, double, double)>(validate_max_energies),
         "fragmentation_energy"_a,
         "energy_max"_a,
@@ -472,15 +473,8 @@ NB_MODULE(apitofsimraw, m)
 
   m.def("mass_spec", &mass_spec,
         "ms"_a,
-        "cluster_0"_a,
-        "cluster_1"_a,
-        "cluster_2"_a,
-        "gas"_a,
-        "density_cluster"_a,
-        "rate_const"_a,
+        "subs"_a,
         "N"_a,
-        "fragmentation_energy"_a = std::nullopt,
-        "cluster_charge_sign"_a = 1,
         "seed"_a = 42ull,
         "log_callback"_a = std::nullopt,
         "result_callback"_a = std::nullopt,

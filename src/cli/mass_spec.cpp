@@ -205,10 +205,6 @@ void mass_spec_config_in()
   double R_cluster;
   compute_mass_and_radius(inertia, amu, m_ion, R_cluster);
 
-  rescale_density(density_cluster);
-  rescale_energies(density_cluster);
-  rescale_energies(rate_const);
-
   StreamingResultQueue result_queue;
   Counters counters;
   RuntimeDuration loop_time;
@@ -252,19 +248,20 @@ void mass_spec_config_in()
         T,
         InstrumentPressures{pressure_first, pressure_second},
         quadrupole};
-      std::tie(counters, loop_time, total_time) = apitof_mass_spec(
-        ms,
+      MassSpecSubstanceInput subs(
         cluster_charge_sign,
-        N,
-        bonding_energy,
-        Gas{
-          R_gas,
-          m_gas,
-          ga},
         m_ion,
         R_cluster,
         density_cluster,
-        rate_const,
+        MassSpecInputFragmentationPathway(rate_const, bonding_energy),
+        Gas{
+          R_gas,
+          m_gas,
+          ga});
+      std::tie(counters, loop_time, total_time) = apitof_mass_spec(
+        ms,
+        subs,
+        N,
         root_seed,
         result_queue,
         sample_mode,

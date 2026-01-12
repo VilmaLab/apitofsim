@@ -46,6 +46,51 @@ struct MassSpectrometer
   std::optional<double> radius_pinhole = 1.0e-3;
 };
 
+struct MassSpecInputFragmentationPathway
+{
+  const Histogram rate_const;
+  double bonding_energy;
+
+  MassSpecInputFragmentationPathway(
+    const ClusterData &cluster_0,
+    const ClusterData &cluster_1,
+    const ClusterData &cluster_2,
+    const Histogram &rate_const,
+    std::optional<double> fragmentation_energy = std::nullopt);
+
+  MassSpecInputFragmentationPathway(
+    const Histogram rate_const,
+    double bonding_energy);
+};
+
+struct MassSpecSubstanceInput
+{
+  int cluster_charge_sign;
+  double m_ion;
+  double R_cluster;
+  const Histogram density_cluster;
+  const MassSpecInputFragmentationPathway pathway;
+  const Gas gas;
+
+  MassSpecSubstanceInput(
+    const ClusterData &cluster_0,
+    const ClusterData &cluster_1,
+    const ClusterData &cluster_2,
+    Gas gas,
+    const Histogram &density_cluster,
+    const Histogram &rate_const,
+    std::optional<double> fragmentation_energy = std::nullopt,
+    int cluster_charge_sign = 1);
+
+  MassSpecSubstanceInput(
+    int cluster_charge_sign,
+    double m_ion,
+    double R_cluster,
+    const Histogram density_cluster,
+    const MassSpecInputFragmentationPathway pathway,
+    const Gas gas);
+};
+
 enum struct SampleMode
 {
   dss_normalized,
@@ -58,14 +103,8 @@ typedef std::tuple<Counters, RuntimeDuration, RuntimeDuration> SimulationResult;
 
 SimulationResult apitof_mass_spec(
   const MassSpectrometer &mass_spec,
-  int cluster_charge_sign,
+  const MassSpecSubstanceInput &subs,
   int N,
-  double bonding_energy,
-  Gas gas,
-  double m_ion,
-  double R_cluster,
-  const Histogram &density_cluster,
-  const Histogram &rate_const,
   unsigned long long root_seed,
   StreamingResultQueue &result_queue,
   SampleMode sample_mode,

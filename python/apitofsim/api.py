@@ -21,6 +21,8 @@ from .apitofsimraw import (
     precompute_mesh as _precompute_mesh,
     compute_density_of_states_batch as _compute_density_of_states_batch,
     compute_k_total_batch as _compute_k_total_batch,
+    MassSpecInputFragmentationPathway as _MassSpecInputFragmentationPathway,
+    MassSpecSubstanceInput as _MassSpecSubstanceInput,
     FragmentationPathway,
     Counter as Counter,
     # Exceptions
@@ -50,6 +52,8 @@ __all__ = [
     "compute_density_of_states_batch",
     "compute_k_total_batch",
     "KTotalInput",
+    "MassSpecInputFragmentationPathway",
+    "MassSpecSubstanceInput",
     "FragmentationPathway",
     # Exceptions
     "ApiTofError",
@@ -314,6 +318,69 @@ def compute_k_total_batch(
     return _compute_k_total_batch(inputs, energy_max_rate, bin_width, mesh)
 
 
+class ArgGetter:
+    def __init__(self, args, kwargs):
+        self.args = args
+        self.kwargs = kwargs
+
+    def __call__(self, name: str, position: int, default=MISSING):
+        if name in self.kwargs:
+            return self.kwargs[name]
+        elif position < len(self.args):
+            return self.args[position]
+        else:
+            if default is not MISSING:
+                return default
+            raise ValueError(f"Argument {name} at position {position} not found")
+
+
+def MassSpecInputFragmentationPathway(*args, **kwargs):
+    process_arg = QuantityProcessor(kwargs.get("quantities_strict", True))
+
+    def proc_bonding_energy(bonding_energy):
+        if bonding_energy is not None:
+            return process_arg("bonding_energy", bonding_energy, "kelvin")
+
+    get = ArgGetter(args, kwargs)
+    if len(args) >= 1 and isinstance(args[0], ClusterLike) or "cluster_0" in kwargs:
+        return _MassSpecInputFragmentationPathway(
+            cluster_0=get("cluster_0", 0).into_cpp(),
+            cluster_1=get("cluster_1", 1).into_cpp(),
+            cluster_2=get("cluster_2", 2).into_cpp(),
+            rate_const=get("rate_const", 3).into_cpp(),
+            bonding_energy=proc_bonding_energy(get("bonding_energy", 4, None)),
+        )
+    else:
+        return _MassSpecInputFragmentationPathway(
+            rate_const=get("rate_const", 0).into_cpp(),
+            bonding_energy=proc_bonding_energy(get("bonding_energy", 1, None)),
+        )
+
+
+def MassSpecSubstanceInput(*args, **kwargs):
+    get = ArgGetter(args, kwargs)
+    if len(args) >= 1 and isinstance(args[0], ClusterLike) or "cluster_0" in kwargs:
+        return _MassSpecSubstanceInput(
+            cluster_0=get("cluster_0", 0).into_cpp(),
+            cluster_1=get("cluster_1", 1).into_cpp(),
+            cluster_2=get("cluster_2", 2).into_cpp(),
+            gas=get("gas", 3).into_cpp(),
+            density_cluster=get("density_cluster", 4).into_cpp(),
+            rate_const=get("rate_const", 5).into_cpp(),
+            fragmentation_energy=get("fragmentation_energy", 6, None),
+            cluster_charge_sign=get("cluster_charge_sign", 7, 1),
+        )
+    else:
+        return _MassSpecSubstanceInput(
+            cluster_charge_sign=get("cluster_charge_sign", 0),
+            m_ion=get("m_ion", 1),
+            R_cluster=get("R_cluster", 2),
+            density_cluster=get("R_cluster", 3).into_cpp(),
+            pathway=get("pathway", 4),
+            gas=get("gas", 5).into_cpp(),
+        )
+
+
 def densityandrate(
     cluster_0: ClusterData,
     cluster_1: ClusterData,
@@ -356,19 +423,12 @@ Timings = namedtuple("Timings", ["loop", "total"])
 
 def mass_spec(
     mass_spec: MassSpectrometer,
-    cluster_0: ClusterData,
-    cluster_1: ClusterData,
-    cluster_2: ClusterData,
-    gas: Gas,
-    density_cluster: Histogram,
-    rate_const: Histogram,
+    subs: _MassSpecSubstanceInput,
     N: int,
     *,
     sample_mode: SampleMode = SampleMode.rejection,
     strict=True,
     loglevel: int = 0,
-    cluster_charge_sign: int = -1,
-    fragmentation_energy: MaybeQuantity | None = None,
     seed: int = 42,
     log_callback: Callable[[str, str], None] | None = None,
     result_callback: Callable[[numpy.ndarray], None] | None = None,
@@ -379,22 +439,10 @@ def mass_spec(
     """
     This function runs the main simulation of the APi-ToF mass spectrometer.
     """
-    process_arg = QuantityProcessor(quantities_strict)
-    if fragmentation_energy is not None:
-        fragmentation_energy = process_arg(
-            "fragmentation_energy", fragmentation_energy, "kelvin"
-        )
     counters, loop_time, total_time = _mass_spec(
         mass_spec.into_cpp(),
-        cluster_0.into_cpp(),
-        cluster_1.into_cpp(),
-        cluster_2.into_cpp(),
-        gas.into_cpp(),
-        density_cluster.into_cpp(),
-        rate_const.into_cpp(),
+        subs,
         N,
-        fragmentation_energy=fragmentation_energy,
-        cluster_charge_sign=cluster_charge_sign,
         seed=seed,
         log_callback=log_callback,
         result_callback=result_callback,

@@ -96,9 +96,6 @@ TEST_CASE("apitof pinhole smoke tests")
   SkimmerData skimmer;
   double mesh_skimmer;
   std::tie(skimmer, mesh_skimmer) = read_skimmer((string(data_dir_env) + "/skimmer.dat").c_str());
-  rescale_density(density_cluster);
-  rescale_energies(density_cluster);
-  rescale_energies(rate_const);
   StreamingResultQueue result_queue;
   Eigen::Vector3d rotations_0 = Eigen::Vector3d(0.0197112, 0.0229917, 0.0591769);
   auto inertia = compute_inertia(rotations_0);
@@ -128,22 +125,17 @@ TEST_CASE("apitof pinhole smoke tests")
       1.3e6,
       6.0e-3),
   };
-  auto counters = std::get<0>(apitof_mass_spec(
-    ms,
+  auto subs = MassSpecSubstanceInput(
     -1,
-    5,
-    23420.7,
-    Gas{
-      2.46e-10,
-      4.8506e-26,
-      1.4},
     m_ion,
     R_cluster,
     density_cluster,
-    rate_const,
-    42,
-    result_queue,
-    SampleMode::dss_normalized));
+    MassSpecInputFragmentationPathway(rate_const, 23420.7),
+    Gas{
+      2.46e-10,
+      4.8506e-26,
+      1.4});
+  auto counters = std::get<0>(apitof_mass_spec(ms, subs, 5, 42, result_queue, SampleMode::dss_normalized));
   result_queue.enqueue(std::monostate{});
   CHECK(counters[Counter::nwarnings] == 0);
   CHECK(counters[Counter::n_fragmented_total] + counters[Counter::n_escaped_total] == 5);

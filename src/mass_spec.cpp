@@ -34,6 +34,99 @@ void Quadrupole::compute_mathieu_factor(double m_ion)
   mathieu_factor = consts::eV / (m_ion * r_quadrupole * r_quadrupole);
 }
 
+void rescale_density(Histogram &density)
+{
+  using consts::boltzmann;
+  for (int m = 0; m < density.length(); m++)
+  {
+    density.y[m] = density.y[m] / boltzmann;
+  }
+}
+
+void rescale_energies(Histogram &energies)
+{
+  using consts::boltzmann;
+  for (int m = 0; m < energies.length(); m++)
+  {
+    energies.x[m] = energies.x[m] * boltzmann;
+  }
+  energies.x_max *= boltzmann;
+  energies.bin_width *= boltzmann;
+}
+
+Histogram scaled_density(const Histogram &density_cluster)
+{
+  Histogram my_density_cluster(density_cluster);
+  rescale_density(my_density_cluster);
+  rescale_energies(my_density_cluster);
+  return my_density_cluster;
+}
+
+Histogram scaled_rate_const(const Histogram &rate_const)
+{
+  Histogram my_rate_const(rate_const);
+  rescale_energies(my_rate_const);
+  return my_rate_const;
+}
+
+MassSpecInputFragmentationPathway::MassSpecInputFragmentationPathway(
+  const ClusterData &cluster_0,
+  const ClusterData &cluster_1,
+  const ClusterData &cluster_2,
+  const Histogram &rate_const,
+  std::optional<double> fragmentation_energy) : rate_const(scaled_rate_const(rate_const))
+{
+  using consts::hartK;
+  double computed_fragmentation_energy;
+  // Compute fragmentation energy in Kelvin
+  if (fragmentation_energy == std::nullopt)
+  {
+    computed_fragmentation_energy = (cluster_1.electronic_energy + cluster_2.electronic_energy - cluster_0.electronic_energy) * hartK;
+  }
+  else
+  {
+    computed_fragmentation_energy = *fragmentation_energy;
+  }
+  this->bonding_energy = computed_fragmentation_energy;
+}
+
+MassSpecInputFragmentationPathway::MassSpecInputFragmentationPathway(
+  const Histogram rate_const,
+  double bonding_energy) : rate_const(scaled_rate_const(rate_const)), bonding_energy(bonding_energy)
+{
+}
+
+MassSpecSubstanceInput::MassSpecSubstanceInput(
+  const ClusterData &cluster_0,
+  const ClusterData &cluster_1,
+  const ClusterData &cluster_2,
+  Gas gas,
+  const Histogram &density_cluster,
+  const Histogram &rate_const,
+  std::optional<double> fragmentation_energy,
+  int cluster_charge_sign) : cluster_charge_sign(cluster_charge_sign),
+                             density_cluster(scaled_density(density_cluster)),
+                             pathway(MassSpecInputFragmentationPathway(cluster_0, cluster_1, cluster_2, rate_const, fragmentation_energy)),
+                             gas(gas)
+{
+  compute_mass_and_radius(compute_inertia(cluster_0.rotations), cluster_0.atomic_mass, this->m_ion, this->R_cluster);
+}
+
+MassSpecSubstanceInput::MassSpecSubstanceInput(
+  int cluster_charge_sign,
+  double m_ion,
+  double R_cluster,
+  const Histogram density_cluster,
+  const MassSpecInputFragmentationPathway pathway,
+  const Gas gas) : cluster_charge_sign(cluster_charge_sign),
+                   m_ion(m_ion),
+                   R_cluster(R_cluster),
+                   density_cluster(scaled_density(density_cluster)),
+                   pathway(pathway),
+                   gas(gas)
+{
+}
+
 struct CumulativeLengths
 {
   double first_chamber_end;
@@ -105,14 +198,8 @@ int zone(double z, CumulativeLengths &clens);
 template <typename GasCollSamplerT, typename VibEnergySamplerT>
 SimulationResult apitof_mass_spec(
   const MassSpectrometer &mass_spec,
-  int cluster_charge_sign,
+  const MassSpecSubstanceInput &subs,
   int N,
-  double bonding_energy,
-  Gas gas,
-  double m_ion,
-  double R_cluster,
-  const Histogram &density_cluster,
-  const Histogram &rate_const,
   unsigned long long root_seed,
   StreamingResultQueue &result_queue,
   GasCollSamplerT gas_coll_sampler,
@@ -123,14 +210,8 @@ SimulationResult apitof_mass_spec(
 
 SimulationResult apitof_mass_spec(
   const MassSpectrometer &mass_spec,
-  int cluster_charge_sign,
+  const MassSpecSubstanceInput &subs,
   int N,
-  double bonding_energy,
-  Gas gas,
-  double m_ion,
-  double R_cluster,
-  const Histogram &density_cluster,
-  const Histogram &rate_const,
   unsigned long long root_seed,
   StreamingResultQueue &result_queue,
   SampleMode sample_mode,
@@ -139,7 +220,7 @@ SimulationResult apitof_mass_spec(
   bool on_main_thread)
 {
   using consts::boltzmann;
-  double m_gas = gas.mass;
+  double m_gas = subs.gas.mass;
   double kT = boltzmann * mass_spec.T;
   double mobility_gas = kT / m_gas; // thermal agitation
   double boundary_u = 5.0 * sqrt(mobility_gas);
@@ -149,18 +230,12 @@ SimulationResult apitof_mass_spec(
   {
     return apitof_mass_spec<GasCollCondNormHistDSSSampler, VibEnergyNormSampler>(
       mass_spec,
-      cluster_charge_sign,
+      subs,
       N,
-      bonding_energy,
-      gas,
-      m_ion,
-      R_cluster,
-      density_cluster,
-      rate_const,
       root_seed,
       result_queue,
       GasCollCondNormHistDSSSampler(dtheta, du, boundary_u),
-      VibEnergyNormSampler(density_cluster),
+      VibEnergyNormSampler(subs.density_cluster),
       strict,
       loglevel,
       on_main_thread);
@@ -169,18 +244,12 @@ SimulationResult apitof_mass_spec(
   {
     return apitof_mass_spec<GasCollCondUnnormHistDSSSampler, VibEnergyUnnormSampler>(
       mass_spec,
-      cluster_charge_sign,
+      subs,
       N,
-      bonding_energy,
-      gas,
-      m_ion,
-      R_cluster,
-      density_cluster,
-      rate_const,
       root_seed,
       result_queue,
       GasCollCondUnnormHistDSSSampler(dtheta, du, boundary_u),
-      VibEnergyUnnormSampler(density_cluster),
+      VibEnergyUnnormSampler(subs.density_cluster),
       strict,
       loglevel,
       on_main_thread);
@@ -189,18 +258,12 @@ SimulationResult apitof_mass_spec(
   {
     return apitof_mass_spec<GasCollRejectionSampler, VibEnergyNormSampler>(
       mass_spec,
-      cluster_charge_sign,
+      subs,
       N,
-      bonding_energy,
-      gas,
-      m_ion,
-      R_cluster,
-      density_cluster,
-      rate_const,
       root_seed,
       result_queue,
       GasCollRejectionSampler(boundary_u),
-      VibEnergyNormSampler(density_cluster),
+      VibEnergyNormSampler(subs.density_cluster),
       strict,
       loglevel,
       on_main_thread);
@@ -217,14 +280,8 @@ SimulationResult apitof_mass_spec(
 template <typename GasCollSamplerT, typename VibEnergySamplerT>
 SimulationResult apitof_mass_spec(
   const MassSpectrometer &ms,
-  int cluster_charge_sign,
+  const MassSpecSubstanceInput &subs,
   int N,
-  double bonding_energy,
-  Gas gas,
-  double m_ion,
-  double R_cluster,
-  const Histogram &density_cluster,
-  const Histogram &rate_const,
   unsigned long long root_seed,
   StreamingResultQueue &result_queue,
   GasCollSamplerT gas_coll_sampler,
@@ -237,8 +294,11 @@ SimulationResult apitof_mass_spec(
   // TO BE DELETED ###############
   //  R_cluster=4.675e-10;
   // #############################
-  double R_gas = gas.radius;
-  double m_gas = gas.mass;
+  double R_gas = subs.gas.radius;
+  double m_gas = subs.gas.mass;
+  double R_cluster = subs.R_cluster;
+  double m_ion = subs.m_ion;
+  double bonding_energy = subs.pathway.bonding_energy;
   double kT = boltzmann * ms.T;
   double R_tot = R_cluster + R_gas;
   double reduced_mass = 1. / (1. / m_ion + 1. / m_gas);
@@ -264,13 +324,13 @@ SimulationResult apitof_mass_spec(
   Eigen::Array4d E = -((
                          ms.voltages(Eigen::seq(1, 4)) - ms.voltages(Eigen::seq(0, 3))) /
                        ms.lengths(Eigen::seq(0, 3)));
-  Eigen::Array4d acc = E * consts::eV * cluster_charge_sign / m_ion;
+  Eigen::Array4d acc = E * consts::eV * subs.cluster_charge_sign / m_ion;
   double P1 = ms.pressures[0];
   double P2 = ms.pressures[1];
   double gas_mean_free_path = mean_free_path(R_gas, kT, P2);
   if (loglevel >= LOGLEVEL_MIN)
   {
-    std::cout << "Cluster charge sign: " << cluster_charge_sign << endl;
+    std::cout << "Cluster charge sign: " << subs.cluster_charge_sign << endl;
     std::cout << "Pressure 1st chamber: " << P1 << " Pa" << endl;
     std::cout << "Pressure 2nd chamber: " << P2 << " Pa" << endl;
     for (int i = 0; i < 4; i++)
@@ -335,6 +395,8 @@ SimulationResult apitof_mass_spec(
   auto skimmer = ms.skimmer;
   auto mesh_skimmer = ms.mesh_skimmer;
   auto radius_pinhole = ms.radius_pinhole;
+  auto density_cluster = subs.density_cluster;
+  auto rate_const = subs.pathway.rate_const;
 #pragma omp parallel for default(none) \
   firstprivate( \
       N, T, kT, m_ion, R_cluster, R_tot, density_cluster, rate_const, \
@@ -1345,26 +1407,6 @@ void eval_collision(GenT &gen, uniform_real_distribution<double> &unif, bool &co
       omega[i] = omega2[0] * x3[i] + omega2[1] * y3[i] + omega2[2] * z3[i];
     }
   }
-}
-
-void rescale_density(Histogram &density)
-{
-  using consts::boltzmann;
-  for (int m = 0; m < density.length(); m++)
-  {
-    density.y[m] = density.y[m] / boltzmann;
-  }
-}
-
-void rescale_energies(Histogram &energies)
-{
-  using consts::boltzmann;
-  for (int m = 0; m < energies.length(); m++)
-  {
-    energies.x[m] = energies.x[m] * boltzmann;
-  }
-  energies.x_max *= boltzmann;
-  energies.bin_width *= boltzmann;
 }
 
 int zone(double z, CumulativeLengths &clens)
