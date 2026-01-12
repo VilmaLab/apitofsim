@@ -274,6 +274,8 @@ void mass_spec_config_in()
 
   Eigen::Array<int, Eigen::Dynamic, n_counters> partial_counters = Eigen::Array<int, Eigen::Dynamic, n_counters>::Zero(omp_get_max_threads(), n_counters);
   bool exiting = false;
+  int fragmented_prev = 0;
+  int escaped_prev = 0;
   while (true)
   {
     StreamingResultElement result;
@@ -303,12 +305,23 @@ void mass_spec_config_in()
         Counters cur_counters = partial_counters.colwise().sum();
         auto cur_iters = cur_counters[Counter::n_fragmented_total] + cur_counters[Counter::n_escaped_total];
         const int progress = 10; // Show progress of simulation every *progress* realizations
-        if ((cur_iters + 1) % progress == 0 and cur_iters > 0)
+        if (cur_iters > 0 && cur_iters % progress == 0 and cur_iters > 0)
         {
           int n_fragmented_total = cur_counters[Counter::n_fragmented_total];
           int n_escaped_total = cur_counters[Counter::n_escaped_total];
-          double survival_ratio = (double)n_escaped_total / (cur_iters + 1);
-          std::cout << std::defaultfloat << setw(5) << setfill(' ') << fixed << setprecision(1) << 100.0 * (cur_iters + 1) / N << "% " << string(n_fragmented_total, '*') << string(n_escaped_total, '-') << " (" << n_fragmented_total << "*, " << n_escaped_total << "-) P=" << setprecision(3) << survival_ratio << endl;
+          double survival_ratio_total = (double)n_escaped_total / cur_iters;
+          int n_fragmented_batch = n_fragmented_total - fragmented_prev;
+          int n_escaped_batch = n_escaped_total - escaped_prev;
+          double survival_ratio = (double)n_escaped_batch / (n_escaped_batch + n_fragmented_batch);
+          std::cout << std::defaultfloat << setw(5) << setfill(' ') << fixed << setprecision(1)
+                    << 100.0 * cur_iters / N << "% "
+                    << string(n_fragmented_batch, '*')
+                    << string(n_escaped_batch, '-')
+                    << " (" << setw(2) << n_fragmented_batch << "*, " << setw(2) << n_escaped_batch << "-)"
+                    << " P_batch = " << setprecision(3) << survival_ratio
+                    << " P_total = " << survival_ratio_total << endl;
+          fragmented_prev = n_fragmented_total;
+          escaped_prev = n_escaped_total;
         }
       }
     }
