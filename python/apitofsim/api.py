@@ -365,6 +365,7 @@ def mass_spec(
     N: int,
     *,
     sample_mode: SampleMode = SampleMode.rejection,
+    strict=True,
     loglevel: int = 0,
     cluster_charge_sign: int = -1,
     fragmentation_energy: MaybeQuantity | None = None,
@@ -398,6 +399,7 @@ def mass_spec(
         log_callback=log_callback,
         result_callback=result_callback,
         sample_mode=sample_mode,
+        strict=strict,
         loglevel=loglevel,
     )
     if output_named_tuple:

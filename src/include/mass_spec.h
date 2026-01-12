@@ -69,6 +69,7 @@ SimulationResult apitof_mass_spec(
   unsigned long long root_seed,
   StreamingResultQueue &result_queue,
   SampleMode sample_mode,
+  bool strict = true,
   int loglevel = DEFAULT_LOGLEVEL,
   bool on_main_thread = false);
 

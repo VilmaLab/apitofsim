@@ -267,7 +267,8 @@ void mass_spec_config_in()
         rate_const,
         root_seed,
         result_queue,
-        sample_mode);
+        sample_mode,
+        false);
     });
     result_queue.enqueue(std::monostate{});
   });

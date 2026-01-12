@@ -117,6 +117,7 @@ SimulationResult apitof_mass_spec(
   StreamingResultQueue &result_queue,
   GasCollSamplerT gas_coll_sampler,
   VibEnergySamplerT vib_energy_sampler,
+  bool strict = true,
   int loglevel = DEFAULT_LOGLEVEL,
   bool on_main_thread = false);
 
@@ -133,6 +134,7 @@ SimulationResult apitof_mass_spec(
   unsigned long long root_seed,
   StreamingResultQueue &result_queue,
   SampleMode sample_mode,
+  bool strict,
   int loglevel,
   bool on_main_thread)
 {
@@ -159,6 +161,7 @@ SimulationResult apitof_mass_spec(
       result_queue,
       GasCollCondNormHistDSSSampler(dtheta, du, boundary_u),
       VibEnergyNormSampler(density_cluster),
+      strict,
       loglevel,
       on_main_thread);
   }
@@ -178,6 +181,7 @@ SimulationResult apitof_mass_spec(
       result_queue,
       GasCollCondUnnormHistDSSSampler(dtheta, du, boundary_u),
       VibEnergyUnnormSampler(density_cluster),
+      strict,
       loglevel,
       on_main_thread);
   }
@@ -197,6 +201,7 @@ SimulationResult apitof_mass_spec(
       result_queue,
       GasCollRejectionSampler(boundary_u),
       VibEnergyNormSampler(density_cluster),
+      strict,
       loglevel,
       on_main_thread);
   }
@@ -224,6 +229,7 @@ SimulationResult apitof_mass_spec(
   StreamingResultQueue &result_queue,
   GasCollSamplerT gas_coll_sampler,
   VibEnergySamplerT vib_energy_sampler,
+  bool strict,
   int loglevel,
   bool on_main_thread)
 {
@@ -336,7 +342,7 @@ SimulationResult apitof_mass_spec(
         skimmer, mesh_skimmer, radius_pinhole, mobility_gas, \
         mobility_gas_inv, gas_mean_free_path, root_seed, acc, \
         P1, P2, bonding_energy, m_gas, quadrupole, reduced_mass, pi, boltzmann, \
-        vib_energy_sampler, gas_coll_sampler, loglevel) \
+        vib_energy_sampler, gas_coll_sampler, loglevel, strict) \
   shared(exception_helper, result_queue) \
   reduction(+ : counters) \
   schedule(guided)
@@ -387,7 +393,7 @@ SimulationResult apitof_mass_spec(
 
       while (z < clens.total_length) // single realization // TO BE CHANGED IN SECOND CHAMBER!!!!!!!!!!!
       {
-        int a;
+        std::optional<ApiTofRateConstantOverflow> overflow_exception = std::nullopt;
         double vib_energy_old = 0.0;
         double vib_energy_new;
         double rot_energy_old;
@@ -409,17 +415,22 @@ SimulationResult apitof_mass_spec(
         // intenergy << j+1 << "\t" << ncoll << "\t" << internal_energy*kcal << endl;
         // intenergy << j+1 << "\t" << ncoll << "\t" << vib_energy/boltzmann << endl;
 
-        a = 0; // variable that check if the cluster fragments when delta_en > energy_max_rate
-
         if (delta_en > 0.0)
         {
           auto energy_max_rate = rate_const.x_max;
           // tmp << delta_en << endl;
           if (delta_en > energy_max_rate)
           {
-            throw ApiTofRateConstantOverflow(energy_max_rate / boltzmann, delta_en / boltzmann);
+            overflow_exception = ApiTofRateConstantOverflow(energy_max_rate / boltzmann, delta_en / boltzmann);
+            if (strict)
+            {
+              throw *overflow_exception;
+            }
+            else
+            {
+              // TODO: Log warning here
+            }
             delta_en = energy_max_rate;
-            a = 1;
           }
           rate_constant = evaluate_rate_const(rate_const, delta_en);
         }
@@ -461,11 +472,11 @@ SimulationResult apitof_mass_spec(
         }
         else
         {
-          if (a == 1)
+          if (!strict && overflow_exception.has_value())
           {
-            throw ApiTofRateConstantOverflow(rate_const.x_max / boltzmann, delta_en / boltzmann);
+            // We didn't fragment, which means it's particularly bad that that the rate constant was out of range => rethrow
+            throw *overflow_exception;
           }
-
           if (outcome == TimeNextCollOutcome::gas_collision)
           {
             // Keep track on number of collisions per realization
@@ -642,32 +653,24 @@ Eigen::Vector3d init_ang_vel(GenT &gen, normal_distribution<double> &gauss, doub
 double evaluate_rate_const(const Histogram &rate_const, double energy)
 {
   using namespace consts;
-  int m;
-  double coeff1;
-  double coeff2;
-  // m=int(energy/bin_width_rate);
-  m = int((energy + 0.5 * rate_const.bin_width) / rate_const.bin_width);
-  // coeff1=(energy-m*bin_width_rate)/bin_width_rate;
-  coeff1 = (energy - (m - 0.5) * rate_const.bin_width) / rate_const.bin_width;
-  coeff2 = 1.0 - coeff1;
-  if (m >= rate_const.length())
+  auto result = rate_const.get_lerp(energy);
+  if (std::holds_alternative<double>(result))
   {
-    throw ApiTofRateConstantOverflow(rate_const.x_max / boltzmann, energy / boltzmann);
-  }
-  else if (m > 0)
-  {
-    return coeff2 * rate_const.y[m - 1] + coeff1 * rate_const.y[m];
-  }
-  else if (m == 0)
-  {
-    return rate_const.y[0];
+    return std::get<double>(result);
   }
   else
   {
-    throw ApiTofUnexpectedNumericalError([&energy, &m](auto &msg)
+    if (std::get<Histogram::OutOfBounds>(result) == Histogram::OutOfBounds::underflow)
     {
-      msg << "Rate constant evaluation failed with negative m: delta_energy= " << energy << " m=" << m << endl;
-    });
+      throw ApiTofUnexpectedNumericalError([&energy](auto &msg)
+      {
+        msg << "Rate constant evaluation failed underflow: delta_energy= " << energy << endl;
+      });
+    }
+    else
+    {
+      throw ApiTofRateConstantOverflow(rate_const.x_max / boltzmann, energy / boltzmann);
+    }
   }
 }
 

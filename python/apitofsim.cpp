@@ -136,6 +136,7 @@ SimulationResult mass_spec(
   std::optional<std::function<void(std::string_view, std::string)>> log_callback = nullopt,
   std::optional<std::function<void(Counters)>> result_callback = nullopt,
   SampleMode sample_mode = SampleMode::rejection,
+  bool strict = true,
   int loglevel = DEFAULT_LOGLEVEL)
 {
   using magic_enum::enum_name;
@@ -185,6 +186,7 @@ SimulationResult mass_spec(
         root_seed,
         result_queue,
         sample_mode,
+        strict,
         loglevel);
     });
     result_queue.enqueue(std::monostate{});
@@ -483,6 +485,7 @@ NB_MODULE(apitofsimraw, m)
         "log_callback"_a = std::nullopt,
         "result_callback"_a = std::nullopt,
         "sample_mode"_a = SampleMode::rejection,
+        "strict"_a = true,
         "loglevel"_a = DEFAULT_LOGLEVEL);
 
   nb::class_<FragmentationPathway>(m, "FragmentationPathway")

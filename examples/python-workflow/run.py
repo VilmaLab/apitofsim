@@ -8,4 +8,4 @@ Q_ = ureg.Quantity
 
 db = ExperimentDatabase(sys.argv[1])
 runner = ExperimentRunner(db)
-runner.run_prepared_config()
+runner.run_prepared_config(strict_dos=False)
