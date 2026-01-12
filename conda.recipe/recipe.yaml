@@ -63,6 +63,7 @@ requirements:
     - duckdb >= 1.4.2
     - matplotlib >=3.10.7
     - orjson >= 3.11.4
+    - progress-table >= 3.2.2
 
 tests:
   - python:
