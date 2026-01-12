@@ -11,7 +11,13 @@ from datetime import timedelta
 from glob import glob
 from os.path import dirname, isfile, basename, expanduser
 
-from .api import ApiTofError, ApiTofOverflowError, MeshMode, MassSpectrometer
+from .api import (
+    ApiTofError,
+    ApiTofOverflowError,
+    MeshMode,
+    MassSpectrometer,
+    MassSpecSubstanceInput,
+)
 
 ureg = get_application_registry()
 Q_ = ureg.Quantity
@@ -734,17 +740,20 @@ class ExperimentRunner:
                 config["energy_max_rate"],
                 rate_const,
             )
-            counters = self.run_mass_spec(
-                mass_spec,
+            subs = MassSpecSubstanceInput(
                 cluster,
                 product1,
                 product2,
                 config["gas"],
                 density_hist,
                 rate_hist,
-                int(environ["N_OVERRIDE"]) if "N_OVERRIDE" in environ else config["N"],
                 fragmentation_energy=config.get("fragmentation_energy"),
                 cluster_charge_sign=config.get("cluster_charge_sign", -1),
+            )
+            counters = self.run_mass_spec(
+                mass_spec,
+                subs,
+                int(environ["N_OVERRIDE"]) if "N_OVERRIDE" in environ else config["N"],
                 pathway_id=pathway_id,
                 sample_mode=2,
                 loglevel=0,
