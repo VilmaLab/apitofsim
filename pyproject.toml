@@ -10,6 +10,7 @@ dependencies = [
   "orjson>=3.11.4",
   "pandas",
   "pint>=0.25.1",
+  "progress-table>=3.2.2",
 ]
 
 [build-system]

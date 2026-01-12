@@ -121,17 +121,23 @@ class ClusterDatabase:
         else:
             return ret
 
-    def pathways_query(self, parent=None):
+    def pathways_query(self, parent=None, sort=False):
         pathway = self.db.table("pathway")
         if parent is not None:
             pathway = pathway.filter(
                 duckdb.ColumnExpression("cluster_id ")
                 == duckdb.ConstantExpression(parent)
             )
+        if sort:
+            pathway = pathway.sort(
+                "cluster_id",
+                "product1_id",
+                "product2_id",
+            )
         return pathway
 
-    def pathways_ids(self, parent=None):
-        query = self.pathways_query(parent)
+    def pathways_ids(self, parent=None, **kwargs):
+        query = self.pathways_query(parent, **kwargs)
         for pathway in query.fetchdf().itertuples():
             yield (
                 pathway.id,
@@ -521,6 +527,7 @@ class ExperimentRunner:
         self._guard_run_started()
         from .api import mass_spec
 
+        counters = None
         try:
             counters, timings = mass_spec(
                 *args,
@@ -549,11 +556,11 @@ class ExperimentRunner:
                 counters,
                 timings,
             )
+        return counters
 
     def run_from_config(self, config, run_started=False, strict_dos=True):
         from os import environ
         from apitofsim import (
-            skimmer,
             ProductsCluster,
             KTotalInput,
             compute_density_of_states_batch,
@@ -563,6 +570,7 @@ class ExperimentRunner:
         )
         from apitofsim.api import Histogram, validate_max_energies
         from timeit import default_timer as timer
+        from progress_table import ProgressTable
 
         if not run_started:
             self.db.start_run()
@@ -570,23 +578,22 @@ class ExperimentRunner:
         cluster_indexed, name_lookup = self.db.clusters_objects_indexed(
             include_name_lookup=True
         )
-        print()
 
-        print("Running skimmer")
-        skimmer_np = skimmer(
-            T0=config["T"],
-            P0=config["pressure_first"],
-            rmax=config["lengths"][-1],
-            dc=config["dc"],
-            alpha_factor=config["alpha_factor"],
-            gas=config["gas"],
-            N=config["N_iter"],
-            M=config["M_iter"],
-            resolution=config["resolution"],
-            tolerance=config["tolerance"],
-        )
-        print("Done")
+        prelim_table = ProgressTable(default_column_alignment="left")
+        prelim_table.add_column("#", alignment="right", width=3)
+        prelim_table.add_column("Step", width=20)
+        prelim_table.add_column("Description", width=40)
+        prelim_table.add_column("Time (s)", alignment="right")
+        prelim_table["#"] = "1/4"
+        prelim_table["Step"] = "Skimmer"
+        start = timer()
+        skimmer_np = self._run_skimmer(config)
+        prelim_table["Time (s)"] = f"{(timer() - start):.2f}"
+        prelim_table.next_row()
 
+        prelim_table["#"] = "2/4"
+        prelim_table["Step"] = "Density of states"
+        start = timer()
         num_pathways = 0
         density_of_states_inputs = []
         for _, cluster, _, _ in self.db.pathways_objs(indexed=cluster_indexed):
@@ -596,16 +603,19 @@ class ExperimentRunner:
         for _, _, product1, product2 in self.db.pathways_objs(indexed=cluster_indexed):
             density_of_states_inputs.append(ProductsCluster(product1, product2))
 
-        print("Computing density of states")
-        start = timer()
+        prelim_table["Description"] = f"{len(density_of_states_inputs)} inputs"
 
         density_of_states = compute_density_of_states_batch(
             density_of_states_inputs,
             energy_max=config["energy_max"],
             bin_width=config["bin_width"],
         )
-        print(f"Done in {timer() - start}s")
+        prelim_table["Time (s)"] = f"{(timer() - start):.2f}"
+        prelim_table.next_row()
 
+        prelim_table["#"] = "3/4"
+        prelim_table["Step"] = "Computing mesh"
+        start = timer()
         cluster_dos = density_of_states[:, :num_pathways]
         product_dos = density_of_states[:, num_pathways:]
 
@@ -635,19 +645,19 @@ class ExperimentRunner:
             )
 
         mesh_points = config["energy_max_rate"] / config["bin_width"]
-        print(
-            f"Compute mesh with {mesh_points} points and mesh_mode=MeshMode.compute_mesh_diagonal_multithreaded"
-        )
+        prelim_table["Description"] = f"Mesh of {mesh_points} pts"
 
-        start = timer()
         mesh = precompute_mesh(
             energy_max_rate=config["energy_max_rate"],
             bin_width=config["bin_width"],
             mesh_mode=MeshMode.compute_mesh_diagonal_multithreaded,
         )
-        print(f"Done in {timer() - start}")
+        prelim_table["Time (s)"] = f"{(timer() - start):.2f}"
+        prelim_table.next_row()
 
-        print(f"Compute k total on {len(k_total_inputs)} inputs")
+        prelim_table["#"] = "4/4"
+        prelim_table["Step"] = "K total"
+        prelim_table["Description"] = f"{len(k_total_inputs)} inputs"
 
         start = timer()
         k_rates = compute_k_total_batch(
@@ -656,7 +666,10 @@ class ExperimentRunner:
             bin_width=config["bin_width"],
             mesh=mesh,
         )
-        print(f"Done in {timer() - start}")
+        prelim_table["Time (s)"] = f"{(timer() - start):.2f}"
+        prelim_table.close()
+        del prelim_table
+
         assert isinstance(skimmer_np, numpy.ndarray)
         mass_spec = MassSpectrometer(
             skimmer_np,
@@ -675,22 +688,42 @@ class ExperimentRunner:
             quadrupole=config.get("quadrupole"),
         )
 
+        mass_spec_table = ProgressTable(default_column_alignment="right")
+        mass_spec_table.add_column("#")
+        mass_spec_table.add_column("Cluster", alignment="left")
+        mass_spec_table.add_column("Products", width=16, alignment="left")
+        mass_spec_table.add_columns(
+            "Frags",
+            "Intacts",
+            "Avg colls",
+            "PH rej",
+        )
+        mass_spec_table.add_column("Warns", width=5)
+        mass_spec_table.add_columns(
+            "Surv. prob.",
+            "Time (s)",
+        )
+        pathway_ids = list(self.db.pathways_ids(sort=True))
+        cluster_seq = 1
         for (
             pathway_id,
             cluster_id,
             product1_id,
             product2_id,
         ), rate_const, density_cluster in zip(
-            self.db.pathways_ids(),
+            pathway_ids,
             k_rates.T,
             cluster_dos.T,
         ):
             cluster = cluster_indexed[cluster_id]
             product1 = cluster_indexed[product1_id]
             product2 = cluster_indexed[product2_id]
-            print(
-                f"{name_lookup[cluster_id]} -> {name_lookup[product1_id]} + {name_lookup[product2_id]}"
+            mass_spec_table["#"] = f"{cluster_seq}/{len(pathway_ids)}"
+            mass_spec_table["Cluster"] = name_lookup[cluster_id]
+            mass_spec_table["Products"] = (
+                f"{name_lookup[product1_id]} + {name_lookup[product2_id]}"
             )
+            start = timer()
             density_hist = Histogram.from_mesh(
                 config["bin_width"],
                 config["energy_max"],
@@ -701,7 +734,7 @@ class ExperimentRunner:
                 config["energy_max_rate"],
                 rate_const,
             )
-            self.run_mass_spec(
+            counters = self.run_mass_spec(
                 mass_spec,
                 cluster,
                 product1,
@@ -718,10 +751,53 @@ class ExperimentRunner:
                 strict="STRICT" in environ,
                 strict_dos=strict_dos,
             )
+            t_total = timer() - start
+            if counters is None:
+                for k in [
+                    "Frags",
+                    "Intacts",
+                    "Avg colls",
+                    "PH rej",
+                    "Surv prob",
+                    "Warns",
+                ]:
+                    mass_spec_table[k] = "FAIL"
+            else:
+                realizations = counters.n_fragmented_total + counters.n_escaped_total
+                mass_spec_table["Frags"] = int(counters.n_fragmented_total)
+                mass_spec_table["Intacts"] = int(counters.n_escaped_total)
+                mass_spec_table["Avg colls"] = counters.ncoll_total / realizations
+                mass_spec_table["PH rej"] = int(counters.counter_collision_rejections)
+                mass_spec_table["Surv prob"] = counters.n_escaped_total / realizations
+                mass_spec_table["Warns"] = int(counters.nwarnings)
+            mass_spec_table["Time (s)"] = f"{t_total:.2f}"
+            mass_spec_table.next_row()
+            cluster_seq += 1
+
+    def _run_skimmer(self, config):
+        from apitofsim import skimmer
+
+        return skimmer(
+            T0=config["T"],
+            P0=config["pressure_first"],
+            rmax=config["lengths"][-1],
+            dc=config["dc"],
+            alpha_factor=config["alpha_factor"],
+            gas=config["gas"],
+            N=config["N_iter"],
+            M=config["M_iter"],
+            resolution=config["resolution"],
+            tolerance=config["tolerance"],
+        )
 
     def run_prepared_config(self, name=None, **kwargs):
-        for row in self.db.iter_configs(name):
-            print("Running experiment config:", row.name)
-            print(row.config)
+        from pprint import pprint
+
+        configs = list(self.db.iter_configs(name))
+        for idx, row in enumerate(configs):
+            print(f"# Running experiment config: {row.name} [{idx + 1}/{len(configs)}]")
+            pprint(row.config)
+            print()
             self.start_run(row.id)
             self.run_from_config(row.config, run_started=True, **kwargs)
+            print()
