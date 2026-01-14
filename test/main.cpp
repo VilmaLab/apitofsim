@@ -130,7 +130,7 @@ TEST_CASE("apitof pinhole smoke tests")
     m_ion,
     R_cluster,
     density_cluster,
-    MassSpecInputFragmentationPathway(rate_const, 23420.7),
+    std::vector({MassSpecInputFragmentationPathway(rate_const, 23420.7)}),
     Gas{
       2.46e-10,
       4.8506e-26,

@@ -21,23 +21,23 @@ namespace Counter
 enum Counter
 {
   nwarnings,
-  n_fragmented_total,
   n_escaped_total,
   ncoll_total,
-  counter_collision_rejections
+  counter_collision_rejections,
+  n_fragmented_total
 };
 };
 constexpr auto n_counters = enum_count<Counter::Counter>();
-using Counters = Eigen::Array<int, n_counters, 1>;
-#pragma omp declare reduction(+ : Counters : omp_out = omp_out + omp_in) \
-  initializer(omp_priv = Counters::Zero())
+
+#pragma omp declare reduction(+ : Eigen::ArrayXi : omp_out = omp_out + omp_in) \
+  initializer(omp_priv = Eigen::ArrayXi::Zero(omp_orig.size()))
 
 struct PartialResult
 {
   int thread_id;
-  Counters counters;
+  Eigen::ArrayXi counters;
 
-  PartialResult(Counters counters)
+  PartialResult(Eigen::ArrayXi counters)
       : thread_id(omp_get_thread_num()), counters(counters)
   {
   }
@@ -74,7 +74,7 @@ using StreamingResultQueue = BlockingConcurrentQueue<StreamingResultElement>;
 
 struct WarningHelper
 {
-  Counters &counters;
+  Eigen::ArrayXi &counters;
   StreamingResultQueue &result_queue;
 
   template <typename T>

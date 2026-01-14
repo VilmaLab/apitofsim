@@ -69,7 +69,7 @@ struct MassSpecSubstanceInput
   double m_ion;
   double R_cluster;
   const Histogram density_cluster;
-  const MassSpecInputFragmentationPathway pathway;
+  std::vector<MassSpecInputFragmentationPathway> pathways;
   const Gas gas;
 
   MassSpecSubstanceInput(
@@ -87,8 +87,15 @@ struct MassSpecSubstanceInput
     double m_ion,
     double R_cluster,
     const Histogram density_cluster,
-    const MassSpecInputFragmentationPathway pathway,
+    std::vector<MassSpecInputFragmentationPathway> pathways,
     const Gas gas);
+
+  MassSpecSubstanceInput(
+    const ClusterData &cluster_0,
+    const std::vector<MassSpecInputFragmentationPathway> pathways,
+    Gas gas,
+    const Histogram &density_cluster,
+    int cluster_charge_sign);
 };
 
 enum struct SampleMode
@@ -99,7 +106,7 @@ enum struct SampleMode
 };
 
 typedef std::chrono::high_resolution_clock::duration RuntimeDuration;
-typedef std::tuple<Counters, RuntimeDuration, RuntimeDuration> SimulationResult;
+typedef std::tuple<Eigen::ArrayXi, RuntimeDuration, RuntimeDuration> SimulationResult;
 
 SimulationResult apitof_mass_spec(
   const MassSpectrometer &mass_spec,

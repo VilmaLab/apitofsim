@@ -138,7 +138,7 @@ mass_spec(
   int N,
   unsigned long long seed = 42ull,
   std::optional<std::function<void(std::string_view, std::string)>> log_callback = nullopt,
-  std::optional<std::function<void(Counters)>> result_callback = nullopt,
+  std::optional<std::function<void(Eigen::ArrayXi)>> result_callback = nullopt,
   SampleMode sample_mode = SampleMode::rejection,
   bool strict = true,
   int loglevel = DEFAULT_LOGLEVEL)
@@ -168,9 +168,9 @@ mass_spec(
     });
     result_queue.enqueue(std::monostate{});
   });
-
   auto cleanup = MassSpecCleanup{execution_thread};
-  Eigen::Array<int, Eigen::Dynamic, n_counters> partial_counters = Eigen::Array<int, Eigen::Dynamic, n_counters>::Zero(omp_get_max_threads(), n_counters);
+  int total_counters = n_counters - 1 + subs.pathways.size();
+  Eigen::Array<int, Eigen::Dynamic, Eigen::Dynamic> partial_counters = Eigen::Array<int, Eigen::Dynamic, Eigen::Dynamic>::Zero(omp_get_max_threads(), total_counters);
   bool exiting = false;
   try
   {
@@ -433,18 +433,24 @@ NB_MODULE(apitofsimraw, m)
          "rate_const"_a,
          "fragmentation_energy"_a = std::nullopt,
          "cluster_charge_sign"_a = 1)
-    .def(nb::init<int, double, double, const Histogram, const MassSpecInputFragmentationPathway, const Gas>(),
+    .def(nb::init<ClusterData &, std::vector<MassSpecInputFragmentationPathway>, Gas, const Histogram &, int>(),
+         "cluster_0"_a,
+         "pathways"_a,
+         "gas"_a,
+         "density_cluster"_a,
+         "cluster_charge_sign"_a = 1)
+    .def(nb::init<int, double, double, const Histogram, const std::vector<MassSpecInputFragmentationPathway>, const Gas>(),
          "cluster_charge_sign"_a,
          "m_ion"_a,
          "R_cluster"_a,
          "density_cluster"_a,
-         "pathway"_a,
+         "pathways"_a,
          "gas"_a)
     .def_ro("cluster_charge_sign", &MassSpecSubstanceInput::cluster_charge_sign)
     .def_ro("m_ion", &MassSpecSubstanceInput::m_ion)
     .def_ro("R_cluster", &MassSpecSubstanceInput::R_cluster)
     .def_ro("density_cluster", &MassSpecSubstanceInput::density_cluster)
-    .def_ro("pathway", &MassSpecSubstanceInput::pathway)
+    .def_ro("pathways", &MassSpecSubstanceInput::pathways)
     .def_ro("gas", &MassSpecSubstanceInput::gas);
 
   m.def("validate_max_energies", static_cast<void (*)(double, double, double, double)>(validate_max_energies),
