@@ -121,7 +121,18 @@ nb::typed<nb::tuple, Histogram, Histogram> densityandrate(
   return nb::make_tuple(Histogram(energies, rhos.col(COMB_ROW)), Histogram(energies_rate, k_rate));
 }
 
-SimulationResult mass_spec(
+struct MassSpecCleanup
+{
+  std::thread &execution_thread;
+
+  ~MassSpecCleanup()
+  {
+    execution_thread.join();
+  }
+};
+
+SimulationResult
+mass_spec(
   const MassSpectrometer &ms,
   const MassSpecSubstanceInput &subs,
   int N,
@@ -158,52 +169,70 @@ SimulationResult mass_spec(
     result_queue.enqueue(std::monostate{});
   });
 
+  auto cleanup = MassSpecCleanup{execution_thread};
   Eigen::Array<int, Eigen::Dynamic, n_counters> partial_counters = Eigen::Array<int, Eigen::Dynamic, n_counters>::Zero(omp_get_max_threads(), n_counters);
   bool exiting = false;
-  while (true)
+  try
   {
-    StreamingResultElement result;
-    if (exiting)
+    while (true)
     {
-      bool got = result_queue.try_dequeue(result);
-      if (!got)
+      StreamingResultElement result;
+      if (exiting)
       {
-        break;
+        bool got = result_queue.try_dequeue(result);
+        if (!got)
+        {
+          break;
+        }
       }
-    }
-    else
-    {
-      result_queue.wait_dequeue(result);
-    }
-    if (std::holds_alternative<std::monostate>(result))
-    {
-      // Still need to pump out any pending messages
-      exiting = true;
-    }
-    else if (std::holds_alternative<PartialResult>(result))
-    {
-      const PartialResult &partial_result = std::get<PartialResult>(result);
-      partial_counters.row(partial_result.thread_id) = partial_result.counters.transpose();
-      Counters cur_counters = partial_counters.colwise().sum();
-      if (result_callback)
+      else
       {
-        (*result_callback)(cur_counters);
+        result_queue.wait_dequeue(result);
       }
-    }
-    else if (std::holds_alternative<LogMessage>(result))
-    {
-      const LogMessage &msg = std::get<LogMessage>(result);
-      if (log_callback)
+      if (std::holds_alternative<std::monostate>(result))
       {
-        (*log_callback)(enum_name(msg.type), msg.message);
+        // Still need to pump out any pending messages
+        exiting = true;
+      }
+      else if (std::holds_alternative<PartialResult>(result))
+      {
+        const PartialResult &partial_result = std::get<PartialResult>(result);
+        partial_counters.row(partial_result.thread_id) = partial_result.counters.transpose();
+        Eigen::ArrayXi cur_counters = partial_counters.colwise().sum();
+        if (result_callback)
+        {
+          (*result_callback)(cur_counters);
+        }
+      }
+      else if (std::holds_alternative<LogMessage>(result))
+      {
+        const LogMessage &msg = std::get<LogMessage>(result);
+        if (log_callback)
+        {
+          (*log_callback)(enum_name(msg.type), msg.message);
+        }
       }
     }
   }
-  execution_thread.join();
+  catch (...)
+  {
+    try
+    {
+      exception_helper.rethrow(true);
+    }
+    catch (const std::exception &exc)
+    {
+      std::cerr << "\nGot multiple exceptions! I had to ignore the following while propagating the another: " << exc.what() << "\n\n"
+                << std::flush;
+    }
+    catch (...)
+    {
+      std::cerr << "\nGot multiple exceptions! I had to ignore one while propagating the another, but it is not a std::exception!\n\n"
+                << std::flush;
+    }
+    throw;
+  }
   exception_helper.rethrow();
-
-  std::cout << setprecision(3);
-
   return result;
 }
 
