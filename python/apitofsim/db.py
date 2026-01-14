@@ -538,7 +538,7 @@ class ExperimentRunner:
             counters, timings = mass_spec(
                 *args,
                 **kwargs,
-                output_named_tuple=True,
+                named_tuple_counters=True,
                 output_timings=True,
                 strict=strict_dos,
             )

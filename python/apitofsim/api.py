@@ -432,26 +432,41 @@ def mass_spec(
     seed: int = 42,
     log_callback: Callable[[str, str], None] | None = None,
     result_callback: Callable[[numpy.ndarray], None] | None = None,
-    quantities_strict=True,
-    output_named_tuple=False,
+    named_tuple_counters=False,
     output_timings=False,
 ):
     """
     This function runs the main simulation of the APi-ToF mass spectrometer.
     """
+
+    def convert_counters(counters):
+        if named_tuple_counters:
+            return Counters(*counters[: len(Counter) - 1], counters[len(Counter) - 1 :])
+        else:
+            return counters
+
+    def wrap_callback(callback):
+        if callback is None:
+            return None
+
+        def inner(counters):
+            return callback(convert_counters(counters))
+
+        return inner
+
     counters, loop_time, total_time = _mass_spec(
         mass_spec.into_cpp(),
         subs,
         N,
         seed=seed,
         log_callback=log_callback,
-        result_callback=result_callback,
+        result_callback=wrap_callback(result_callback),
         sample_mode=sample_mode,
         strict=strict,
         loglevel=loglevel,
     )
-    if output_named_tuple:
-        counters = Counters(*counters)
+    if named_tuple_counters:
+        counters = convert_counters(counters)
     if output_timings:
         return counters, Timings(loop_time, total_time)
     else:
