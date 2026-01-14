@@ -17,6 +17,7 @@ from .api import (
     MeshMode,
     MassSpectrometer,
     MassSpecSubstanceInput,
+    MassSpecInputFragmentationPathway,
 )
 
 ureg = get_application_registry()
@@ -54,7 +55,8 @@ class ClusterDatabase:
         self.db = duckdb.connect(filename)
 
     def create_tables(self):
-        self.db.execute("\n".join(self.TABLES))
+        sql = "\n".join(self.TABLES)
+        self.db.execute(sql)
 
     def clusters_query(self, parent=None, parents_only=False, children_only=False):
         if parents_only and children_only:
@@ -290,6 +292,7 @@ EXPERIMENT_TABLES = """
 create sequence experiment_config_sequence start 1;
 create sequence experiment_run_sequence start 1;
 create sequence experiment_result_sequence start 1;
+create sequence pathway_fragmentation_sequence start 1;
 
 create table experiment_config (
     id integer default nextval('experiment_config_sequence') primary key,
@@ -300,11 +303,12 @@ create table experiment_config (
 create table experiment_run (
     id integer default nextval('experiment_run_sequence') primary key,
     experiment_config_id integer not null,
+    pathway_at_a_time bool default false,
     foreign key (experiment_config_id) references experiment_config (id),
     start_time timestamp
 );
 
-create table experiment_result (
+create table single_pathway_experiment_result (
     id integer default nextval('experiment_result_sequence') primary key,
     experiment_run_id integer not null,
     pathway_id integer not null,
@@ -319,12 +323,37 @@ create table experiment_result (
     counter_collision_rejections integer
 );
 
+create table multi_pathway_experiment_result (
+    id integer default nextval('experiment_result_sequence') primary key,
+    experiment_run_id integer not null,
+    cluster_id integer not null,
+    foreign key (experiment_run_id) references experiment_run (id),
+    foreign key (cluster_id) references cluster (id),
+    loop_us integer,
+    total_us integer,
+    nwarnings integer,
+    n_escaped_total integer,
+    ncoll_total integer,
+    counter_collision_rejections integer
+);
+
+create table pathway_fragmentation (
+    id integer default nextval('pathway_fragmentation_sequence') primary key,
+    experiment_result_id integer not null,
+    foreign key (experiment_result_id) references multi_pathway_experiment_result (id),
+    pathway_id integer not null,
+    foreign key (pathway_id) references pathway (id),
+    count integer
+);
+
 create table experiment_failure (
     id integer default nextval('experiment_result_sequence') primary key,
     experiment_run_id integer not null,
-    pathway_id integer not null,
     foreign key (experiment_run_id) references experiment_run (id),
+    pathway_id integer,
     foreign key (pathway_id) references pathway (id),
+    cluster_id integer,
+    foreign key (cluster_id) references cluster (id),
     exc_name varchar,
     msg varchar,
     overflow_requested double
@@ -386,7 +415,7 @@ select
 
 from experiment_run as er
 left join (
-    select * from experiment_result
+    select * from single_pathway_experiment_result
     union by name
     select * from experiment_failure
 ) as res on res.experiment_run_id = er.id
@@ -412,10 +441,10 @@ class ExperimentDatabase(ClusterDatabase):
     def refresh_views(self):
         self.db.execute(REPORT_VIEW)
 
-    def insert_run(self, config_id=None):
+    def insert_run(self, config_id=None, pathway_at_a_time=False):
         id = self.db.execute(
-            "insert into experiment_run values (default, ?, current_timestamp) returning id",
-            (config_id,),
+            "insert into experiment_run values (default, ?, ?, current_timestamp) returning id",
+            (config_id, pathway_at_a_time),
         ).fetchone()
         assert id is not None
         return id[0]
@@ -447,33 +476,66 @@ class ExperimentDatabase(ClusterDatabase):
     def record_result(
         self,
         run_id,
-        pathway_id,
         counters,
         timings,
+        pathway_id=None,
+        cluster_id=None,
+        pathway_ids=None,
     ):
-        id = self.db.execute(
-            "insert into experiment_result values (default, ?, ?, ?, ?, ?, ?, ?, ?, ?) returning id",
-            (
-                run_id,
-                pathway_id,
-                timings.loop / timedelta(microseconds=1),
-                timings.total / timedelta(microseconds=1),
-                int(counters.nwarnings),
-                int(counters.n_fragmented_total),
-                int(counters.n_escaped_total),
-                int(counters.ncoll_total),
-                int(counters.counter_collision_rejections),
-            ),
-        ).fetchone()
+        if pathway_id is None and (cluster_id is None or pathway_ids is None):
+            raise ValueError(
+                "Either pathway_id or cluster_id and pathway_ids must be provided"
+            )
+        if pathway_id is not None:
+            id = self.db.execute(
+                "insert into single_pathway_experiment_result values (default, ?, ?, ?, ?, ?, ?, ?, ?, ?) returning id",
+                (
+                    run_id,
+                    pathway_id,
+                    timings.loop / timedelta(microseconds=1),
+                    timings.total / timedelta(microseconds=1),
+                    int(counters.nwarnings),
+                    int(counters.n_fragmented_total),
+                    int(counters.n_escaped_total),
+                    int(counters.ncoll_total),
+                    int(counters.counter_collision_rejections),
+                ),
+            ).fetchone()
+        else:
+            id = self.db.execute(
+                "insert into multi_pathway_experiment_result values (default, ?, ?, ?, ?, ?, ?, ?, ?) returning id",
+                (
+                    run_id,
+                    cluster_id,
+                    timings.loop / timedelta(microseconds=1),
+                    timings.total / timedelta(microseconds=1),
+                    int(counters.nwarnings),
+                    int(counters.n_escaped_total),
+                    int(counters.ncoll_total),
+                    int(counters.counter_collision_rejections),
+                ),
+            ).fetchone()
+            assert pathway_ids is not None
+            for pathway_id, fragmented in zip(pathway_ids, counters.n_fragmented_total):
+                self.db.execute(
+                    "insert into pathway_fragmentation values (default, ?, ?, ?)",
+                    (id[0], pathway_id, int(fragmented)),
+                )
         assert id is not None
         return id[0]
 
     def record_failure(
-        self, run_id, pathway_id, exc_name, msg, overflow_requested=None
+        self,
+        run_id,
+        exc_name,
+        msg,
+        overflow_requested=None,
+        pathway_id=None,
+        cluster_id=None,
     ):
         id = self.db.execute(
-            "insert into experiment_failure values (default, ?, ?, ?, ?, ?) returning id",
-            (run_id, pathway_id, exc_name, msg, overflow_requested),
+            "insert into experiment_failure values (default, ?, ?, ?, ?, ?, ?) returning id",
+            (run_id, pathway_id, cluster_id, exc_name, msg, overflow_requested),
         ).fetchone()
         assert id is not None
         return id[0]
@@ -510,6 +572,10 @@ class ExperimentDatabase(ClusterDatabase):
         ).fetchdf()
 
 
+def counter_fragmented_total(counters):
+    return int(counters.n_fragmented_total.sum())
+
+
 class ExperimentRunner:
     def __init__(self, db: ExperimentDatabase):
         self.db = db
@@ -519,18 +585,22 @@ class ExperimentRunner:
         if self.current_run_id is None:
             raise RuntimeError("No experiment run started; call start_run() first")
 
-    def start_run(self, config_id=None):
-        self.current_run_id = self.db.insert_run(config_id)
+    def start_run(self, config_id=None, **kwargs):
+        self.current_run_id = self.db.insert_run(config_id, **kwargs)
 
     def run_mass_spec(
         self,
         *args,
-        pathway_id,
+        pathway_id=None,
+        cluster_id=None,
+        pathway_ids=None,
         strict=False,
         strict_dos=True,
         **kwargs,
     ):
         self._guard_run_started()
+        if pathway_id is None and cluster_id is None:
+            raise ValueError("Either pathway_id or cluster_id must be provided")
         from .api import mass_spec
 
         counters = None
@@ -550,21 +620,26 @@ class ExperimentRunner:
                 overflow_requested = e.current
             self.db.record_failure(
                 self.current_run_id,
-                pathway_id,
                 type(e).__name__,
                 str(e),
                 overflow_requested,
+                pathway_id=pathway_id,
+                cluster_id=cluster_id,
             )
         else:
             self.db.record_result(
                 self.current_run_id,
-                pathway_id,
                 counters,
                 timings,
+                pathway_id=pathway_id,
+                pathway_ids=pathway_ids,
+                cluster_id=cluster_id,
             )
         return counters
 
-    def run_from_config(self, config, run_started=False, strict_dos=True):
+    def run_from_config(
+        self, config, run_started=False, strict_dos=True, pathway_at_a_time=False
+    ):
         from os import environ
         from apitofsim import (
             ProductsCluster,
@@ -574,7 +649,7 @@ class ExperimentRunner:
             precompute_mesh,
             FragmentationPathway,
         )
-        from apitofsim.api import Histogram, validate_max_energies
+        from apitofsim.api import validate_max_energies
         from timeit import default_timer as timer
         from progress_table import ProgressTable
 
@@ -585,7 +660,7 @@ class ExperimentRunner:
             include_name_lookup=True
         )
 
-        prelim_table = ProgressTable(default_column_alignment="left")
+        prelim_table = ProgressTable(default_column_alignment="left", refresh_rate=0)
         prelim_table.add_column("#", alignment="right", width=3)
         prelim_table.add_column("Step", width=20)
         prelim_table.add_column("Description", width=40)
@@ -694,7 +769,47 @@ class ExperimentRunner:
             quadrupole=config.get("quadrupole"),
         )
 
-        mass_spec_table = ProgressTable(default_column_alignment="right")
+        if pathway_at_a_time:
+            self._run_pathways_at_a_time(
+                mass_spec,
+                config,
+                cluster_indexed,
+                name_lookup,
+                k_rates,
+                cluster_dos,
+                strict_dos=strict_dos,
+            )
+        else:
+            self._run_cluster_grouped(
+                mass_spec,
+                config,
+                cluster_indexed,
+                name_lookup,
+                k_rates,
+                cluster_dos,
+                strict_dos=strict_dos,
+            )
+
+    def _run_pathways_at_a_time(
+        self,
+        mass_spec,
+        config,
+        cluster_indexed,
+        name_lookup,
+        k_rates,
+        cluster_dos,
+        strict_dos=True,
+    ):
+        from os import environ
+        from progress_table import ProgressTable
+        from apitofsim.api import Histogram
+        from timeit import default_timer as timer
+
+        mass_spec_table = ProgressTable(
+            default_column_alignment="right",
+            pbar_show_throughput=False,
+            refresh_rate=0,
+        )
         mass_spec_table.add_column("#")
         mass_spec_table.add_column("Cluster", alignment="left")
         mass_spec_table.add_column("Products", width=16, alignment="left")
@@ -706,7 +821,7 @@ class ExperimentRunner:
         )
         mass_spec_table.add_column("Warns", width=5)
         mass_spec_table.add_columns(
-            "Surv. prob.",
+            "Surv prob",
             "Time (s)",
         )
         pathway_ids = list(self.db.pathways_ids(sort=True))
@@ -717,7 +832,7 @@ class ExperimentRunner:
             product1_id,
             product2_id,
         ), rate_const, density_cluster in zip(
-            pathway_ids,
+            mass_spec_table(pathway_ids),
             k_rates.T,
             cluster_dos.T,
         ):
@@ -748,7 +863,7 @@ class ExperimentRunner:
                 density_hist,
                 rate_hist,
                 fragmentation_energy=config.get("fragmentation_energy"),
-                cluster_charge_sign=config.get("cluster_charge_sign", -1),
+                cluster_charge_sign=config.get("cluster_charge_sign", 1),
             )
             counters = self.run_mass_spec(
                 mass_spec,
@@ -780,8 +895,160 @@ class ExperimentRunner:
                 mass_spec_table["Surv prob"] = counters.n_escaped_total / realizations
                 mass_spec_table["Warns"] = int(counters.nwarnings)
             mass_spec_table["Time (s)"] = f"{t_total:.2f}"
+            cluster_seq += 1
+
+    def _run_cluster_grouped(
+        self,
+        mass_spec,
+        config,
+        cluster_indexed,
+        name_lookup,
+        k_rates,
+        cluster_dos,
+        strict_dos=True,
+    ):
+        from os import environ
+        from progress_table import ProgressTable
+        from apitofsim.api import Histogram
+        from timeit import default_timer as timer
+
+        pathway_ids = list(self.db.pathways_ids(sort=True))
+        last_cluster_id = None
+        groups = []
+        cur_group = None
+        for (
+            pathway_id,
+            cluster_id,
+            product1_id,
+            product2_id,
+        ), rate_const, density_cluster in zip(
+            pathway_ids,
+            k_rates.T,
+            cluster_dos.T,
+        ):
+            cluster = cluster_indexed[cluster_id]
+            if cluster_id != last_cluster_id:
+                if cur_group is not None:
+                    groups.append(cur_group)
+                density_hist = Histogram.from_mesh(
+                    config["bin_width"],
+                    config["energy_max"],
+                    density_cluster,
+                )
+                cur_group = {
+                    "pathways": [],
+                    "cluster": cluster,
+                    "cluster_id": cluster_id,
+                    "cluster_label": name_lookup[cluster_id],
+                    "density_hist": density_hist,
+                    "product_labels": [],
+                    "pathway_ids": [],
+                }
+            product1 = cluster_indexed[product1_id]
+            product2 = cluster_indexed[product2_id]
+            rate_hist = Histogram.from_mesh(
+                config["bin_width"],
+                config["energy_max_rate"],
+                rate_const,
+            )
+            assert cur_group is not None
+            cur_group["pathways"].append(
+                MassSpecInputFragmentationPathway(
+                    cluster, product1, product2, rate_hist
+                )
+            )
+            cur_group["product_labels"].append(
+                f"{name_lookup[product1_id]} + {name_lookup[product2_id]}"
+            )
+            cur_group["pathway_ids"].append(pathway_id)
+            last_cluster_id = cluster_id
+        if cur_group is not None:
+            groups.append(cur_group)
+
+        mass_spec_table = ProgressTable(
+            default_column_alignment="right", refresh_rate=0
+        )
+        mass_spec_table.add_column("Cluster", alignment="left")
+        mass_spec_table.add_column("Pathways", width=16, alignment="left")
+        mass_spec_table.add_columns(
+            "Frags",
+            "Intacts",
+            "Avg colls",
+            "PH rej",
+        )
+        mass_spec_table.add_column("Warns", width=5)
+        mass_spec_table.add_columns(
+            "Surv prob",
+            "Time (s)",
+        )
+        cluster_seq = 1
+        outer_pbar = mass_spec_table(
+            groups,
+            description="Cluster",
+            show_throughput=False,
+            show_progress=True,
+            show_eta=True,
+            position=2,
+        )
+        for group in outer_pbar:
+            mass_spec_table["Cluster"] = group["cluster_label"]
+            mass_spec_table["Pathways"] = str(len(group["pathways"]))
+            start = timer()
+            realizations = (
+                int(environ["N_OVERRIDE"]) if "N_OVERRIDE" in environ else config["N"]
+            )
+            subs = MassSpecSubstanceInput(
+                group["cluster"],
+                group["pathways"],
+                config["gas"],
+                group["density_hist"],
+                config.get("cluster_charge_sign", 1),
+            )
+            inner_pbar = mass_spec_table(
+                realizations, position=1, description="Realization"
+            )
+
+            def update_from_counters(counters):
+                fragmented_total = counter_fragmented_total(counters)
+                realizations = fragmented_total + counters.n_escaped_total
+                mass_spec_table["Frags"] = fragmented_total
+                mass_spec_table["Intacts"] = int(counters.n_escaped_total)
+                mass_spec_table["Avg colls"] = counters.ncoll_total / realizations
+                mass_spec_table["PH rej"] = int(counters.counter_collision_rejections)
+                mass_spec_table["Surv prob"] = counters.n_escaped_total / realizations
+                mass_spec_table["Warns"] = int(counters.nwarnings)
+                inner_pbar.set_step(realizations)
+
+            counters = self.run_mass_spec(
+                mass_spec,
+                subs,
+                realizations,
+                cluster_id=group["cluster_id"],
+                pathway_ids=group["pathway_ids"],
+                sample_mode=2,
+                loglevel=0,
+                strict="STRICT" in environ,
+                strict_dos=strict_dos,
+                result_callback=update_from_counters,
+            )
+            t_total = timer() - start
+            if counters is None:
+                for k in [
+                    "Frags",
+                    "Intacts",
+                    "Avg colls",
+                    "PH rej",
+                    "Surv prob",
+                    "Warns",
+                ]:
+                    mass_spec_table[k] = "FAIL"
+            else:
+                update_from_counters(counters)
+            mass_spec_table["Time (s)"] = f"{t_total:.2f}"
+            inner_pbar.close()
             mass_spec_table.next_row()
             cluster_seq += 1
+        mass_spec_table.close()
 
     def _run_skimmer(self, config):
         from apitofsim import skimmer
@@ -807,6 +1074,8 @@ class ExperimentRunner:
             print(f"# Running experiment config: {row.name} [{idx + 1}/{len(configs)}]")
             pprint(row.config)
             print()
-            self.start_run(row.id)
+            self.start_run(
+                row.id, pathway_at_a_time=kwargs.get("pathway_at_a_time", False)
+            )
             self.run_from_config(row.config, run_started=True, **kwargs)
             print()
