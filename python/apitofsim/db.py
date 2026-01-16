@@ -467,9 +467,16 @@ class ExperimentDatabase(ClusterDatabase):
 
         query = self.db.table("experiment_config")
         if name is not None:
-            query = query.filter(
-                duckdb.ColumnExpression("name") == duckdb.ConstantExpression(name)
-            )
+            if isinstance(name, list):
+                query = query.filter(
+                    duckdb.ColumnExpression("name").isin(
+                        *(duckdb.ConstantExpression(n) for n in name)
+                    )
+                )
+            else:
+                query = query.filter(
+                    duckdb.ColumnExpression("name") == duckdb.ConstantExpression(name)
+                )
         for id, name, config in query.fetchall():
             yield ConfigRow(id, name, import_raw_config(orjson.loads(config)))
 
@@ -640,7 +647,57 @@ class ExperimentRunner:
     def run_from_config(
         self, config, run_started=False, strict_dos=True, pathway_at_a_time=False
     ):
-        from os import environ
+        if not run_started:
+            self.db.start_run()
+
+        cluster_indexed, name_lookup = self.db.clusters_objects_indexed(
+            include_name_lookup=True
+        )
+
+        skimmer_np, k_rates, cluster_dos = self._run_preliminaries(
+            config, cluster_indexed
+        )
+
+        assert isinstance(skimmer_np, numpy.ndarray)
+        mass_spec = MassSpectrometer(
+            skimmer_np,
+            config["lengths"],
+            config["voltages"],
+            config["T"],
+            Q_(
+                numpy.array(
+                    [
+                        config["pressure_first"].to("pascals").magnitude,
+                        config["pressure_second"].to("pascals").magnitude,
+                    ]
+                ),
+                "pascals",
+            ),
+            quadrupole=config.get("quadrupole"),
+        )
+
+        if pathway_at_a_time:
+            self._run_pathways_at_a_time(
+                mass_spec,
+                config,
+                cluster_indexed,
+                name_lookup,
+                k_rates,
+                cluster_dos,
+                strict_dos=strict_dos,
+            )
+        else:
+            self._run_cluster_grouped(
+                mass_spec,
+                config,
+                cluster_indexed,
+                name_lookup,
+                k_rates,
+                cluster_dos,
+                strict_dos=strict_dos,
+            )
+
+    def _run_preliminaries(self, config, cluster_indexed):
         from apitofsim import (
             ProductsCluster,
             KTotalInput,
@@ -652,13 +709,6 @@ class ExperimentRunner:
         from apitofsim.api import validate_max_energies
         from timeit import default_timer as timer
         from progress_table import ProgressTable
-
-        if not run_started:
-            self.db.start_run()
-
-        cluster_indexed, name_lookup = self.db.clusters_objects_indexed(
-            include_name_lookup=True
-        )
 
         prelim_table = ProgressTable(default_column_alignment="left", refresh_rate=0)
         outer_pbar = prelim_table(
@@ -773,46 +823,8 @@ class ExperimentRunner:
         )
         prelim_table["Time (s)"] = f"{(timer() - start):.2f}"
         prelim_table.close()
-        del prelim_table
 
-        assert isinstance(skimmer_np, numpy.ndarray)
-        mass_spec = MassSpectrometer(
-            skimmer_np,
-            config["lengths"],
-            config["voltages"],
-            config["T"],
-            Q_(
-                numpy.array(
-                    [
-                        config["pressure_first"].to("pascals").magnitude,
-                        config["pressure_second"].to("pascals").magnitude,
-                    ]
-                ),
-                "pascals",
-            ),
-            quadrupole=config.get("quadrupole"),
-        )
-
-        if pathway_at_a_time:
-            self._run_pathways_at_a_time(
-                mass_spec,
-                config,
-                cluster_indexed,
-                name_lookup,
-                k_rates,
-                cluster_dos,
-                strict_dos=strict_dos,
-            )
-        else:
-            self._run_cluster_grouped(
-                mass_spec,
-                config,
-                cluster_indexed,
-                name_lookup,
-                k_rates,
-                cluster_dos,
-                strict_dos=strict_dos,
-            )
+        return skimmer_np, k_rates, cluster_dos
 
     def _run_pathways_at_a_time(
         self,
