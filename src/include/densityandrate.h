@@ -43,5 +43,5 @@ Eigen::ArrayXd compute_k_total_full(ClusterData &cluster_0, ClusterData &cluster
 DensityResult compute_density_of_states_all(ClusterData &cluster_0, ClusterData &cluster_1, ClusterData &cluster_2, double energy_max, double bin_width);
 Eigen::ArrayXXd compute_density_of_states_batch(std::vector<Eigen::ArrayXd> batch_frequencies, double energy_max, double bin_width, bool use_old_impl = false);
 Eigen::ArrayXd precompute_mesh(double energy_max_rate, double bin_width, MeshMode mesh_mode = MeshMode::compute_mesh_single_threaded);
-Eigen::ArrayXXd compute_k_total_batch(std::vector<KTotalInput> batch_input, double energy_max_rate, double bin_width, std::optional<Eigen::ArrayXd> mesh);
-Eigen::ArrayXXd compute_k_total_batch(std::vector<KTotalInput> batch_input, double energy_max_rate, double bin_width, MeshMode mesh_mode = MeshMode::compute_mesh_diagonal_multithreaded);
+Eigen::ArrayXXd compute_k_total_batch(std::vector<KTotalInput> batch_input, double energy_max_rate, double bin_width, std::optional<Eigen::ArrayXd> mesh, std::optional<std::function<void(size_t)>> progress_callback = std::nullopt);
+Eigen::ArrayXXd compute_k_total_batch(std::vector<KTotalInput> batch_input, double energy_max_rate, double bin_width, MeshMode mesh_mode = MeshMode::compute_mesh_diagonal_multithreaded, std::optional<std::function<void(size_t)>> progress_callback = std::nullopt);

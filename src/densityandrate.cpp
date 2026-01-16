@@ -501,17 +501,18 @@ Eigen::ArrayXd precompute_mesh(double energy_max_rate, double bin_width, MeshMod
   }
 }
 
-Eigen::ArrayXXd compute_k_total_batch(std::vector<KTotalInput> batch_input, double energy_max_rate, double bin_width, std::optional<Eigen::ArrayXd> mesh)
+Eigen::ArrayXXd compute_k_total_batch(std::vector<KTotalInput> batch_input, double energy_max_rate, double bin_width, std::optional<Eigen::ArrayXd> mesh, std::optional<std::function<void(size_t)>> progress_callback)
 {
   int m_max_rate = int(energy_max_rate / bin_width);
   Eigen::ArrayXXd k_rate = Eigen::ArrayXXd(m_max_rate, batch_input.size());
   OMPExceptionHelper exception_helper;
+  int completed = 0;
 #pragma omp parallel default(none) \
   firstprivate(batch_input, bin_width, m_max_rate, mesh) \
-  shared(exception_helper, k_rate)
+  shared(exception_helper, k_rate, completed, std::cout, progress_callback)
   {
     Eigen::ArrayXd k0 = Eigen::ArrayXd(m_max_rate);
-#pragma omp for
+#pragma omp for schedule(dynamic, 1)
     for (size_t i = 0; i < batch_input.size(); i++)
     {
       exception_helper.guard([&]
@@ -524,13 +525,22 @@ Eigen::ArrayXXd compute_k_total_batch(std::vector<KTotalInput> batch_input, doub
         input.cluster_2.compute_derived();
         compute_k_total_general(k0, k_rate.col(i), input.cluster_1, input.cluster_2, input.fragmentation_energy, input.rho_parent, input.rho_comb, bin_width, m_max_rate, mesh);
       });
+      if (progress_callback)
+      {
+        #pragma omp atomic
+        completed++;
+        if (omp_get_thread_num() == 0)
+        {
+          (*progress_callback)(completed);
+        }
+      }
     }
   }
   exception_helper.rethrow();
   return k_rate;
 }
 
-Eigen::ArrayXXd compute_k_total_batch(std::vector<KTotalInput> batch_input, double energy_max_rate, double bin_width, MeshMode mesh_mode)
+Eigen::ArrayXXd compute_k_total_batch(std::vector<KTotalInput> batch_input, double energy_max_rate, double bin_width, MeshMode mesh_mode, std::optional<std::function<void(size_t)>> progress_callback)
 {
   std::optional<Eigen::ArrayXd> mesh;
   if (mesh_mode == MeshMode::no_mesh)
@@ -541,5 +551,5 @@ Eigen::ArrayXXd compute_k_total_batch(std::vector<KTotalInput> batch_input, doub
   {
     mesh = precompute_mesh(energy_max_rate, bin_width, mesh_mode);
   }
-  return compute_k_total_batch(batch_input, energy_max_rate, bin_width, mesh);
+  return compute_k_total_batch(batch_input, energy_max_rate, bin_width, mesh, progress_callback);
 }

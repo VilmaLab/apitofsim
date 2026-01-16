@@ -661,12 +661,20 @@ class ExperimentRunner:
         )
 
         prelim_table = ProgressTable(default_column_alignment="left", refresh_rate=0)
+        outer_pbar = prelim_table(
+            4,
+            description="Preliminary steps",
+            show_throughput=False,
+            show_progress=True,
+            position=2,
+        )
         prelim_table.add_column("#", alignment="right", width=3)
         prelim_table.add_column("Step", width=20)
         prelim_table.add_column("Description", width=40)
         prelim_table.add_column("Time (s)", alignment="right")
         prelim_table["#"] = "1/4"
         prelim_table["Step"] = "Skimmer"
+        outer_pbar.update()
         start = timer()
         skimmer_np = self._run_skimmer(config)
         prelim_table["Time (s)"] = f"{(timer() - start):.2f}"
@@ -674,6 +682,7 @@ class ExperimentRunner:
 
         prelim_table["#"] = "2/4"
         prelim_table["Step"] = "Density of states"
+        outer_pbar.update()
         start = timer()
         num_pathways = 0
         density_of_states_inputs = []
@@ -696,6 +705,7 @@ class ExperimentRunner:
 
         prelim_table["#"] = "3/4"
         prelim_table["Step"] = "Computing mesh"
+        outer_pbar.update()
         start = timer()
         cluster_dos = density_of_states[:, :num_pathways]
         product_dos = density_of_states[:, num_pathways:]
@@ -740,12 +750,26 @@ class ExperimentRunner:
         prelim_table["Step"] = "K total"
         prelim_table["Description"] = f"{len(k_total_inputs)} inputs"
 
+        inner_pbar = prelim_table(
+            len(k_total_inputs),
+            position=1,
+            description="K total",
+            show_throughput=False,
+            show_progress=True,
+            show_eta=True,
+        )
+
+        def progress_callback(iters_done):
+            inner_pbar.set_step(iters_done)
+
+        outer_pbar.update()
         start = timer()
         k_rates = compute_k_total_batch(
             k_total_inputs,
             energy_max_rate=config["energy_max_rate"],
             bin_width=config["bin_width"],
             mesh=mesh,
+            progress_callback=progress_callback,
         )
         prelim_table["Time (s)"] = f"{(timer() - start):.2f}"
         prelim_table.close()

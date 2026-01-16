@@ -492,17 +492,19 @@ NB_MODULE(apitofsimraw, m)
         "bin_width"_a,
         "mesh_mode"_a);
 
-  m.def("compute_k_total_batch", static_cast<Eigen::ArrayXXd (*)(std::vector<KTotalInput>, double, double, MeshMode)>(compute_k_total_batch),
+  m.def("compute_k_total_batch", static_cast<Eigen::ArrayXXd (*)(std::vector<KTotalInput>, double, double, MeshMode, std::optional<std::function<void(size_t)>>)>(compute_k_total_batch),
         "batch_input"_a,
         "energy_max_rate"_a,
         "bin_width"_a,
-        "mesh_mode"_a);
+        "mesh_mode"_a,
+        "progress_callback"_a = std::nullopt);
 
-  m.def("compute_k_total_batch", static_cast<Eigen::ArrayXXd (*)(std::vector<KTotalInput>, double, double, std::optional<Eigen::ArrayXd>)>(compute_k_total_batch),
+  m.def("compute_k_total_batch", static_cast<Eigen::ArrayXXd (*)(std::vector<KTotalInput>, double, double, std::optional<Eigen::ArrayXd>, std::optional<std::function<void(size_t)>>)>(compute_k_total_batch),
         "batch_input"_a,
         "energy_max_rate"_a,
         "bin_width"_a,
-        "mesh"_a = std::nullopt);
+        "mesh"_a = std::nullopt,
+        "progress_callback"_a = std::nullopt);
 
   nb_magic_enum<SampleMode>(m, "SampleMode");
 
