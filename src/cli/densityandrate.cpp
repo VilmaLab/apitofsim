@@ -51,6 +51,8 @@ int main()
   char file_density_comb[150];
   char file_rate_constant[150];
 
+  debug_info_on_env();
+
   ClusterInputs cluster_files_0;
   ClusterInputs cluster_files_1;
   ClusterInputs cluster_files_2;

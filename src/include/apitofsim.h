@@ -127,3 +127,7 @@ struct FragmentationPathway
 
   double fragmentation_energy_kelvin();
 };
+
+void debug_info();
+
+void debug_info_on_env();

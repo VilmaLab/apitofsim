@@ -552,4 +552,6 @@ NB_MODULE(apitofsimraw, m)
         "seed"_a = 42,
         "dtheta"_a = 1.0e-3,
         "du"_a = std::nullopt);
+
+  m.def("debug_info", &debug_info);
 }

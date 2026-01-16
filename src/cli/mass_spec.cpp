@@ -110,6 +110,8 @@ void mass_spec_config_in()
   char file_electronic_energy_2[150];
   char file_probabilities[150];
 
+  debug_info_on_env();
+
   // Set scientific notation
   std::cout << std::scientific << std::setprecision(3);
 
