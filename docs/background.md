@@ -25,6 +25,12 @@ Later, Zanca, T. (2025)[^4] added support for atom-like products.
 
 The current version of the code supports sampling schemes other than the originally described histogram-based technique. The rejection sampling method is described [in one of the notebooks included in the source code repository](notebooks.md).
 
+The software has some additional features not yet described in publication or via a notebook. They are:
+
+* Support for either negatively or positively charged clusters.
+* Pinhole rejection: Extra code to compensate for reduced gas collision frequency near to the pinhole.
+* Multiple fragmentation pathways: Support for considering multiple fragmentation pathways within a single simulation.
+
 [^1]:
     Zapadinsky, E., Passananti, M., Myllys, N., Kurtén, T., & Vehkamäki, H. (2019).
     Modeling on Fragmentation of Clusters inside a Mass Spectrometer.
@@ -46,6 +52,14 @@ The current version of the code supports sampling schemes other than the origina
 
 ## Publications using the simulation
 
-These publication make use (previous versions of) this simulation.
+These publication make use (previous versions of) this simulation:
 
-**TODO: Complete this section.**
+* Alfaouri et al. (2022)[^5] used an older version of the code, without support for the quadrupole, pinhole rejection or multiple fragmentation pathways.
+  In this publication, the overall rejection rate is obtained as the product of the rejection rate of individual pathways.
+  The [workflow example](api.md) builds on this study.
+
+[^5]:
+    Alfaouri, D., Passananti, M., Zanca, T., Ahonen, L., Kangasluoma, J., Kubečka, J., Myllys, N., and Vehkamäki, H. (2022).
+    A study on the fragmentation of sulfuric acid and dimethylamine clusters inside an atmospheric pressure interface time-of-flight mass spectrometer.
+    *Atmospheric Measurement Techniques*, 15, 11–19.
+    [[web]](https://amt.copernicus.org/articles/15/11/2022/) [[pdf]](https://amt.copernicus.org/articles/15/11/2022/amt-15-11-2022.pdf) [[doi]](https://doi.org/10.5194/amt-15-11-2022)
