@@ -15,3 +15,9 @@ endforeach
 # This file is not installed -- it will be replaced with the .so
 apitofsim_python_py_builddir += fs.copyfile('apitofsimraw.py')
 python.install_sources(apitofsim_python_py_src, subdir: 'apitofsim', pure : false)
+python.install_sources([
+'ingest/__init__.py',
+'ingest/gaussian.py',
+'ingest/orca.py',
+'ingest/legacy.py',
+], subdir: 'apitofsim/ingest', pure : false)

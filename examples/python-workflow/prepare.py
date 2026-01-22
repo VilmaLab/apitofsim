@@ -4,7 +4,7 @@ from os import unlink
 import pint
 import orjson
 
-from apitofsim.db import ingest_legacy_tree, ExperimentDatabase
+from apitofsim.db import ingest_tree, ExperimentDatabase
 
 
 def iter_raw_configs(json):
@@ -27,7 +27,7 @@ def main():
     with open(infn, "rb") as f:
         source = orjson.loads(f.read())
 
-    ingest_legacy_tree(db, source["path"], source.get("backup_search"))
+    ingest_tree(db, source["pathways"])
 
     for name, config in iter_raw_configs(source):
         db.insert_config(name, config)
