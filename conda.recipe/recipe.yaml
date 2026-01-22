@@ -64,6 +64,7 @@ requirements:
     - matplotlib >=3.10.7
     - orjson >= 3.11.4
     - progress-table >= 3.2.2
+    - ase >= 3.27.0
 
 tests:
   - python:
