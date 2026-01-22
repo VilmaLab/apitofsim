@@ -35,8 +35,10 @@ def get_particle(config, particle):
     ]:
         config_key = f"file_{quantity}_{particle}"
         particle_data[quantity] = read_dat(config[config_key])
-    particle_data["vibrational_temperatures"] = particle_data["vibrational_temperatures"] * ureg.kelvin
-    particle_data["rotational_temperatures"] = particle_data["rotational_temperatures"] * ureg.kelvin
+    if particle_data["vibrational_temperatures"] is not None:
+        particle_data["vibrational_temperatures"] = particle_data["vibrational_temperatures"] * ureg.kelvin
+    if particle_data["rotational_temperatures"] is not None:
+        particle_data["rotational_temperatures"] = particle_data["rotational_temperatures"] * ureg.kelvin
     particle_data["electronic_energy"] = particle_data["electronic_energy"][0] * ureg.hartree
     particle_data["atomic_mass"] = config[f"Atomic_mass_{particle}"] * ureg.amu
     return particle_data
@@ -46,7 +48,7 @@ class DotAccessDict(dict):
     __getattr__ = dict.get
 
 
-def ingest_legacy_one(filename, clusters):
+def parse_legacy_one(filename, clusters):
     from contextlib import chdir
     from apitofsim.config import parse_config
 
@@ -55,7 +57,7 @@ def ingest_legacy_one(filename, clusters):
         config = parse_config(filename)
         for particle in ["cluster", "first_product", "second_product"]:
             prefix = get_common_prefix(config, particle)
-            name = prefix.split("/")[-1]
+            name = prefix.split("/")[-1].rstrip("_").rstrip(".")
             sources = {}
             for source_name, source in clusters["sources"].items():
                 method = source.get("type", source_name)
@@ -76,6 +78,8 @@ def ingest_legacy_one(filename, clusters):
                     path = prefix + extension
                     with open(path) as f:
                         sources[source_name] = parse_gaussian(f)
+                elif method == "map":
+                    sources[source_name] = source.get(name, {})
                 else:
                     raise ValueError(f"Unknown method: {method}")
             provenance = {}
@@ -96,9 +100,19 @@ def ingest_legacy_one(filename, clusters):
                     source_name = clusters["default_source"]
                 if use_eval:
                     eval_ctx = {source_name: DotAccessDict(sources[source_name]) for source_name in sources}
-                    combined[quantity] = eval(source_name, eval_ctx)
+                    try:
+                        combined[quantity] = eval(source_name, eval_ctx)
+                    except Exception as e:
+                        raise ValueError(
+                            f"Error evaluating expression for particle {filename} {particle} {name} ; source: {source_name} ; quantity: {quantity}"
+                        ) from e
                 else:
-                    combined[quantity] = sources[source_name][quantity]
+                    try:
+                        combined[quantity] = sources[source_name][quantity]
+                    except Exception as e:
+                        raise ValueError(
+                            f"Error getting quantity for particle: {filename} {particle} {name} ; source: {source_name} ; quantity: {quantity}"
+                        ) from e
                 provenance[quantity] = source_name
             pathway.append({
                 "name": name,
@@ -109,7 +123,7 @@ def ingest_legacy_one(filename, clusters):
     return pathway
 
 
-def ingest_legacy_tree(path, clusters):
+def parse_legacy_tree(path, clusters):
     filenames = glob(expanduser(path), recursive=True)
     for filename in filenames:
-        yield ingest_legacy_one(filename, clusters)
+        yield parse_legacy_one(filename, clusters)
