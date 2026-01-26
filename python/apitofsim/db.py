@@ -30,10 +30,12 @@ create sequence pathway_id_sequence start 1;
 create table cluster (
     id integer default nextval('cluster_id_sequence') primary key,
     common_name varchar,
-    atomic_mass integer,
+    atomic_mass double,
+    charge int,
     electronic_energy double,
     rotational_temperatures double[3],
     vibrational_temperatures double[],
+    import_info json
 );
 
 create table pathway (
@@ -171,24 +173,64 @@ class ClusterDatabase:
         self,
         name,
         atomic_mass,
+        charge,
         electronic_energy,
         rotational_temperatures,
         vibrational_temperatures,
+        import_info=None,
+        *,
+        allow_duplicates=False,
     ):
-        existing_id = self.db.execute(
-            "select id from cluster where common_name = ?",
+        value_names = ["atomic_mass", "charge", "electronic_energy", "rotational_temperatures", "vibrational_temperatures"]
+        values = [atomic_mass, charge, electronic_energy, rotational_temperatures, vibrational_temperatures]
+        existing = self.db.execute(
+            """
+            select
+                id,
+                atomic_mass,
+                charge,
+                electronic_energy,
+                rotational_temperatures,
+                vibrational_temperatures
+            from cluster
+            where common_name = ?
+            """,
             (name,),
         ).fetchone()
-        if existing_id is not None:
-            return False, existing_id[0]
+        if existing is not None:
+            for value_name, existing_value, new_value in zip(value_names, existing[1:], values):
+                if not numpy.array_equal(existing_value, new_value):
+                    if not allow_duplicates:
+                        raise ValueError(
+                            f"Cluster with name '{name}' already exists with different {value_name}: existing={existing_value}, new={new_value}"
+                        )
+                    if "__" in name:
+                        barename, num = name.rsplit("__", 1)
+                        try:
+                            num = int(num)
+                        except ValueError:
+                            barename = name
+                            num = 0
+                    else:
+                        barename = name
+                        num = 0
+                    return self.insert_cluster(
+                        f"{barename}__{num + 1}",
+                        *values,
+                        import_info=import_info,
+                        allow_duplicates=True
+                    )
+            return False, existing[0]
         id = self.db.execute(
-            "insert into cluster values (default, ?, ?, ?, ?, ?) returning id",
+            "insert into cluster values (default, ?, ?, ?, ?, ?, ?, ?) returning id",
             (
                 name,
                 atomic_mass,
+                charge,
                 electronic_energy,
                 rotational_temperatures,
                 vibrational_temperatures,
+                import_info
             ),
         ).fetchone()
         assert id is not None
@@ -201,91 +243,44 @@ class ClusterDatabase:
         )
 
 
-def backup_search(source, data_file):
-    if "backup_search" in source:
-        results = glob(
-            source["backup_search"] + "/**/" + basename(data_file),
-            recursive=True,
-        )
-        if len(results) == 1:
-            return results[0]
-
-
-def fixup_config(config, particle, backup_dir=None, allow_fail=False):
-    for quantity in [
-        "vibrational_temperatures",
-        "rotational_temperatures",
-        "electronic_energy",
-    ]:
-        config_key = f"file_{quantity}_{particle}"
-        data_file = config[config_key]
-        if not isfile(data_file):
-            particle_failed = True
-            if backup_dir is not None:
-                result = backup_search(backup_dir, data_file)
-                if result is not None:
-                    config[config_key] = result
-                    particle_failed = False
-            if particle_failed:
-                msg = f"Could not find {config_key}='{config[config_key]}'"
-                if not allow_fail:
-                    raise RuntimeError(msg)
-                print(msg + "; skipping particle")
-                return True
-    return False
-
-
-def ingest_legacy_one(
-    db: ClusterDatabase,
-    filename,
-    backup_dir=None,
-    verbose=False,
-    allow_fail=False,
-    allow_skip=False,
-):
-    from contextlib import chdir
-    from apitofsim.config import (
-        parse_config,
-        get_particle,
-    )
-
-    with chdir(dirname(filename)):
-        config = parse_config(filename)
-        ids = []
-        particle_failed = False
-        for particle in ["cluster", "first_product", "second_product"]:
-            if fixup_config(config, particle, backup_dir, allow_fail):
-                particle_failed = True
-                continue
-            particle_config = get_particle(config, particle)
-            name = particle_config["name"]
+def insert_parsed_pathway(db, pathway, *, prefix=None):
+    from apitofsim.config import dump_to_raw
+    ids = []
+    for particle_info in pathway:
+        name = particle_info["name"]
+        if prefix is not None:
+            name = prefix + name
+        combined = particle_info["particle"]
+        with ureg.context("boltzmann", "spectroscopy"):
             inserted, id = db.insert_cluster(
                 name,
-                particle_config["atomic_mass"],
-                particle_config["electronic_energy"],
-                particle_config["rotational_temperatures"],
-                particle_config["vibrational_temperatures"],
+                combined["atomic_mass"].to("amu").magnitude,
+                combined["charge"],
+                combined["electronic_energy"].to("hartree").magnitude,
+                combined["rotational_temperatures"].to("K").magnitude if combined["rotational_temperatures"] is not None else None,
+                combined["vibrational_temperatures"].to("K").magnitude if combined["vibrational_temperatures"] is not None else None,
+                dump_to_raw(particle_info).decode("utf-8"),
+                allow_duplicates=True,
             )
             ids.append(id)
-            if not inserted:
-                if not allow_skip:
-                    raise RuntimeError(f"Particle already exists: {name}")
-                if verbose:
-                    print(f"Skipping existing particle: {name}")
-        if particle_failed:
-            print("Skipping pathway due to missing particles")
-            return
-        db.insert_pathway(*ids)
+    db.insert_pathway(*ids)
 
 
-def ingest_legacy_tree(
-    db: ClusterDatabase, path, backup_dir=None, verbose=False, allow_fail=False
-):
-    filenames = glob(expanduser(path), recursive=True)
-    for filename in filenames:
-        ingest_legacy_one(
-            db, filename, backup_dir, verbose, allow_fail=allow_fail, allow_skip=True
-        )
+def ingest_legacy_one(db: ClusterDatabase, filename, clusters, prefix=None):
+    from apitofsim.ingest.legacy import parse_legacy_one
+    pathway = parse_legacy_one(filename, clusters)
+    insert_parsed_pathway(db, pathway, prefix=None)
+
+
+def ingest_tree(db: ClusterDatabase, pathways):
+    if isinstance(pathways, list):
+        for pathways_segment in pathways:
+            ingest_tree(db, pathways_segment)
+        return
+    if pathways["type"] == "legacy_glob":
+        from apitofsim.ingest.legacy import parse_legacy_tree
+        for pathway in parse_legacy_tree(pathways["path"], pathways["clusters"]):
+            insert_parsed_pathway(db, pathway, prefix=pathways.get("prefix"))
 
 
 EXPERIMENT_TABLES = """
@@ -362,6 +357,40 @@ create table experiment_failure (
 
 
 REPORT_VIEW = """
+create or replace view pathway_report as
+select
+    -- Pathway info
+    p.id as pathway_id,
+
+    -- Cluster info (the main cluster)
+    c.id as cluster_id,
+    c.common_name as cluster_common_name,
+    c.atomic_mass as cluster_atomic_mass,
+    c.electronic_energy as cluster_electronic_energy,
+    c.rotational_temperatures as cluster_rotational_temperatures,
+    c.vibrational_temperatures as cluster_vibrational_temperatures,
+
+    -- Product 1 info
+    p1.id as product1_id,
+    p1.common_name as product1_common_name,
+    p1.atomic_mass as product1_atomic_mass,
+    p1.electronic_energy as product1_electronic_energy,
+    p1.rotational_temperatures as product1_rotational_temperatures,
+    p1.vibrational_temperatures as product1_vibrational_temperatures,
+
+    -- Product 2 info
+    p2.id as product2_id,
+    p2.common_name as product2_common_name,
+    p2.atomic_mass as product2_atomic_mass,
+    p2.electronic_energy as product2_electronic_energy,
+    p2.rotational_temperatures as product2_rotational_temperatures,
+    p2.vibrational_temperatures as product2_vibrational_temperatures,
+
+from pathway p
+inner join cluster c on c.id = p.cluster_id
+inner join cluster p1 on p1.id = p.product1_id
+inner join cluster p2 on p2.id = p.product2_id;
+
 create or replace view experiment_report as
 select
     -- Experiment run info

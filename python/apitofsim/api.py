@@ -90,7 +90,7 @@ class ClusterData(ClusterLike):
 
     def into_cpp(self) -> _ClusterData:
         return _ClusterData(
-            self.mass.to("amu").magnitude,
+            int(self.mass.to("amu").magnitude + 0.5),
             self.electronic_energy.to("hartree").magnitude,
             self.rotations,
             self.get_frequencies(),
