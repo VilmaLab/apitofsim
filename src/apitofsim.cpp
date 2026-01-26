@@ -1,5 +1,6 @@
 #include "apitofsim.h"
 #include "consts.h"
+#include "openmp_helper.h"
 
 #include <iostream>
 
@@ -80,10 +81,10 @@ void debug_info()
 {
 #ifdef _OPENMP
   std::cout << "OpenMP version: " << _OPENMP << "\n";
+  std::cout << "Num threads: " << omp_get_max_threads() << "\n";
 #else
   std::cout << "OpenMP not enabled\n";
 #endif
-  std::cout << "Num threads: " << omp_get_max_threads() << "\n";
 }
 
 void debug_info_on_env()
