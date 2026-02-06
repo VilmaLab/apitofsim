@@ -459,7 +459,9 @@ NB_MODULE(apitofsimraw, m)
         "energy_max_rate"_a,
         "bin_width"_a);
 
-  m.def("densityandrate", &densityandrate,
+  m.def("densityandrate",
+        &densityandrate,
+        nb::call_guard<nb::gil_scoped_release>(),
         "cluster_0"_a,
         "cluster_1"_a,
         "cluster_2"_a,
@@ -468,7 +470,9 @@ NB_MODULE(apitofsimraw, m)
         "bin_width"_a,
         "fragmentation_energy"_a);
 
-  m.def("compute_density_of_states_batch", &compute_density_of_states_batch,
+  m.def("compute_density_of_states_batch",
+        &compute_density_of_states_batch,
+        nb::call_guard<nb::gil_scoped_release>(),
         "batch_frequencies"_a,
         "energy_max"_a,
         "bin_width"_a,
@@ -487,19 +491,25 @@ NB_MODULE(apitofsimraw, m)
     .def_ro("rho_parent", &KTotalInput::rho_parent)
     .def_ro("rho_comb", &KTotalInput::rho_comb);
 
-  m.def("precompute_mesh", &precompute_mesh,
+  m.def("precompute_mesh",
+        &precompute_mesh,
+        nb::call_guard<nb::gil_scoped_release>(),
         "energy_max_rate"_a,
         "bin_width"_a,
         "mesh_mode"_a);
 
-  m.def("compute_k_total_batch", static_cast<Eigen::ArrayXXd (*)(std::vector<KTotalInput>, double, double, MeshMode, std::optional<std::function<void(size_t)>>)>(compute_k_total_batch),
+  m.def("compute_k_total_batch",
+        static_cast<Eigen::ArrayXXd (*)(std::vector<KTotalInput>, double, double, MeshMode, std::optional<std::function<void(size_t)>>)>(compute_k_total_batch),
+        nb::call_guard<nb::gil_scoped_release>(),
         "batch_input"_a,
         "energy_max_rate"_a,
         "bin_width"_a,
         "mesh_mode"_a,
         "progress_callback"_a = std::nullopt);
 
-  m.def("compute_k_total_batch", static_cast<Eigen::ArrayXXd (*)(std::vector<KTotalInput>, double, double, std::optional<Eigen::ArrayXd>, std::optional<std::function<void(size_t)>>)>(compute_k_total_batch),
+  m.def("compute_k_total_batch",
+        static_cast<Eigen::ArrayXXd (*)(std::vector<KTotalInput>, double, double, std::optional<Eigen::ArrayXd>, std::optional<std::function<void(size_t)>>)>(compute_k_total_batch),
+        nb::call_guard<nb::gil_scoped_release>(),
         "batch_input"_a,
         "energy_max_rate"_a,
         "bin_width"_a,
@@ -508,7 +518,9 @@ NB_MODULE(apitofsimraw, m)
 
   nb_magic_enum<SampleMode>(m, "SampleMode");
 
-  m.def("mass_spec", &mass_spec,
+  m.def("mass_spec",
+        &mass_spec,
+        nb::call_guard<nb::gil_scoped_release>(),
         "ms"_a,
         "subs"_a,
         "N"_a,
