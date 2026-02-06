@@ -743,11 +743,11 @@ def get_through_join_else(conn, rel, proj_col, result_dict, **match_cols):
     )
     data = data.column(proj_col).chunk(0)
     for match_row, value in zip(zip(*match_cols.values()), data):
-        if len(match_row) == 1:
-            match_row = match_row[0]
         value = value.values
         if value is not None:
             data = value.to_numpy(zero_copy_only=True)
+            if len(match_row) == 1:
+                match_row = match_row[0]
             result_dict[match_row] = data
         else:
             yield dict(zip(match_cols.keys(), match_row))
