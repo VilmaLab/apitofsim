@@ -12,6 +12,7 @@ dependencies = [
   "pint>=0.25.1",
   "progress-table>=3.2.2",
   "pyarrow>=23.0.0",
+  "reflink>=0.2.2",
 ]
 
 [build-system]

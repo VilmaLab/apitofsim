@@ -21,6 +21,34 @@ from .api import (
     MassSpecInputFragmentationPathway,
 )
 
+
+def duckdb_connect_roview_cow(filename, *, config=None, fallback="copy"):
+    import duckdb
+    from reflink import reflink, ReflinkImpossibleError
+    from shutil import copy
+    from uuid import uuid4
+    from os.path import split as psplit, join as pjoin, splitext
+
+    if config is None:
+        config = {}
+    path, base = psplit(filename)
+    base, ext = splitext(base)
+    rnd = uuid4().hex
+    dest = pjoin(path, f".{base}.rosnap.{rnd}.{ext}")
+    try:
+        reflink(filename, dest)
+    except (NotImplementedError, ReflinkImpossibleError):
+        if fallback == "copy":
+            copy(filename, dest)
+        elif fallback == "connect":
+            dest = filename
+        elif fallback == "error":
+            raise
+        else:
+            raise ValueError(f"Invalid fallback option: {fallback}")
+    return duckdb.connect(dest, read_only = True, config = config)
+
+
 ureg = get_application_registry()
 Q_ = ureg.Quantity
 
@@ -54,8 +82,11 @@ create table pathway (
 class ClusterDatabase:
     TABLES = [PATHWAY_TABLES]
 
-    def __init__(self, filename):
-        self.db = duckdb.connect(filename)
+    def __init__(self, filename, readonly=False):
+        if readonly:
+            self.db = duckdb_connect_roview_cow(filename)
+        else:
+            self.db = duckdb.connect(filename)
 
     def create_tables(self):
         sql = "\n".join(self.TABLES)
