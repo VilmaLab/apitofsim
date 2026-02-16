@@ -753,6 +753,29 @@ class ExperimentDatabase(SuperClusterDatabase):
         """
         ).fetchdf()
 
+    def forget(self, runs=False, configs=False, derived=False, all=False):
+        if all:
+            runs = True
+            configs = True
+            derived = True
+
+        if configs:
+            self.db.execute("truncate experiment_config")
+
+        if runs or configs:
+            for tbl in [
+                "experiment_run",
+                "single_pathway_experiment_result",
+                "multi_pathway_experiment_result",
+                "pathway_fragmentation",
+                "experiment_failure",
+            ]:
+                self.db.execute(f"truncate {tbl}")
+
+        if derived:
+            for tbl in ["cluster_dos", "products_dos", "k_rate"]:
+                self.db.execute(f"truncate {tbl}")
+
 
 def counter_fragmented_total(counters):
     return int(counters.n_fragmented_total.sum())
