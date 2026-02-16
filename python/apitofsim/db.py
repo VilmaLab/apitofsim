@@ -427,8 +427,8 @@ inner join cluster p2 on p2.id = p.product2_id;
 class SuperClusterDatabase(ClusterDatabase):
     TABLES = [PATHWAY_TABLES, DERIVED_TABLES, PATHWAY_REPORT_VIEW]
 
-    def __init__(self, filename):
-        super().__init__(filename)
+    def __init__(self, filename, readonly=False):
+        super().__init__(filename, readonly=readonly)
 
     def refresh_views(self):
         self.db.execute(PATHWAY_REPORT_VIEW)
