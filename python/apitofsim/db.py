@@ -974,9 +974,8 @@ class DerivedDataPreparer:
                     product1_cpp,
                     product2_cpp,
                     fragmentation_energy,
-                    # Need to copy here for some reason?
-                    numpy.copy(cluster_dos_dict[cluster_id]),
-                    numpy.copy(cluster_dos_dict[product_id_tpl]),
+                    cluster_dos_dict[cluster_id],
+                    cluster_dos_dict[product_id_tpl],
                 )
             )
 

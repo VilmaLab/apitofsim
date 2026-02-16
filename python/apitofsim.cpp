@@ -479,7 +479,7 @@ NB_MODULE(apitofsimraw, m)
         "use_old_impl"_a = false);
 
   nb::class_<KTotalInput>(m, "KTotalInput")
-    .def(nb::init<ClusterData &, ClusterData &, double, Eigen::Ref<Eigen::ArrayXd>, Eigen::Ref<Eigen::ArrayXd>>(),
+    .def(nb::init<ClusterData &, ClusterData &, double, Eigen::Ref<const Eigen::ArrayXd>, Eigen::Ref<const Eigen::ArrayXd>>(),
          nb::arg("cluster_1"),
          nb::arg("cluster_2"),
          nb::arg("fragmentation_energy"),
@@ -508,7 +508,7 @@ NB_MODULE(apitofsimraw, m)
         "progress_callback"_a = std::nullopt);
 
   m.def("compute_k_total_batch",
-        static_cast<Eigen::ArrayXXd (*)(std::vector<KTotalInput>, double, double, std::optional<Eigen::ArrayXd>, std::optional<std::function<void(size_t)>>)>(compute_k_total_batch),
+        static_cast<Eigen::ArrayXXd (*)(std::vector<KTotalInput>, double, double, std::optional<const Eigen::ArrayXd>, std::optional<std::function<void(size_t)>>)>(compute_k_total_batch),
         nb::call_guard<nb::gil_scoped_release>(),
         "batch_input"_a,
         "energy_max_rate"_a,

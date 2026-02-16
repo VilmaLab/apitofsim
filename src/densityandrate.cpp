@@ -189,7 +189,7 @@ Eigen::ArrayXd compute_mesh_rearranged_presqrt_omp(double bin_width, int m_max_r
   return mesh;
 }
 
-void compute_k_total_mesh(Eigen::ArrayXd &k0, Eigen::ArrayXd &mesh, Eigen::Ref<Eigen::ArrayXd> k_rate, double inertia_moment_1, double inertia_moment_2, Eigen::Vector3d &rotations_1, Eigen::Vector3d &rotations_2, const Eigen::Ref<const Eigen::ArrayXd> rho_comb, const Eigen::Ref<const Eigen::ArrayXd> rho_0, double bin_width, int m_max_rate, double fragmentation_energy)
+void compute_k_total_mesh(Eigen::ArrayXd &k0, const Eigen::ArrayXd &mesh, Eigen::Ref<Eigen::ArrayXd> k_rate, double inertia_moment_1, double inertia_moment_2, Eigen::Vector3d &rotations_1, Eigen::Vector3d &rotations_2, const Eigen::Ref<const Eigen::ArrayXd> rho_comb, const Eigen::Ref<const Eigen::ArrayXd> rho_0, double bin_width, int m_max_rate, double fragmentation_energy)
 {
   double prefactor = get_prefactor_k_total(inertia_moment_1, inertia_moment_2, rotations_1, rotations_2);
   int n_fragmentation = int(fragmentation_energy / bin_width);
@@ -427,7 +427,7 @@ Eigen::ArrayXXd compute_density_of_states_batch(std::vector<Eigen::ArrayXd> batc
   return result;
 }
 
-void compute_k_total_general(Eigen::ArrayXd &k0, Eigen::Ref<Eigen::ArrayXd> k_rate, ClusterData &cluster_1, ClusterData &cluster_2, double fragmentation_energy, Eigen::Ref<Eigen::ArrayXd> rho_parent, Eigen::Ref<Eigen::ArrayXd> rho_comb, double bin_width, double m_max_rate, std::optional<Eigen::ArrayXd> mesh = std::nullopt)
+void compute_k_total_general(Eigen::ArrayXd &k0, Eigen::Ref<Eigen::ArrayXd> k_rate, ClusterData &cluster_1, ClusterData &cluster_2, double fragmentation_energy, Eigen::Ref<const Eigen::ArrayXd> rho_parent, Eigen::Ref<const Eigen::ArrayXd> rho_comb, double bin_width, double m_max_rate, std::optional<const Eigen::ArrayXd> mesh = std::nullopt)
 {
   if (!cluster_1.is_atom_like_product() && !cluster_2.is_atom_like_product())
   {
@@ -501,7 +501,7 @@ Eigen::ArrayXd precompute_mesh(double energy_max_rate, double bin_width, MeshMod
   }
 }
 
-Eigen::ArrayXXd compute_k_total_batch(std::vector<KTotalInput> batch_input, double energy_max_rate, double bin_width, std::optional<Eigen::ArrayXd> mesh, std::optional<std::function<void(size_t)>> progress_callback)
+Eigen::ArrayXXd compute_k_total_batch(std::vector<KTotalInput> batch_input, double energy_max_rate, double bin_width, std::optional<const Eigen::ArrayXd> mesh, std::optional<std::function<void(size_t)>> progress_callback)
 {
   int m_max_rate = int(energy_max_rate / bin_width);
   Eigen::ArrayXXd k_rate = Eigen::ArrayXXd(m_max_rate, batch_input.size());
@@ -542,14 +542,9 @@ Eigen::ArrayXXd compute_k_total_batch(std::vector<KTotalInput> batch_input, doub
 
 Eigen::ArrayXXd compute_k_total_batch(std::vector<KTotalInput> batch_input, double energy_max_rate, double bin_width, MeshMode mesh_mode, std::optional<std::function<void(size_t)>> progress_callback)
 {
-  std::optional<Eigen::ArrayXd> mesh;
-  if (mesh_mode == MeshMode::no_mesh)
-  {
-    mesh = std::nullopt;
-  }
-  else
-  {
-    mesh = precompute_mesh(energy_max_rate, bin_width, mesh_mode);
-  }
+  std::optional<const Eigen::ArrayXd> mesh = (
+    mesh_mode == MeshMode::no_mesh ?
+    std::nullopt : std::optional<const Eigen::ArrayXd>(precompute_mesh(energy_max_rate, bin_width, mesh_mode))
+  );
   return compute_k_total_batch(batch_input, energy_max_rate, bin_width, mesh, progress_callback);
 }
