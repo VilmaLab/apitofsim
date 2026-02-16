@@ -92,11 +92,15 @@ class ClusterDatabase:
         sql = "\n".join(self.TABLES)
         self.db.execute(sql)
 
-    def clusters_query(self, parent=None, parents_only=False, children_only=False):
+    def clusters_query(
+        self, parent=None, pathways=None, parents_only=False, children_only=False
+    ):
         if parents_only and children_only:
             raise ValueError("Cannot set both parents_only and children_only to True")
         query = self.db.table("cluster")
-        if parent is None and not (parents_only or children_only):
+        if (parent is None and pathways is None) and not (
+            parents_only or children_only
+        ):
             # Shortcut for efficiency
             return query
         if parents_only:
@@ -105,7 +109,7 @@ class ClusterDatabase:
             relevant_fragment = "product1_id, product2_id"
         else:
             relevant_fragment = "cluster_id, product1_id, product2_id"
-        pathways_query = self.pathways_query(parent)
+        pathways_query = self.pathways_query(parent, pathways)
         # relevant_cluster_ids = self.db.table("pathway").select(duckdb.SQLExpression(f"unnest([{relevant_fragment}])").alias("relevant_cluster_id"))
         # if parent is not None:
         # relevant_cluster_ids = relevant_cluster_ids.filter(duckdb.ColumnExpression('cluster_id ') == duckdb.ConstantExpression(parent))
@@ -163,20 +167,30 @@ class ClusterDatabase:
         else:
             return ret
 
-    def pathways_query(self, parent=None, sort=False):
-        pathway = self.db.table("pathway")
+    def pathways_query(self, parent=None, pathways=None, sort=False):
+        if parent is not None and pathways is not None:
+            raise ValueError("Cannot specify both parent and pathways")
+        pathway_rel = self.db.table("pathway")
+        if pathways is not None:
+            import pyarrow as pa
+
+            wanted_tbl = pa.table([pathways], names=["pathway_id"])
+            pathway_rel = pathway_rel.join(
+                self.db.from_arrow(wanted_tbl).set_alias("wanted"),
+                condition="wanted.pathway_id = pathway.id",
+            )
         if parent is not None:
-            pathway = pathway.filter(
+            pathway_rel = pathway_rel.filter(
                 duckdb.ColumnExpression("cluster_id")
                 == duckdb.ConstantExpression(parent)
             )
         if sort:
-            pathway = pathway.sort(
+            pathway_rel = pathway_rel.sort(
                 "cluster_id",
                 "product1_id",
                 "product2_id",
             )
-        return pathway
+        return pathway_rel
 
     def pathways_ids(self, parent=None, **kwargs):
         query = self.pathways_query(parent, **kwargs)
@@ -287,6 +301,64 @@ class ClusterDatabase:
             "insert into pathway values (default, ?, ?, ?)",
             (parent_id, product1_id, product2_id),
         )
+
+    def get_all_lookups(self, parent=None, pathways=None):
+        if isinstance(parent, str):
+            parent = self.db.db.execute(
+                """
+                select id
+                from cluster
+                where common_name = ?
+                """,
+                (parent,),
+            ).fetchone()
+            if parent is None:
+                raise ValueError(f"No cluster found with name {parent}")
+            parent = parent[0]
+        if pathways is not None:
+            pathways = list(pathways)
+            if (
+                len(pathways) > 0
+                and isinstance(pathways[0], tuple)
+                and isinstance(pathways[0][0], str)
+            ):
+                import pyarrow as pa
+
+                wanted_tbl = pa.table(
+                    list(zip(*pathways)), names=["pathway", "product1", "product2"]
+                )
+                pathway_common_names = self.db.db.sql(
+                    """
+                    select
+                        p.id as pathway_id,
+                        c.common_name as cluster_common_name,
+                        p1.common_name as product1_common_name,
+                        p2.common_name as product2_common_name,
+
+                    from pathway p
+                    inner join cluster c on c.id = p.cluster_id
+                    inner join cluster p1 on p1.id = p.product1_id
+                    inner join cluster p2 on p2.id = p.product2_id;
+                    """
+                )
+                pathways = (
+                    pathway_common_names.join(
+                        self.db.db.from_arrow(wanted_tbl).set_alias("wanted"),
+                        condition="wanted.pathway = cluster_common_name and wanted.product1 = product1_common_name and wanted.product2 = product2_common_name",
+                    )
+                    .select("pathway_id")
+                    .fetch_arrow_table()["pathway_id"]
+                )
+        cluster_indexed, name_lookup = self.clusters_objects_indexed(
+            include_name_lookup=True, parent=parent, pathways=pathways
+        )
+        pathway_lookup = {}
+        for pathway_id, cluster_id, product1_id, product2_id in self.pathways_ids(
+            parent=parent, pathways=pathways
+        ):
+            pathway_lookup[pathway_id] = (cluster_id, product1_id, product2_id)
+
+        return cluster_indexed, name_lookup, pathway_lookup
 
 
 def insert_parsed_pathway(db, pathway, *, prefix=None):
@@ -807,8 +879,28 @@ def get_through_join_else(conn, rel, proj_col, result_dict, **match_cols):
             yield dict(zip(match_cols.keys(), match_row))
 
 
+def insert_via_arrow(conn, table, chunk_size=None, **kwargs):
+    import pyarrow as pa
+
+    arrow_table = pa.table(dict(kwargs))
+
+    conn.register("arrow_table", arrow_table)
+    try:
+        if chunk_size is not None:
+            offset = 0
+            while offset < arrow_table.num_rows:
+                conn.execute(
+                    f"insert into {table} by name select * from arrow_table limit {chunk_size} offset {offset}"
+                )
+                offset += chunk_size
+        else:
+            conn.execute(f"insert into {table} by name select * from arrow_table")
+    finally:
+        conn.unregister("arrow_table")
+
+
 class DerivedDataPreparer:
-    def __init__(self, db: ExperimentDatabase):
+    def __init__(self, db: SuperClusterDatabase):
         self.db = db
 
     def _run_skimmer(self, config):
@@ -844,13 +936,15 @@ class DerivedDataPreparer:
         missed_cluster_ids = []
         wanted_cluster_ids = numpy.array(list(cluster_indexed.keys()))
         density_of_states_inputs = []
-        for cluster_id in get_through_join_else(
+        for miss_info in get_through_join_else(
             self.db.db,
             self.db.db.table("cluster_dos"),
             "data",
             cluster_dos_dict,
             cluster_id=wanted_cluster_ids,
         ):
+            cluster_id = miss_info["cluster_id"]
+            missed_cluster_ids.append(cluster_id)
             density_of_states_inputs.append(cluster_indexed[cluster_id])
             num_clusters_missed += 1
 
@@ -861,7 +955,7 @@ class DerivedDataPreparer:
             wanted_p1.append(product1_id)
             wanted_p2.append(product2_id)
 
-        for p1, p2 in get_through_join_else(
+        for miss_info in get_through_join_else(
             self.db.db,
             self.db.db.table("products_dos"),
             "data",
@@ -869,6 +963,8 @@ class DerivedDataPreparer:
             cluster1_id=wanted_p1,
             cluster2_id=wanted_p2,
         ):
+            p1 = miss_info["cluster1_id"]
+            p2 = miss_info["cluster2_id"]
             products = ProductsCluster(cluster_indexed[p1], cluster_indexed[p2])
             density_of_states_inputs.append(products)
 
@@ -889,18 +985,14 @@ class DerivedDataPreparer:
                     density_of_states[:, :num_clusters_missed].flatten("K"),
                     density_of_states.shape[0],
                 )
-                arrow_table = pa.table(
-                    {
-                        "histogram_params_id": [histogram_id] * len(missed_cluster_ids),
-                        "cluster_id": missed_cluster_ids,
-                        "data": arrow_arr,
-                    }
-                )
 
-                self.db.db.register("arrow_table", arrow_table)
-                self.db.db.execute("set preserve_insertion_order=false;")
-                self.db.db.execute(
-                    "insert into cluster_dos by name select * from arrow_table"
+                insert_via_arrow(
+                    self.db.db,
+                    "cluster_dos",
+                    chunk_size=50,
+                    histogram_params_id=[histogram_id] * len(missed_cluster_ids),
+                    cluster_id=missed_cluster_ids,
+                    data=arrow_arr,
                 )
 
             if len(density_of_states_inputs) > num_clusters_missed:
@@ -908,19 +1000,14 @@ class DerivedDataPreparer:
                     density_of_states[:, num_clusters_missed:].flatten("K"),
                     density_of_states.shape[0],
                 )
-                arrow_table = pa.table(
-                    {
-                        "histogram_params_id": [histogram_id] * len(wanted_p1),
-                        "cluster1_id": wanted_p1,
-                        "cluster2_id": wanted_p2,
-                        "data": arrow_arr,
-                    }
-                )
-
-                self.db.db.register("arrow_table", arrow_table)
-                self.db.db.execute("set preserve_insertion_order=false;")
-                self.db.db.execute(
-                    "insert into products_dos by name select * from arrow_table"
+                insert_via_arrow(
+                    self.db.db,
+                    "products_dos",
+                    chunk_size=50,
+                    histogram_params_id=[histogram_id] * len(wanted_p1),
+                    cluster1_id=wanted_p1,
+                    cluster2_id=wanted_p2,
+                    data=arrow_arr,
                 )
 
             for cluster_id, v in zip(
@@ -965,7 +1052,7 @@ class DerivedDataPreparer:
         k_total_keys = []
         k_total_dict = {}
 
-        for pathway_id in get_through_join_else(
+        for miss_info in get_through_join_else(
             self.db.db,
             self.db.db.table("k_rate").filter(
                 duckdb.ColumnExpression("histogram_params_id")
@@ -975,6 +1062,7 @@ class DerivedDataPreparer:
             k_total_dict,
             pathway_id=pathway_lookup.keys(),
         ):
+            pathway_id = miss_info["pathway_id"]
             cluster_id, product1_id, product2_id = pathway_lookup[pathway_id]
             product1_cpp = cluster_indexed[product1_id].into_cpp()
             product2_cpp = cluster_indexed[product2_id].into_cpp()
@@ -1049,11 +1137,109 @@ class DerivedDataPreparer:
 
         return k_total_dict
 
-    def run_preliminaries(self, config, cluster_indexed, pathway_lookup):
+    def run_densityandrate(self, config, cluster_indexed, pathway_lookup, tablepbar=None):
         from apitofsim import precompute_mesh
         from timeit import default_timer as timer
         from progress_table import ProgressTable
-        from pprint import pprint
+
+        if tablepbar is None:
+            table = ProgressTable(default_column_alignment="left", refresh_rate=0)
+            total_steps = 3
+            cur_step = 1
+            pbar = table(
+                3,
+                description="Preliminary steps",
+                show_throughput=False,
+                show_progress=True,
+                position=2,
+            )
+            table.add_column("#", alignment="right", width=3)
+            table.add_column("Step", width=20)
+            table.add_column("Description", width=40)
+            table.add_column("Time (s)", alignment="right")
+        else:
+            table, pbar = tablepbar
+            total_steps = 4
+            cur_step = 2
+        table["#"] = f"{cur_step}/{total_steps}"
+        table["Step"] = "Density of states"
+        pbar.update()
+        start = timer()
+
+        histogram_id = get_or_insert(
+            self.db.db,
+            "histogram_params",
+            bin_width=config["bin_width"].to("K").magnitude,
+            max=config["energy_max"].to("K").magnitude,
+        )
+
+        cluster_dos_dict = self._run_dos(
+            cluster_indexed,
+            histogram_id,
+            config["bin_width"],
+            config["energy_max"],
+            pathway_lookup=pathway_lookup,
+            status_table=table,
+        )
+
+        table["Time (s)"] = f"{(timer() - start):.2f}"
+        table.next_row()
+        cur_step += 1
+
+        table["#"] = f"{cur_step}/{total_steps}"
+        table["Step"] = "Computing mesh"
+        pbar.update()
+        start = timer()
+
+        mesh_points = config["energy_max_rate"] / config["bin_width"]
+        table["Description"] = f"Mesh of {mesh_points} pts"
+
+        mesh = precompute_mesh(
+            energy_max_rate=config["energy_max_rate"],
+            bin_width=config["bin_width"],
+            mesh_mode=MeshMode.compute_mesh_diagonal_multithreaded,
+        )
+        table["Time (s)"] = f"{(timer() - start):.2f}"
+        table.next_row()
+        cur_step += 1
+
+        table["#"] = f"{cur_step}/{total_steps}"
+        table["Step"] = "K total"
+        pbar.update()
+        start = timer()
+
+        k_rates = self._run_k_total(
+            cluster_indexed,
+            cluster_dos_dict,
+            histogram_id,
+            mesh,
+            config["bin_width"],
+            config["energy_max"],
+            config["energy_max_rate"],
+            pathway_lookup=pathway_lookup,
+            status_table=table,
+        )
+
+        table["Time (s)"] = f"{(timer() - start):.2f}"
+        table.close()
+
+        cluster_dos_by_pathway = {}
+
+        for pathway_id, (
+            _,
+            product1_id,
+            product2_id,
+        ) in pathway_lookup.items():
+            product1_id, product2_id = sorted((product1_id, product2_id))
+            cluster_dos_by_pathway[pathway_id] = cluster_dos_dict[
+                (product1_id, product2_id)
+            ]
+
+        return k_rates, cluster_dos_by_pathway
+
+    def run_preliminaries(self, config, cluster_indexed, pathway_lookup):
+        from timeit import default_timer as timer
+        from progress_table import ProgressTable
 
         prelim_table = ProgressTable(default_column_alignment="left", refresh_rate=0)
         outer_pbar = prelim_table(
@@ -1075,78 +1261,7 @@ class DerivedDataPreparer:
         prelim_table["Time (s)"] = f"{(timer() - start):.2f}"
         prelim_table.next_row()
 
-        prelim_table["#"] = "2/4"
-        prelim_table["Step"] = "Density of states"
-        outer_pbar.update()
-        start = timer()
-
-        histogram_id = get_or_insert(
-            self.db.db,
-            "histogram_params",
-            bin_width=config["bin_width"].to("K").magnitude,
-            max=config["energy_max"].to("K").magnitude,
-        )
-
-        cluster_dos_dict = self._run_dos(
-            cluster_indexed,
-            histogram_id,
-            config["bin_width"],
-            config["energy_max"],
-            pathway_lookup=pathway_lookup,
-            status_table=prelim_table,
-        )
-
-        prelim_table["Time (s)"] = f"{(timer() - start):.2f}"
-        prelim_table.next_row()
-
-        prelim_table["#"] = "3/4"
-        prelim_table["Step"] = "Computing mesh"
-        outer_pbar.update()
-        start = timer()
-
-        mesh_points = config["energy_max_rate"] / config["bin_width"]
-        prelim_table["Description"] = f"Mesh of {mesh_points} pts"
-
-        mesh = precompute_mesh(
-            energy_max_rate=config["energy_max_rate"],
-            bin_width=config["bin_width"],
-            mesh_mode=MeshMode.compute_mesh_diagonal_multithreaded,
-        )
-
-        prelim_table["Time (s)"] = f"{(timer() - start):.2f}"
-        prelim_table.next_row()
-
-        prelim_table["#"] = "4/4"
-        prelim_table["Step"] = "K total"
-        outer_pbar.update()
-        start = timer()
-
-        k_rates = self._run_k_total(
-            cluster_indexed,
-            cluster_dos_dict,
-            histogram_id,
-            mesh,
-            config["bin_width"],
-            config["energy_max"],
-            config["energy_max_rate"],
-            pathway_lookup=pathway_lookup,
-            status_table=prelim_table,
-        )
-
-        prelim_table["Time (s)"] = f"{(timer() - start):.2f}"
-        prelim_table.close()
-
-        cluster_dos_by_pathway = {}
-
-        for pathway_id, (
-            cluster_id,
-            product1_id,
-            product2_id,
-        ) in pathway_lookup.items():
-            product1_id, product2_id = sorted((product1_id, product2_id))
-            cluster_dos_by_pathway[pathway_id] = cluster_dos_dict[
-                (product1_id, product2_id)
-            ]
+        k_rates, cluster_dos_by_pathway = self.run_densityandrate(config, cluster_indexed, pathway_lookup, tablepbar=(prelim_table, outer_pbar))
 
         return skimmer_np, k_rates, cluster_dos_by_pathway
 
@@ -1219,33 +1334,15 @@ class ExperimentRunner:
         run_started=False,
         strict_dos=True,
         pathway_at_a_time=False,
-        parent_name=None,
+        parent=None,
+        pathways=None,
     ):
         if not run_started:
             self.db.start_run()
 
-        if parent_name is not None:
-            parent_id = self.db.db.execute(
-                """
-                select id
-                from cluster
-                where common_name = ?
-                """,
-                (parent_name,),
-            ).fetchone()
-            if parent_id is None:
-                raise ValueError(f"No cluster found with name {parent_name}")
-            parent_id = parent_id[0]
-        else:
-            parent_id = None
-        cluster_indexed, name_lookup = self.db.clusters_objects_indexed(
-            include_name_lookup=True, parent=parent_id
+        cluster_indexed, name_lookup, pathway_lookup = self.db.get_all_lookups(
+            parent, pathways
         )
-        pathway_lookup = {}
-        for pathway_id, cluster_id, product1_id, product2_id in self.db.pathways_ids(
-            parent=parent_id
-        ):
-            pathway_lookup[pathway_id] = (cluster_id, product1_id, product2_id)
 
         skimmer_np, k_rates, cluster_dos = self.preparer.run_preliminaries(
             config, cluster_indexed, pathway_lookup=pathway_lookup
