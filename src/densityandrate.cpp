@@ -143,7 +143,7 @@ Eigen::ArrayXd compute_mesh_rearranged_presqrt(double bin_width, int m_max_rate)
 Eigen::ArrayXd compute_mesh_omp(double bin_width, int m_max_rate)
 {
   Eigen::ArrayXd mesh = Eigen::ArrayXd::Zero(m_max_rate);
-#pragma omp parallel for default(none) \
+#pragma omp parallel for OMP_VISIBILITY_NONE \
   firstprivate(bin_width, m_max_rate) \
   reduction(+ : mesh)
   for (int i = 0; i < m_max_rate; i++) // rotational energy
@@ -162,7 +162,7 @@ Eigen::ArrayXd compute_mesh_omp(double bin_width, int m_max_rate)
 Eigen::ArrayXd compute_mesh_rearranged_presqrt_omp(double bin_width, int m_max_rate)
 {
   Eigen::ArrayXd rot_energy_sqrts = Eigen::ArrayXd(m_max_rate);
-#pragma omp parallel for simd default(none) \
+#pragma omp parallel for simd OMP_VISIBILITY_NONE \
   firstprivate(bin_width, m_max_rate) \
   shared(rot_energy_sqrts)
   for (int i = 0; i < m_max_rate; i++)
@@ -170,7 +170,7 @@ Eigen::ArrayXd compute_mesh_rearranged_presqrt_omp(double bin_width, int m_max_r
     rot_energy_sqrts[i] = sqrt(bin_width * (i + 0.5));
   }
   Eigen::ArrayXd mesh = Eigen::ArrayXd(m_max_rate);
-#pragma omp parallel for default(none) \
+#pragma omp parallel for OMP_VISIBILITY_NONE \
   firstprivate(bin_width, m_max_rate, rot_energy_sqrts) \
   shared(mesh)
   for (int i_p_j = 0; i_p_j < m_max_rate; i_p_j++)
@@ -410,7 +410,7 @@ Eigen::ArrayXXd compute_density_of_states_batch(std::vector<Eigen::ArrayXd> batc
   int m_max = int(energy_max / bin_width);
   // Possibly a tiny bit of false sharing here
   Eigen::ArrayXXd result(m_max, batch_frequencies.size());
-#pragma omp parallel for default(none) \
+#pragma omp parallel for OMP_VISIBILITY_NONE \
   firstprivate(energy_max, bin_width, batch_frequencies, use_old_impl) \
   shared(result)
   for (size_t i = 0; i < batch_frequencies.size(); i++)
@@ -507,7 +507,7 @@ Eigen::ArrayXXd compute_k_total_batch(std::vector<KTotalInput> batch_input, doub
   Eigen::ArrayXXd k_rate = Eigen::ArrayXXd(m_max_rate, batch_input.size());
   OMPExceptionHelper exception_helper;
   int completed = 0;
-#pragma omp parallel default(none) \
+#pragma omp parallel OMP_VISIBILITY_NONE \
   firstprivate(batch_input, bin_width, m_max_rate, mesh) \
   shared(exception_helper, k_rate, completed, std::cout, progress_callback)
   {

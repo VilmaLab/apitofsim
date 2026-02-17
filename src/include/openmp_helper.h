@@ -9,6 +9,14 @@
 #define omp_get_max_threads() 1
 #endif
 
+// default(none) isn't portable across compilers since what is considered a captured variables differs,
+// so use the less strict default(firstprivate) in release mode
+#ifdef NDEBUG
+#define OMP_VISIBILITY_NONE default(firstprivate)
+#else
+#define OMP_VISIBILITY_NONE default(none)
+#endif
+
 // The rest of the file is a helper for exception/signal handling
 
 #include <atomic>

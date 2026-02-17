@@ -498,7 +498,7 @@ SimulationResult apitof_mass_spec(
   auto mesh_skimmer = ms.mesh_skimmer;
   auto radius_pinhole = ms.radius_pinhole;
   auto density_cluster = subs.density_cluster;
-#pragma omp parallel for default(none) \
+#pragma omp parallel for OMP_VISIBILITY_NONE \
   firstprivate( \
       N, T, kT, m_ion, R_cluster, R_tot, density_cluster, \
         inertia, clens, n1, n2, dt1, dt2, \
