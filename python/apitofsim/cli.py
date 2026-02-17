@@ -6,6 +6,7 @@ from apitofsim.api import (
     skimmer,
     densityandrate,
     mass_spec,
+    defaults,
 )
 from apitofsim.config import (
     read_histogram,
@@ -113,7 +114,7 @@ def main():
             mesh_skimmer=mesh_skimmer,
             quadrupole=config.get("quadrupole"),  # pyright: ignore [reportArgumentType]
             fragmentation_energy=config.get("bonding_energy") or None,  # pyright: ignore [reportArgumentType]
-            cluster_charge_sign=config.get("cluster_charge_sign") or 1,  # pyright: ignore [reportArgumentType]
+            cluster_charge_sign=config.get("cluster_charge_sign") or defaults.cluster_charge_sign,  # pyright: ignore [reportArgumentType]
             seed=42,
             log_callback=None,
             result_callback=result_callback,

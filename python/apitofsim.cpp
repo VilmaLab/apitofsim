@@ -432,13 +432,13 @@ NB_MODULE(apitofsimraw, m)
          "density_cluster"_a,
          "rate_const"_a,
          "fragmentation_energy"_a = std::nullopt,
-         "cluster_charge_sign"_a = 1)
+         "cluster_charge_sign"_a = defaults::cluster_charge_sign)
     .def(nb::init<ClusterData &, std::vector<MassSpecInputFragmentationPathway>, Gas, const Histogram &, int>(),
          "cluster_0"_a,
          "pathways"_a,
          "gas"_a,
          "density_cluster"_a,
-         "cluster_charge_sign"_a = 1)
+         "cluster_charge_sign"_a = defaults::cluster_charge_sign)
     .def(nb::init<int, double, double, const Histogram, const std::vector<MassSpecInputFragmentationPathway>, const Gas>(),
          "cluster_charge_sign"_a,
          "m_ion"_a,
@@ -566,4 +566,8 @@ NB_MODULE(apitofsimraw, m)
         "du"_a = std::nullopt);
 
   m.def("debug_info", &debug_info);
+
+  nb::module_ m_defaults = m.def_submodule("defaults", "Default parameter values");
+
+  m_defaults.attr("cluster_charge_sign") = defaults::cluster_charge_sign;
 }

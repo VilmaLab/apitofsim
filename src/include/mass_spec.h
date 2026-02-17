@@ -1,5 +1,6 @@
 #pragma once
 
+#include "consts.h"
 #include "warnlogcount.h"
 #include "apitofsim.h"
 #include "exceptions.h"
@@ -80,7 +81,7 @@ struct MassSpecSubstanceInput
     const Histogram &density_cluster,
     const Histogram &rate_const,
     std::optional<double> fragmentation_energy = std::nullopt,
-    int cluster_charge_sign = 1);
+    int cluster_charge_sign = defaults::cluster_charge_sign);
 
   MassSpecSubstanceInput(
     int cluster_charge_sign,

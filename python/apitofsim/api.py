@@ -36,6 +36,8 @@ from .apitofsimraw import (
     # Enums
     MeshMode,
     SampleMode,
+    # Defaults
+    defaults,
 )
 
 
@@ -66,6 +68,8 @@ __all__ = [
     # Enums
     "MeshMode",
     "SampleMode",
+    # Defaults
+    "defaults",
 ]
 
 
@@ -372,7 +376,7 @@ def MassSpecSubstanceInput(*args, **kwargs):
                 density_cluster=get("density_cluster", 4).into_cpp(),
                 rate_const=get("rate_const", 5).into_cpp(),
                 fragmentation_energy=get("fragmentation_energy", 6, None),
-                cluster_charge_sign=get("cluster_charge_sign", 7, 1),
+                cluster_charge_sign=get("cluster_charge_sign", 7, defaults.cluster_charge_sign),
             )
         else:
             return _MassSpecSubstanceInput(
@@ -380,7 +384,7 @@ def MassSpecSubstanceInput(*args, **kwargs):
                 pathways=get("pathways", 1),
                 gas=get("gas", 2).into_cpp(),
                 density_cluster=get("density_cluster", 3).into_cpp(),
-                cluster_charge_sign=get("cluster_charge_sign", 4, 1),
+                cluster_charge_sign=get("cluster_charge_sign", 4, defaults.cluster_charge_sign),
             )
     else:
         return _MassSpecSubstanceInput(

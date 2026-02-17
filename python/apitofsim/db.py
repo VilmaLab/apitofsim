@@ -19,6 +19,7 @@ from .api import (
     MassSpectrometer,
     MassSpecSubstanceInput,
     MassSpecInputFragmentationPathway,
+    defaults,
 )
 
 
@@ -1458,7 +1459,9 @@ class ExperimentRunner:
                 density_hist,
                 rate_hist,
                 fragmentation_energy=config.get("fragmentation_energy"),
-                cluster_charge_sign=config.get("cluster_charge_sign", 1),
+                cluster_charge_sign=config.get(
+                    "cluster_charge_sign", defaults.cluster_charge_sign
+                ),
             )
             counters = self.run_mass_spec(
                 mass_spec,
@@ -1594,7 +1597,7 @@ class ExperimentRunner:
                 group["pathways"],
                 config["gas"],
                 group["density_hist"],
-                config.get("cluster_charge_sign", 1),
+                config.get("cluster_charge_sign", defaults.cluster_charge_sign),
             )
             inner_pbar = mass_spec_table(
                 realizations, position=1, description="Realization"
