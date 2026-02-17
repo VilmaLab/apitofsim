@@ -47,7 +47,7 @@ def duckdb_connect_roview_cow(filename, *, config=None, fallback="copy"):
             raise
         else:
             raise ValueError(f"Invalid fallback option: {fallback}")
-    return duckdb.connect(dest, read_only = True, config = config)
+    return duckdb.connect(dest, read_only=True, config=config)
 
 
 ureg = get_application_registry()
@@ -715,7 +715,7 @@ class ExperimentDatabase(SuperClusterDatabase):
 
         query = self.db.table("experiment_config")
         if name is not None:
-            if isinstance(name, list):
+            if isinstance(name, (tuple, list)):
                 query = query.filter(
                     duckdb.ColumnExpression("name").isin(
                         *(duckdb.ConstantExpression(n) for n in name)
@@ -750,7 +750,7 @@ class ExperimentDatabase(SuperClusterDatabase):
                     timings.loop / timedelta(microseconds=1),
                     timings.total / timedelta(microseconds=1),
                     int(counters.nwarnings),
-                    int(counters.n_fragmented_total),
+                    int(counters.n_fragmented_total[0]),
                     int(counters.n_escaped_total),
                     int(counters.ncoll_total),
                     int(counters.counter_collision_rejections),
@@ -857,26 +857,54 @@ def counter_fragmented_total(counters):
 def get_through_join_else(conn, rel, proj_col, result_dict, **match_cols):
     import pyarrow as pa
 
-    wanted_tbl = pa.table(list(match_cols.values()), names=list(match_cols.keys()))
+    iterable_match_keys = []
+    scalar_match_keys = []
+    for match_key, match_col in match_cols.items():
+        if hasattr(match_col, "__iter__"):
+            iterable_match_keys.append(match_key)
+        else:
+            scalar_match_keys.append(match_key)
+
+    iterable_match_vals = [match_cols[k] for k in iterable_match_keys]
+    wanted_tbl = pa.table(iterable_match_vals, names=iterable_match_keys)
+    condition = None
+    for k in iterable_match_keys:
+        new = duckdb.ColumnExpression(f"wanted.{k}") == duckdb.ColumnExpression(
+            f"rel.{k}"
+        )
+        if condition is None:
+            condition = new
+        else:
+            condition = condition & new
+    for k in scalar_match_keys:
+        new = duckdb.ColumnExpression(f"rel.{k}") == duckdb.ConstantExpression(
+            match_cols[k]
+        )
+        if condition is None:
+            condition = new
+        else:
+            condition = condition & new
     data = (
         rel.set_alias("rel")
         .join(
             conn.from_arrow(wanted_tbl).set_alias("wanted"),
-            condition=" and ".join(f"wanted.{k} = rel.{k}" for k in match_cols.keys()),
+            condition=condition,
             how="right",
         )
         .select(proj_col)
         .fetch_arrow_table()
     )
     data = data.column(proj_col).chunk(0)
-    for match_row, value in zip(zip(*match_cols.values()), data):
+    for match_row, value in zip(zip(*iterable_match_vals), data):
         value = value.values
         if value is not None:
+            # Hit: update result_dict
             data = value.to_numpy(zero_copy_only=True)
             if len(match_row) == 1:
                 match_row = match_row[0]
             result_dict[match_row] = data
         else:
+            # Miss: yield the match_row for the caller to compute/insert
             yield dict(zip(match_cols.keys(), match_row))
 
 
@@ -887,15 +915,28 @@ def insert_via_arrow(conn, table, chunk_size=None, **kwargs):
 
     conn.register("arrow_table", arrow_table)
     try:
-        if chunk_size is not None:
-            offset = 0
-            while offset < arrow_table.num_rows:
-                conn.execute(
-                    f"insert into {table} by name select * from arrow_table limit {chunk_size} offset {offset}"
-                )
-                offset += chunk_size
-        else:
-            conn.execute(f"insert into {table} by name select * from arrow_table")
+        offset = 0
+        while True:
+            try:
+                if chunk_size is not None:
+                    while offset < arrow_table.num_rows:
+                        conn.execute(
+                            f"insert into {table} by name select * from arrow_table limit {chunk_size} offset {offset}"
+                        )
+                        offset += chunk_size
+                else:
+                    conn.execute(
+                        f"insert into {table} by name select * from arrow_table"
+                    )
+            except duckdb.OutOfMemoryException:
+                if chunk_size is None:
+                    chunk_size = arrow_table.num_rows
+                if chunk_size <= 1:
+                    raise
+                chunk_size = chunk_size // 2
+                print(f"Out of memory, reducing chunk size to {chunk_size}")
+            else:
+                break
     finally:
         conn.unregister("arrow_table")
 
@@ -943,6 +984,7 @@ class DerivedDataPreparer:
             "data",
             cluster_dos_dict,
             cluster_id=wanted_cluster_ids,
+            histogram_params_id=histogram_id,
         ):
             cluster_id = miss_info["cluster_id"]
             missed_cluster_ids.append(cluster_id)
@@ -963,6 +1005,7 @@ class DerivedDataPreparer:
             cluster_dos_dict,
             cluster1_id=wanted_p1,
             cluster2_id=wanted_p2,
+            histogram_params_id=histogram_id,
         ):
             p1 = miss_info["cluster1_id"]
             p2 = miss_info["cluster2_id"]
@@ -990,7 +1033,6 @@ class DerivedDataPreparer:
                 insert_via_arrow(
                     self.db.db,
                     "cluster_dos",
-                    chunk_size=50,
                     histogram_params_id=[histogram_id] * len(missed_cluster_ids),
                     cluster_id=missed_cluster_ids,
                     data=arrow_arr,
@@ -1004,7 +1046,6 @@ class DerivedDataPreparer:
                 insert_via_arrow(
                     self.db.db,
                     "products_dos",
-                    chunk_size=50,
                     histogram_params_id=[histogram_id] * len(wanted_p1),
                     cluster1_id=wanted_p1,
                     cluster2_id=wanted_p2,
@@ -1119,26 +1160,23 @@ class DerivedDataPreparer:
             progress_callback=progress_callback,
         )
 
-        arrow_table = pa.table(
-            {
-                "histogram_params_id": [histogram_id] * k_rates.shape[1],
-                "pathway_id": k_total_keys,
-                "data": pa.FixedSizeListArray.from_arrays(
-                    k_rates.flatten("K"), k_rates.shape[0]
-                ),
-            }
+        insert_via_arrow(
+            self.db.db,
+            "k_rate",
+            histogram_params_id=[histogram_id] * k_rates.shape[1],
+            pathway_id=k_total_keys,
+            data=pa.FixedSizeListArray.from_arrays(
+                k_rates.flatten("K"), k_rates.shape[0]
+            ),
         )
-
-        self.db.db.register("arrow_table", arrow_table)
-        self.db.db.execute("set preserve_insertion_order=false;")
-        self.db.db.execute("insert into k_rate by name select * from arrow_table")
-
         for key, k_rates in zip(k_total_keys, k_rates.T):
             k_total_dict[key] = k_rates
 
         return k_total_dict
 
-    def run_densityandrate(self, config, cluster_indexed, pathway_lookup, tablepbar=None):
+    def run_densityandrate(
+        self, config, cluster_indexed, pathway_lookup, tablepbar=None
+    ):
         from apitofsim import precompute_mesh
         from timeit import default_timer as timer
         from progress_table import ProgressTable
@@ -1223,6 +1261,9 @@ class DerivedDataPreparer:
 
         table["Time (s)"] = f"{(timer() - start):.2f}"
         table.close()
+        if pbar._is_active:
+            # Not sure why this is sometimes needed
+            pbar.close()
 
         cluster_dos_by_pathway = {}
 
@@ -1262,7 +1303,12 @@ class DerivedDataPreparer:
         prelim_table["Time (s)"] = f"{(timer() - start):.2f}"
         prelim_table.next_row()
 
-        k_rates, cluster_dos_by_pathway = self.run_densityandrate(config, cluster_indexed, pathway_lookup, tablepbar=(prelim_table, outer_pbar))
+        k_rates, cluster_dos_by_pathway = self.run_densityandrate(
+            config,
+            cluster_indexed,
+            pathway_lookup,
+            tablepbar=(prelim_table, outer_pbar),
+        )
 
         return skimmer_np, k_rates, cluster_dos_by_pathway
 
@@ -1337,6 +1383,7 @@ class ExperimentRunner:
         pathway_at_a_time=False,
         parent=None,
         pathways=None,
+        verbose=False,
     ):
         if not run_started:
             self.db.start_run()
@@ -1377,6 +1424,7 @@ class ExperimentRunner:
                 k_rates,
                 cluster_dos,
                 strict_dos=strict_dos,
+                verbose=verbose,
             )
         else:
             self._run_cluster_grouped(
@@ -1388,7 +1436,22 @@ class ExperimentRunner:
                 k_rates,
                 cluster_dos,
                 strict_dos=strict_dos,
+                verbose=verbose,
             )
+
+    def _mk_update_from_counters(self, table, pbar):
+        def update_from_counters(counters):
+            fragmented_total = counter_fragmented_total(counters)
+            realizations = fragmented_total + counters.n_escaped_total
+            table["Frags"] = int(fragmented_total)
+            table["Intacts"] = int(counters.n_escaped_total)
+            table["Avg colls"] = counters.ncoll_total / realizations
+            table["PH rej"] = int(counters.counter_collision_rejections)
+            table["Surv prob"] = counters.n_escaped_total / realizations
+            table["Warns"] = int(counters.nwarnings)
+            pbar.set_step(realizations)
+
+        return update_from_counters
 
     def _run_pathways_at_a_time(
         self,
@@ -1401,6 +1464,7 @@ class ExperimentRunner:
         cluster_dos,
         strict_dos=True,
         parent=None,
+        verbose=False,
     ):
         from os import environ
         from progress_table import ProgressTable
@@ -1409,8 +1473,8 @@ class ExperimentRunner:
 
         mass_spec_table = ProgressTable(
             default_column_alignment="right",
-            pbar_show_throughput=False,
             refresh_rate=0,
+            interactive=0 if verbose else 2,
         )
         mass_spec_table.add_column("#")
         mass_spec_table.add_column("Cluster", alignment="left")
@@ -1427,9 +1491,15 @@ class ExperimentRunner:
             "Time (s)",
         )
         cluster_seq = 1
-        for pathway_id, (cluster_id, product1_id, product2_id) in mass_spec_table(
-            pathway_lookup.items()
-        ):
+        outer_pbar = mass_spec_table(
+            pathway_lookup.items(),
+            description="Pathway",
+            show_throughput=False,
+            show_progress=True,
+            show_eta=True,
+            position=2,
+        )
+        for pathway_id, (cluster_id, product1_id, product2_id) in outer_pbar:
             density_cluster = cluster_dos[pathway_id]
             rate_const = k_rates[pathway_id]
             cluster = cluster_indexed[cluster_id]
@@ -1463,15 +1533,31 @@ class ExperimentRunner:
                     "cluster_charge_sign", defaults.cluster_charge_sign
                 ),
             )
+            realizations = (
+                int(environ["N_OVERRIDE"]) if "N_OVERRIDE" in environ else config["N"]
+            )
+            inner_pbar = mass_spec_table(
+                realizations, position=1, description="Realization"
+            )
+
+            def log_callback(typ, msg):
+                msg = msg.rstrip()
+                print(f"Channel: {typ}; Msg: {msg}")
+
+            update_from_counters = self._mk_update_from_counters(
+                mass_spec_table, inner_pbar
+            )
             counters = self.run_mass_spec(
                 mass_spec,
                 subs,
-                int(environ["N_OVERRIDE"]) if "N_OVERRIDE" in environ else config["N"],
+                realizations,
                 pathway_id=pathway_id,
                 sample_mode=2,
-                loglevel=0,
+                loglevel=1 if verbose else 0,
                 strict="STRICT" in environ,
                 strict_dos=strict_dos,
+                result_callback=update_from_counters,
+                log_callback=log_callback,
             )
             t_total = timer() - start
             if counters is None:
@@ -1485,14 +1571,10 @@ class ExperimentRunner:
                 ]:
                     mass_spec_table[k] = "FAIL"
             else:
-                realizations = counters.n_fragmented_total + counters.n_escaped_total
-                mass_spec_table["Frags"] = int(counters.n_fragmented_total)
-                mass_spec_table["Intacts"] = int(counters.n_escaped_total)
-                mass_spec_table["Avg colls"] = counters.ncoll_total / realizations
-                mass_spec_table["PH rej"] = int(counters.counter_collision_rejections)
-                mass_spec_table["Surv prob"] = counters.n_escaped_total / realizations
-                mass_spec_table["Warns"] = int(counters.nwarnings)
+                update_from_counters(counters)
             mass_spec_table["Time (s)"] = f"{t_total:.2f}"
+            inner_pbar.close()
+            mass_spec_table.next_row()
             cluster_seq += 1
 
     def _run_cluster_grouped(
@@ -1505,6 +1587,7 @@ class ExperimentRunner:
         k_rates,
         cluster_dos,
         strict_dos=True,
+        verbose=False,
     ):
         from os import environ
         from progress_table import ProgressTable
@@ -1561,7 +1644,9 @@ class ExperimentRunner:
             groups.append(cur_group)
 
         mass_spec_table = ProgressTable(
-            default_column_alignment="right", refresh_rate=0
+            default_column_alignment="right",
+            refresh_rate=0,
+            interactive=0 if verbose else 2,
         )
         mass_spec_table.add_column("Cluster", width=16, alignment="left")
         mass_spec_table.add_column("Paths", width=5, alignment="left")
@@ -1603,17 +1688,9 @@ class ExperimentRunner:
                 realizations, position=1, description="Realization"
             )
 
-            def update_from_counters(counters):
-                fragmented_total = counter_fragmented_total(counters)
-                realizations = fragmented_total + counters.n_escaped_total
-                mass_spec_table["Frags"] = fragmented_total
-                mass_spec_table["Intacts"] = int(counters.n_escaped_total)
-                mass_spec_table["Avg colls"] = counters.ncoll_total / realizations
-                mass_spec_table["PH rej"] = int(counters.counter_collision_rejections)
-                mass_spec_table["Surv prob"] = counters.n_escaped_total / realizations
-                mass_spec_table["Warns"] = int(counters.nwarnings)
-                inner_pbar.set_step(realizations)
-
+            update_from_counters = self._mk_update_from_counters(
+                mass_spec_table, inner_pbar
+            )
             counters = self.run_mass_spec(
                 mass_spec,
                 subs,
@@ -1621,7 +1698,7 @@ class ExperimentRunner:
                 cluster_id=group["cluster_id"],
                 pathway_ids=group["pathway_ids"],
                 sample_mode=2,
-                loglevel=0,
+                loglevel=1 if verbose else 0,
                 strict="STRICT" in environ,
                 strict_dos=strict_dos,
                 result_callback=update_from_counters,
