@@ -331,7 +331,11 @@ void mass_spec_config_in()
       const LogMessage &msg = std::get<LogMessage>(result);
       if (writer.has_value())
       {
-        writer.value().out_streams[msg.type] << msg.message;
+        if (msg.type == LogMessage::initial_trace) {
+          std::cout << msg.message << std::flush;
+        } else {
+          writer.value().out_streams[msg.type] << msg.message;
+        }
       }
     }
   }

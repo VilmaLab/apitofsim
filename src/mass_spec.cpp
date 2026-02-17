@@ -161,14 +161,14 @@ struct CumulativeLengths
     total_length = second_chamber_end;
   }
 
-  void info()
+  void info(std::ostream &out)
   {
-    std::cout << "Physical quantities:" << endl;
-    std::cout << "L1: " << first_chamber_end << " m" << endl;
-    std::cout << "L2: " << sk_end << " m" << endl;
-    std::cout << "L3: " << quadrupole_start << " m" << endl;
-    std::cout << "L4: " << quadrupole_end << " m" << endl;
-    std::cout << "L5: " << second_chamber_end << " m" << endl;
+    out << "Physical quantities:" << endl;
+    out << "L1: " << first_chamber_end << " m" << endl;
+    out << "L2: " << sk_end << " m" << endl;
+    out << "L3: " << quadrupole_start << " m" << endl;
+    out << "L4: " << quadrupole_end << " m" << endl;
+    out << "L5: " << second_chamber_end << " m" << endl;
   }
 };
 
@@ -203,7 +203,7 @@ void redistribute_internal_energy(GenT &gen, uniform_real_distribution<double> &
 void eval_velocities(Eigen::Vector3d &v, Eigen::Vector3d &omega, const Eigen::Vector2d &u, double vib_energy, double vib_energy_old, double M, double m, double R_cluster);
 void change_coord(const Eigen::Vector3d &v_cluster, double theta, double phi, double alpha, Eigen::Vector3d &x3, Eigen::Vector3d &y3, Eigen::Vector3d &z3);
 template <typename GenT>
-void eval_collision(GenT &gen, uniform_real_distribution<double> &unif, bool &collision_accepted, double gas_mean_free_path, double x, double y, double z, double L, std::optional<double> pinhole, double quadrupole_end, Eigen::Vector3d &v_cluster, Eigen::Vector3d &omega, double u_norm, double theta, double R_cluster, double vib_energy, double vib_energy_old, double m_ion, double m_gas, double temperature, LogHelper pinhole_logger);
+void eval_collision(GenT &gen, uniform_real_distribution<double> &unif, bool &collision_accepted, double gas_mean_free_path, double x, double y, double z, double L, std::optional<double> pinhole, double quadrupole_end, Eigen::Vector3d &v_cluster, Eigen::Vector3d &omega, double u_norm, double theta, double R_cluster, double vib_energy, double vib_energy_old, double m_ion, double m_gas, double temperature, LogHelper pinhole_logger, int loglevel);
 template <typename GenT>
 double onedimMaxwell(GenT &gen, normal_distribution<double> &gauss, double m, double kT);
 double mean_free_path(double R, double kT, double pressure);
@@ -392,9 +392,13 @@ SimulationResult apitof_mass_spec(
   const double mobility_gas_inv = 1.0 / mobility_gas;
   CumulativeLengths clens(ms.lengths);
 
+  LogHelper initial_trace = LogHelper{result_queue, LogMessage::initial_trace};
   if (loglevel >= LOGLEVEL_MIN)
   {
-    clens.info();
+    initial_trace([&](auto &initial_trace)
+    {
+      clens.info(initial_trace);
+    });
   }
 
   auto start = std::chrono::high_resolution_clock::now();
@@ -413,37 +417,43 @@ SimulationResult apitof_mass_spec(
   double gas_mean_free_path = mean_free_path(R_gas, kT, P2);
   if (loglevel >= LOGLEVEL_MIN)
   {
-    std::cout << "Cluster charge sign: " << subs.cluster_charge_sign << endl;
-    std::cout << "Pressure 1st chamber: " << P1 << " Pa" << endl;
-    std::cout << "Pressure 2nd chamber: " << P2 << " Pa" << endl;
-    for (int i = 0; i < 4; i++)
+    initial_trace([&](auto &initial_trace)
     {
-      std::cout << "E" << (i + 1) << ": " << E[i] << " V/m, Acceleration: " << acc[i] << " m/s^2" << endl;
-    }
+      initial_trace << "Cluster charge sign: " << subs.cluster_charge_sign << endl;
+      initial_trace << "Pressure 1st chamber: " << P1 << " Pa" << endl;
+      initial_trace << "Pressure 2nd chamber: " << P2 << " Pa" << endl;
+      for (int i = 0; i < 4; i++)
+      {
+        initial_trace << "E" << (i + 1) << ": " << E[i] << " V/m, Acceleration: " << acc[i] << " m/s^2" << endl;
+      }
+    });
   }
   double n1 = particle_density(P1, kT);
   double n2 = particle_density(P2, kT);
   if (loglevel >= LOGLEVEL_MIN)
   {
-    for (size_t i = 0; i < pathways.size(); i++)
+    initial_trace([&](auto &initial_trace)
     {
-      std::cout << "Pathway #" << (i + 1) << " fragmentation energy: " << pathways[i].bonding_energy / boltzmann << " K (" << pathways[i].bonding_energy * kcal << " kcal/mol)" << endl;
-    }
-    std::cout << "Cluster mass: " << m_ion << " Kg" << endl;
-    std::cout << "Inertia momentum: " << inertia << " kg*m^2" << endl;
-    std::cout << "Cluster radius: " << R_cluster << " m" << endl;
-    std::cout << "Particle density 1st chamber: " << n1 << " 1/m^3" << endl;
-    std::cout << "Particle density 2nd chamber: " << n2 << " 1/m^3" << endl;
-    std::cout << "Cluster mean free path 1st chamber: " << mean_free_path(R_tot, kT, P1) << " m" << endl;
-    std::cout << "Cluster mean free path 2nd chamber: " << mean_free_path(R_tot, kT, P2) << " m" << endl;
-    std::cout << "Gas mean free path 1st chamber: " << mean_free_path(R_gas, kT, P1) << " m" << endl;
-    std::cout << "Gas mean free path 2nd chamber: " << mean_free_path(R_gas, kT, P2) << " m" << endl;
-    std::cout << "Gas density 1st chamber: " << n1 << " 1/m^3" << endl;
-    std::cout << "Gas density 2nd chamber: " << n2 << " 1/m^3" << endl;
-    std::cout << "Collision frequency 1st chamber (at v=0): " << coll_freq(n1, mobility_gas, mobility_gas_inv, R_tot, 0.0) << " 1/s" << endl;
-    std::cout << "Collision frequency 2nd chamber (at v=0): " << coll_freq(n2, mobility_gas, mobility_gas_inv, R_tot, 0.0) << " 1/s" << endl;
-    std::cout << "Standard deviation velocity_x: " << sqrt(boltzmann * ms.T / m_ion) << " m/s" << endl;
-    std::cout << "R_tot: " << R_tot << " m" << endl;
+      for (size_t i = 0; i < pathways.size(); i++)
+      {
+        initial_trace << "Pathway #" << (i + 1) << " fragmentation energy: " << pathways[i].bonding_energy / boltzmann << " K (" << pathways[i].bonding_energy * kcal << " kcal/mol)" << endl;
+      }
+      initial_trace << "Cluster mass: " << m_ion << " Kg" << endl;
+      initial_trace << "Inertia momentum: " << inertia << " kg*m^2" << endl;
+      initial_trace << "Cluster radius: " << R_cluster << " m" << endl;
+      initial_trace << "Particle density 1st chamber: " << n1 << " 1/m^3" << endl;
+      initial_trace << "Particle density 2nd chamber: " << n2 << " 1/m^3" << endl;
+      initial_trace << "Cluster mean free path 1st chamber: " << mean_free_path(R_tot, kT, P1) << " m" << endl;
+      initial_trace << "Cluster mean free path 2nd chamber: " << mean_free_path(R_tot, kT, P2) << " m" << endl;
+      initial_trace << "Gas mean free path 1st chamber: " << mean_free_path(R_gas, kT, P1) << " m" << endl;
+      initial_trace << "Gas mean free path 2nd chamber: " << mean_free_path(R_gas, kT, P2) << " m" << endl;
+      initial_trace << "Gas density 1st chamber: " << n1 << " 1/m^3" << endl;
+      initial_trace << "Gas density 2nd chamber: " << n2 << " 1/m^3" << endl;
+      initial_trace << "Collision frequency 1st chamber (at v=0): " << coll_freq(n1, mobility_gas, mobility_gas_inv, R_tot, 0.0) << " 1/s" << endl;
+      initial_trace << "Collision frequency 2nd chamber (at v=0): " << coll_freq(n2, mobility_gas, mobility_gas_inv, R_tot, 0.0) << " 1/s" << endl;
+      initial_trace << "Standard deviation velocity_x: " << sqrt(boltzmann * ms.T / m_ion) << " m/s" << endl;
+      initial_trace << "R_tot: " << R_tot << " m" << endl;
+    });
   }
 
   // dt1=1.934e-16;
@@ -454,9 +464,12 @@ SimulationResult apitof_mass_spec(
 
   if (loglevel >= LOGLEVEL_MIN)
   {
-    std::cout << "Time step t1: " << dt1 << " s" << endl;
-    std::cout << "Time step t2: " << dt2 << " s" << endl
-              << endl;
+    initial_trace([&](auto &initial_trace)
+    {
+      initial_trace << "Time step t1: " << dt1 << " s" << endl;
+      initial_trace << "Time step t2: " << dt2 << " s" << endl
+                << endl;
+    });
   }
 
   Eigen::ArrayXi counters = Eigen::ArrayXi::Zero(n_counters - 1 + subs.pathways.size());
@@ -471,7 +484,10 @@ SimulationResult apitof_mass_spec(
   //  N realizations
   if (loglevel >= LOGLEVEL_MIN)
   {
-    std::cout << "Simulating dynamics... (Fragments *, Intacts -)" << endl;
+    initial_trace([&](auto &initial_trace)
+    {
+      initial_trace << "Simulating dynamics... (Fragments *, Intacts -)" << endl;
+    });
   }
   // All firstprivate variables *should* be constant within the loop
   // Truly private variables are declared in the loop
@@ -630,7 +646,7 @@ SimulationResult apitof_mass_spec(
             vib_energy_new = vib_energy_sampler.sample(gen, boundary_vib_energy(vib_energy_old, reduced_mass, u_norm, v_rel_norm, theta));
 
             bool collision_accepted = true;
-            eval_collision(gen, unif, collision_accepted, gas_mean_free_path, x, y, z, clens.total_length, radius_pinhole, clens.quadrupole_end, v_rel, omega, u_norm, theta, R_cluster, vib_energy_new, vib_energy_old, m_ion, m_gas, temperature, LogHelper{result_queue, LogMessage::pinhole});
+            eval_collision(gen, unif, collision_accepted, gas_mean_free_path, x, y, z, clens.total_length, radius_pinhole, clens.quadrupole_end, v_rel, omega, u_norm, theta, R_cluster, vib_energy_new, vib_energy_old, m_ion, m_gas, temperature, LogHelper{result_queue, LogMessage::pinhole}, loglevel);
 
             if (collision_accepted)
             {
@@ -1352,7 +1368,7 @@ double eval_solid_angle_stokes(double R, double L, double xx, double yy, double 
 
 //
 template <typename GenT>
-void eval_collision(GenT &gen, uniform_real_distribution<double> &unif, bool &collision_accepted, double gas_mean_free_path, double x, double y, double z, double L, std::optional<double> pinhole, double quadrupole_end, Eigen::Vector3d &v_cluster, Eigen::Vector3d &omega, double u_norm, double theta, double R_cluster, double vib_energy, double vib_energy_old, double m_ion, double m_gas, double temperature, LogHelper pinhole_logger)
+void eval_collision(GenT &gen, uniform_real_distribution<double> &unif, bool &collision_accepted, double gas_mean_free_path, double x, double y, double z, double L, std::optional<double> pinhole, double quadrupole_end, Eigen::Vector3d &v_cluster, Eigen::Vector3d &omega, double u_norm, double theta, double R_cluster, double vib_energy, double vib_energy_old, double m_ion, double m_gas, double temperature, LogHelper pinhole_logger, int loglevel)
 {
   using namespace consts;
   Eigen::Vector3d x3;
@@ -1420,10 +1436,12 @@ void eval_collision(GenT &gen, uniform_real_distribution<double> &unif, bool &co
       {
         inside_target = false;
       }
-      pinhole_logger([&](auto &pinhole_logger)
-      {
-        pinhole_logger << x << " " << y << " " << z << " " << velocity_gas[0] << " " << velocity_gas[1] << " " << velocity_gas[2] << " " << inside_target << endl;
-      });
+      if (loglevel >= LOGLEVEL_MIN) {
+        pinhole_logger([&](auto &pinhole_logger)
+        {
+          pinhole_logger << x << " " << y << " " << z << " " << velocity_gas[0] << " " << velocity_gas[1] << " " << velocity_gas[2] << " " << inside_target << endl;
+        });
+      }
       if (inside_target)
       {
         double r = unif(gen);

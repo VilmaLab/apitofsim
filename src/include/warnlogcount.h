@@ -56,7 +56,8 @@ struct LogMessage
     tmp_evolution,
     file_energy_distribution,
     final_position,
-    pinhole
+    pinhole,
+    initial_trace,
   };
 
   LogType type;
