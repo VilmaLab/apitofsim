@@ -747,8 +747,8 @@ class ExperimentDatabase(SuperClusterDatabase):
                 (
                     run_id,
                     pathway_id,
-                    timings.loop / timedelta(microseconds=1),
-                    timings.total / timedelta(microseconds=1),
+                    int(timings.loop / timedelta(microseconds=1)),
+                    int(timings.total / timedelta(microseconds=1)),
                     int(counters.nwarnings),
                     int(counters.n_fragmented_total[0]),
                     int(counters.n_escaped_total),
@@ -762,8 +762,8 @@ class ExperimentDatabase(SuperClusterDatabase):
                 (
                     run_id,
                     cluster_id,
-                    timings.loop / timedelta(microseconds=1),
-                    timings.total / timedelta(microseconds=1),
+                    int(timings.loop / timedelta(microseconds=1)),
+                    int(timings.total / timedelta(microseconds=1)),
                     int(counters.nwarnings),
                     int(counters.n_escaped_total),
                     int(counters.ncoll_total),
