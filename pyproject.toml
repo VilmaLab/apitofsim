@@ -13,12 +13,15 @@ dependencies = [
   "pint>=0.25.1",
   "progress-table>=3.2.2",
   "pyarrow>=23.0.0",
-  "reflink>=0.2.2",
 ]
 
 [build-system]
 build-backend = 'mesonpy'
 requires = ["meson-python", "meson >= 1.3.0"]
+
+[project.optional-dependencies]
+reflink = ["reflink>=0.2.2"]
+plot = ["matplotlib>=3.10.7", "holoviews>=1.21.0"]
 
 [dependency-groups]
 dev = [
@@ -33,7 +36,6 @@ docs = [
   "mkdocstrings>=1.0.0",
   "mkdocstrings-python>=2.0.1",
 ]
-plot = ["matplotlib>=3.10.7", "holoviews>=1.21.0"]
 notebooks = ["scipy>=1.16.3", "sympy>=1.14.0", "marimo"]
 
 [tool.meson-python]
