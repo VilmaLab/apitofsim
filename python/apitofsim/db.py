@@ -1474,7 +1474,7 @@ class ExperimentRunner:
         mass_spec_table = ProgressTable(
             default_column_alignment="right",
             refresh_rate=0,
-            interactive=0 if verbose else 2,
+            interactive=0 if verbose else int(environ.get("PTABLE_INTERACTIVE", "2")),
         )
         mass_spec_table.add_column("#")
         mass_spec_table.add_column("Cluster", alignment="left")
@@ -1646,7 +1646,7 @@ class ExperimentRunner:
         mass_spec_table = ProgressTable(
             default_column_alignment="right",
             refresh_rate=0,
-            interactive=0 if verbose else 2,
+            interactive=0 if verbose else int(environ.get("PTABLE_INTERACTIVE", "2")),
         )
         mass_spec_table.add_column("Cluster", width=16, alignment="left")
         mass_spec_table.add_column("Paths", width=5, alignment="left")
