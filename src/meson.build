@@ -18,7 +18,7 @@ else
     'apitofsim_no_omp',
     libapitofsim_files,
     include_directories: [include_dir],
-    dependencies : [eigen3, concurrentqueue, magic_enum],
+    dependencies : [eigen3, concurrentqueue, magic_enum, dependency('threads')],
     build_by_default : false
   )
 endif
