@@ -355,7 +355,7 @@ class ClusterDatabase:
         )
         pathway_lookup = {}
         for pathway_id, cluster_id, product1_id, product2_id in self.pathways_ids(
-            parent=parent, pathways=pathways
+            parent=parent, pathways=pathways, sort=True
         ):
             pathway_lookup[pathway_id] = (cluster_id, product1_id, product2_id)
 
