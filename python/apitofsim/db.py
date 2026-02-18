@@ -534,13 +534,13 @@ create table single_pathway_experiment_result (
     pathway_id integer not null,
     foreign key (experiment_run_id) references experiment_run (id),
     foreign key (pathway_id) references pathway (id),
-    loop_us integer,
-    total_us integer,
-    nwarnings integer,
-    n_fragmented_total integer,
-    n_escaped_total integer,
-    ncoll_total integer,
-    counter_collision_rejections integer
+    loop_us uint64,
+    total_us uint64,
+    nwarnings uint64,
+    n_fragmented_total uint64,
+    n_escaped_total uint64,
+    ncoll_total uint64,
+    counter_collision_rejections uint64
 );
 
 create table multi_pathway_experiment_result (
@@ -549,12 +549,12 @@ create table multi_pathway_experiment_result (
     cluster_id integer not null,
     foreign key (experiment_run_id) references experiment_run (id),
     foreign key (cluster_id) references cluster (id),
-    loop_us integer,
-    total_us integer,
-    nwarnings integer,
-    n_escaped_total integer,
-    ncoll_total integer,
-    counter_collision_rejections integer
+    loop_us uint64,
+    total_us uint64,
+    nwarnings uint64,
+    n_escaped_total uint64,
+    ncoll_total uint64,
+    counter_collision_rejections uint64
 );
 
 create table pathway_fragmentation (
@@ -563,7 +563,7 @@ create table pathway_fragmentation (
     foreign key (experiment_result_id) references multi_pathway_experiment_result (id),
     pathway_id integer not null,
     foreign key (pathway_id) references pathway (id),
-    count integer
+    count uint64
 );
 
 create table experiment_failure (
