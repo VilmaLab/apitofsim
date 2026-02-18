@@ -65,6 +65,7 @@ requirements:
     - orjson >= 3.11.4
     - progress-table >= 3.2.2
     - ase >= 3.27.0
+    - pyarrow >= 23.0.0
 
 tests:
   - python:
