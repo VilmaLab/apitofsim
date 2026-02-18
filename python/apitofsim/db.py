@@ -771,7 +771,7 @@ class ExperimentDatabase(SuperClusterDatabase):
                 ),
             ).fetchone()
             assert pathway_ids is not None
-            for pathway_id, fragmented in zip(pathway_ids, counters.n_fragmented_total):
+            for pathway_id, fragmented in zip(pathway_ids, counters.n_fragmented_total, strict=True):
                 self.db.execute(
                     "insert into pathway_fragmentation values (default, ?, ?, ?)",
                     (id[0], pathway_id, int(fragmented)),
