@@ -55,6 +55,7 @@ requirements:
     - ninja
     - nanobind
     - eigen
+    - libcxx
   run:
     - python >=${{ python_min }}
     - numpy
