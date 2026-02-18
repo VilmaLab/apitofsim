@@ -25,10 +25,10 @@ from .api import (
 
 def duckdb_connect_roview_cow(filename, *, config=None, fallback="copy"):
     import duckdb
-    from reflink import reflink, ReflinkImpossibleError
     from shutil import copy
     from uuid import uuid4
     from os.path import split as psplit, join as pjoin, splitext
+    import os
 
     if config is None:
         config = {}
@@ -36,18 +36,35 @@ def duckdb_connect_roview_cow(filename, *, config=None, fallback="copy"):
     base, ext = splitext(base)
     rnd = uuid4().hex
     dest = pjoin(path, f".{base}.rosnap.{rnd}.{ext}")
+    exc = None
+    cleanup = None
     try:
-        reflink(filename, dest)
-    except (NotImplementedError, ReflinkImpossibleError):
+        from reflink import reflink, ReflinkImpossibleError
+        try:
+            reflink(filename, dest)
+        except (NotImplementedError, ReflinkImpossibleError) as e:
+            exc = e
+        else:
+            cleanup = dest
+    except ModuleNotFoundError as e:
+        exc = e
+    if exc is not None:
         if fallback == "copy":
             copy(filename, dest)
         elif fallback == "connect":
             dest = filename
+            cleanup = dest
         elif fallback == "error":
-            raise
+            raise exc
         else:
             raise ValueError(f"Invalid fallback option: {fallback}")
-    return duckdb.connect(dest, read_only=True, config=config)
+    db = duckdb.connect(dest, read_only=True, config=config)
+    cleanup_fn = None
+    if cleanup is not None:
+        def _cleanup_fn():
+            os.remove(cleanup)
+        cleanup_fn = _cleanup_fn
+    return db, cleanup_fn
 
 
 ureg = get_application_registry()
@@ -84,10 +101,15 @@ class ClusterDatabase:
     TABLES = [PATHWAY_TABLES]
 
     def __init__(self, filename, readonly=False):
+        self.cleanup = None
         if readonly:
-            self.db = duckdb_connect_roview_cow(filename)
+            self.db, self.cleanup = duckdb_connect_roview_cow(filename, fallback="connect")
         else:
             self.db = duckdb.connect(filename)
+
+    def __del__(self):
+        if self.cleanup is not None:
+            self.cleanup()
 
     def create_tables(self):
         sql = "\n".join(self.TABLES)
