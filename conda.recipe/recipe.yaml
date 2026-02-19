@@ -55,7 +55,7 @@ requirements:
     - ninja
     - nanobind
     - eigen
-    - libcxx
+    - libstdcxx-devel
   run:
     - python >=${{ python_min }}
     - numpy
@@ -67,6 +67,7 @@ requirements:
     - progress-table >= 3.2.2
     - ase >= 3.27.0
     - pyarrow >= 23.0.0
+    - libstdcxx
 
 tests:
   - python:
