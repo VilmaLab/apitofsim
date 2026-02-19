@@ -174,6 +174,7 @@ TEST_CASE("apitof pinhole smoke tests")
       {
         INFO("Unexpected log message type: ", msg.type, " content: ", msg.message);
         CHECK_UNARY(
+          msg.type == LogMessage::initial_trace ||
           msg.type == LogMessage::fragments ||
           msg.type == LogMessage::probabilities ||
           msg.type == LogMessage::tmp ||
