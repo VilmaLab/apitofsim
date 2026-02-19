@@ -106,6 +106,14 @@ class ClusterDatabase:
             self.db, self.cleanup = duckdb_connect_roview_cow(filename, fallback="connect")
         else:
             self.db = duckdb.connect(filename)
+        self._setup_db()
+
+    def _setup_db(self):
+        import os
+        self.db.execute("SET preserve_insertion_order=false")
+        if "DUCKDB_MEMORY_LIMIT" in os.environ:
+            memory_limit = os.environ["DUCKDB_MEMORY_LIMIT"]
+            self.db.execute(f"set memory_limit='{memory_limit}';")
 
     def __del__(self):
         if self.cleanup is not None:

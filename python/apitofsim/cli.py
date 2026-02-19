@@ -169,11 +169,6 @@ def prepare(config, database, db_type, warm):
     else:
         assert False
 
-    db.db.execute("SET preserve_insertion_order=false")
-    if "DUCKDB_MEMORY_LIMIT" in os.environ:
-        memory_limit = os.environ["DUCKDB_MEMORY_LIMIT"]
-        db.db.execute(f"set memory_limit='{memory_limit}';")
-
     db.create_tables()
 
     with open(config, "rb") as f:
