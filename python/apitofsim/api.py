@@ -1,5 +1,5 @@
 import numpy
-from typing import Callable, List, cast
+from typing import Callable, List, cast, Optional
 from dataclasses import dataclass, KW_ONLY, MISSING
 from pandas import DataFrame
 from pint import get_application_registry, Quantity
@@ -82,7 +82,7 @@ Q_ = ureg.Quantity
 
 class ClusterLike(ABC):
     @abstractmethod
-    def get_frequencies(self) -> numpy.ndarray: ...
+    def get_frequencies(self) -> Optional[numpy.ndarray]: ...
 
 
 @dataclass
@@ -93,15 +93,21 @@ class ClusterData(ClusterLike):
     frequencies: numpy.ndarray
 
     def into_cpp(self) -> _ClusterData:
+        frequencies = self.get_frequencies()
+        if frequencies is None:
+            frequencies = numpy.empty(0, dtype=numpy.float64, order="F")
         return _ClusterData(
             int(self.mass.to("amu").magnitude + 0.5),
             self.electronic_energy.to("hartree").magnitude,
             self.rotations,
-            self.get_frequencies(),
+            frequencies,
         )
 
-    def get_frequencies(self) -> numpy.ndarray:
-        return numpy.asfortranarray(self.frequencies, dtype=numpy.float64)
+    def get_frequencies(self) -> Optional[numpy.ndarray]:
+        if self.is_atom_like_product():
+            return None
+        else:
+            return numpy.asfortranarray(self.frequencies, dtype=numpy.float64)
 
     def is_atom_like_product(self) -> bool:
         return self.frequencies is None
@@ -112,13 +118,17 @@ class ProductsCluster(ClusterLike):
     cluster1: ClusterData
     cluster2: ClusterData
 
-    def get_frequencies(self) -> numpy.ndarray:
-        if self.cluster2.is_atom_like_product():
-            frequencies = self.cluster1.get_frequencies()
+    def get_frequencies(self) -> Optional[numpy.ndarray]:
+        frequencies1 = self.cluster1.get_frequencies()
+        frequencies2 = self.cluster2.get_frequencies()
+        if frequencies1 is None and frequencies2 is None:
+            raise ValueError("Cannot have a ProductCluster with both clusters being atom-like products")
+        if frequencies2 is None:
+            frequencies = frequencies1
+        elif frequencies1 is None:
+            frequencies = frequencies2
         else:
-            frequencies = numpy.concatenate(
-                (self.cluster1.get_frequencies(), self.cluster2.get_frequencies())
-            )
+            frequencies = numpy.concatenate((frequencies1, frequencies2))
         return numpy.asfortranarray(frequencies, dtype=numpy.float64)
 
 
@@ -289,7 +299,12 @@ def compute_density_of_states_batch(
     process_arg = QuantityProcessor(quantities_strict)
     energy_max = process_arg("energy_max", energy_max, "kelvin")
     bin_width = process_arg("bin_width", bin_width, "kelvin")
-    frequencies = [cluster.get_frequencies() for cluster in clusters]
+    frequencies = []
+    for i, cluster in enumerate(clusters):
+        frequencies_cluster = cluster.get_frequencies()
+        if frequencies_cluster is None:
+            raise ValueError(f"Cannot compute density of states for a atom-like product {cluster!r} at index {i}")
+        frequencies.append(frequencies_cluster)
     return _compute_density_of_states_batch(
         frequencies, energy_max, bin_width, use_old_impl=use_old_impl
     )

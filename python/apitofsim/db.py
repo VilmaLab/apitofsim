@@ -667,6 +667,8 @@ from experiment_run as er
 left join (
     select * from single_pathway_experiment_result
     union by name
+    select * from multi_pathway_experiment_result
+    union by name
     select * from experiment_failure
 ) as res on res.experiment_run_id = er.id
 inner join experiment_config as conf on conf.id = er.experiment_config_id
@@ -843,7 +845,11 @@ class ExperimentDatabase(SuperClusterDatabase):
             er.start_time,
             (
                 select count()
-                from experiment_result
+                from (
+                    select * from single_pathway_experiment_result
+                    union by name
+                    select * from multi_pathway_experiment_result
+                ) as experiment_result
                 where experiment_result.experiment_run_id = er.id
             ) as successes,
             (
@@ -1017,9 +1023,13 @@ class DerivedDataPreparer:
             histogram_params_id=histogram_id,
         ):
             cluster_id = miss_info["cluster_id"]
-            missed_cluster_ids.append(cluster_id)
-            density_of_states_inputs.append(cluster_indexed[cluster_id])
-            num_clusters_missed += 1
+            cluster = cluster_indexed[cluster_id]
+            if cluster.is_atom_like_product():
+                cluster_dos_dict[cluster_id] = None
+            else:
+                missed_cluster_ids.append(cluster_id)
+                density_of_states_inputs.append(cluster)
+                num_clusters_missed += 1
 
         wanted_p1 = []
         wanted_p2 = []
