@@ -583,7 +583,7 @@ SimulationResult apitof_mass_spec(
             LogHelper tmp_evolution = LogHelper{result_queue, LogMessage::tmp_evolution};
             tmp_evolution([&](auto &tmp_evolution)
             {
-              tmp_evolution << z << " " << delta_t << " " << v_gas << " " << v_cluster_norm << " " << endl;
+              tmp_evolution << z << " " << delta_t << " " << v_cluster_norm << " " << endl;
             });
           }
         }
