@@ -1,5 +1,5 @@
 import numpy
-from typing import Callable, List, cast
+from typing import Callable, List, cast, Optional
 from dataclasses import dataclass, KW_ONLY, MISSING
 from pandas import DataFrame
 from pint import get_application_registry, Quantity
@@ -36,6 +36,8 @@ from .apitofsimraw import (
     # Enums
     MeshMode,
     SampleMode,
+    # Defaults
+    defaults,
 )
 
 
@@ -66,6 +68,8 @@ __all__ = [
     # Enums
     "MeshMode",
     "SampleMode",
+    # Defaults
+    "defaults",
 ]
 
 
@@ -78,7 +82,7 @@ Q_ = ureg.Quantity
 
 class ClusterLike(ABC):
     @abstractmethod
-    def get_frequencies(self) -> numpy.ndarray: ...
+    def get_frequencies(self) -> Optional[numpy.ndarray]: ...
 
 
 @dataclass
@@ -89,15 +93,21 @@ class ClusterData(ClusterLike):
     frequencies: numpy.ndarray
 
     def into_cpp(self) -> _ClusterData:
+        frequencies = self.get_frequencies()
+        if frequencies is None:
+            frequencies = numpy.empty(0, dtype=numpy.float64, order="F")
         return _ClusterData(
             int(self.mass.to("amu").magnitude + 0.5),
             self.electronic_energy.to("hartree").magnitude,
             self.rotations,
-            self.get_frequencies(),
+            frequencies,
         )
 
-    def get_frequencies(self) -> numpy.ndarray:
-        return numpy.asfortranarray(self.frequencies, dtype=numpy.float64)
+    def get_frequencies(self) -> Optional[numpy.ndarray]:
+        if self.is_atom_like_product():
+            return None
+        else:
+            return numpy.asfortranarray(self.frequencies, dtype=numpy.float64)
 
     def is_atom_like_product(self) -> bool:
         return self.frequencies is None
@@ -108,13 +118,17 @@ class ProductsCluster(ClusterLike):
     cluster1: ClusterData
     cluster2: ClusterData
 
-    def get_frequencies(self) -> numpy.ndarray:
-        if self.cluster2.is_atom_like_product():
-            frequencies = self.cluster1.get_frequencies()
+    def get_frequencies(self) -> Optional[numpy.ndarray]:
+        frequencies1 = self.cluster1.get_frequencies()
+        frequencies2 = self.cluster2.get_frequencies()
+        if frequencies1 is None and frequencies2 is None:
+            raise ValueError("Cannot have a ProductCluster with both clusters being atom-like products")
+        if frequencies2 is None:
+            frequencies = frequencies1
+        elif frequencies1 is None:
+            frequencies = frequencies2
         else:
-            frequencies = numpy.concatenate(
-                (self.cluster1.get_frequencies(), self.cluster2.get_frequencies())
-            )
+            frequencies = numpy.concatenate((frequencies1, frequencies2))
         return numpy.asfortranarray(frequencies, dtype=numpy.float64)
 
 
@@ -285,7 +299,12 @@ def compute_density_of_states_batch(
     process_arg = QuantityProcessor(quantities_strict)
     energy_max = process_arg("energy_max", energy_max, "kelvin")
     bin_width = process_arg("bin_width", bin_width, "kelvin")
-    frequencies = [cluster.get_frequencies() for cluster in clusters]
+    frequencies = []
+    for i, cluster in enumerate(clusters):
+        frequencies_cluster = cluster.get_frequencies()
+        if frequencies_cluster is None:
+            raise ValueError(f"Cannot compute density of states for a atom-like product {cluster!r} at index {i}")
+        frequencies.append(frequencies_cluster)
     return _compute_density_of_states_batch(
         frequencies, energy_max, bin_width, use_old_impl=use_old_impl
     )
@@ -309,13 +328,16 @@ def compute_k_total_batch(
     energy_max_rate: MaybeQuantity,
     bin_width: MaybeQuantity,
     mesh: MeshMode | numpy.ndarray = MeshMode.compute_mesh_diagonal_multithreaded,
+    progress_callback: Callable[[int], None] | None = None,
     *,
     quantities_strict=True,
 ):
     process_arg = QuantityProcessor(quantities_strict)
     energy_max_rate = process_arg("energy_max", energy_max_rate, "kelvin")
     bin_width = process_arg("bin_width", bin_width, "kelvin")
-    return _compute_k_total_batch(inputs, energy_max_rate, bin_width, mesh)
+    return _compute_k_total_batch(
+        inputs, energy_max_rate, bin_width, mesh, progress_callback
+    )
 
 
 class ArgGetter:
@@ -360,22 +382,31 @@ def MassSpecInputFragmentationPathway(*args, **kwargs):
 def MassSpecSubstanceInput(*args, **kwargs):
     get = ArgGetter(args, kwargs)
     if len(args) >= 1 and isinstance(args[0], ClusterLike) or "cluster_0" in kwargs:
-        return _MassSpecSubstanceInput(
-            cluster_0=get("cluster_0", 0).into_cpp(),
-            cluster_1=get("cluster_1", 1).into_cpp(),
-            cluster_2=get("cluster_2", 2).into_cpp(),
-            gas=get("gas", 3).into_cpp(),
-            density_cluster=get("density_cluster", 4).into_cpp(),
-            rate_const=get("rate_const", 5).into_cpp(),
-            fragmentation_energy=get("fragmentation_energy", 6, None),
-            cluster_charge_sign=get("cluster_charge_sign", 7, 1),
-        )
+        if len(args) >= 2 and isinstance(args[1], ClusterLike) or "cluster_1" in kwargs:
+            return _MassSpecSubstanceInput(
+                cluster_0=get("cluster_0", 0).into_cpp(),
+                cluster_1=get("cluster_1", 1).into_cpp(),
+                cluster_2=get("cluster_2", 2).into_cpp(),
+                gas=get("gas", 3).into_cpp(),
+                density_cluster=get("density_cluster", 4).into_cpp(),
+                rate_const=get("rate_const", 5).into_cpp(),
+                fragmentation_energy=get("fragmentation_energy", 6, None),
+                cluster_charge_sign=get("cluster_charge_sign", 7, defaults.cluster_charge_sign),
+            )
+        else:
+            return _MassSpecSubstanceInput(
+                cluster_0=get("cluster_0", 0).into_cpp(),
+                pathways=get("pathways", 1),
+                gas=get("gas", 2).into_cpp(),
+                density_cluster=get("density_cluster", 3).into_cpp(),
+                cluster_charge_sign=get("cluster_charge_sign", 4, defaults.cluster_charge_sign),
+            )
     else:
         return _MassSpecSubstanceInput(
             cluster_charge_sign=get("cluster_charge_sign", 0),
             m_ion=get("m_ion", 1),
             R_cluster=get("R_cluster", 2),
-            density_cluster=get("R_cluster", 3).into_cpp(),
+            density_cluster=get("density_cluster", 3).into_cpp(),
             pathway=get("pathway", 4),
             gas=get("gas", 5).into_cpp(),
         )
@@ -432,26 +463,41 @@ def mass_spec(
     seed: int = 42,
     log_callback: Callable[[str, str], None] | None = None,
     result_callback: Callable[[numpy.ndarray], None] | None = None,
-    quantities_strict=True,
-    output_named_tuple=False,
+    named_tuple_counters=False,
     output_timings=False,
 ):
     """
     This function runs the main simulation of the APi-ToF mass spectrometer.
     """
+
+    def convert_counters(counters):
+        if named_tuple_counters:
+            return Counters(*counters[: len(Counter) - 1], counters[len(Counter) - 1 :])
+        else:
+            return counters
+
+    def wrap_callback(callback):
+        if callback is None:
+            return None
+
+        def inner(counters):
+            return callback(convert_counters(counters))
+
+        return inner
+
     counters, loop_time, total_time = _mass_spec(
         mass_spec.into_cpp(),
         subs,
         N,
         seed=seed,
         log_callback=log_callback,
-        result_callback=result_callback,
+        result_callback=wrap_callback(result_callback),
         sample_mode=sample_mode,
         strict=strict,
         loglevel=loglevel,
     )
-    if output_named_tuple:
-        counters = Counters(*counters)
+    if named_tuple_counters:
+        counters = convert_counters(counters)
     if output_timings:
         return counters, Timings(loop_time, total_time)
     else:

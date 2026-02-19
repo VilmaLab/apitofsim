@@ -1,10 +1,20 @@
 import marimo
 
-__generated_with = "0.18.4"
+__generated_with = "0.19.4"
 app = marimo.App()
 
 
-@app.cell
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ## Prelude
+
+    We start by importing some packages:
+    """)
+    return
+
+
+@app.cell(hide_code=True)
 def _():
     import matplotlib.pyplot as plt
     import sys
@@ -29,7 +39,6 @@ def _():
     return (
         ClusterDatabase,
         compute_density_of_states_batch,
-        environ,
         get_application_registry,
         mo,
         np,
@@ -38,10 +47,26 @@ def _():
     )
 
 
-@app.cell
-def _(ClusterDatabase, environ, get_application_registry, np):
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    Next you'll need to give a path to the database which has been prepared with all the cluster information.
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    database_path = mo.ui.text(value="", label="Database path")
+    database_path
+    return (database_path,)
+
+
+@app.cell(hide_code=True)
+def _(ClusterDatabase, database_path, get_application_registry, mo, np):
+    mo.stop(database_path.value == "", mo.md("**Enter a database path to continue**"))
     ureg = get_application_registry()
-    db = ClusterDatabase(environ["DATABASE"])
+    db = ClusterDatabase(database_path.value, readonly=True)
 
     clusters, name_lookup = db.clusters_objects_indexed(include_name_lookup=True)
     id_to_index = {id: idx for idx, id in enumerate(clusters.keys())}
@@ -66,7 +91,17 @@ def _(ClusterDatabase, environ, get_application_registry, np):
     )
 
 
-@app.cell
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ## Computing density of states
+
+    Now we can compute the density of states using the old method and the new method to compare.
+    """)
+    return
+
+
+@app.cell(hide_code=True)
 def _(bin_width, clusters, compute_density_of_states_batch, energy_max, timer):
     def compute_dos(use_old_impl):
         start = timer()
@@ -93,7 +128,15 @@ def _(compute_dos):
     return (all_new_dos,)
 
 
-@app.cell
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    Now you can graph the DOS and the corresponding probability:
+    """)
+    return
+
+
+@app.cell(hide_code=True)
 def _(mo, name_lookup):
     cluster_dropdown = mo.ui.dropdown(
         options={v: k for k, v in name_lookup.items()},
@@ -104,7 +147,7 @@ def _(mo, name_lookup):
     return (cluster_dropdown,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(
     all_new_dos,
     all_old_dos,

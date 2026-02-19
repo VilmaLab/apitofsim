@@ -7,6 +7,7 @@ import duckdb
 from pint import get_application_registry
 from apitofsim import ClusterData
 from datetime import timedelta
+from typing import Callable
 
 from glob import glob
 from os.path import dirname, isfile, basename, expanduser
@@ -17,7 +18,54 @@ from .api import (
     MeshMode,
     MassSpectrometer,
     MassSpecSubstanceInput,
+    MassSpecInputFragmentationPathway,
+    defaults,
 )
+
+
+def duckdb_connect_roview_cow(filename, *, config=None, fallback="copy"):
+    import duckdb
+    from shutil import copy
+    from uuid import uuid4
+    from os.path import split as psplit, join as pjoin, splitext
+    import os
+
+    if config is None:
+        config = {}
+    path, base = psplit(filename)
+    base, ext = splitext(base)
+    rnd = uuid4().hex
+    dest = pjoin(path, f".{base}.rosnap.{rnd}.{ext}")
+    exc = None
+    cleanup = None
+    try:
+        from reflink import reflink, ReflinkImpossibleError
+        try:
+            reflink(filename, dest)
+        except (NotImplementedError, ReflinkImpossibleError) as e:
+            exc = e
+        else:
+            cleanup = dest
+    except ModuleNotFoundError as e:
+        exc = e
+    if exc is not None:
+        if fallback == "copy":
+            copy(filename, dest)
+        elif fallback == "connect":
+            dest = filename
+            cleanup = dest
+        elif fallback == "error":
+            raise exc
+        else:
+            raise ValueError(f"Invalid fallback option: {fallback}")
+    db = duckdb.connect(dest, read_only=True, config=config)
+    cleanup_fn = None
+    if cleanup is not None:
+        def _cleanup_fn():
+            os.remove(cleanup)
+        cleanup_fn = _cleanup_fn
+    return db, cleanup_fn
+
 
 ureg = get_application_registry()
 Q_ = ureg.Quantity
@@ -52,17 +100,38 @@ create table pathway (
 class ClusterDatabase:
     TABLES = [PATHWAY_TABLES]
 
-    def __init__(self, filename):
-        self.db = duckdb.connect(filename)
+    def __init__(self, filename, readonly=False):
+        self.cleanup = None
+        if readonly:
+            self.db, self.cleanup = duckdb_connect_roview_cow(filename, fallback="connect")
+        else:
+            self.db = duckdb.connect(filename)
+        self._setup_db()
+
+    def _setup_db(self):
+        import os
+        self.db.execute("SET preserve_insertion_order=false")
+        if "DUCKDB_MEMORY_LIMIT" in os.environ:
+            memory_limit = os.environ["DUCKDB_MEMORY_LIMIT"]
+            self.db.execute(f"set memory_limit='{memory_limit}';")
+
+    def __del__(self):
+        if self.cleanup is not None:
+            self.cleanup()
 
     def create_tables(self):
-        self.db.execute("\n".join(self.TABLES))
+        sql = "\n".join(self.TABLES)
+        self.db.execute(sql)
 
-    def clusters_query(self, parent=None, parents_only=False, children_only=False):
+    def clusters_query(
+        self, parent=None, pathways=None, parents_only=False, children_only=False
+    ):
         if parents_only and children_only:
             raise ValueError("Cannot set both parents_only and children_only to True")
         query = self.db.table("cluster")
-        if parent is None and not (parents_only or children_only):
+        if (parent is None and pathways is None) and not (
+            parents_only or children_only
+        ):
             # Shortcut for efficiency
             return query
         if parents_only:
@@ -71,7 +140,7 @@ class ClusterDatabase:
             relevant_fragment = "product1_id, product2_id"
         else:
             relevant_fragment = "cluster_id, product1_id, product2_id"
-        pathways_query = self.pathways_query(parent)
+        pathways_query = self.pathways_query(parent, pathways)
         # relevant_cluster_ids = self.db.table("pathway").select(duckdb.SQLExpression(f"unnest([{relevant_fragment}])").alias("relevant_cluster_id"))
         # if parent is not None:
         # relevant_cluster_ids = relevant_cluster_ids.filter(duckdb.ColumnExpression('cluster_id ') == duckdb.ConstantExpression(parent))
@@ -129,20 +198,30 @@ class ClusterDatabase:
         else:
             return ret
 
-    def pathways_query(self, parent=None, sort=False):
-        pathway = self.db.table("pathway")
+    def pathways_query(self, parent=None, pathways=None, sort=False):
+        if parent is not None and pathways is not None:
+            raise ValueError("Cannot specify both parent and pathways")
+        pathway_rel = self.db.table("pathway")
+        if pathways is not None:
+            import pyarrow as pa
+
+            wanted_tbl = pa.table([pathways], names=["pathway_id"])
+            pathway_rel = pathway_rel.join(
+                self.db.from_arrow(wanted_tbl).set_alias("wanted"),
+                condition="wanted.pathway_id = pathway.id",
+            )
         if parent is not None:
-            pathway = pathway.filter(
-                duckdb.ColumnExpression("cluster_id ")
+            pathway_rel = pathway_rel.filter(
+                duckdb.ColumnExpression("cluster_id")
                 == duckdb.ConstantExpression(parent)
             )
         if sort:
-            pathway = pathway.sort(
+            pathway_rel = pathway_rel.sort(
                 "cluster_id",
                 "product1_id",
                 "product2_id",
             )
-        return pathway
+        return pathway_rel
 
     def pathways_ids(self, parent=None, **kwargs):
         query = self.pathways_query(parent, **kwargs)
@@ -179,8 +258,20 @@ class ClusterDatabase:
         *,
         allow_duplicates=False,
     ):
-        value_names = ["atomic_mass", "charge", "electronic_energy", "rotational_temperatures", "vibrational_temperatures"]
-        values = [atomic_mass, charge, electronic_energy, rotational_temperatures, vibrational_temperatures]
+        value_names = [
+            "atomic_mass",
+            "charge",
+            "electronic_energy",
+            "rotational_temperatures",
+            "vibrational_temperatures",
+        ]
+        values = [
+            atomic_mass,
+            charge,
+            electronic_energy,
+            rotational_temperatures,
+            vibrational_temperatures,
+        ]
         existing = self.db.execute(
             """
             select
@@ -196,7 +287,9 @@ class ClusterDatabase:
             (name,),
         ).fetchone()
         if existing is not None:
-            for value_name, existing_value, new_value in zip(value_names, existing[1:], values):
+            for value_name, existing_value, new_value in zip(
+                value_names, existing[1:], values
+            ):
                 if not numpy.array_equal(existing_value, new_value):
                     if not allow_duplicates:
                         raise ValueError(
@@ -216,7 +309,7 @@ class ClusterDatabase:
                         f"{barename}__{num + 1}",
                         *values,
                         import_info=import_info,
-                        allow_duplicates=True
+                        allow_duplicates=True,
                     )
             return False, existing[0]
         id = self.db.execute(
@@ -228,7 +321,7 @@ class ClusterDatabase:
                 electronic_energy,
                 rotational_temperatures,
                 vibrational_temperatures,
-                import_info
+                import_info,
             ),
         ).fetchone()
         assert id is not None
@@ -240,9 +333,68 @@ class ClusterDatabase:
             (parent_id, product1_id, product2_id),
         )
 
+    def get_all_lookups(self, parent=None, pathways=None):
+        if isinstance(parent, str):
+            parent = self.db.db.execute(
+                """
+                select id
+                from cluster
+                where common_name = ?
+                """,
+                (parent,),
+            ).fetchone()
+            if parent is None:
+                raise ValueError(f"No cluster found with name {parent}")
+            parent = parent[0]
+        if pathways is not None:
+            pathways = list(pathways)
+            if (
+                len(pathways) > 0
+                and isinstance(pathways[0], tuple)
+                and isinstance(pathways[0][0], str)
+            ):
+                import pyarrow as pa
+
+                wanted_tbl = pa.table(
+                    list(zip(*pathways)), names=["pathway", "product1", "product2"]
+                )
+                pathway_common_names = self.db.db.sql(
+                    """
+                    select
+                        p.id as pathway_id,
+                        c.common_name as cluster_common_name,
+                        p1.common_name as product1_common_name,
+                        p2.common_name as product2_common_name,
+
+                    from pathway p
+                    inner join cluster c on c.id = p.cluster_id
+                    inner join cluster p1 on p1.id = p.product1_id
+                    inner join cluster p2 on p2.id = p.product2_id;
+                    """
+                )
+                pathways = (
+                    pathway_common_names.join(
+                        self.db.db.from_arrow(wanted_tbl).set_alias("wanted"),
+                        condition="wanted.pathway = cluster_common_name and wanted.product1 = product1_common_name and wanted.product2 = product2_common_name",
+                    )
+                    .select("pathway_id")
+                    .fetch_arrow_table()["pathway_id"]
+                )
+        cluster_indexed, name_lookup = self.clusters_objects_indexed(
+            include_name_lookup=True, parent=parent, pathways=pathways
+        )
+        pathway_lookup = {}
+        for pathway_id, cluster_id, product1_id, product2_id in self.pathways_ids(
+            parent=parent, pathways=pathways, sort=True
+        ):
+            pathway_lookup[pathway_id] = (cluster_id, product1_id, product2_id)
+
+        return cluster_indexed, name_lookup, pathway_lookup
+
 
 def insert_parsed_pathway(db, pathway, *, prefix=None):
     from apitofsim.config import dump_to_raw
+
     ids = []
     for particle_info in pathway:
         name = particle_info["name"]
@@ -255,8 +407,12 @@ def insert_parsed_pathway(db, pathway, *, prefix=None):
                 combined["atomic_mass"].to("amu").magnitude,
                 combined["charge"],
                 combined["electronic_energy"].to("hartree").magnitude,
-                combined["rotational_temperatures"].to("K").magnitude if combined["rotational_temperatures"] is not None else None,
-                combined["vibrational_temperatures"].to("K").magnitude if combined["vibrational_temperatures"] is not None else None,
+                combined["rotational_temperatures"].to("K").magnitude
+                if combined["rotational_temperatures"] is not None
+                else None,
+                combined["vibrational_temperatures"].to("K").magnitude
+                if combined["vibrational_temperatures"] is not None
+                else None,
                 dump_to_raw(particle_info).decode("utf-8"),
                 allow_duplicates=True,
             )
@@ -266,6 +422,7 @@ def insert_parsed_pathway(db, pathway, *, prefix=None):
 
 def ingest_legacy_one(db: ClusterDatabase, filename, clusters, prefix=None):
     from apitofsim.ingest.legacy import parse_legacy_one
+
     pathway = parse_legacy_one(filename, clusters)
     insert_parsed_pathway(db, pathway, prefix=None)
 
@@ -277,57 +434,63 @@ def ingest_tree(db: ClusterDatabase, pathways):
         return
     if pathways["type"] == "legacy_glob":
         from apitofsim.ingest.legacy import parse_legacy_tree
+
         for pathway in parse_legacy_tree(pathways["path"], pathways["clusters"]):
             insert_parsed_pathway(db, pathway, prefix=pathways.get("prefix"))
 
 
-EXPERIMENT_TABLES = """
-create sequence experiment_config_sequence start 1;
-create sequence experiment_run_sequence start 1;
-create sequence experiment_result_sequence start 1;
+DERIVED_TABLES = """
+create sequence histogram_params_sequence start 1;
+create sequence dos_sequence start 1;
+create sequence products_dos_sequence start 1;
+create sequence k_rate_mesh_sequence start 1;
+create sequence k_rate_sequence start 1;
 
-create table experiment_config (
-    id integer default nextval('experiment_config_sequence') primary key,
-    name varchar,
-    config json
+create table histogram_params (
+    id integer default nextval('histogram_params_sequence') primary key,
+    bin_width double,
+    max double
 );
 
-create table experiment_run (
-    id integer default nextval('experiment_run_sequence') primary key,
-    experiment_config_id integer not null,
-    foreign key (experiment_config_id) references experiment_config (id),
-    start_time timestamp
+create table cluster_dos (
+    id integer default nextval('dos_sequence') primary key,
+    histogram_params_id integer not null,
+    foreign key (histogram_params_id) references histogram_params (id),
+    cluster_id integer not null,
+    foreign key (cluster_id) references cluster (id),
+    data double[]
 );
 
-create table experiment_result (
-    id integer default nextval('experiment_result_sequence') primary key,
-    experiment_run_id integer not null,
+create table products_dos (
+    id integer default nextval('products_dos_sequence') primary key,
+    histogram_params_id integer not null,
+    foreign key (histogram_params_id) references histogram_params (id),
+    cluster1_id integer not null,
+    cluster2_id integer not null,
+    foreign key (cluster1_id) references cluster (id),
+    foreign key (cluster2_id) references cluster (id),
+    data double[]
+);
+
+create table k_rate_mesh (
+    id integer default nextval('k_rate_mesh_sequence') primary key,
+    histogram_params_id integer not null,
+    foreign key (histogram_params_id) references histogram_params (id),
+    data double[]
+);
+
+create table k_rate (
+    id integer default nextval('k_rate_sequence') primary key,
     pathway_id integer not null,
-    foreign key (experiment_run_id) references experiment_run (id),
     foreign key (pathway_id) references pathway (id),
-    loop_us integer,
-    total_us integer,
-    nwarnings integer,
-    n_fragmented_total integer,
-    n_escaped_total integer,
-    ncoll_total integer,
-    counter_collision_rejections integer
-);
-
-create table experiment_failure (
-    id integer default nextval('experiment_result_sequence') primary key,
-    experiment_run_id integer not null,
-    pathway_id integer not null,
-    foreign key (experiment_run_id) references experiment_run (id),
-    foreign key (pathway_id) references pathway (id),
-    exc_name varchar,
-    msg varchar,
-    overflow_requested double
+    histogram_params_id integer not null,
+    foreign key (histogram_params_id) references histogram_params (id),
+    data double[]
 );
 """
 
 
-REPORT_VIEW = """
+PATHWAY_REPORT_VIEW = """
 create or replace view pathway_report as
 select
     -- Pathway info
@@ -361,7 +524,94 @@ from pathway p
 inner join cluster c on c.id = p.cluster_id
 inner join cluster p1 on p1.id = p.product1_id
 inner join cluster p2 on p2.id = p.product2_id;
+"""
 
+
+class SuperClusterDatabase(ClusterDatabase):
+    TABLES = [PATHWAY_TABLES, DERIVED_TABLES, PATHWAY_REPORT_VIEW]
+
+    def __init__(self, filename, readonly=False):
+        super().__init__(filename, readonly=readonly)
+
+    def refresh_views(self):
+        self.db.execute(PATHWAY_REPORT_VIEW)
+        self.db.execute(EXPERIMENT_REPORT_VIEW)
+
+
+EXPERIMENT_TABLES = """
+create sequence experiment_config_sequence start 1;
+create sequence experiment_run_sequence start 1;
+create sequence experiment_result_sequence start 1;
+create sequence pathway_fragmentation_sequence start 1;
+
+create table experiment_config (
+    id integer default nextval('experiment_config_sequence') primary key,
+    name varchar,
+    config json
+);
+
+create table experiment_run (
+    id integer default nextval('experiment_run_sequence') primary key,
+    experiment_config_id integer not null,
+    pathway_at_a_time bool default false,
+    foreign key (experiment_config_id) references experiment_config (id),
+    start_time timestamp
+);
+
+create table single_pathway_experiment_result (
+    id integer default nextval('experiment_result_sequence') primary key,
+    experiment_run_id integer not null,
+    pathway_id integer not null,
+    foreign key (experiment_run_id) references experiment_run (id),
+    foreign key (pathway_id) references pathway (id),
+    loop_us uint64,
+    total_us uint64,
+    nwarnings uint64,
+    n_fragmented_total uint64,
+    n_escaped_total uint64,
+    ncoll_total uint64,
+    counter_collision_rejections uint64
+);
+
+create table multi_pathway_experiment_result (
+    id integer default nextval('experiment_result_sequence') primary key,
+    experiment_run_id integer not null,
+    cluster_id integer not null,
+    foreign key (experiment_run_id) references experiment_run (id),
+    foreign key (cluster_id) references cluster (id),
+    loop_us uint64,
+    total_us uint64,
+    nwarnings uint64,
+    n_escaped_total uint64,
+    ncoll_total uint64,
+    counter_collision_rejections uint64
+);
+
+create table pathway_fragmentation (
+    id integer default nextval('pathway_fragmentation_sequence') primary key,
+    experiment_result_id integer not null,
+    foreign key (experiment_result_id) references multi_pathway_experiment_result (id),
+    pathway_id integer not null,
+    foreign key (pathway_id) references pathway (id),
+    count uint64
+);
+
+create table experiment_failure (
+    id integer default nextval('experiment_result_sequence') primary key,
+    experiment_run_id integer not null,
+    foreign key (experiment_run_id) references experiment_run (id),
+    pathway_id integer,
+    foreign key (pathway_id) references pathway (id),
+    cluster_id integer,
+    foreign key (cluster_id) references cluster (id),
+    exc_name varchar,
+    msg varchar,
+    overflow_requested double
+);
+"""
+
+
+EXPERIMENT_REPORT_VIEW = """
 create or replace view experiment_report as
 select
     -- Experiment run info
@@ -415,7 +665,9 @@ select
 
 from experiment_run as er
 left join (
-    select * from experiment_result
+    select * from single_pathway_experiment_result
+    union by name
+    select * from multi_pathway_experiment_result
     union by name
     select * from experiment_failure
 ) as res on res.experiment_run_id = er.id
@@ -432,19 +684,47 @@ inner join cluster p2 on p2.id = p.product2_id
 ConfigRow = namedtuple("ConfigRow", ["id", "name", "config"])
 
 
-class ExperimentDatabase(ClusterDatabase):
-    TABLES = [PATHWAY_TABLES, EXPERIMENT_TABLES, REPORT_VIEW]
+def get_or_insert(db, tbl, **vals):
+    query = db.table(tbl)
+    for col_name, col_value in vals.items():
+        query = query.filter(
+            duckdb.ColumnExpression(col_name) == duckdb.ConstantExpression(col_value)
+        )
+    result = list(query.fetchall())
+    if len(result) > 1:
+        raise ValueError("Multiple rows found")
+    if len(result) == 1:
+        return result[0][0]
+    expression = (
+        "insert into "
+        + tbl
+        + " ("
+        + ",".join(vals.keys())
+        + ") "
+        + "values ("
+        + ",".join("?" for _ in vals)
+        + ") returning id"
+    )
+    id = db.execute(expression, tuple(vals.values())).fetchone()
+    return id[0]
+
+
+class ExperimentDatabase(SuperClusterDatabase):
+    TABLES = [
+        PATHWAY_TABLES,
+        DERIVED_TABLES,
+        EXPERIMENT_TABLES,
+        PATHWAY_REPORT_VIEW,
+        EXPERIMENT_REPORT_VIEW,
+    ]
 
     def __init__(self, filename):
         super().__init__(filename)
 
-    def refresh_views(self):
-        self.db.execute(REPORT_VIEW)
-
-    def insert_run(self, config_id=None):
+    def insert_run(self, config_id=None, pathway_at_a_time=False):
         id = self.db.execute(
-            "insert into experiment_run values (default, ?, current_timestamp) returning id",
-            (config_id,),
+            "insert into experiment_run values (default, ?, ?, current_timestamp) returning id",
+            (config_id, pathway_at_a_time),
         ).fetchone()
         assert id is not None
         return id[0]
@@ -467,42 +747,82 @@ class ExperimentDatabase(ClusterDatabase):
 
         query = self.db.table("experiment_config")
         if name is not None:
-            query = query.filter(
-                duckdb.ColumnExpression("name") == duckdb.ConstantExpression(name)
-            )
+            if isinstance(name, (tuple, list)):
+                query = query.filter(
+                    duckdb.ColumnExpression("name").isin(
+                        *(duckdb.ConstantExpression(n) for n in name)
+                    )
+                )
+            else:
+                query = query.filter(
+                    duckdb.ColumnExpression("name") == duckdb.ConstantExpression(name)
+                )
         for id, name, config in query.fetchall():
             yield ConfigRow(id, name, import_raw_config(orjson.loads(config)))
 
     def record_result(
         self,
         run_id,
-        pathway_id,
         counters,
         timings,
+        pathway_id=None,
+        cluster_id=None,
+        pathway_ids=None,
     ):
-        id = self.db.execute(
-            "insert into experiment_result values (default, ?, ?, ?, ?, ?, ?, ?, ?, ?) returning id",
-            (
-                run_id,
-                pathway_id,
-                timings.loop / timedelta(microseconds=1),
-                timings.total / timedelta(microseconds=1),
-                int(counters.nwarnings),
-                int(counters.n_fragmented_total),
-                int(counters.n_escaped_total),
-                int(counters.ncoll_total),
-                int(counters.counter_collision_rejections),
-            ),
-        ).fetchone()
+        if pathway_id is None and (cluster_id is None or pathway_ids is None):
+            raise ValueError(
+                "Either pathway_id or cluster_id and pathway_ids must be provided"
+            )
+        if pathway_id is not None:
+            id = self.db.execute(
+                "insert into single_pathway_experiment_result values (default, ?, ?, ?, ?, ?, ?, ?, ?, ?) returning id",
+                (
+                    run_id,
+                    pathway_id,
+                    int(timings.loop / timedelta(microseconds=1)),
+                    int(timings.total / timedelta(microseconds=1)),
+                    int(counters.nwarnings),
+                    int(counters.n_fragmented_total[0]),
+                    int(counters.n_escaped_total),
+                    int(counters.ncoll_total),
+                    int(counters.counter_collision_rejections),
+                ),
+            ).fetchone()
+        else:
+            id = self.db.execute(
+                "insert into multi_pathway_experiment_result values (default, ?, ?, ?, ?, ?, ?, ?, ?) returning id",
+                (
+                    run_id,
+                    cluster_id,
+                    int(timings.loop / timedelta(microseconds=1)),
+                    int(timings.total / timedelta(microseconds=1)),
+                    int(counters.nwarnings),
+                    int(counters.n_escaped_total),
+                    int(counters.ncoll_total),
+                    int(counters.counter_collision_rejections),
+                ),
+            ).fetchone()
+            assert pathway_ids is not None
+            for pathway_id, fragmented in zip(pathway_ids, counters.n_fragmented_total, strict=True):
+                self.db.execute(
+                    "insert into pathway_fragmentation values (default, ?, ?, ?)",
+                    (id[0], pathway_id, int(fragmented)),
+                )
         assert id is not None
         return id[0]
 
     def record_failure(
-        self, run_id, pathway_id, exc_name, msg, overflow_requested=None
+        self,
+        run_id,
+        exc_name,
+        msg,
+        overflow_requested=None,
+        pathway_id=None,
+        cluster_id=None,
     ):
         id = self.db.execute(
-            "insert into experiment_failure values (default, ?, ?, ?, ?, ?) returning id",
-            (run_id, pathway_id, exc_name, msg, overflow_requested),
+            "insert into experiment_failure values (default, ?, ?, ?, ?, ?, ?) returning id",
+            (run_id, pathway_id, cluster_id, exc_name, msg, overflow_requested),
         ).fetchone()
         assert id is not None
         return id[0]
@@ -525,7 +845,11 @@ class ExperimentDatabase(ClusterDatabase):
             er.start_time,
             (
                 select count()
-                from experiment_result
+                from (
+                    select * from single_pathway_experiment_result
+                    union by name
+                    select * from multi_pathway_experiment_result
+                ) as experiment_result
                 where experiment_result.experiment_run_id = er.id
             ) as successes,
             (
@@ -538,28 +862,523 @@ class ExperimentDatabase(ClusterDatabase):
         """
         ).fetchdf()
 
+    def forget(self, runs=False, configs=False, derived=False, all=False):
+        if all:
+            runs = True
+            configs = True
+            derived = True
+
+        if configs:
+            self.db.execute("truncate experiment_config")
+
+        if runs or configs:
+            for tbl in [
+                "experiment_run",
+                "single_pathway_experiment_result",
+                "multi_pathway_experiment_result",
+                "pathway_fragmentation",
+                "experiment_failure",
+            ]:
+                self.db.execute(f"truncate {tbl}")
+
+        if derived:
+            for tbl in ["cluster_dos", "products_dos", "k_rate"]:
+                self.db.execute(f"truncate {tbl}")
+
+
+def counter_fragmented_total(counters):
+    return int(counters.n_fragmented_total.sum())
+
+
+def get_through_join_else(conn, rel, proj_col, result_dict, **match_cols):
+    import pyarrow as pa
+
+    iterable_match_keys = []
+    scalar_match_keys = []
+    for match_key, match_col in match_cols.items():
+        if hasattr(match_col, "__iter__"):
+            iterable_match_keys.append(match_key)
+        else:
+            scalar_match_keys.append(match_key)
+
+    iterable_match_vals = [match_cols[k] for k in iterable_match_keys]
+    wanted_tbl = pa.table(iterable_match_vals, names=iterable_match_keys)
+    condition = None
+    for k in iterable_match_keys:
+        new = duckdb.ColumnExpression(f"wanted.{k}") == duckdb.ColumnExpression(
+            f"rel.{k}"
+        )
+        if condition is None:
+            condition = new
+        else:
+            condition = condition & new
+    for k in scalar_match_keys:
+        new = duckdb.ColumnExpression(f"rel.{k}") == duckdb.ConstantExpression(
+            match_cols[k]
+        )
+        if condition is None:
+            condition = new
+        else:
+            condition = condition & new
+    data = (
+        rel.set_alias("rel")
+        .join(
+            conn.from_arrow(wanted_tbl).set_alias("wanted"),
+            condition=condition,
+            how="right",
+        )
+        .select(proj_col)
+        .fetch_arrow_table()
+    )
+    data = data.column(proj_col).chunk(0)
+    for match_row, value in zip(zip(*iterable_match_vals), data):
+        value = value.values
+        if value is not None:
+            # Hit: update result_dict
+            data = value.to_numpy(zero_copy_only=True)
+            if len(match_row) == 1:
+                match_row = match_row[0]
+            result_dict[match_row] = data
+        else:
+            # Miss: yield the match_row for the caller to compute/insert
+            yield dict(zip(match_cols.keys(), match_row))
+
+
+def insert_via_arrow(conn, table, chunk_size=None, **kwargs):
+    import pyarrow as pa
+
+    arrow_table = pa.table(dict(kwargs))
+
+    conn.register("arrow_table", arrow_table)
+    try:
+        offset = 0
+        while True:
+            try:
+                if chunk_size is not None:
+                    while offset < arrow_table.num_rows:
+                        conn.execute(
+                            f"insert into {table} by name select * from arrow_table limit {chunk_size} offset {offset}"
+                        )
+                        offset += chunk_size
+                else:
+                    conn.execute(
+                        f"insert into {table} by name select * from arrow_table"
+                    )
+            except duckdb.OutOfMemoryException:
+                if chunk_size is None:
+                    chunk_size = arrow_table.num_rows
+                if chunk_size <= 1:
+                    raise
+                chunk_size = chunk_size // 2
+                print(f"Out of memory, reducing chunk size to {chunk_size}")
+            else:
+                break
+    finally:
+        conn.unregister("arrow_table")
+
+
+class DerivedDataPreparer:
+    def __init__(self, db: SuperClusterDatabase):
+        self.db = db
+
+    def _run_skimmer(self, config):
+        from apitofsim import skimmer
+
+        return skimmer(
+            T0=config["T"],
+            P0=config["pressure_first"],
+            rmax=config["lengths"][-1],
+            dc=config["dc"],
+            alpha_factor=config["alpha_factor"],
+            gas=config["gas"],
+            N=config["N_iter"],
+            M=config["M_iter"],
+            resolution=config["resolution"],
+            tolerance=config["tolerance"],
+        )
+
+    def _run_dos(
+        self,
+        cluster_indexed,
+        histogram_id,
+        bin_width,
+        energy_max,
+        pathway_lookup,
+        status_table=None,
+    ):
+        import pyarrow as pa
+        from apitofsim import ProductsCluster, compute_density_of_states_batch
+
+        num_clusters_missed = 0
+        cluster_dos_dict = {}
+        missed_cluster_ids = []
+        wanted_cluster_ids = numpy.array(list(cluster_indexed.keys()))
+        density_of_states_inputs = []
+        for miss_info in get_through_join_else(
+            self.db.db,
+            self.db.db.table("cluster_dos"),
+            "data",
+            cluster_dos_dict,
+            cluster_id=wanted_cluster_ids,
+            histogram_params_id=histogram_id,
+        ):
+            cluster_id = miss_info["cluster_id"]
+            cluster = cluster_indexed[cluster_id]
+            if cluster.is_atom_like_product():
+                cluster_dos_dict[cluster_id] = None
+            else:
+                missed_cluster_ids.append(cluster_id)
+                density_of_states_inputs.append(cluster)
+                num_clusters_missed += 1
+
+        wanted_p1 = []
+        wanted_p2 = []
+        for _, product1_id, product2_id in pathway_lookup.values():
+            product1_id, product2_id = sorted((product1_id, product2_id))
+            wanted_p1.append(product1_id)
+            wanted_p2.append(product2_id)
+
+        for miss_info in get_through_join_else(
+            self.db.db,
+            self.db.db.table("products_dos"),
+            "data",
+            cluster_dos_dict,
+            cluster1_id=wanted_p1,
+            cluster2_id=wanted_p2,
+            histogram_params_id=histogram_id,
+        ):
+            p1 = miss_info["cluster1_id"]
+            p2 = miss_info["cluster2_id"]
+            products = ProductsCluster(cluster_indexed[p1], cluster_indexed[p2])
+            density_of_states_inputs.append(products)
+
+        if status_table is not None:
+            status_table["Description"] = (
+                f"{len(cluster_dos_dict)} retrieved; {len(density_of_states_inputs)} to compute"
+            )
+
+        if len(density_of_states_inputs) > 0:
+            density_of_states = compute_density_of_states_batch(
+                density_of_states_inputs,
+                energy_max=energy_max,
+                bin_width=bin_width,
+            )
+            assert density_of_states.flags.f_contiguous
+            if num_clusters_missed > 0:
+                arrow_arr = pa.FixedSizeListArray.from_arrays(
+                    density_of_states[:, :num_clusters_missed].flatten("K"),
+                    density_of_states.shape[0],
+                )
+
+                insert_via_arrow(
+                    self.db.db,
+                    "cluster_dos",
+                    histogram_params_id=[histogram_id] * len(missed_cluster_ids),
+                    cluster_id=missed_cluster_ids,
+                    data=arrow_arr,
+                )
+
+            if len(density_of_states_inputs) > num_clusters_missed:
+                arrow_arr = pa.FixedSizeListArray.from_arrays(
+                    density_of_states[:, num_clusters_missed:].flatten("K"),
+                    density_of_states.shape[0],
+                )
+                insert_via_arrow(
+                    self.db.db,
+                    "products_dos",
+                    histogram_params_id=[histogram_id] * len(wanted_p1),
+                    cluster1_id=wanted_p1,
+                    cluster2_id=wanted_p2,
+                    data=arrow_arr,
+                )
+
+            for cluster_id, v in zip(
+                missed_cluster_ids, density_of_states[:, : len(missed_cluster_ids)].T
+            ):
+                cluster_dos_dict[cluster_id] = v
+
+            for p1, p2, v in zip(
+                wanted_p1, wanted_p2, density_of_states[:, len(missed_cluster_ids) :].T
+            ):
+                cluster_dos_dict[(p1, p2)] = v
+        return cluster_dos_dict
+
+    def _run_k_total(
+        self,
+        cluster_indexed,
+        cluster_dos_dict,
+        histogram_id,
+        mesh,
+        bin_width,
+        energy_max,
+        energy_max_rate,
+        pathway_lookup,
+        status_table=None,
+    ):
+        from apitofsim import (
+            KTotalInput,
+            compute_k_total_batch,
+            FragmentationPathway,
+        )
+        from apitofsim.api import validate_max_energies
+        import pyarrow as pa
+
+        histogram_id = get_or_insert(
+            self.db.db,
+            "histogram_params",
+            bin_width=bin_width.to("K").magnitude,
+            max=energy_max_rate.to("K").magnitude,
+        )
+
+        k_total_inputs = []
+        k_total_keys = []
+        k_total_dict = {}
+
+        for miss_info in get_through_join_else(
+            self.db.db,
+            self.db.db.table("k_rate").filter(
+                duckdb.ColumnExpression("histogram_params_id")
+                == duckdb.ConstantExpression(histogram_id)
+            ),
+            "data",
+            k_total_dict,
+            pathway_id=pathway_lookup.keys(),
+        ):
+            pathway_id = miss_info["pathway_id"]
+            cluster_id, product1_id, product2_id = pathway_lookup[pathway_id]
+            product1_cpp = cluster_indexed[product1_id].into_cpp()
+            product2_cpp = cluster_indexed[product2_id].into_cpp()
+            fragmentation_energy = FragmentationPathway(
+                cluster_indexed[cluster_id].into_cpp(), product1_cpp, product2_cpp
+            ).fragmentation_energy_kelvin()
+            validate_max_energies(
+                fragmentation_energy=fragmentation_energy,
+                bin_width=bin_width,
+                energy_max=energy_max,
+                energy_max_rate=energy_max_rate,
+                quantities_strict=False,
+            )
+            product_id_tpl = tuple(sorted((product1_id, product2_id)))
+            k_total_keys.append(pathway_id)
+            assert cluster_dos_dict[cluster_id].flags.c_contiguous
+            assert cluster_dos_dict[product_id_tpl].flags.c_contiguous
+            k_total_inputs.append(
+                KTotalInput(
+                    product1_cpp,
+                    product2_cpp,
+                    fragmentation_energy,
+                    cluster_dos_dict[cluster_id],
+                    cluster_dos_dict[product_id_tpl],
+                )
+            )
+
+        progress_callback: Callable[[int], None] | None = None
+        if status_table is not None:
+            status_table["Description"] = (
+                f"{len(k_total_dict)} retrieved; {len(k_total_inputs)} to compute"
+            )
+
+            inner_pbar = status_table(
+                len(k_total_inputs),
+                position=1,
+                description="K total",
+                show_throughput=False,
+                show_progress=True,
+                show_eta=True,
+            )
+
+            def _progress_callback(iters_done):
+                inner_pbar.set_step(iters_done)
+
+            progress_callback = _progress_callback
+
+        k_rates = compute_k_total_batch(
+            k_total_inputs,
+            energy_max_rate=energy_max_rate,
+            bin_width=bin_width,
+            mesh=mesh,
+            progress_callback=progress_callback,
+        )
+
+        insert_via_arrow(
+            self.db.db,
+            "k_rate",
+            histogram_params_id=[histogram_id] * k_rates.shape[1],
+            pathway_id=k_total_keys,
+            data=pa.FixedSizeListArray.from_arrays(
+                k_rates.flatten("K"), k_rates.shape[0]
+            ),
+        )
+        for key, k_rates in zip(k_total_keys, k_rates.T):
+            k_total_dict[key] = k_rates
+
+        return k_total_dict
+
+    def run_densityandrate(
+        self, config, cluster_indexed, pathway_lookup, tablepbar=None
+    ):
+        from apitofsim import precompute_mesh
+        from timeit import default_timer as timer
+        from progress_table import ProgressTable
+
+        if tablepbar is None:
+            table = ProgressTable(default_column_alignment="left", refresh_rate=0)
+            total_steps = 3
+            cur_step = 1
+            pbar = table(
+                3,
+                description="Preliminary steps",
+                show_throughput=False,
+                show_progress=True,
+                position=2,
+            )
+            table.add_column("#", alignment="right", width=3)
+            table.add_column("Step", width=20)
+            table.add_column("Description", width=40)
+            table.add_column("Time (s)", alignment="right")
+        else:
+            table, pbar = tablepbar
+            total_steps = 4
+            cur_step = 2
+        table["#"] = f"{cur_step}/{total_steps}"
+        table["Step"] = "Density of states"
+        pbar.update()
+        start = timer()
+
+        histogram_id = get_or_insert(
+            self.db.db,
+            "histogram_params",
+            bin_width=config["bin_width"].to("K").magnitude,
+            max=config["energy_max"].to("K").magnitude,
+        )
+
+        cluster_dos_dict = self._run_dos(
+            cluster_indexed,
+            histogram_id,
+            config["bin_width"],
+            config["energy_max"],
+            pathway_lookup=pathway_lookup,
+            status_table=table,
+        )
+
+        table["Time (s)"] = f"{(timer() - start):.2f}"
+        table.next_row()
+        cur_step += 1
+
+        table["#"] = f"{cur_step}/{total_steps}"
+        table["Step"] = "Computing mesh"
+        pbar.update()
+        start = timer()
+
+        mesh_points = config["energy_max_rate"] / config["bin_width"]
+        table["Description"] = f"Mesh of {mesh_points} pts"
+
+        mesh = precompute_mesh(
+            energy_max_rate=config["energy_max_rate"],
+            bin_width=config["bin_width"],
+            mesh_mode=MeshMode.compute_mesh_diagonal_multithreaded,
+        )
+        table["Time (s)"] = f"{(timer() - start):.2f}"
+        table.next_row()
+        cur_step += 1
+
+        table["#"] = f"{cur_step}/{total_steps}"
+        table["Step"] = "K total"
+        pbar.update()
+        start = timer()
+
+        k_rates = self._run_k_total(
+            cluster_indexed,
+            cluster_dos_dict,
+            histogram_id,
+            mesh,
+            config["bin_width"],
+            config["energy_max"],
+            config["energy_max_rate"],
+            pathway_lookup=pathway_lookup,
+            status_table=table,
+        )
+
+        table["Time (s)"] = f"{(timer() - start):.2f}"
+        table.close()
+        if pbar._is_active:
+            # Not sure why this is sometimes needed
+            pbar.close()
+
+        cluster_dos_by_pathway = {}
+
+        for pathway_id, (
+            _,
+            product1_id,
+            product2_id,
+        ) in pathway_lookup.items():
+            product1_id, product2_id = sorted((product1_id, product2_id))
+            cluster_dos_by_pathway[pathway_id] = cluster_dos_dict[
+                (product1_id, product2_id)
+            ]
+
+        return k_rates, cluster_dos_by_pathway
+
+    def run_preliminaries(self, config, cluster_indexed, pathway_lookup):
+        from timeit import default_timer as timer
+        from progress_table import ProgressTable
+
+        prelim_table = ProgressTable(default_column_alignment="left", refresh_rate=0)
+        outer_pbar = prelim_table(
+            4,
+            description="Preliminary steps",
+            show_throughput=False,
+            show_progress=True,
+            position=2,
+        )
+        prelim_table.add_column("#", alignment="right", width=3)
+        prelim_table.add_column("Step", width=20)
+        prelim_table.add_column("Description", width=40)
+        prelim_table.add_column("Time (s)", alignment="right")
+        prelim_table["#"] = "1/4"
+        prelim_table["Step"] = "Skimmer"
+        outer_pbar.update()
+        start = timer()
+        skimmer_np = self._run_skimmer(config)
+        prelim_table["Time (s)"] = f"{(timer() - start):.2f}"
+        prelim_table.next_row()
+
+        k_rates, cluster_dos_by_pathway = self.run_densityandrate(
+            config,
+            cluster_indexed,
+            pathway_lookup,
+            tablepbar=(prelim_table, outer_pbar),
+        )
+
+        return skimmer_np, k_rates, cluster_dos_by_pathway
+
 
 class ExperimentRunner:
     def __init__(self, db: ExperimentDatabase):
         self.db = db
+        self.preparer = DerivedDataPreparer(db)
         self.current_run_id = None
 
     def _guard_run_started(self):
         if self.current_run_id is None:
             raise RuntimeError("No experiment run started; call start_run() first")
 
-    def start_run(self, config_id=None):
-        self.current_run_id = self.db.insert_run(config_id)
+    def start_run(self, config_id=None, **kwargs):
+        self.current_run_id = self.db.insert_run(config_id, **kwargs)
 
     def run_mass_spec(
         self,
         *args,
-        pathway_id,
+        pathway_id=None,
+        cluster_id=None,
+        pathway_ids=None,
         strict=False,
         strict_dos=True,
         **kwargs,
     ):
         self._guard_run_started()
+        if pathway_id is None and cluster_id is None:
+            raise ValueError("Either pathway_id or cluster_id must be provided")
         from .api import mass_spec
 
         counters = None
@@ -567,7 +1386,7 @@ class ExperimentRunner:
             counters, timings = mass_spec(
                 *args,
                 **kwargs,
-                output_named_tuple=True,
+                named_tuple_counters=True,
                 output_timings=True,
                 strict=strict_dos,
             )
@@ -579,131 +1398,43 @@ class ExperimentRunner:
                 overflow_requested = e.current
             self.db.record_failure(
                 self.current_run_id,
-                pathway_id,
                 type(e).__name__,
                 str(e),
                 overflow_requested,
+                pathway_id=pathway_id,
+                cluster_id=cluster_id,
             )
         else:
             self.db.record_result(
                 self.current_run_id,
-                pathway_id,
                 counters,
                 timings,
+                pathway_id=pathway_id,
+                pathway_ids=pathway_ids,
+                cluster_id=cluster_id,
             )
         return counters
 
-    def run_from_config(self, config, run_started=False, strict_dos=True):
-        from os import environ
-        from apitofsim import (
-            ProductsCluster,
-            KTotalInput,
-            compute_density_of_states_batch,
-            compute_k_total_batch,
-            precompute_mesh,
-            FragmentationPathway,
-        )
-        from apitofsim.api import Histogram, validate_max_energies
-        from timeit import default_timer as timer
-        from progress_table import ProgressTable
-
+    def run_from_config(
+        self,
+        config,
+        run_started=False,
+        strict_dos=True,
+        pathway_at_a_time=False,
+        parent=None,
+        pathways=None,
+        verbose=False,
+    ):
         if not run_started:
             self.db.start_run()
 
-        cluster_indexed, name_lookup = self.db.clusters_objects_indexed(
-            include_name_lookup=True
+        cluster_indexed, name_lookup, pathway_lookup = self.db.get_all_lookups(
+            parent, pathways
         )
 
-        prelim_table = ProgressTable(default_column_alignment="left")
-        prelim_table.add_column("#", alignment="right", width=3)
-        prelim_table.add_column("Step", width=20)
-        prelim_table.add_column("Description", width=40)
-        prelim_table.add_column("Time (s)", alignment="right")
-        prelim_table["#"] = "1/4"
-        prelim_table["Step"] = "Skimmer"
-        start = timer()
-        skimmer_np = self._run_skimmer(config)
-        prelim_table["Time (s)"] = f"{(timer() - start):.2f}"
-        prelim_table.next_row()
-
-        prelim_table["#"] = "2/4"
-        prelim_table["Step"] = "Density of states"
-        start = timer()
-        num_pathways = 0
-        density_of_states_inputs = []
-        for _, cluster, _, _ in self.db.pathways_objs(indexed=cluster_indexed):
-            density_of_states_inputs.append(cluster)
-            num_pathways += 1
-
-        for _, _, product1, product2 in self.db.pathways_objs(indexed=cluster_indexed):
-            density_of_states_inputs.append(ProductsCluster(product1, product2))
-
-        prelim_table["Description"] = f"{len(density_of_states_inputs)} inputs"
-
-        density_of_states = compute_density_of_states_batch(
-            density_of_states_inputs,
-            energy_max=config["energy_max"],
-            bin_width=config["bin_width"],
+        skimmer_np, k_rates, cluster_dos = self.preparer.run_preliminaries(
+            config, cluster_indexed, pathway_lookup=pathway_lookup
         )
-        prelim_table["Time (s)"] = f"{(timer() - start):.2f}"
-        prelim_table.next_row()
-
-        prelim_table["#"] = "3/4"
-        prelim_table["Step"] = "Computing mesh"
-        start = timer()
-        cluster_dos = density_of_states[:, :num_pathways]
-        product_dos = density_of_states[:, num_pathways:]
-
-        k_total_inputs = []
-        for idx, (_, cluster, product1, product2) in enumerate(
-            self.db.pathways_objs(indexed=cluster_indexed)
-        ):
-            fragmentation_energy = FragmentationPathway(
-                cluster.into_cpp(), product1.into_cpp(), product2.into_cpp()
-            ).fragmentation_energy_kelvin()
-            validate_max_energies(
-                fragmentation_energy=fragmentation_energy,
-                energy_max_rate=config["energy_max_rate"],
-                energy_max=config["energy_max"],
-                bin_width=config["bin_width"],
-                quantities_strict=False,
-            )
-
-            k_total_inputs.append(
-                KTotalInput(
-                    product1.into_cpp(),
-                    product2.into_cpp(),
-                    fragmentation_energy,
-                    cluster_dos[:, idx],
-                    product_dos[:, idx],
-                )
-            )
-
-        mesh_points = config["energy_max_rate"] / config["bin_width"]
-        prelim_table["Description"] = f"Mesh of {mesh_points} pts"
-
-        mesh = precompute_mesh(
-            energy_max_rate=config["energy_max_rate"],
-            bin_width=config["bin_width"],
-            mesh_mode=MeshMode.compute_mesh_diagonal_multithreaded,
-        )
-        prelim_table["Time (s)"] = f"{(timer() - start):.2f}"
-        prelim_table.next_row()
-
-        prelim_table["#"] = "4/4"
-        prelim_table["Step"] = "K total"
-        prelim_table["Description"] = f"{len(k_total_inputs)} inputs"
-
-        start = timer()
-        k_rates = compute_k_total_batch(
-            k_total_inputs,
-            energy_max_rate=config["energy_max_rate"],
-            bin_width=config["bin_width"],
-            mesh=mesh,
-        )
-        prelim_table["Time (s)"] = f"{(timer() - start):.2f}"
-        prelim_table.close()
-        del prelim_table
 
         assert isinstance(skimmer_np, numpy.ndarray)
         mass_spec = MassSpectrometer(
@@ -723,7 +1454,68 @@ class ExperimentRunner:
             quadrupole=config.get("quadrupole"),
         )
 
-        mass_spec_table = ProgressTable(default_column_alignment="right")
+        if pathway_at_a_time:
+            self._run_pathways_at_a_time(
+                mass_spec,
+                config,
+                cluster_indexed,
+                name_lookup,
+                pathway_lookup,
+                k_rates,
+                cluster_dos,
+                strict_dos=strict_dos,
+                verbose=verbose,
+            )
+        else:
+            self._run_cluster_grouped(
+                mass_spec,
+                config,
+                cluster_indexed,
+                name_lookup,
+                pathway_lookup,
+                k_rates,
+                cluster_dos,
+                strict_dos=strict_dos,
+                verbose=verbose,
+            )
+
+    def _mk_update_from_counters(self, table, pbar):
+        def update_from_counters(counters):
+            fragmented_total = counter_fragmented_total(counters)
+            realizations = fragmented_total + counters.n_escaped_total
+            table["Frags"] = int(fragmented_total)
+            table["Intacts"] = int(counters.n_escaped_total)
+            table["Avg colls"] = counters.ncoll_total / realizations
+            table["PH rej"] = int(counters.counter_collision_rejections)
+            table["Surv prob"] = counters.n_escaped_total / realizations
+            table["Warns"] = int(counters.nwarnings)
+            pbar.set_step(realizations)
+
+        return update_from_counters
+
+    def _run_pathways_at_a_time(
+        self,
+        mass_spec,
+        config,
+        cluster_indexed,
+        name_lookup,
+        pathway_lookup,
+        k_rates,
+        cluster_dos,
+        strict_dos=True,
+        parent=None,
+        verbose=False,
+    ):
+        from os import environ
+        from progress_table import ProgressTable
+        from apitofsim.api import Histogram
+        from timeit import default_timer as timer
+
+        mass_spec_table = ProgressTable(
+            default_column_alignment="right",
+            refresh_rate=0,
+            interactive=0 if verbose else int(environ.get("PTABLE_INTERACTIVE", "2")),
+        )
         mass_spec_table.add_column("#")
         mass_spec_table.add_column("Cluster", alignment="left")
         mass_spec_table.add_column("Products", width=16, alignment="left")
@@ -735,25 +1527,25 @@ class ExperimentRunner:
         )
         mass_spec_table.add_column("Warns", width=5)
         mass_spec_table.add_columns(
-            "Surv. prob.",
+            "Surv prob",
             "Time (s)",
         )
-        pathway_ids = list(self.db.pathways_ids(sort=True))
         cluster_seq = 1
-        for (
-            pathway_id,
-            cluster_id,
-            product1_id,
-            product2_id,
-        ), rate_const, density_cluster in zip(
-            pathway_ids,
-            k_rates.T,
-            cluster_dos.T,
-        ):
+        outer_pbar = mass_spec_table(
+            pathway_lookup.items(),
+            description="Pathway",
+            show_throughput=False,
+            show_progress=True,
+            show_eta=True,
+            position=2,
+        )
+        for pathway_id, (cluster_id, product1_id, product2_id) in outer_pbar:
+            density_cluster = cluster_dos[pathway_id]
+            rate_const = k_rates[pathway_id]
             cluster = cluster_indexed[cluster_id]
             product1 = cluster_indexed[product1_id]
             product2 = cluster_indexed[product2_id]
-            mass_spec_table["#"] = f"{cluster_seq}/{len(pathway_ids)}"
+            mass_spec_table["#"] = f"{cluster_seq}/{len(pathway_lookup)}"
             mass_spec_table["Cluster"] = name_lookup[cluster_id]
             mass_spec_table["Products"] = (
                 f"{name_lookup[product1_id]} + {name_lookup[product2_id]}"
@@ -777,17 +1569,35 @@ class ExperimentRunner:
                 density_hist,
                 rate_hist,
                 fragmentation_energy=config.get("fragmentation_energy"),
-                cluster_charge_sign=config.get("cluster_charge_sign", -1),
+                cluster_charge_sign=config.get(
+                    "cluster_charge_sign", defaults.cluster_charge_sign
+                ),
+            )
+            realizations = (
+                int(environ["N_OVERRIDE"]) if "N_OVERRIDE" in environ else config["N"]
+            )
+            inner_pbar = mass_spec_table(
+                realizations, position=1, description="Realization"
+            )
+
+            def log_callback(typ, msg):
+                msg = msg.rstrip()
+                print(f"Channel: {typ}; Msg: {msg}")
+
+            update_from_counters = self._mk_update_from_counters(
+                mass_spec_table, inner_pbar
             )
             counters = self.run_mass_spec(
                 mass_spec,
                 subs,
-                int(environ["N_OVERRIDE"]) if "N_OVERRIDE" in environ else config["N"],
+                realizations,
                 pathway_id=pathway_id,
                 sample_mode=2,
-                loglevel=0,
+                loglevel=1 if verbose else 0,
                 strict="STRICT" in environ,
                 strict_dos=strict_dos,
+                result_callback=update_from_counters,
+                log_callback=log_callback,
             )
             t_total = timer() - start
             if counters is None:
@@ -801,32 +1611,156 @@ class ExperimentRunner:
                 ]:
                     mass_spec_table[k] = "FAIL"
             else:
-                realizations = counters.n_fragmented_total + counters.n_escaped_total
-                mass_spec_table["Frags"] = int(counters.n_fragmented_total)
-                mass_spec_table["Intacts"] = int(counters.n_escaped_total)
-                mass_spec_table["Avg colls"] = counters.ncoll_total / realizations
-                mass_spec_table["PH rej"] = int(counters.counter_collision_rejections)
-                mass_spec_table["Surv prob"] = counters.n_escaped_total / realizations
-                mass_spec_table["Warns"] = int(counters.nwarnings)
+                update_from_counters(counters)
             mass_spec_table["Time (s)"] = f"{t_total:.2f}"
+            inner_pbar.close()
             mass_spec_table.next_row()
             cluster_seq += 1
 
-    def _run_skimmer(self, config):
-        from apitofsim import skimmer
+    def _run_cluster_grouped(
+        self,
+        mass_spec,
+        config,
+        cluster_indexed,
+        name_lookup,
+        pathway_lookup,
+        k_rates,
+        cluster_dos,
+        strict_dos=True,
+        verbose=False,
+    ):
+        from os import environ
+        from progress_table import ProgressTable
+        from apitofsim.api import Histogram
+        from timeit import default_timer as timer
 
-        return skimmer(
-            T0=config["T"],
-            P0=config["pressure_first"],
-            rmax=config["lengths"][-1],
-            dc=config["dc"],
-            alpha_factor=config["alpha_factor"],
-            gas=config["gas"],
-            N=config["N_iter"],
-            M=config["M_iter"],
-            resolution=config["resolution"],
-            tolerance=config["tolerance"],
+        last_cluster_id = None
+        groups = []
+        cur_group = None
+        for pathway_id, (
+            cluster_id,
+            product1_id,
+            product2_id,
+        ) in pathway_lookup.items():
+            rate_const = k_rates[pathway_id]
+            density_cluster = cluster_dos[pathway_id]
+            cluster = cluster_indexed[cluster_id]
+            if cluster_id != last_cluster_id:
+                if cur_group is not None:
+                    groups.append(cur_group)
+                density_hist = Histogram.from_mesh(
+                    config["bin_width"],
+                    config["energy_max"],
+                    density_cluster,
+                )
+                cur_group = {
+                    "pathways": [],
+                    "cluster": cluster,
+                    "cluster_id": cluster_id,
+                    "cluster_label": name_lookup[cluster_id],
+                    "density_hist": density_hist,
+                    "product_labels": [],
+                    "pathway_ids": [],
+                }
+            product1 = cluster_indexed[product1_id]
+            product2 = cluster_indexed[product2_id]
+            rate_hist = Histogram.from_mesh(
+                config["bin_width"],
+                config["energy_max_rate"],
+                rate_const,
+            )
+            assert cur_group is not None
+            cur_group["pathways"].append(
+                MassSpecInputFragmentationPathway(
+                    cluster, product1, product2, rate_hist
+                )
+            )
+            cur_group["product_labels"].append(
+                f"{name_lookup[product1_id]} + {name_lookup[product2_id]}"
+            )
+            cur_group["pathway_ids"].append(pathway_id)
+            last_cluster_id = cluster_id
+        if cur_group is not None:
+            groups.append(cur_group)
+
+        mass_spec_table = ProgressTable(
+            default_column_alignment="right",
+            refresh_rate=0,
+            interactive=0 if verbose else int(environ.get("PTABLE_INTERACTIVE", "2")),
         )
+        mass_spec_table.add_column("Cluster", width=16, alignment="left")
+        mass_spec_table.add_column("Paths", width=5, alignment="left")
+        mass_spec_table.add_column("Frags", width=5)
+        mass_spec_table.add_columns(
+            "Intacts",
+            "Avg colls",
+        )
+        mass_spec_table.add_column("PH rej", width=6)
+        mass_spec_table.add_column("Warns", width=5)
+        mass_spec_table.add_columns(
+            "Surv prob",
+            "Time (s)",
+        )
+        cluster_seq = 1
+        outer_pbar = mass_spec_table(
+            groups,
+            description="Cluster",
+            show_throughput=False,
+            show_progress=True,
+            show_eta=True,
+            position=2,
+        )
+        for group in outer_pbar:
+            mass_spec_table["Cluster"] = group["cluster_label"]
+            mass_spec_table["Paths"] = str(len(group["pathways"]))
+            start = timer()
+            realizations = (
+                int(environ["N_OVERRIDE"]) if "N_OVERRIDE" in environ else config["N"]
+            )
+            subs = MassSpecSubstanceInput(
+                group["cluster"],
+                group["pathways"],
+                config["gas"],
+                group["density_hist"],
+                config.get("cluster_charge_sign", defaults.cluster_charge_sign),
+            )
+            inner_pbar = mass_spec_table(
+                realizations, position=1, description="Realization"
+            )
+
+            update_from_counters = self._mk_update_from_counters(
+                mass_spec_table, inner_pbar
+            )
+            counters = self.run_mass_spec(
+                mass_spec,
+                subs,
+                realizations,
+                cluster_id=group["cluster_id"],
+                pathway_ids=group["pathway_ids"],
+                sample_mode=2,
+                loglevel=1 if verbose else 0,
+                strict="STRICT" in environ,
+                strict_dos=strict_dos,
+                result_callback=update_from_counters,
+            )
+            t_total = timer() - start
+            if counters is None:
+                for k in [
+                    "Frags",
+                    "Intacts",
+                    "Avg colls",
+                    "PH rej",
+                    "Surv prob",
+                    "Warns",
+                ]:
+                    mass_spec_table[k] = "FAIL"
+            else:
+                update_from_counters(counters)
+            mass_spec_table["Time (s)"] = f"{t_total:.2f}"
+            inner_pbar.close()
+            mass_spec_table.next_row()
+            cluster_seq += 1
+        mass_spec_table.close()
 
     def run_prepared_config(self, name=None, **kwargs):
         from pprint import pprint
@@ -836,6 +1770,8 @@ class ExperimentRunner:
             print(f"# Running experiment config: {row.name} [{idx + 1}/{len(configs)}]")
             pprint(row.config)
             print()
-            self.start_run(row.id)
+            self.start_run(
+                row.id, pathway_at_a_time=kwargs.get("pathway_at_a_time", False)
+            )
             self.run_from_config(row.config, run_started=True, **kwargs)
             print()

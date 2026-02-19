@@ -17,3 +17,8 @@ const double kelvinkcal = 1.987216e-03; // 1 K in kcal/mol
 
 const double hbar = 1.054571800e-34; // Reduced Planck constant
 }; // namespace consts
+
+namespace defaults
+{
+  const int cluster_charge_sign = -1;
+};

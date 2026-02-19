@@ -22,6 +22,7 @@ from .config import (
     get_clusters,
     get_gas,
 )
+from .apitofsimraw import debug_info
 
 
 __all__ = [
@@ -47,4 +48,5 @@ __all__ = [
     "read_skimmer",
     "get_clusters",
     "get_gas",
+    "debug_info",
 ]

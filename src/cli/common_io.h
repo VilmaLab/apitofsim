@@ -5,6 +5,7 @@
 #include <cstring>
 #include <fstream>
 #include <Eigen/Dense>
+#include "consts.h"
 
 void check_field_name(const char *buffer, const char *expected)
 {
@@ -126,7 +127,7 @@ void read_config(
   {
     if (cluster_charge_sign != nullptr)
     {
-      *cluster_charge_sign = -1;
+      *cluster_charge_sign = defaults::cluster_charge_sign;
     }
   }
   read_field(config_in, amu_0, buffer, "Atomic_mass_cluster");

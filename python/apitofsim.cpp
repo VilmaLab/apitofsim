@@ -121,13 +121,24 @@ nb::typed<nb::tuple, Histogram, Histogram> densityandrate(
   return nb::make_tuple(Histogram(energies, rhos.col(COMB_ROW)), Histogram(energies_rate, k_rate));
 }
 
-SimulationResult mass_spec(
+struct MassSpecCleanup
+{
+  std::thread &execution_thread;
+
+  ~MassSpecCleanup()
+  {
+    execution_thread.join();
+  }
+};
+
+SimulationResult
+mass_spec(
   const MassSpectrometer &ms,
   const MassSpecSubstanceInput &subs,
   int N,
   unsigned long long seed = 42ull,
   std::optional<std::function<void(std::string_view, std::string)>> log_callback = nullopt,
-  std::optional<std::function<void(Counters)>> result_callback = nullopt,
+  std::optional<std::function<void(Eigen::ArrayXi)>> result_callback = nullopt,
   SampleMode sample_mode = SampleMode::rejection,
   bool strict = true,
   int loglevel = DEFAULT_LOGLEVEL)
@@ -157,53 +168,71 @@ SimulationResult mass_spec(
     });
     result_queue.enqueue(std::monostate{});
   });
-
-  Eigen::Array<int, Eigen::Dynamic, n_counters> partial_counters = Eigen::Array<int, Eigen::Dynamic, n_counters>::Zero(omp_get_max_threads(), n_counters);
+  auto cleanup = MassSpecCleanup{execution_thread};
+  int total_counters = n_counters - 1 + subs.pathways.size();
+  Eigen::Array<int, Eigen::Dynamic, Eigen::Dynamic> partial_counters = Eigen::Array<int, Eigen::Dynamic, Eigen::Dynamic>::Zero(omp_get_max_threads(), total_counters);
   bool exiting = false;
-  while (true)
+  try
   {
-    StreamingResultElement result;
-    if (exiting)
+    while (true)
     {
-      bool got = result_queue.try_dequeue(result);
-      if (!got)
+      StreamingResultElement result;
+      if (exiting)
       {
-        break;
+        bool got = result_queue.try_dequeue(result);
+        if (!got)
+        {
+          break;
+        }
       }
-    }
-    else
-    {
-      result_queue.wait_dequeue(result);
-    }
-    if (std::holds_alternative<std::monostate>(result))
-    {
-      // Still need to pump out any pending messages
-      exiting = true;
-    }
-    else if (std::holds_alternative<PartialResult>(result))
-    {
-      const PartialResult &partial_result = std::get<PartialResult>(result);
-      partial_counters.row(partial_result.thread_id) = partial_result.counters.transpose();
-      Counters cur_counters = partial_counters.colwise().sum();
-      if (result_callback)
+      else
       {
-        (*result_callback)(cur_counters);
+        result_queue.wait_dequeue(result);
       }
-    }
-    else if (std::holds_alternative<LogMessage>(result))
-    {
-      const LogMessage &msg = std::get<LogMessage>(result);
-      if (log_callback)
+      if (std::holds_alternative<std::monostate>(result))
       {
-        (*log_callback)(enum_name(msg.type), msg.message);
+        // Still need to pump out any pending messages
+        exiting = true;
+      }
+      else if (std::holds_alternative<PartialResult>(result))
+      {
+        const PartialResult &partial_result = std::get<PartialResult>(result);
+        partial_counters.row(partial_result.thread_id) = partial_result.counters.transpose();
+        Eigen::ArrayXi cur_counters = partial_counters.colwise().sum();
+        if (result_callback)
+        {
+          (*result_callback)(cur_counters);
+        }
+      }
+      else if (std::holds_alternative<LogMessage>(result))
+      {
+        const LogMessage &msg = std::get<LogMessage>(result);
+        if (log_callback)
+        {
+          (*log_callback)(enum_name(msg.type), msg.message);
+        }
       }
     }
   }
-  execution_thread.join();
+  catch (...)
+  {
+    try
+    {
+      exception_helper.rethrow(true);
+    }
+    catch (const std::exception &exc)
+    {
+      std::cerr << "\nGot multiple exceptions! I had to ignore the following while propagating the another: " << exc.what() << "\n\n"
+                << std::flush;
+    }
+    catch (...)
+    {
+      std::cerr << "\nGot multiple exceptions! I had to ignore one while propagating the another, but it is not a std::exception!\n\n"
+                << std::flush;
+    }
+    throw;
+  }
   exception_helper.rethrow();
-
-  std::cout << setprecision(3);
-
   return result;
 }
 
@@ -403,19 +432,25 @@ NB_MODULE(apitofsimraw, m)
          "density_cluster"_a,
          "rate_const"_a,
          "fragmentation_energy"_a = std::nullopt,
-         "cluster_charge_sign"_a = 1)
-    .def(nb::init<int, double, double, const Histogram, const MassSpecInputFragmentationPathway, const Gas>(),
+         "cluster_charge_sign"_a = defaults::cluster_charge_sign)
+    .def(nb::init<ClusterData &, std::vector<MassSpecInputFragmentationPathway>, Gas, const Histogram &, int>(),
+         "cluster_0"_a,
+         "pathways"_a,
+         "gas"_a,
+         "density_cluster"_a,
+         "cluster_charge_sign"_a = defaults::cluster_charge_sign)
+    .def(nb::init<int, double, double, const Histogram, const std::vector<MassSpecInputFragmentationPathway>, const Gas>(),
          "cluster_charge_sign"_a,
          "m_ion"_a,
          "R_cluster"_a,
          "density_cluster"_a,
-         "pathway"_a,
+         "pathways"_a,
          "gas"_a)
     .def_ro("cluster_charge_sign", &MassSpecSubstanceInput::cluster_charge_sign)
     .def_ro("m_ion", &MassSpecSubstanceInput::m_ion)
     .def_ro("R_cluster", &MassSpecSubstanceInput::R_cluster)
     .def_ro("density_cluster", &MassSpecSubstanceInput::density_cluster)
-    .def_ro("pathway", &MassSpecSubstanceInput::pathway)
+    .def_ro("pathways", &MassSpecSubstanceInput::pathways)
     .def_ro("gas", &MassSpecSubstanceInput::gas);
 
   m.def("validate_max_energies", static_cast<void (*)(double, double, double, double)>(validate_max_energies),
@@ -424,7 +459,9 @@ NB_MODULE(apitofsimraw, m)
         "energy_max_rate"_a,
         "bin_width"_a);
 
-  m.def("densityandrate", &densityandrate,
+  m.def("densityandrate",
+        &densityandrate,
+        nb::call_guard<nb::gil_scoped_release>(),
         "cluster_0"_a,
         "cluster_1"_a,
         "cluster_2"_a,
@@ -433,14 +470,16 @@ NB_MODULE(apitofsimraw, m)
         "bin_width"_a,
         "fragmentation_energy"_a);
 
-  m.def("compute_density_of_states_batch", &compute_density_of_states_batch,
+  m.def("compute_density_of_states_batch",
+        &compute_density_of_states_batch,
+        nb::call_guard<nb::gil_scoped_release>(),
         "batch_frequencies"_a,
         "energy_max"_a,
         "bin_width"_a,
         "use_old_impl"_a = false);
 
   nb::class_<KTotalInput>(m, "KTotalInput")
-    .def(nb::init<ClusterData &, ClusterData &, double, Eigen::Ref<Eigen::ArrayXd>, Eigen::Ref<Eigen::ArrayXd>>(),
+    .def(nb::init<ClusterData &, ClusterData &, double, Eigen::Ref<const Eigen::ArrayXd>, Eigen::Ref<const Eigen::ArrayXd>>(),
          nb::arg("cluster_1"),
          nb::arg("cluster_2"),
          nb::arg("fragmentation_energy"),
@@ -452,26 +491,36 @@ NB_MODULE(apitofsimraw, m)
     .def_ro("rho_parent", &KTotalInput::rho_parent)
     .def_ro("rho_comb", &KTotalInput::rho_comb);
 
-  m.def("precompute_mesh", &precompute_mesh,
+  m.def("precompute_mesh",
+        &precompute_mesh,
+        nb::call_guard<nb::gil_scoped_release>(),
         "energy_max_rate"_a,
         "bin_width"_a,
         "mesh_mode"_a);
 
-  m.def("compute_k_total_batch", static_cast<Eigen::ArrayXXd (*)(std::vector<KTotalInput>, double, double, MeshMode)>(compute_k_total_batch),
+  m.def("compute_k_total_batch",
+        static_cast<Eigen::ArrayXXd (*)(std::vector<KTotalInput>, double, double, MeshMode, std::optional<std::function<void(size_t)>>)>(compute_k_total_batch),
+        nb::call_guard<nb::gil_scoped_release>(),
         "batch_input"_a,
         "energy_max_rate"_a,
         "bin_width"_a,
-        "mesh_mode"_a);
+        "mesh_mode"_a,
+        "progress_callback"_a = std::nullopt);
 
-  m.def("compute_k_total_batch", static_cast<Eigen::ArrayXXd (*)(std::vector<KTotalInput>, double, double, std::optional<Eigen::ArrayXd>)>(compute_k_total_batch),
+  m.def("compute_k_total_batch",
+        static_cast<Eigen::ArrayXXd (*)(std::vector<KTotalInput>, double, double, std::optional<const Eigen::ArrayXd>, std::optional<std::function<void(size_t)>>)>(compute_k_total_batch),
+        nb::call_guard<nb::gil_scoped_release>(),
         "batch_input"_a,
         "energy_max_rate"_a,
         "bin_width"_a,
-        "mesh"_a = std::nullopt);
+        "mesh"_a = std::nullopt,
+        "progress_callback"_a = std::nullopt);
 
   nb_magic_enum<SampleMode>(m, "SampleMode");
 
-  m.def("mass_spec", &mass_spec,
+  m.def("mass_spec",
+        &mass_spec,
+        nb::call_guard<nb::gil_scoped_release>(),
         "ms"_a,
         "subs"_a,
         "N"_a,
@@ -515,4 +564,10 @@ NB_MODULE(apitofsimraw, m)
         "seed"_a = 42,
         "dtheta"_a = 1.0e-3,
         "du"_a = std::nullopt);
+
+  m.def("debug_info", &debug_info);
+
+  nb::module_ m_defaults = m.def_submodule("defaults", "Default parameter values");
+
+  m_defaults.attr("cluster_charge_sign") = defaults::cluster_charge_sign;
 }

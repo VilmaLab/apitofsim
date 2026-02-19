@@ -86,6 +86,16 @@ struct Histogram
   {
     return x.rows();
   }
+
+  double first_y() const
+  {
+    return y[0];
+  }
+
+  double last_y() const
+  {
+    return y[length() - 1];
+  }
 };
 
 // TODO: Separate struct for atom-like products
@@ -117,3 +127,7 @@ struct FragmentationPathway
 
   double fragmentation_energy_kelvin();
 };
+
+void debug_info();
+
+void debug_info_on_env();

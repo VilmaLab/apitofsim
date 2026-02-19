@@ -110,6 +110,8 @@ void mass_spec_config_in()
   char file_electronic_energy_2[150];
   char file_probabilities[150];
 
+  debug_info_on_env();
+
   // Set scientific notation
   std::cout << std::scientific << std::setprecision(3);
 
@@ -206,7 +208,7 @@ void mass_spec_config_in()
   compute_mass_and_radius(inertia, amu, m_ion, R_cluster);
 
   StreamingResultQueue result_queue;
-  Counters counters;
+  Eigen::ArrayXi counters;
   RuntimeDuration loop_time;
   RuntimeDuration total_time;
   OMPExceptionHelper exception_helper;
@@ -248,12 +250,13 @@ void mass_spec_config_in()
         T,
         InstrumentPressures{pressure_first, pressure_second},
         quadrupole};
+      std::vector<MassSpecInputFragmentationPathway> pathways = {MassSpecInputFragmentationPathway(rate_const, bonding_energy)};
       MassSpecSubstanceInput subs(
         cluster_charge_sign,
         m_ion,
         R_cluster,
         density_cluster,
-        MassSpecInputFragmentationPathway(rate_const, bonding_energy),
+        pathways,
         Gas{
           R_gas,
           m_gas,
@@ -300,7 +303,7 @@ void mass_spec_config_in()
       {
         const PartialResult &partial_result = std::get<PartialResult>(result);
         partial_counters.row(partial_result.thread_id) = partial_result.counters.transpose();
-        Counters cur_counters = partial_counters.colwise().sum();
+        Eigen::ArrayXi cur_counters = partial_counters.colwise().sum();
         auto cur_iters = cur_counters[Counter::n_fragmented_total] + cur_counters[Counter::n_escaped_total];
         const int progress = 10; // Show progress of simulation every *progress* realizations
         if (cur_iters > 0 && cur_iters % progress == 0 and cur_iters > 0)
@@ -328,7 +331,11 @@ void mass_spec_config_in()
       const LogMessage &msg = std::get<LogMessage>(result);
       if (writer.has_value())
       {
-        writer.value().out_streams[msg.type] << msg.message;
+        if (msg.type == LogMessage::initial_trace) {
+          std::cout << msg.message << std::flush;
+        } else {
+          writer.value().out_streams[msg.type] << msg.message;
+        }
       }
     }
   }

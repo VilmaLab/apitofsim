@@ -1,5 +1,6 @@
 #pragma once
 
+#include "consts.h"
 #include "warnlogcount.h"
 #include "apitofsim.h"
 #include "exceptions.h"
@@ -69,7 +70,7 @@ struct MassSpecSubstanceInput
   double m_ion;
   double R_cluster;
   const Histogram density_cluster;
-  const MassSpecInputFragmentationPathway pathway;
+  std::vector<MassSpecInputFragmentationPathway> pathways;
   const Gas gas;
 
   MassSpecSubstanceInput(
@@ -80,15 +81,22 @@ struct MassSpecSubstanceInput
     const Histogram &density_cluster,
     const Histogram &rate_const,
     std::optional<double> fragmentation_energy = std::nullopt,
-    int cluster_charge_sign = 1);
+    int cluster_charge_sign = defaults::cluster_charge_sign);
 
   MassSpecSubstanceInput(
     int cluster_charge_sign,
     double m_ion,
     double R_cluster,
     const Histogram density_cluster,
-    const MassSpecInputFragmentationPathway pathway,
+    std::vector<MassSpecInputFragmentationPathway> pathways,
     const Gas gas);
+
+  MassSpecSubstanceInput(
+    const ClusterData &cluster_0,
+    const std::vector<MassSpecInputFragmentationPathway> pathways,
+    Gas gas,
+    const Histogram &density_cluster,
+    int cluster_charge_sign);
 };
 
 enum struct SampleMode
@@ -99,7 +107,7 @@ enum struct SampleMode
 };
 
 typedef std::chrono::high_resolution_clock::duration RuntimeDuration;
-typedef std::tuple<Counters, RuntimeDuration, RuntimeDuration> SimulationResult;
+typedef std::tuple<Eigen::ArrayXi, RuntimeDuration, RuntimeDuration> SimulationResult;
 
 SimulationResult apitof_mass_spec(
   const MassSpectrometer &mass_spec,

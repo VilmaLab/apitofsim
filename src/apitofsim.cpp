@@ -1,5 +1,6 @@
 #include "apitofsim.h"
 #include "consts.h"
+#include "openmp_helper.h"
 
 #include <iostream>
 
@@ -74,4 +75,23 @@ Eigen::ArrayXd prepare_energies(double bin_width, int m_max)
     energies[m] = bin_width * (m + 0.5);
   }
   return energies;
+}
+
+void debug_info()
+{
+#ifdef _OPENMP
+  std::cout << "OpenMP version: " << _OPENMP << "\n";
+  std::cout << "Num threads: " << omp_get_max_threads() << "\n";
+#else
+  std::cout << "OpenMP not enabled\n";
+#endif
+}
+
+void debug_info_on_env()
+{
+  const char *debug_info_env = getenv("DEBUG_INFO");
+  if (debug_info_env != nullptr)
+  {
+    debug_info();
+  }
 }
