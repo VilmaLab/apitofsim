@@ -45,6 +45,9 @@ requirements:
     - llvm-openmp
     - if: microarch_level|int > 0
       then: x86_64-microarch-level ==${{ microarch_level }}
+    - if: linux and x86_64
+      then:
+        - libstdcxx-devel_linux-64 15.2.0.*
   host:
     - python ${{ python_min }}.*
     - python-abi3 ${{ python_min }}.*  
@@ -55,7 +58,9 @@ requirements:
     - ninja
     - nanobind
     - eigen
-    - libstdcxx-devel
+    - if: linux and x86_64
+      then:
+        - libstdcxx-devel_linux-64 15.2.0.*
   run:
     - python >=${{ python_min }}
     - numpy
@@ -67,7 +72,7 @@ requirements:
     - progress-table >= 3.2.2
     - ase >= 3.27.0
     - pyarrow >= 23.0.0
-    - libstdcxx
+    - click >= 8.3.1
 
 tests:
   - python:
