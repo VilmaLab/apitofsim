@@ -298,7 +298,11 @@ class ClusterDatabase:
                 pathways = (
                     pathway_common_names.join(
                         self.db.db.from_arrow(wanted_tbl).set_alias("wanted"),
-                        condition="wanted.pathway = cluster_common_name and wanted.product1 = product1_common_name and wanted.product2 = product2_common_name",
+                        condition=(
+                            "wanted.pathway = cluster_common_name "
+                            "and ((wanted.product1 = product1_common_name and wanted.product2 = product2_common_name) "
+                            "or (wanted.product1 = product2_common_name and wanted.product2 = product1_common_name))"
+                        ),
                     )
                     .select("pathway_id")
                     .fetch_arrow_table()["pathway_id"]
