@@ -122,7 +122,9 @@ class ProductsCluster(ClusterLike):
         frequencies1 = self.cluster1.get_frequencies()
         frequencies2 = self.cluster2.get_frequencies()
         if frequencies1 is None and frequencies2 is None:
-            raise ValueError("Cannot have a ProductCluster with both clusters being atom-like products")
+            raise ValueError(
+                "Cannot have a ProductCluster with both clusters being atom-like products"
+            )
         if frequencies2 is None:
             frequencies = frequencies1
         elif frequencies1 is None:
@@ -303,7 +305,9 @@ def compute_density_of_states_batch(
     for i, cluster in enumerate(clusters):
         frequencies_cluster = cluster.get_frequencies()
         if frequencies_cluster is None:
-            raise ValueError(f"Cannot compute density of states for a atom-like product {cluster!r} at index {i}")
+            raise ValueError(
+                f"Cannot compute density of states for a atom-like product {cluster!r} at index {i}"
+            )
         frequencies.append(frequencies_cluster)
     return _compute_density_of_states_batch(
         frequencies, energy_max, bin_width, use_old_impl=use_old_impl
@@ -391,7 +395,9 @@ def MassSpecSubstanceInput(*args, **kwargs):
                 density_cluster=get("density_cluster", 4).into_cpp(),
                 rate_const=get("rate_const", 5).into_cpp(),
                 fragmentation_energy=get("fragmentation_energy", 6, None),
-                cluster_charge_sign=get("cluster_charge_sign", 7, defaults.cluster_charge_sign),
+                cluster_charge_sign=get(
+                    "cluster_charge_sign", 7, defaults.cluster_charge_sign
+                ),
             )
         else:
             return _MassSpecSubstanceInput(
@@ -399,7 +405,9 @@ def MassSpecSubstanceInput(*args, **kwargs):
                 pathways=get("pathways", 1),
                 gas=get("gas", 2).into_cpp(),
                 density_cluster=get("density_cluster", 3).into_cpp(),
-                cluster_charge_sign=get("cluster_charge_sign", 4, defaults.cluster_charge_sign),
+                cluster_charge_sign=get(
+                    "cluster_charge_sign", 4, defaults.cluster_charge_sign
+                ),
             )
     else:
         return _MassSpecSubstanceInput(
