@@ -1,9 +1,7 @@
-from apitofsim.db import ExperimentDatabase
-
-import duckdb
-import holoviews
 import sys
-import pandas as pd
+
+import holoviews
+from apitofsim.workflow import ExperimentDatabase
 
 holoviews.extension("matplotlib")  # type: ignore
 

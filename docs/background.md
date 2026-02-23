@@ -56,7 +56,7 @@ These publication make use (previous versions of) this simulation:
 
 * Alfaouri et al. (2022)[^5] used an older version of the code, without support for the quadrupole, pinhole rejection or multiple fragmentation pathways.
   In this publication, the overall rejection rate is obtained as the product of the rejection rate of individual pathways.
-  The [workflow example](api.md) builds on this study.
+  The [workflow example](python.md) builds on this study.
 
 [^5]:
     Alfaouri, D., Passananti, M., Zanca, T., Ahonen, L., Kangasluoma, J., Kubečka, J., Myllys, N., and Vehkamäki, H. (2022).

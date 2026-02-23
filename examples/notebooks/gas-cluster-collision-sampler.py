@@ -27,11 +27,13 @@ def _(mo):
 
 @app.cell(hide_code=True)
 def _():
+    from math import cos, exp, pi, sin, sqrt
+
     import marimo as mo
-    from math import exp, pi, sqrt, cos, sin
     import numpy as np
-    from numpy.linalg import norm
     from matplotlib import pyplot as plt
+    from numpy.linalg import norm
+
     return cos, exp, mo, norm, np, pi, plt, sin, sqrt
 
 
@@ -85,7 +87,7 @@ def _(
         "gas_molecule_mass_kg": gas_molecule_mass_kg,
         "mobility_gas_inv": mobility_gas_inv,
         "mobility_gas": mobility_gas,
-        "boundary_u": boundary_u
+        "boundary_u": boundary_u,
     }
 
     for key, value in constants.items():
@@ -146,30 +148,45 @@ def _(mo):
 @app.cell
 def _(cos, exp, sin):
     def func_theta(u_n, theta, v_norm, mobility_gas_inv):
-        return (u_n + v_norm * cos(theta)) * exp(-0.5 * mobility_gas_inv * u_n ** 2)
+        return (u_n + v_norm * cos(theta)) * exp(-0.5 * mobility_gas_inv * u_n**2)
 
     def func_joint(u_n, theta, v_norm, mobility_gas_inv):
-        return (u_n + v_norm * cos(theta)) * exp(-0.5 * mobility_gas_inv * u_n ** 2) * sin(theta)
+        return (
+            (u_n + v_norm * cos(theta))
+            * exp(-0.5 * mobility_gas_inv * u_n**2)
+            * sin(theta)
+        )
 
     def func_theta0(u, theta, v_norm, mobility_gas_inv):
         return u * exp(-0.5 * mobility_gas_inv * (u - v_norm * cos(theta)) ** 2)
 
     def func_joint0(u, theta, v_norm, mobility_gas_inv):
-        return u * exp(-0.5 * mobility_gas_inv * (u - v_norm * cos(theta)) ** 2) * sin(theta)
+        return (
+            u
+            * exp(-0.5 * mobility_gas_inv * (u - v_norm * cos(theta)) ** 2)
+            * sin(theta)
+        )
+
     return func_joint, func_joint0, func_theta, func_theta0
 
 
 @app.cell(hide_code=True)
 def _(mo, pi, v_norm_max, v_norm_median):
     theta_w = mo.ui.slider(start=0, stop=pi, step=pi / 1000)
-    v_norm_w = mo.ui.slider(start=0, stop=v_norm_max, step=v_norm_max / 1000, value=v_norm_median)
+    v_norm_w = mo.ui.slider(
+        start=0, stop=v_norm_max, step=v_norm_max / 1000, value=v_norm_median
+    )
     zero_start_w = mo.ui.checkbox(label="Zero start", value=False)
     return theta_w, v_norm_w, zero_start_w
 
 
 @app.cell(hide_code=True)
 def _(boundary_u, mo, theta_w, v_norm_w, zero_start_w):
-    u_w = mo.ui.slider(start=0 if zero_start_w.value else -v_norm_w.value, stop=boundary_u, step=(boundary_u + v_norm_w.value) / 1000)
+    u_w = mo.ui.slider(
+        start=0 if zero_start_w.value else -v_norm_w.value,
+        stop=boundary_u,
+        step=(boundary_u + v_norm_w.value) / 1000,
+    )
     d = mo.ui.dictionary(
         {
             "v_norm": v_norm_w,
@@ -211,9 +228,9 @@ def _(cos, d, func_v, mobility_gas_inv, np, plt, thetas, u_ns):
         data2d = func_v(u_ns_grid, thetas_grid, d["v_norm"].value, mobility_gas_inv)
         masked_data = np.ma.masked_where(data2d < 0, data2d)
         plt2d, ax = plt.subplots()
-        im = ax.contourf(u_ns, thetas, masked_data, vmin=0, levels=50, cmap='viridis')
-        ax.axhline(d["theta"].value, color='red')
-        ax.axvline([d["u"].value], color='red')
+        im = ax.contourf(u_ns, thetas, masked_data, vmin=0, levels=50, cmap="viridis")
+        ax.axhline(d["theta"].value, color="red")
+        ax.axvline([d["u"].value], color="red")
         if not d["zero_start"].value:
             ax.plot(-d["v_norm"].value * np.vectorize(cos)(thetas), thetas)
         plt2d.colorbar(im)
@@ -227,10 +244,12 @@ def _(cos, d, func_v, mobility_gas_inv, np, plt, thetas, u_ns):
 def _(cos, d, func_v, mobility_gas_inv, plt, u_ns):
     def mk_plttheta():
         plttheta, ax = plt.subplots()
-        ax.plot(u_ns, func_v(u_ns, d["theta"].value, d["v_norm"].value, mobility_gas_inv))
+        ax.plot(
+            u_ns, func_v(u_ns, d["theta"].value, d["v_norm"].value, mobility_gas_inv)
+        )
         if not d["zero_start"].value:
-            ax.axvline(-d["v_norm"].value * cos(d["theta"].value), color='red')
-            ax.axhline(0, color='red')
+            ax.axvline(-d["v_norm"].value * cos(d["theta"].value), color="red")
+            ax.axhline(0, color="red")
         return plttheta
 
     plttheta = mk_plttheta()
@@ -239,7 +258,9 @@ def _(cos, d, func_v, mobility_gas_inv, plt, u_ns):
 
 @app.cell(hide_code=True)
 def _(d, func_v, mobility_gas_inv, plt, thetas):
-    pltv = plt.plot(thetas, func_v(d["u"].value, thetas, d["v_norm"].value, mobility_gas_inv))
+    pltv = plt.plot(
+        thetas, func_v(d["u"].value, thetas, d["v_norm"].value, mobility_gas_inv)
+    )
     return (pltv,)
 
 
@@ -280,6 +301,7 @@ def _(mo):
 @app.cell(hide_code=True)
 def _():
     import sympy as sp
+
     sp.init_printing()
     return (sp,)
 
@@ -294,7 +316,7 @@ def _(mo):
 
 @app.cell(hide_code=True)
 def _(mobility_gas_inv, sp):
-    def bound_function(u, v, g = mobility_gas_inv):
+    def bound_function(u, v, g=mobility_gas_inv):
         return u * sp.exp(-g / 2 * (u - v) ** 2)
 
     u_s, v_s, g_s = sp.symbols("u v g_inv", positive=True, real=True)
@@ -326,7 +348,9 @@ def _(mo):
 
 @app.cell
 def _(bound_function, g_s, sp, u_s, v_s):
-    max_point_s = sp.simplify(sp.solve(sp.diff(bound_function(u_s, v_s, g_s), u_s), u_s)[1])
+    max_point_s = sp.simplify(
+        sp.solve(sp.diff(bound_function(u_s, v_s, g_s), u_s), u_s)[1]
+    )
     max_point_s
     return (max_point_s,)
 
@@ -341,7 +365,7 @@ def _(d, g_s, max_point_s, mobility_gas_inv, v_s):
 @app.cell
 def _(d, mobility_gas, sqrt):
     def bound_func_argmax(v):
-        return (v + sqrt(v ** 2 + 4 * mobility_gas)) / 2
+        return (v + sqrt(v**2 + 4 * mobility_gas)) / 2
 
     bound_func_argmax(d["v_norm"].value)
     return
@@ -364,7 +388,9 @@ def _(mo):
 
 @app.cell(hide_code=True)
 def _(mo):
-    run_python_rejection_sampler_button = mo.ui.run_button(label="run python rejection sampler")
+    run_python_rejection_sampler_button = mo.ui.run_button(
+        label="run python rejection sampler"
+    )
     run_python_rejection_sampler_button
     return (run_python_rejection_sampler_button,)
 
@@ -407,7 +433,7 @@ def _(
             sample_rejections.append(rejections)
         return sample_rejections, np.array(samples)
 
-    rejections, samples = run_sampling();
+    rejections, samples = run_sampling()
     return rejections, run_sampling, samples
 
 
@@ -459,9 +485,13 @@ def _(mo):
 @app.cell(hide_code=True)
 def _():
     from os import environ
-    from apitofsim.apitofsimraw import sample_collision
+
     from apitofsim.api import SampleMode
-    from apitofsim.config import parse_config_with_particles, get_clusters, get_gas, ConfigFile
+    from apitofsim.apitofsimraw import sample_collision
+    from apitofsim.config import (
+        ConfigFile,
+    )
+
     return ConfigFile, SampleMode, environ, sample_collision
 
 
@@ -479,7 +509,9 @@ def _(ConfigFile, environ):
 
 @app.cell(hide_code=True)
 def _(mo):
-    run_sampler_comparison_button = mo.ui.run_button(label="run apitofsim sampler comparison")
+    run_sampler_comparison_button = mo.ui.run_button(
+        label="run apitofsim sampler comparison"
+    )
     run_sampler_comparison_button
     return (run_sampler_comparison_button,)
 
@@ -502,12 +534,13 @@ def _(
     def sample_comparison():
         fig, axs = plt.subplots(nrows=3, ncols=1, figsize=(6, 15), sharex=True)
         for sample_mode in SampleMode:
-            samples = sample_collision(sample_mode, 100000, v_norm_w.value, gas, cluster.radius, P, T)
+            samples = sample_collision(
+                sample_mode, 100000, v_norm_w.value, gas, cluster.radius, P, T
+            )
             axs[sample_mode.value].hist2d(samples[:, 1], samples[:, 0], bins=[50, 50])
             axs[sample_mode.value].set_title(sample_mode.name)
         fig.tight_layout()
         return fig
-
 
     mo.mpl.interactive(sample_comparison())
     return

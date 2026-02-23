@@ -525,7 +525,7 @@ Eigen::ArrayXXd compute_k_total_batch(std::vector<KTotalInput> batch_input, doub
         input.cluster_2.compute_derived();
         compute_k_total_general(k0, k_rate.col(i), input.cluster_1, input.cluster_2, input.fragmentation_energy, input.rho_parent, input.rho_comb, bin_width, m_max_rate, mesh);
       });
-      if (progress_callback)
+      if (progress_callback && exception_helper.should_continue())
       {
         #pragma omp atomic
         completed++;

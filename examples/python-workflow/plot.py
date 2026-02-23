@@ -1,11 +1,11 @@
 import sys
-import matplotlib.pyplot as plt
-from apitofsim.db import ExperimentDatabase
-import duckdb
 from functools import reduce
 from operator import mul
 from pprint import pprint
 
+import duckdb
+import matplotlib.pyplot as plt
+from apitofsim.workflow import ExperimentDatabase
 
 db = ExperimentDatabase(sys.argv[1])
 print(db.experiment_summary_df().to_string(index=False))
@@ -102,7 +102,7 @@ def make_plot(outf, new_model):
     purple = "#6B2D7B"  # Dark purple/plum
     lime_green = "#9ACD32"  # Yellow-green/lime
     cyan = "#4BACC6"
-    orange = "#F79646"
+    # orange = "#F79646"
 
     # Create bars
     ax.bar(

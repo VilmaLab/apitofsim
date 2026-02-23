@@ -13,6 +13,8 @@ markdown_extensions:
   - pymdownx.inlinehilite
   - pymdownx.snippets
   - pymdownx.superfences
+  - attr_list
+  - mkdocs-click
 plugins:
   - search
   - mkdocstrings:
@@ -41,6 +43,7 @@ plugins:
 nav:
   - Getting started: index.md
   - Background: background.md
-  - Python API: api.md
+  - CLI tools: cli.md
+  - Python library: python.md
   - Notebooks: notebooks.md
   - Development: development.md

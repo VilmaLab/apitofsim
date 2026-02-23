@@ -89,6 +89,11 @@ void OMPExceptionHelper::rethrow(bool signals_as_exceptions)
   }
 }
 
+bool OMPExceptionHelper::should_continue() const
+{
+  return !this->exception && saved_signal.load() == -1;
+}
+
 void OMPExceptionHelper::capture()
 {
 #pragma omp critical

@@ -73,6 +73,7 @@ requirements:
     - ase >= 3.27.0
     - pyarrow >= 23.0.0
     - click >= 8.3.1
+    - questionary >= 2.1.1
 
 tests:
   - python:

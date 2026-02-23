@@ -13,6 +13,7 @@ dependencies = [
   "pint>=0.25.1",
   "progress-table>=3.2.2",
   "pyarrow>=23.0.0",
+  "questionary>=2.1.1",
 ]
 
 [build-system]
@@ -23,6 +24,9 @@ requires = ["meson-python", "meson >= 1.3.0"]
 reflink = ["reflink>=0.2.2"]
 plot = ["matplotlib>=3.10.7", "holoviews>=1.21.0"]
 
+[project.scripts]
+apitofsim = "apitofsim.cli:cli"
+
 [dependency-groups]
 dev = [
   "meson-python>=0.18.0",
@@ -32,11 +36,19 @@ dev = [
   "pytest>=9.0.2",
 ]
 docs = [
+  "mkdocs-click>=0.9.0",
   "mkdocs-material>=9.7.0",
   "mkdocstrings>=1.0.0",
   "mkdocstrings-python>=2.0.1",
 ]
-notebooks = ["scipy>=1.16.3", "sympy>=1.14.0", "marimo"]
+notebooks = ["scipy>=1.16.3", "sympy>=1.14.0", "marimo[sql]", "polars[pyarrow]"]
+
+[tool.ruff]
+extend-exclude = ["*.mo.py"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = ["E501"]
 
 [tool.meson-python]
 limited-api = true

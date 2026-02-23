@@ -44,11 +44,12 @@ public:
   ~OMPExceptionHelper();
   void rethrow(bool signals_as_exceptions = false);
   void capture();
+  bool should_continue() const;
 
   template <typename Function, typename... Parameters>
   void guard(Function f, Parameters... params)
   {
-    if (!this->exception && saved_signal.load() == -1)
+    if (should_continue())
     {
       try
       {

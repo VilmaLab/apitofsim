@@ -1,6 +1,6 @@
 import sys
 
-from apitofsim.db import ExperimentDatabase
+from apitofsim.workflow import ExperimentDatabase
 
 in_path = sys.argv[1]
 out_path = sys.argv[2]
