@@ -671,6 +671,7 @@ class ExperimentRunner:
             inner_pbar.close()
             mass_spec_table.next_row()
             cluster_seq += 1
+        mass_spec_table.close()
 
     def _run_cluster_grouped(
         self,
