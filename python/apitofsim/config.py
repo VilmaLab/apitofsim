@@ -9,9 +9,11 @@ from .api import (
     ClusterData,
     Gas,
     Histogram,
+    MassSpectrometer,
     Quadrupole,
     _ClusterData,
     _Gas,
+    _MassSpectrometer,
     _Quadrupole,
     ureg,
 )

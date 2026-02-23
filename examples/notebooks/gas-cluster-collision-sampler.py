@@ -490,9 +490,6 @@ def _():
     from apitofsim.apitofsimraw import sample_collision
     from apitofsim.config import (
         ConfigFile,
-        get_clusters,
-        get_gas,
-        parse_config_with_particles,
     )
 
     return ConfigFile, SampleMode, environ, sample_collision

@@ -1,6 +1,6 @@
 import os
 from glob import glob
-from os.path import basename, dirname, expanduser, isfile
+from os.path import dirname, expanduser
 
 import numpy
 from pint import get_application_registry
