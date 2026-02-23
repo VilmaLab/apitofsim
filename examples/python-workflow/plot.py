@@ -1,11 +1,11 @@
 import sys
-import matplotlib.pyplot as plt
-from apitofsim.workflow import ExperimentDatabase
-import duckdb
 from functools import reduce
 from operator import mul
 from pprint import pprint
 
+import duckdb
+import matplotlib.pyplot as plt
+from apitofsim.workflow import ExperimentDatabase
 
 db = ExperimentDatabase(sys.argv[1])
 print(db.experiment_summary_df().to_string(index=False))

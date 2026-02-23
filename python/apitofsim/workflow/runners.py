@@ -1,19 +1,21 @@
+from typing import Callable
+
+import duckdb
 import numpy
 from pint import get_application_registry
-from typing import Callable
-import duckdb
 
-from .db import SuperClusterDatabase, ExperimentDatabase
-from .db_utils import get_or_insert, get_through_join_else, insert_via_arrow
 from apitofsim.api import (
     ApiTofError,
     ApiTofOverflowError,
-    MeshMode,
-    MassSpectrometer,
-    MassSpecSubstanceInput,
     MassSpecInputFragmentationPathway,
+    MassSpecSubstanceInput,
+    MassSpectrometer,
+    MeshMode,
     defaults,
 )
+
+from .db import ExperimentDatabase, SuperClusterDatabase
+from .db_utils import get_or_insert, get_through_join_else, insert_via_arrow
 
 ureg = get_application_registry()
 Q_ = ureg.Quantity
@@ -53,6 +55,7 @@ class DerivedDataPreparer:
         status_table=None,
     ):
         import pyarrow as pa
+
         from apitofsim import ProductsCluster, compute_density_of_states_batch
 
         num_clusters_missed = 0
@@ -161,13 +164,14 @@ class DerivedDataPreparer:
         pathway_lookup,
         status_table=None,
     ):
+        import pyarrow as pa
+
         from apitofsim import (
+            FragmentationPathway,
             KTotalInput,
             compute_k_total_batch,
-            FragmentationPathway,
         )
         from apitofsim.api import validate_max_energies
-        import pyarrow as pa
 
         histogram_id = get_or_insert(
             self.db.db,
@@ -263,9 +267,11 @@ class DerivedDataPreparer:
     def run_densityandrate(
         self, config, cluster_indexed, pathway_lookup, tablepbar=None
     ):
-        from apitofsim import precompute_mesh
         from timeit import default_timer as timer
+
         from progress_table import ProgressTable
+
+        from apitofsim import precompute_mesh
 
         if tablepbar is None:
             table = ProgressTable(default_column_alignment="left", refresh_rate=0)
@@ -367,6 +373,7 @@ class DerivedDataPreparer:
 
     def run_preliminaries(self, config, cluster_indexed, pathway_lookup):
         from timeit import default_timer as timer
+
         from progress_table import ProgressTable
 
         prelim_table = ProgressTable(default_column_alignment="left", refresh_rate=0)
@@ -553,9 +560,11 @@ class ExperimentRunner:
         verbose=False,
     ):
         from os import environ
-        from progress_table import ProgressTable
-        from apitofsim.api import Histogram
         from timeit import default_timer as timer
+
+        from progress_table import ProgressTable
+
+        from apitofsim.api import Histogram
 
         mass_spec_table = ProgressTable(
             default_column_alignment="right",
@@ -676,9 +685,11 @@ class ExperimentRunner:
         verbose=False,
     ):
         from os import environ
-        from progress_table import ProgressTable
-        from apitofsim.api import Histogram
         from timeit import default_timer as timer
+
+        from progress_table import ProgressTable
+
+        from apitofsim.api import Histogram
 
         last_cluster_id = None
         groups = []

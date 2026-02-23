@@ -1,16 +1,17 @@
 # pyright: reportAttributeAccessIssue=false
 
-import numpy
 from collections import namedtuple
-import pandas
-import duckdb
-from pint import get_application_registry
-from apitofsim import ClusterData
 from datetime import timedelta
 
-from .db_utils import duckdb_connect_roview_cow
-import apitofsim.workflow.sql_files as sql_files
+import duckdb
+import numpy
+import pandas
+from pint import get_application_registry
 
+import apitofsim.workflow.sql_files as sql_files
+from apitofsim import ClusterData
+
+from .db_utils import duckdb_connect_roview_cow
 
 ureg = get_application_registry()
 Q_ = ureg.Quantity
@@ -366,6 +367,7 @@ class ExperimentDatabase(SuperClusterDatabase):
 
     def iter_configs(self, name=None):
         import orjson
+
         from apitofsim.config import import_raw_config
 
         query = self.db.table("experiment_config")

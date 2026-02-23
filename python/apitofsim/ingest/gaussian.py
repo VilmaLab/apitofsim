@@ -4,7 +4,6 @@ from pprint import pprint
 from numpy import array
 from pint import get_application_registry
 
-
 ureg = get_application_registry()
 
 

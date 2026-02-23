@@ -1,18 +1,18 @@
-import os
 import json
-from typing import Any
+import os
+from typing import Any, Tuple
+
 import numpy
 from pint import get_application_registry
-from typing import Tuple
 
 from .api import (
-    Gas,
-    _Gas,
-    Quadrupole,
-    _Quadrupole,
     ClusterData,
-    _ClusterData,
+    Gas,
     Histogram,
+    Quadrupole,
+    _ClusterData,
+    _Gas,
+    _Quadrupole,
     ureg,
 )
 
@@ -372,8 +372,8 @@ def parse_config_list(fn):
 
 
 def dump_to_raw(obj):
-    import pint
     import orjson
+    import pint
 
     def default(obj):
         if isinstance(obj, pint.Quantity):

@@ -27,11 +27,12 @@ def _(mo):
 
 @app.cell(hide_code=True)
 def _():
+    from math import cos, exp, pi, sin, sqrt
+
     import marimo as mo
-    from math import exp, pi, sqrt, cos, sin
     import numpy as np
-    from numpy.linalg import norm
     from matplotlib import pyplot as plt
+    from numpy.linalg import norm
 
     return cos, exp, mo, norm, np, pi, plt, sin, sqrt
 
@@ -484,13 +485,14 @@ def _(mo):
 @app.cell(hide_code=True)
 def _():
     from os import environ
-    from apitofsim.apitofsimraw import sample_collision
+
     from apitofsim.api import SampleMode
+    from apitofsim.apitofsimraw import sample_collision
     from apitofsim.config import (
-        parse_config_with_particles,
+        ConfigFile,
         get_clusters,
         get_gas,
-        ConfigFile,
+        parse_config_with_particles,
     )
 
     return ConfigFile, SampleMode, environ, sample_collision

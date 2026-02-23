@@ -6,11 +6,12 @@ app = marimo.App(width="medium")
 
 @app.cell(hide_code=True)
 def _():
-    from apitofsim.apitofsimraw import precompute_mesh, MeshMode
-    from numpy import arange
-    import matplotlib.pyplot as plt
     import time
+
     import marimo as mo
+    import matplotlib.pyplot as plt
+    from apitofsim.apitofsimraw import MeshMode, precompute_mesh
+    from numpy import arange
 
     return MeshMode, arange, mo, plt, precompute_mesh, time
 

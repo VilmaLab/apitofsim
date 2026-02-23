@@ -1,6 +1,6 @@
 import os
-import pytest
 
+import pytest
 from apitofsim.config import ConfigFile
 from apitofsim.workflow import ExperimentDatabase, ExperimentRunner, ingest_legacy_one
 

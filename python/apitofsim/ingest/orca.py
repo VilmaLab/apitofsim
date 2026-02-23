@@ -1,7 +1,6 @@
+from ase.io.orca import get_chunks as read_orca_chunks
 from numpy import array
 from pint import get_application_registry
-from ase.io.orca import get_chunks as read_orca_chunks
-
 
 ureg = get_application_registry()
 

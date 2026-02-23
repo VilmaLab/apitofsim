@@ -2,11 +2,14 @@ import duckdb
 
 
 def duckdb_connect_roview_cow(filename, *, config=None, fallback="copy"):
-    import duckdb
+    import os
+    from os.path import join as pjoin
+    from os.path import split as psplit
+    from os.path import splitext
     from shutil import copy
     from uuid import uuid4
-    from os.path import split as psplit, join as pjoin, splitext
-    import os
+
+    import duckdb
 
     if config is None:
         config = {}
@@ -17,7 +20,7 @@ def duckdb_connect_roview_cow(filename, *, config=None, fallback="copy"):
     exc = None
     cleanup = None
     try:
-        from reflink import reflink, ReflinkImpossibleError
+        from reflink import ReflinkImpossibleError, reflink
 
         try:
             reflink(filename, dest)

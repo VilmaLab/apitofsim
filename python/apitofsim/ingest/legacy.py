@@ -1,9 +1,9 @@
-from glob import glob
-from os.path import dirname, isfile, basename, expanduser
 import os
+from glob import glob
+from os.path import basename, dirname, expanduser, isfile
+
 import numpy
 from pint import get_application_registry
-
 
 ureg = get_application_registry()
 
@@ -56,6 +56,7 @@ class DotAccessDict(dict):
 
 def parse_legacy_one(filename, clusters):
     from contextlib import chdir
+
     from apitofsim.config import parse_config
 
     pathway = []
