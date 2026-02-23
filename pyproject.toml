@@ -13,6 +13,7 @@ dependencies = [
   "pint>=0.25.1",
   "progress-table>=3.2.2",
   "pyarrow>=23.0.0",
+  "questionary>=2.1.1",
 ]
 
 [build-system]
@@ -36,7 +37,7 @@ docs = [
   "mkdocstrings>=1.0.0",
   "mkdocstrings-python>=2.0.1",
 ]
-notebooks = ["scipy>=1.16.3", "sympy>=1.14.0", "marimo"]
+notebooks = ["scipy>=1.16.3", "sympy>=1.14.0", "marimo[sql]", "polars[pyarrow]"]
 
 [tool.meson-python]
 limited-api = true
