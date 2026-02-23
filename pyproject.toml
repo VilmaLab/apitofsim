@@ -39,6 +39,13 @@ docs = [
 ]
 notebooks = ["scipy>=1.16.3", "sympy>=1.14.0", "marimo[sql]", "polars[pyarrow]"]
 
+[tool.ruff]
+extend-exclude = ["*.mo.py"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = ["E501"]
+
 [tool.meson-python]
 limited-api = true
 
