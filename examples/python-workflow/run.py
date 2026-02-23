@@ -1,5 +1,5 @@
 import sys
-from apitofsim.db import ExperimentDatabase, ExperimentRunner
+from apitofsim.workflow import ExperimentDatabase, ExperimentRunner
 import pint
 
 ureg = pint.UnitRegistry()

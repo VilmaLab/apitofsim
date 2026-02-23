@@ -1,4 +1,4 @@
-from apitofsim.db import ExperimentDatabase
+from apitofsim.workflow import ExperimentDatabase
 
 import duckdb
 import holoviews

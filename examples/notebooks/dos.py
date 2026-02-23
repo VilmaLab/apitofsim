@@ -33,7 +33,7 @@ def _():
     import pint
     from os import makedirs, environ
     import numpy as np
-    from apitofsim.db import ClusterDatabase
+    from apitofsim.workflow import ClusterDatabase
     from pint import get_application_registry
     import marimo as mo
     return (

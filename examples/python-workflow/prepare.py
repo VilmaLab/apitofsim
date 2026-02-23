@@ -4,7 +4,7 @@ from os import unlink
 import pint
 import orjson
 
-from apitofsim.db import ingest_tree, ExperimentDatabase
+from apitofsim.workflow import ingest_tree, ExperimentDatabase
 
 
 def iter_raw_configs(json):

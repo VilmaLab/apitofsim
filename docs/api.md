@@ -20,9 +20,9 @@ These classes hold data to be
 
 # Database
 
-The `apitofsim.db` module, contains functions to keep cluster data in a database, convenient for running scaled-up simulations.
+The `apitofsim.workflow` module, contains functions to keep cluster data in a database, convenient for running scaled-up simulations.
 
-::: apitofsim.db.ClusterDatabase
+::: apitofsim.workflow.ClusterDatabase
     members: true
 
 # Workflow example with Python
