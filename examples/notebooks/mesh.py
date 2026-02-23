@@ -11,6 +11,7 @@ def _():
     import matplotlib.pyplot as plt
     import time
     import marimo as mo
+
     return MeshMode, arange, mo, plt, precompute_mesh, time
 
 
@@ -39,7 +40,6 @@ def _(MeshMode, arange, precompute_mesh, time):
                 runtime_data[mesh_mode].append(elapsed_time)
                 print(mesh_mode, e, elapsed_time)
 
-
     run_bench()
     return energy_range, runtime_data
 
@@ -63,6 +63,7 @@ def _(energy_range, plt, runtime_data):
 @app.cell
 def _():
     import marimo as mo
+
     return (mo,)
 
 

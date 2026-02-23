@@ -36,6 +36,7 @@ def _():
     from apitofsim.workflow import ClusterDatabase
     from pint import get_application_registry
     import marimo as mo
+
     return (
         ClusterDatabase,
         compute_density_of_states_batch,
@@ -106,25 +107,29 @@ def _(bin_width, clusters, compute_density_of_states_batch, energy_max, timer):
     def compute_dos(use_old_impl):
         start = timer()
         result = compute_density_of_states_batch(
-            clusters.values(), energy_max=energy_max, bin_width=bin_width, use_old_impl=use_old_impl
+            clusters.values(),
+            energy_max=energy_max,
+            bin_width=bin_width,
+            use_old_impl=use_old_impl,
         )
         interval = timer() - start
         print(
             f"Took {interval:.2f}s for {len(clusters)} clusters; {(interval / len(clusters)):.2f}s per cluster"
         )
         return result
+
     return (compute_dos,)
 
 
 @app.cell
 def _(compute_dos):
-    all_old_dos = compute_dos(use_old_impl=True);
+    all_old_dos = compute_dos(use_old_impl=True)
     return (all_old_dos,)
 
 
 @app.cell
 def _(compute_dos):
-    all_new_dos = compute_dos(use_old_impl=False);
+    all_new_dos = compute_dos(use_old_impl=False)
     return (all_new_dos,)
 
 
