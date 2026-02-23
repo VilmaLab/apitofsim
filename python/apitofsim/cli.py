@@ -144,6 +144,7 @@ def db():
 
 
 @db.command(short_help="Prepare the database for use")
+@click.argument("mode", required=True, type=click.Choice(["create", "append"]))
 @click.argument("config", required=True, type=click.Path(exists=True, dir_okay=False))
 @click.argument("database", required=True, type=click.Path(dir_okay=False))
 @click.option(
@@ -156,12 +157,14 @@ def db():
 @click.option(
     "-w", "--warm", is_flag=True, help="Warm the database with histogrammed data"
 )
-def prepare(config, database, db_type, warm):
+def prepare(mode, config, database, append, replace_by_name, db_type, warm):
     """
-    Create and prepare the database at path DATABASE using the json configuration file at path CONFIG.
+    Prepare the database according to MODE at path DATABASE using the json configuration file at path CONFIG.
 
     Typically, you will be creating an database in order to run simulation experiments,
     and so --db-type should be kept as --db-type=experiment.
+
+    MODE can be create or append, depending on whether you want to create a new database or append to an existing one.
 
     You may choose to `--warm` your database, so that histogramming is done now, in advance of the simulation itself.
 
@@ -172,7 +175,7 @@ def prepare(config, database, db_type, warm):
     For pathways, currently only the "legacy_glob" type is supported, which imports pathways from the legacy .in files matching a glob pattern.
     The per-cluster data is then taken either from .dat files specified in the .in file or ORCA or Guassian outputs files next to the .in file.
 
-    ```
+    ```toml
     [[pathways]]
     type = "legacy_glob"
     # An optional prefix to add to the common names of all clusters imported here
@@ -202,7 +205,7 @@ def prepare(config, database, db_type, warm):
     For the simulation parameters, you can specify one or more `[[configs]]` sections, each with a `name` field and the values of all parameters.
     You can put common parameters in the `default_config` section, so that each `[[configs]]` section inherits these as overridable defaults.
 
-    ```
+    ```toml
     [default_config]
     M_iter = 1_000
     N = 1_000
@@ -237,9 +240,9 @@ def prepare(config, database, db_type, warm):
     ac_field = "200.0 volt"
     radiofrequency = "1.3e6 Hz"
     r_quadrupole = "6.0e-3 meter"
+    ```
     """
     import os
-    from os import unlink
     from pprint import pprint
 
     import tomllib
@@ -257,8 +260,13 @@ def prepare(config, database, db_type, warm):
         for config in json.get("configs", []):
             yield config["name"], {**json.get("default_config", {}), **config}
 
-    if os.path.exists(database):
-        unlink(database)
+    if os.path.exists(database) and mode == "create":
+        raise click.UsageError(f"Database file {database} already exists, will not overwrite (delete it yourself first if you want)")
+    if not os.path.exists(database) and mode != "create":
+        raise click.UsageError(
+            f"Database file {database} does not exist, cannot append"
+        )
+
     if db_type == "experiment":
         db = ExperimentDatabase(database)
     elif db_type == "cluster":
@@ -270,7 +278,8 @@ def prepare(config, database, db_type, warm):
     else:
         assert False
 
-    db.create_tables()
+    if mode == "create":
+        db.create_tables()
 
     with open(config, "rb") as f:
         source = tomllib.load(f)
