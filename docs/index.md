@@ -14,23 +14,13 @@ It is also possible to [build from source](development.md).
 
 ## Usage
 
-There are two main entry points to running the simulation: the Python API and the command line tools.
-The Python API is recommended for new users, and new functionality may only be available there.
+There are two main entry points to running the simulation: the command line tools and a Python library.
+Basic functionality is available in both, but the Python API allows for more customization.
 
-### Python API
+### Using apitofsim from the command line
 
-See [Using the Python API](api.md).
+See [Using the command line tools](cli.md).
 
-### Command line tools
+### Using apitofsim from Python
 
-If you have installed via Conda, and activated the relevant environment, the command line tools should be installed and in your path.
-If you have compiled the sources yourself, you will need to add build/src to your path for the following example to work.
-You can run the included example pathway like so:
-
-```bash
-apitofsim-skimmer < inputs/example/config.in
-apitofsim-densityandrate < inputs/example/config.in
-apitofsim-mass-spec < inputs/example/config.in
-```
-
-Outputs are generated in `work/out` directory.
+See [Using the Python library](python.md).

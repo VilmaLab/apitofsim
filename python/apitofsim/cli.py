@@ -22,10 +22,13 @@ from apitofsim.config import (
 
 @click.group()
 def cli():
+    """
+    The command line interface to apitofsim
+    """
     pass
 
 
-@cli.command()
+@cli.command(short_help="Partial re-implementation of legacy commmands (please ignore)")
 @click.argument(
     "command",
     type=click.Choice(["skimmer", "densityandrate", "mass_spec"], case_sensitive=False),
@@ -40,6 +43,9 @@ def cli():
 )
 def legacy(command, config, chdir):
     """
+    This is a partial re-implementation of the old CLI, however it does not currently implement the full functionality of the old CLI.
+    For now, stick to `apitofsim-skimmer`, `apitofsim-densityandrate`, and `apitofsim-mass-spec` for the old CLI functionality.
+
     Run COMMAND with configuration at path CONFIG.
     """
     if chdir:
@@ -127,15 +133,17 @@ def legacy(command, config, chdir):
         print("Final counters:", counters)
 
 
-@cli.group()
+@cli.group(short_help="Commands to work with the database-backed workflow")
 def db():
     """
-    Work with the database-backed workflow
+    Commands to work with the database-backed workflow.
+
+    Typically you will `prepare` your dataset into a database, then `run` it, and then use `report` and `plot` to analyze the results.
     """
     pass
 
 
-@db.command()
+@db.command(short_help="Prepare the database for use")
 @click.argument("config", required=True, type=click.Path(exists=True, dir_okay=False))
 @click.argument("database", required=True, type=click.Path(dir_okay=False))
 @click.option(
@@ -150,13 +158,91 @@ def db():
 )
 def prepare(config, database, db_type, warm):
     """
-    Prepare the database at path DATABASE using the json configuration file at path CONFIG.
+    Create and prepare the database at path DATABASE using the json configuration file at path CONFIG.
+
+    Typically, you will be creating an database in order to run simulation experiments,
+    and so --db-type should be kept as --db-type=experiment.
+
+    You may choose to `--warm` your database, so that histogramming is done now, in advance of the simulation itself.
+
+    The CONFIG file specifies both where to import the information about the cluster and pathways from, and the parameters to use for the simulation.
+
+    **Pathways**
+
+    For pathways, currently only the "legacy_glob" type is supported, which imports pathways from the legacy .in files matching a glob pattern.
+    The per-cluster data is then taken either from .dat files specified in the .in file or ORCA or Guassian outputs files next to the .in file.
+
+    ```
+    [[pathways]]
+    type = "legacy_glob"
+    # An optional prefix to add to the common names of all clusters imported here
+    prefix = ""
+    # A glob pattern to use to find .in files. The wildcard * matches any number of characters, while ** can span directories.
+    path = "/path/to/**/*.in"
+    # Paths specified in the .in files are relative to the .in file directory.
+    cwd = "."
+
+    [pathways.clusters]
+    # By default, all 
+    default_source = "gaussian"
+    electronic_energy = "orca.final_single_point_energy + gaussian.zero_point_energy"
+
+    # Here the sources for cluster information are specified.
+    [pathways.clusters.sources.dat]
+
+    [pathways.clusters.sources.orca]
+    append_to_common_prefix = ".out"
+
+    [pathways.clusters.sources.gaussian]
+    append_to_common_prefix = ".log"
+    ```
+
+    **Parameters**
+
+    For the simulation parameters, you can specify one or more `[[configs]]` sections, each with a `name` field and the values of all parameters.
+    You can put common parameters in the `default_config` section, so that each `[[configs]]` section inherits these as overridable defaults.
+
+    ```
+    [default_config]
+    M_iter = 1_000
+    N = 1_000
+    N_iter = 1_000
+    T = "300.0 kelvin"
+    alpha_factor = "0.25 halfturn"
+    bin_width = "1.0 kelvin"
+    dc = "0.0005 meter"
+    energy_max = "2.0e5 kelvin"
+    energy_max_rate = "1.0e5 kelvin"
+    lengths = [ [ 0.001, 0.00244, 0.101, 0.00448, 0.0005 ], "meter" ]
+    pressure_first = "194.0 pascal"
+    pressure_second = "3.88 pascal"
+    resolution = 1_000
+    tolerance = 1e-8
+    voltages = [ [ -19, -9, -7, -6, 11 ], "volt" ]
+
+    [default_config.gas]
+    radius = "1.84e-10 meter"
+    mass = "4.65e-26 kilogram"
+    adiabatic_index = 1.4
+
+    [[configs]]
+    name = "simple"
+
+    [[configs]]
+    name = "with-quadrupole-and-pinhole"
+    radius_pinhole = "1 mm"
+
+    [configs.quadrupole]
+    dc_field = "0.0 volt"
+    ac_field = "200.0 volt"
+    radiofrequency = "1.3e6 Hz"
+    r_quadrupole = "6.0e-3 meter"
     """
     import os
     from os import unlink
     from pprint import pprint
 
-    import orjson
+    import tomllib
 
     from apitofsim.config import import_raw_config
     from apitofsim.workflow import (
@@ -187,7 +273,7 @@ def prepare(config, database, db_type, warm):
     db.create_tables()
 
     with open(config, "rb") as f:
-        source = orjson.loads(f.read())
+        source = tomllib.load(f)
 
     ingest_tree(db, source["pathways"])
 
@@ -216,13 +302,13 @@ def prepare(config, database, db_type, warm):
                 )
 
 
-@db.command()
+@db.command(short_help="Run the simulations according to the prepared database")
 @click.argument("database", required=True, type=click.Path(exists=True, dir_okay=False))
-@click.option("--strict-dos/--no-strict-dos", default=False)
-@click.option("--filter-parent", default=None)
-@click.option("--filter-pathway", multiple=True, default=None)
-@click.option("--filter-config", multiple=True, default=None)
-@click.option("--pathway-at-a-time", default=False, is_flag=True)
+@click.option("--strict-dos/--no-strict-dos", default=False, help="Whether to fail early when particle energy go above the max energy the DOS is histogrammed for")
+@click.option("--filter-parent", default=None, help="Only run pathways with a specified common name for the parent cluster")
+@click.option("--filter-pathway", multiple=True, default=None, help="Only run the pathway specified using common names as 'PARENT,CHILD,CHILD'")
+@click.option("--filter-config", multiple=True, default=None, help="Only run the experiment the parameters in the named configuration")
+@click.option("--pathway-at-a-time", default=False, is_flag=True, help="Run one pathway at a time")
 @click.option("--verbose", default=False, is_flag=True)
 def run(
     database,
@@ -260,10 +346,10 @@ def run(
     )
 
 
-@db.group()
+@db.group(help="Commands for plotting results")
 def plot():
     """
-    Command for plotting results.
+    Commands for plotting results.
     """
     pass
 
@@ -504,12 +590,12 @@ def get_intensities_multipathway(db, er_id, cluster_id=None):
         ).fetchdf()
 
 
-@plot.command()
+@plot.command(short_help="Plot survival rates for each parent cluster in an experiment")
 @click.argument("database", required=True, type=click.Path(exists=True, dir_okay=False))
 @click.argument("pngout", type=click.Path(dir_okay=False))
 def survival(database, pngout):
     """
-    Output to PNGOUT a bar chart of the survival rate for each pathway in the database at path DATABASE.
+    Output to PNGOUT a bar chart of the survival rate for each cluster in the database at path DATABASE.
     """
     from pprint import pprint
 
@@ -536,7 +622,7 @@ def plot_spectrogram(outf, df):
     matplotlib_fig.savefig(outf, dpi=300)
 
 
-@plot.command()
+@plot.command(short_help="Plot a spectrogram for a single cluster in an experiment")
 @click.argument("database", required=True, type=click.Path(exists=True, dir_okay=False))
 @click.argument("pngout", type=click.Path(dir_okay=False))
 def spectrogram(database, pngout):
@@ -553,7 +639,7 @@ def spectrogram(database, pngout):
     plot_spectrogram(pngout, df)
 
 
-@plot.command()
+@plot.command(short_help="Plot a spectrogram for each cluster in an experiment")
 @click.argument("database", required=True, type=click.Path(exists=True, dir_okay=False))
 @click.argument("dirout", type=click.Path(file_okay=False, path_type=pathlib.Path))
 def spectrogram_many(database, dirout):
@@ -571,7 +657,7 @@ def spectrogram_many(database, dirout):
         plot_spectrogram(pngout, cluster_df)
 
 
-@db.command()
+@db.command(short_help="Produce an Excel-friendly CSV report from the database")
 @click.argument(
     "report_type",
     type=click.Choice(
@@ -587,7 +673,8 @@ def report(report_type, database, csvout):
     Produce a report REPORT_TYPE from the database at path DATABASE and write it to CSV at path CSVOUT.
 
     * The pathway_report contains the input pathways giving one row per pathway, with no information about results.
-    * The experiment_report contains one row per pathway / experiment run, and includes the outcome of that run for that pathway.
+    * The experiment_pathway_report contains one row per pathway / experiment run, and includes the outcome of that run for that pathway.
+    * The experiment_cluster_report per parent cluster / experiment run, and includes the summarises information results from its pathways.
     * The experiment_summary contains one row per experiment run, and summarizes the outcomes across all pathways for that run.
     """
     from apitofsim.workflow import ExperimentDatabase
@@ -596,11 +683,13 @@ def report(report_type, database, csvout):
     db.db.table(report_type.replace("-", "_")).to_csv(csvout)
 
 
-@db.command()
+@db.command(help="Refresh views in the database at path DATABASE (please ignore)")
 @click.argument("database", required=True, type=click.Path(exists=True, dir_okay=False))
 def refresh_views(database):
     """
     Refresh views in the database at path DATABASE.
+
+    End-users shouldn't typically need to run this command.
     """
     from apitofsim.workflow import ExperimentDatabase
 
