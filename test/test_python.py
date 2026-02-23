@@ -39,7 +39,7 @@ def test_runner():
     db.insert_config("test", config)
     runner = ExperimentRunner(db)
     runner.run_prepared_config()
-    df = db.experiment_summary_df()
+    df = db.report_df("experiment_summary")
     if not (df["successes"].iloc[0] == 1 and df["failures"].iloc[0] == 0):
         if df["successes"].iloc[0] == 0 and df["failures"].iloc[0] == 1:
             fail_df = db.db.table("experiment_failure").fetchdf()
