@@ -36,10 +36,16 @@ def get_particle(config, particle):
         config_key = f"file_{quantity}_{particle}"
         particle_data[quantity] = read_dat(config[config_key])
     if particle_data["vibrational_temperatures"] is not None:
-        particle_data["vibrational_temperatures"] = particle_data["vibrational_temperatures"] * ureg.kelvin
+        particle_data["vibrational_temperatures"] = (
+            particle_data["vibrational_temperatures"] * ureg.kelvin
+        )
     if particle_data["rotational_temperatures"] is not None:
-        particle_data["rotational_temperatures"] = particle_data["rotational_temperatures"] * ureg.kelvin
-    particle_data["electronic_energy"] = particle_data["electronic_energy"][0] * ureg.hartree
+        particle_data["rotational_temperatures"] = (
+            particle_data["rotational_temperatures"] * ureg.kelvin
+        )
+    particle_data["electronic_energy"] = (
+        particle_data["electronic_energy"][0] * ureg.hartree
+    )
     particle_data["atomic_mass"] = config[f"Atomic_mass_{particle}"] * ureg.amu
     return particle_data
 
@@ -65,15 +71,19 @@ def parse_legacy_one(filename, clusters):
                     sources[source_name] = get_particle(config, particle)
                 elif method == "orca":
                     from apitofsim.ingest.orca import parse_orca
+
                     extension = source["append_to_common_prefix"]
                     path = prefix + extension
                     with open(path) as f:
                         orca_result = parse_orca(f)
                         if len(orca_result) != 1:
-                            raise ValueError(f"Expected one structure in ORCA output {path}, got {len(orca_result)}")
+                            raise ValueError(
+                                f"Expected one structure in ORCA output {path}, got {len(orca_result)}"
+                            )
                         sources[source_name] = orca_result[0]
                 elif method == "gaussian":
                     from apitofsim.ingest.gaussian import parse_gaussian
+
                     extension = source["append_to_common_prefix"]
                     path = prefix + extension
                     with open(path) as f:
@@ -99,7 +109,10 @@ def parse_legacy_one(filename, clusters):
                 else:
                     source_name = clusters["default_source"]
                 if use_eval:
-                    eval_ctx = {source_name: DotAccessDict(sources[source_name]) for source_name in sources}
+                    eval_ctx = {
+                        source_name: DotAccessDict(sources[source_name])
+                        for source_name in sources
+                    }
                     try:
                         combined[quantity] = eval(source_name, eval_ctx)
                     except Exception as e:
@@ -114,12 +127,14 @@ def parse_legacy_one(filename, clusters):
                             f"Error getting quantity for particle: {filename} {particle} {name} ; source: {source_name} ; quantity: {quantity}"
                         ) from e
                 provenance[quantity] = source_name
-            pathway.append({
-                "name": name,
-                "sources": sources,
-                "provenance": provenance,
-                "particle": combined
-            })
+            pathway.append(
+                {
+                    "name": name,
+                    "sources": sources,
+                    "provenance": provenance,
+                    "particle": combined,
+                }
+            )
     return pathway
 
 
