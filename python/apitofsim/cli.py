@@ -186,7 +186,7 @@ def prepare(mode, config, database, append, replace_by_name, db_type, warm):
     cwd = "."
 
     [pathways.clusters]
-    # By default, all 
+    # By default, all
     default_source = "gaussian"
     electronic_energy = "orca.final_single_point_energy + gaussian.zero_point_energy"
 
@@ -243,9 +243,8 @@ def prepare(mode, config, database, append, replace_by_name, db_type, warm):
     ```
     """
     import os
-    from pprint import pprint
-
     import tomllib
+    from pprint import pprint
 
     from apitofsim.config import import_raw_config
     from apitofsim.workflow import (
@@ -261,7 +260,9 @@ def prepare(mode, config, database, append, replace_by_name, db_type, warm):
             yield config["name"], {**json.get("default_config", {}), **config}
 
     if os.path.exists(database) and mode == "create":
-        raise click.UsageError(f"Database file {database} already exists, will not overwrite (delete it yourself first if you want)")
+        raise click.UsageError(
+            f"Database file {database} already exists, will not overwrite (delete it yourself first if you want)"
+        )
     if not os.path.exists(database) and mode != "create":
         raise click.UsageError(
             f"Database file {database} does not exist, cannot append"
@@ -313,11 +314,31 @@ def prepare(mode, config, database, append, replace_by_name, db_type, warm):
 
 @db.command(short_help="Run the simulations according to the prepared database")
 @click.argument("database", required=True, type=click.Path(exists=True, dir_okay=False))
-@click.option("--strict-dos/--no-strict-dos", default=False, help="Whether to fail early when particle energy go above the max energy the DOS is histogrammed for")
-@click.option("--filter-parent", default=None, help="Only run pathways with a specified common name for the parent cluster")
-@click.option("--filter-pathway", multiple=True, default=None, help="Only run the pathway specified using common names as 'PARENT,CHILD,CHILD'")
-@click.option("--filter-config", multiple=True, default=None, help="Only run the experiment the parameters in the named configuration")
-@click.option("--pathway-at-a-time", default=False, is_flag=True, help="Run one pathway at a time")
+@click.option(
+    "--strict-dos/--no-strict-dos",
+    default=False,
+    help="Whether to fail early when particle energy go above the max energy the DOS is histogrammed for",
+)
+@click.option(
+    "--filter-parent",
+    default=None,
+    help="Only run pathways with a specified common name for the parent cluster",
+)
+@click.option(
+    "--filter-pathway",
+    multiple=True,
+    default=None,
+    help="Only run the pathway specified using common names as 'PARENT,CHILD,CHILD'",
+)
+@click.option(
+    "--filter-config",
+    multiple=True,
+    default=None,
+    help="Only run the experiment the parameters in the named configuration",
+)
+@click.option(
+    "--pathway-at-a-time", default=False, is_flag=True, help="Run one pathway at a time"
+)
 @click.option("--verbose", default=False, is_flag=True)
 def run(
     database,
