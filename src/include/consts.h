@@ -20,5 +20,5 @@ const double hbar = 1.054571800e-34; // Reduced Planck constant
 
 namespace defaults
 {
-  const int cluster_charge_sign = -1;
+const int cluster_charge_sign = -1;
 };

@@ -468,7 +468,7 @@ SimulationResult apitof_mass_spec(
     {
       initial_trace << "Time step t1: " << dt1 << " s" << endl;
       initial_trace << "Time step t2: " << dt2 << " s" << endl
-                << endl;
+                    << endl;
     });
   }
 
@@ -499,13 +499,13 @@ SimulationResult apitof_mass_spec(
   auto radius_pinhole = ms.radius_pinhole;
   auto density_cluster = subs.density_cluster;
 #pragma omp parallel for OMP_VISIBILITY_NONE \
-  firstprivate( \
-      N, T, kT, m_ion, R_cluster, R_tot, density_cluster, \
-        inertia, clens, n1, n2, dt1, dt2, \
-        skimmer, mesh_skimmer, radius_pinhole, mobility_gas, \
-        mobility_gas_inv, gas_mean_free_path, root_seed, acc, \
-        P1, P2, pathways, m_gas, quadrupole, reduced_mass, pi, boltzmann, \
-        vib_energy_sampler, gas_coll_sampler, loglevel, strict) \
+firstprivate( \
+    N, T, kT, m_ion, R_cluster, R_tot, density_cluster, \
+      inertia, clens, n1, n2, dt1, dt2, \
+      skimmer, mesh_skimmer, radius_pinhole, mobility_gas, \
+      mobility_gas_inv, gas_mean_free_path, root_seed, acc, \
+      P1, P2, pathways, m_gas, quadrupole, reduced_mass, pi, boltzmann, \
+      vib_energy_sampler, gas_coll_sampler, loglevel, strict) \
   shared(exception_helper, result_queue) \
   reduction(+ : counters) \
   schedule(guided)
@@ -1436,7 +1436,8 @@ void eval_collision(GenT &gen, uniform_real_distribution<double> &unif, bool &co
       {
         inside_target = false;
       }
-      if (loglevel >= LOGLEVEL_MIN) {
+      if (loglevel >= LOGLEVEL_MIN)
+      {
         pinhole_logger([&](auto &pinhole_logger)
         {
           pinhole_logger << x << " " << y << " " << z << " " << velocity_gas[0] << " " << velocity_gas[1] << " " << velocity_gas[2] << " " << inside_target << endl;
