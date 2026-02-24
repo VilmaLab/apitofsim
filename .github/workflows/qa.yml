@@ -1,4 +1,4 @@
-name: QA: linters, typecheckers & formatters
+name: QA (linters, typecheckers & formatters)
 
 on:
   push:
