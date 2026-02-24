@@ -20,7 +20,7 @@ if stubgen_feat.enabled()
     output: 'apitofsimraw.pyi',
     depends: apitofsim_python,
     env: {'PYTHONPATH': fs.parent(apitofsim_python.full_path())},
-    command: [python, stubgen, '-m', 'apitofsimraw'],
+    command: [python, stubgen, '-r', '-m', 'apitofsimraw'],
     install: true,
     install_dir: python.get_install_dir(pure : false) / 'apitofsim',
     build_by_default: true
