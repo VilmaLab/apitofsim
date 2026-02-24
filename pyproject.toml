@@ -32,7 +32,7 @@ dev = [
   "meson-python>=0.18.0",
   "pip>=25.2",
   "basedpyright",
-  "ruff>=0.14.5",
+  "ruff>=0.15.2",
   "pytest>=9.0.2",
 ]
 docs = [
