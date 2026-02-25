@@ -8,6 +8,8 @@ This section describes how to build the sources from scratch.
 
 ### Using Meson to compile the package
 
+**Note: You need Meson 1.10 or later to build the package. You can install this with `uv tool install meson`.**
+
 To compile using your system's default compiler:
 
 ```bash

@@ -1,23 +1,6 @@
-import os
 import pathlib
-import sys
 
 import click
-import numpy
-
-from apitofsim.api import (
-    defaults,
-    densityandrate,
-    mass_spec,
-    skimmer,
-)
-from apitofsim.config import (
-    ConfigFile,
-    get_clusters,
-    parse_config_with_particles,
-    read_histogram,
-    read_skimmer,
-)
 
 
 @click.group()
@@ -26,111 +9,6 @@ def cli():
     The command line interface to apitofsim
     """
     pass
-
-
-@cli.command(short_help="Partial re-implementation of legacy commmands (please ignore)")
-@click.argument(
-    "command",
-    type=click.Choice(["skimmer", "densityandrate", "mass_spec"], case_sensitive=False),
-    required=False,
-)
-@click.argument("config", required=True, type=click.Path(exists=True, dir_okay=False))
-@click.option(
-    "-C",
-    "--chdir",
-    help="Change the working directory before executing",
-    type=click.Path(exists=True, file_okay=False),
-)
-def legacy(command, config, chdir):
-    """
-    This is a partial re-implementation of the old CLI, however it does not currently implement the full functionality of the old CLI.
-    For now, stick to `apitofsim-skimmer`, `apitofsim-densityandrate`, and `apitofsim-mass-spec` for the old CLI functionality.
-
-    Run COMMAND with configuration at path CONFIG.
-    """
-    if chdir:
-        try:
-            os.chdir(chdir)
-        except FileNotFoundError:
-            print(f"Error: The directory {chdir} does not exist.", file=sys.stderr)
-            sys.exit(1)
-        except PermissionError:
-            print(
-                f"Error: Permission denied to change to directory {chdir}.",
-                file=sys.stderr,
-            )
-            sys.exit(1)
-
-    config = ConfigFile(filename=config)
-
-    if command == "skimmer" or command is None:
-        skimmer_df = skimmer(
-            config.get("T", by="short_name"),  # pyright: ignore [reportArgumentType]
-            config.get("pressure_first", by="short_name"),  # pyright: ignore [reportArgumentType]
-            config.get("Lsk", by="short_name"),  # pyright: ignore [reportArgumentType]
-            config.get("dc", by="short_name"),  # pyright: ignore [reportArgumentType]
-            config.get("alpha_factor", by="short_name"),  # pyright: ignore [reportArgumentType]
-            config.get("gas", by="short_name"),  # pyright: ignore [reportArgumentType]
-            config.get("N_iter", by="short_name"),  # pyright: ignore [reportArgumentType]
-            config.get("M_iter", by="short_name"),  # pyright: ignore [reportArgumentType]
-            config.get("resolution", by="short_name"),  # pyright: ignore [reportArgumentType]
-            config.get("tolerance", by="short_name"),  # pyright: ignore [reportArgumentType]
-            output_pandas=True,
-        )
-        print(skimmer_df)
-    if command == "densityandrate" or command is None:
-        clusters = get_clusters(parse_config_with_particles(config))
-        rhos, k_rate = densityandrate(
-            *clusters,
-            config.get("energy_max", by="short_name"),  # pyright: ignore [reportArgumentType]
-            config.get("energy_max_rate", by="short_name"),  # pyright: ignore [reportArgumentType]
-            config.get("bin_width", by="short_name"),  # pyright: ignore [reportArgumentType]
-            config.get("bonding_energy", by="short_name"),  # pyright: ignore [reportArgumentType]
-        )
-        numpy.set_printoptions(threshold=sys.maxsize)
-    if command == "mass_spec" or command is None:
-        config_dict = parse_config_with_particles(config)
-        clusters = get_clusters(config_dict)
-        density_cluster = read_histogram(
-            config_dict["config"]["output_file_density_cluster"]
-        )
-        rate_constant = read_histogram(
-            config_dict["config"]["output_file_rate_constant"]
-        )
-        skimmer_data = read_skimmer(config_dict["config"]["Output_file_skimmer"])
-        if skimmer_data is None:
-            raise ValueError("Skimmer file is empty")
-        skimmer_data, mesh_skimmer = skimmer_data
-
-        def log_callback(type, message):
-            # print(type, message, end="")
-            pass
-
-        def result_callback(counters):
-            print(counters)
-
-        counters = mass_spec(
-            *clusters,
-            config.get("gas"),  # pyright: ignore [reportArgumentType]
-            density_cluster,  # pyright: ignore [reportArgumentType]
-            rate_constant,  # pyright: ignore [reportArgumentType]
-            skimmer_data,
-            config.get("lengths"),  # pyright: ignore [reportArgumentType]
-            config.get("voltages"),  # pyright: ignore [reportArgumentType]
-            config.get("T"),  # pyright: ignore [reportArgumentType]
-            config.get("pressure_first"),  # pyright: ignore [reportArgumentType]
-            config.get("pressure_second"),  # pyright: ignore [reportArgumentType]
-            config.get("N"),  # pyright: ignore [reportArgumentType]
-            mesh_skimmer=mesh_skimmer,
-            quadrupole=config.get("quadrupole"),  # pyright: ignore [reportArgumentType]
-            fragmentation_energy=config.get("bonding_energy") or None,  # pyright: ignore [reportArgumentType]
-            cluster_charge_sign=config.get("cluster_charge_sign")
-            or defaults.cluster_charge_sign,  # pyright: ignore [reportArgumentType]
-            seed=42,
-            log_callback=None,
-            result_callback=result_callback,
-        )
-        print("Final counters:", counters)
 
 
 @cli.group(short_help="Commands to work with the database-backed workflow")
@@ -186,7 +64,7 @@ def prepare(mode, config, database, append, replace_by_name, db_type, warm):
     cwd = "."
 
     [pathways.clusters]
-    # By default, all 
+    # By default, all
     default_source = "gaussian"
     electronic_energy = "orca.final_single_point_energy + gaussian.zero_point_energy"
 
@@ -243,9 +121,8 @@ def prepare(mode, config, database, append, replace_by_name, db_type, warm):
     ```
     """
     import os
-    from pprint import pprint
-
     import tomllib
+    from pprint import pprint
 
     from apitofsim.config import import_raw_config
     from apitofsim.workflow import (
@@ -261,7 +138,9 @@ def prepare(mode, config, database, append, replace_by_name, db_type, warm):
             yield config["name"], {**json.get("default_config", {}), **config}
 
     if os.path.exists(database) and mode == "create":
-        raise click.UsageError(f"Database file {database} already exists, will not overwrite (delete it yourself first if you want)")
+        raise click.UsageError(
+            f"Database file {database} already exists, will not overwrite (delete it yourself first if you want)"
+        )
     if not os.path.exists(database) and mode != "create":
         raise click.UsageError(
             f"Database file {database} does not exist, cannot append"
@@ -313,11 +192,31 @@ def prepare(mode, config, database, append, replace_by_name, db_type, warm):
 
 @db.command(short_help="Run the simulations according to the prepared database")
 @click.argument("database", required=True, type=click.Path(exists=True, dir_okay=False))
-@click.option("--strict-dos/--no-strict-dos", default=False, help="Whether to fail early when particle energy go above the max energy the DOS is histogrammed for")
-@click.option("--filter-parent", default=None, help="Only run pathways with a specified common name for the parent cluster")
-@click.option("--filter-pathway", multiple=True, default=None, help="Only run the pathway specified using common names as 'PARENT,CHILD,CHILD'")
-@click.option("--filter-config", multiple=True, default=None, help="Only run the experiment the parameters in the named configuration")
-@click.option("--pathway-at-a-time", default=False, is_flag=True, help="Run one pathway at a time")
+@click.option(
+    "--strict-dos/--no-strict-dos",
+    default=False,
+    help="Whether to fail early when particle energy go above the max energy the DOS is histogrammed for",
+)
+@click.option(
+    "--filter-parent",
+    default=None,
+    help="Only run pathways with a specified common name for the parent cluster",
+)
+@click.option(
+    "--filter-pathway",
+    multiple=True,
+    default=None,
+    help="Only run the pathway specified using common names as 'PARENT,CHILD,CHILD'",
+)
+@click.option(
+    "--filter-config",
+    multiple=True,
+    default=None,
+    help="Only run the experiment the parameters in the named configuration",
+)
+@click.option(
+    "--pathway-at-a-time", default=False, is_flag=True, help="Run one pathway at a time"
+)
 @click.option("--verbose", default=False, is_flag=True)
 def run(
     database,
@@ -472,7 +371,10 @@ def get_joint_survivals(db, er_id):
 
 
 def make_survival_plot(outf, cluster_names, values):
-    import matplotlib.pyplot as plt
+    try:
+        import matplotlib.pyplot as plt  # pyright: ignore[reportMissingImports]
+    except ImportError:
+        raise ImportError("Plotting requires holoviews and matplotlib; please install")
     import numpy as np
 
     # Bar positions
@@ -618,7 +520,10 @@ def survival(database, pngout):
 
 
 def plot_spectrogram(outf, df):
-    import holoviews
+    try:
+        import holoviews  # pyright: ignore[reportMissingImports]
+    except ImportError:
+        raise ImportError("Plotting requires holoviews and matplotlib; please install")
 
     holoviews.extension("matplotlib")  # type: ignore
 

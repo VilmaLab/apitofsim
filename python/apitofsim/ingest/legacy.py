@@ -1,6 +1,7 @@
 import os
 from glob import glob
 from os.path import dirname, expanduser
+from typing import Any
 
 import numpy
 from pint import get_application_registry
@@ -50,7 +51,7 @@ def get_particle(config, particle):
     return particle_data
 
 
-class DotAccessDict(dict):
+class DotAccessDict(dict[str, Any]):
     __getattr__ = dict.get
 
 

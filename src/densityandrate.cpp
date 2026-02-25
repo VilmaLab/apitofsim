@@ -144,7 +144,7 @@ Eigen::ArrayXd compute_mesh_omp(double bin_width, int m_max_rate)
 {
   Eigen::ArrayXd mesh = Eigen::ArrayXd::Zero(m_max_rate);
 #pragma omp parallel for OMP_VISIBILITY_NONE \
-  firstprivate(bin_width, m_max_rate) \
+firstprivate(bin_width, m_max_rate) \
   reduction(+ : mesh)
   for (int i = 0; i < m_max_rate; i++) // rotational energy
   {
@@ -163,7 +163,7 @@ Eigen::ArrayXd compute_mesh_rearranged_presqrt_omp(double bin_width, int m_max_r
 {
   Eigen::ArrayXd rot_energy_sqrts = Eigen::ArrayXd(m_max_rate);
 #pragma omp parallel for simd OMP_VISIBILITY_NONE \
-  firstprivate(bin_width, m_max_rate) \
+firstprivate(bin_width, m_max_rate) \
   shared(rot_energy_sqrts)
   for (int i = 0; i < m_max_rate; i++)
   {
@@ -171,7 +171,7 @@ Eigen::ArrayXd compute_mesh_rearranged_presqrt_omp(double bin_width, int m_max_r
   }
   Eigen::ArrayXd mesh = Eigen::ArrayXd(m_max_rate);
 #pragma omp parallel for OMP_VISIBILITY_NONE \
-  firstprivate(bin_width, m_max_rate, rot_energy_sqrts) \
+firstprivate(bin_width, m_max_rate, rot_energy_sqrts) \
   shared(mesh)
   for (int i_p_j = 0; i_p_j < m_max_rate; i_p_j++)
   {
@@ -411,7 +411,7 @@ Eigen::ArrayXXd compute_density_of_states_batch(std::vector<Eigen::ArrayXd> batc
   // Possibly a tiny bit of false sharing here
   Eigen::ArrayXXd result(m_max, batch_frequencies.size());
 #pragma omp parallel for OMP_VISIBILITY_NONE \
-  firstprivate(energy_max, bin_width, batch_frequencies, use_old_impl) \
+firstprivate(energy_max, bin_width, batch_frequencies, use_old_impl) \
   shared(result)
   for (size_t i = 0; i < batch_frequencies.size(); i++)
   {
@@ -508,7 +508,7 @@ Eigen::ArrayXXd compute_k_total_batch(std::vector<KTotalInput> batch_input, doub
   OMPExceptionHelper exception_helper;
   int completed = 0;
 #pragma omp parallel OMP_VISIBILITY_NONE \
-  firstprivate(batch_input, bin_width, m_max_rate, mesh) \
+firstprivate(batch_input, bin_width, m_max_rate, mesh) \
   shared(exception_helper, k_rate, completed, std::cout, progress_callback)
   {
     Eigen::ArrayXd k0 = Eigen::ArrayXd(m_max_rate);
@@ -527,7 +527,7 @@ Eigen::ArrayXXd compute_k_total_batch(std::vector<KTotalInput> batch_input, doub
       });
       if (progress_callback && exception_helper.should_continue())
       {
-        #pragma omp atomic
+#pragma omp atomic
         completed++;
         if (omp_get_thread_num() == 0)
         {
@@ -542,9 +542,6 @@ Eigen::ArrayXXd compute_k_total_batch(std::vector<KTotalInput> batch_input, doub
 
 Eigen::ArrayXXd compute_k_total_batch(std::vector<KTotalInput> batch_input, double energy_max_rate, double bin_width, MeshMode mesh_mode, std::optional<std::function<void(size_t)>> progress_callback)
 {
-  std::optional<const Eigen::ArrayXd> mesh = (
-    mesh_mode == MeshMode::no_mesh ?
-    std::nullopt : std::optional<const Eigen::ArrayXd>(precompute_mesh(energy_max_rate, bin_width, mesh_mode))
-  );
+  std::optional<const Eigen::ArrayXd> mesh = (mesh_mode == MeshMode::no_mesh ? std::nullopt : std::optional<const Eigen::ArrayXd>(precompute_mesh(energy_max_rate, bin_width, mesh_mode)));
   return compute_k_total_batch(batch_input, energy_max_rate, bin_width, mesh, progress_callback);
 }

@@ -50,12 +50,12 @@ df = db.db.execute(
                 multi_pathway_experiment_result.id as experiment_result_id,
                 pathway_products.product_id as cluster_id,
                 pathway_fragmentation.count as count
-            from 
+            from
                 multi_pathway_experiment_result
             inner join
                 pathway_fragmentation on multi_pathway_experiment_result.id = pathway_fragmentation.experiment_result_id
             inner join
-                pathway_products on pathway_products.pathway_id = pathway_fragmentation.pathway_id 
+                pathway_products on pathway_products.pathway_id = pathway_fragmentation.pathway_id
             union
             select
                 multi_pathway_experiment_result.id as experiment_result_id,
@@ -70,14 +70,14 @@ df = db.db.execute(
                 sum(pathway_fragmentation.count) as count
             from
                 pathway_fragmentation
-            group by 
-                pathway_fragmentation.experiment_result_id 
+            group by
+                pathway_fragmentation.experiment_result_id
         )
     select
         cluster.common_name as cluster_name,
         cluster.atomic_mass,
         cluster_counts.count / experiment_counts.count as intensity
-    from 
+    from
         cluster_counts
     inner join
         cluster on cluster.id = cluster_counts.cluster_id
