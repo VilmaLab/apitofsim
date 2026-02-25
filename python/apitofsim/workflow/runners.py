@@ -33,7 +33,7 @@ class DerivedDataPreparer:
         from apitofsim import skimmer
 
         return skimmer(
-            T0=config["T"],
+            T0=config["T"],  # pyright: ignore[reportCallIssue]
             P0=config["pressure_first"],
             rmax=config["lengths"][-1],
             dc=config["dc"],
@@ -56,7 +56,7 @@ class DerivedDataPreparer:
     ):
         import pyarrow as pa
 
-        from apitofsim import ProductsCluster, compute_density_of_states_batch
+        from apitofsim.api import ProductsCluster, compute_density_of_states_batch
 
         num_clusters_missed = 0
         cluster_dos_dict = {}
@@ -479,7 +479,7 @@ class ExperimentRunner:
         verbose=False,
     ):
         if not run_started:
-            self.db.start_run()
+            self.start_run()
 
         cluster_indexed, name_lookup, pathway_lookup = self.db.get_all_lookups(
             parent, pathways
@@ -687,6 +687,7 @@ class ExperimentRunner:
     ):
         from os import environ
         from timeit import default_timer as timer
+        from typing import Any
 
         from progress_table import ProgressTable
 
@@ -694,7 +695,7 @@ class ExperimentRunner:
 
         last_cluster_id = None
         groups = []
-        cur_group = None
+        cur_group: dict[str, Any] | None = None
         for pathway_id, (
             cluster_id,
             product1_id,

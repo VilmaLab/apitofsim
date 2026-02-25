@@ -140,9 +140,9 @@ class ClusterDatabase:
             )
         if sort:
             pathway_rel = pathway_rel.sort(
-                "cluster_id",
-                "product1_id",
-                "product2_id",
+                "cluster_id",  # pyright: ignore[reportArgumentType]
+                "product1_id",  # pyright: ignore[reportArgumentType]
+                "product2_id",  # pyright: ignore[reportArgumentType]
             )
         return pathway_rel
 
@@ -432,6 +432,7 @@ class ExperimentDatabase(SuperClusterDatabase):
                 ),
             ).fetchone()
             assert pathway_ids is not None
+            assert id is not None
             for pathway_id, fragmented in zip(
                 pathway_ids, counters.n_fragmented_total, strict=True
             ):

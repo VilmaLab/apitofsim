@@ -20,7 +20,7 @@ def duckdb_connect_roview_cow(filename, *, config=None, fallback="copy"):
     exc = None
     cleanup = None
     try:
-        from reflink import ReflinkImpossibleError, reflink
+        from reflink import ReflinkImpossibleError, reflink   # pyright: ignore[reportMissingImports]
 
         try:
             reflink(filename, dest)
