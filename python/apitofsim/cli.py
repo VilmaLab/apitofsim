@@ -51,7 +51,7 @@ def prepare(mode, config, database, append, replace_by_name, db_type, warm):
     **Pathways**
 
     For pathways, currently only the "legacy_glob" type is supported, which imports pathways from the legacy .in files matching a glob pattern.
-    The per-cluster data is then taken either from .dat files specified in the .in file or ORCA or Guassian outputs files next to the .in file.
+    The per-cluster data is then taken either from .dat files specified in the .in file or ORCA or Gaussian outputs files next to the .in file.
 
     ```toml
     [[pathways]]
@@ -609,6 +609,74 @@ def refresh_views(database):
 
     db = ExperimentDatabase(database)
     db.refresh_views()
+
+
+@cli.group(short_help="Commands to convert between different file formats")
+def convert():
+    pass
+
+
+def remove_none(obj):
+    if isinstance(obj, dict):
+        return {k: remove_none(v) for k, v in obj.items() if v is not None}
+    elif isinstance(obj, list):
+        return [remove_none(v) for v in obj if v is not None]
+    else:
+        return obj
+
+
+@convert.command(help="Convert .in configuration files to .toml")
+@click.argument(
+    "config_in", required=True, type=click.Path(exists=True, dir_okay=False)
+)
+@click.argument("config_out", required=True, type=click.File("w"))
+def config(config_in, config_out):
+    """
+    Convert an legacy .in configuration file at path CONFIG_IN to a new .toml configuration file at CONFIG_OUT.
+    """
+    import orjson
+    from tomlkit import dump
+
+    from apitofsim.config import dump_to_raw
+
+    config = ConfigFile(filename=config_in)
+    obj = config.into_json_config()
+    # TOOD: Get rid of this; need reimplement orjson dumping numpy conversion/default behaviour
+    obj_roundtripped = orjson.loads(dump_to_raw(obj))
+    exported_config = {"name": "converted_config", **remove_none(obj_roundtripped)}
+    assert isinstance(exported_config, dict)
+    dump({"configs": [exported_config]}, config_out)
+
+
+@cli.group(short_help="Commands to inspect different files")
+def inspect():
+    pass
+
+
+@inspect.command(
+    short_help="Inspect a log file from a QC processing program such as Gaussian or ORCA"
+)
+@click.argument(
+    "format",
+    required=True,
+    type=click.Choice(["gaussian", "orca"], case_sensitive=False),
+)
+@click.argument("log_in", required=True, type=click.Path(exists=True, dir_okay=False))
+def qc_log(format, log_in):
+    from pprint import pprint
+
+    if format == "orca":
+        from apitofsim.ingest.orca import parse_orca
+
+        with open(log_in) as f:
+            orca_result = parse_orca(f)
+            pprint(orca_result)
+    if format == "gaussian":
+        from apitofsim.ingest.gaussian import parse_gaussian
+
+        with open(log_in) as f:
+            gaussian_result = parse_gaussian(f)
+            pprint(gaussian_result)
 
 
 if __name__ == "__main__":
