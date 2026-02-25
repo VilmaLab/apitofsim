@@ -3,6 +3,7 @@ apitofsim_python_py_src = [
 'api.py',
 'cli.py',
 'config.py',
+'plotting.py',
 '__init__.py',
 '__main__.py',
 'py.typed',
