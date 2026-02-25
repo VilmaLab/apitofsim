@@ -50,7 +50,7 @@ requirements:
         - libstdcxx-devel_linux-64 15.2.0.*
   host:
     - python ${{ python_min }}.*
-    - python-abi3 ${{ python_min }}.*  
+    - python-abi3 ${{ python_min }}.*
     - pip
     - python-build
     - llvm-openmp
@@ -80,7 +80,7 @@ tests:
       imports:
         - ${{ name }}
         - ${{ name }}.${{ name }}raw
-      python_version: ["${{ python_min ~ '.*' }}"]  
+      python_version: ["${{ python_min ~ '.*' }}"]
 
   - script:
       - DATA_DIR=$(pwd)/test/data/raw pytest ./test
@@ -96,5 +96,5 @@ about:
   license: MIT
   license_file:
     - LICENSE
-  summary: Simulation of an APi-TOF Mass Spectrometer 
+  summary: Simulation of an APi-TOF Mass Spectrometer
   repository: https://github.com/VilmaLab/apitofsim
