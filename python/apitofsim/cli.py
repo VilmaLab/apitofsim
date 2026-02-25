@@ -1,23 +1,6 @@
-import os
 import pathlib
-import sys
 
 import click
-import numpy
-
-from apitofsim.api import (
-    defaults,
-    densityandrate,
-    mass_spec,
-    skimmer,
-)
-from apitofsim.config import (
-    ConfigFile,
-    get_clusters,
-    parse_config_with_particles,
-    read_histogram,
-    read_skimmer,
-)
 
 
 @click.group()
