@@ -388,7 +388,10 @@ def get_joint_survivals(db, er_id):
 
 
 def make_survival_plot(outf, cluster_names, values):
-    import matplotlib.pyplot as plt
+    try:
+        import matplotlib.pyplot as plt
+    except ImportError:
+        raise ImportError("Plotting requires holoviews and matplotlib; please install")
     import numpy as np
 
     # Bar positions
@@ -534,7 +537,10 @@ def survival(database, pngout):
 
 
 def plot_spectrogram(outf, df):
-    import holoviews
+    try:
+        import holoviews
+    except ImportError:
+        raise ImportError("Plotting requires holoviews and matplotlib; please install")
 
     holoviews.extension("matplotlib")  # type: ignore
 
