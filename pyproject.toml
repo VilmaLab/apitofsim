@@ -14,6 +14,7 @@ dependencies = [
   "progress-table>=3.2.2",
   "pyarrow>=23.0.0",
   "questionary>=2.1.1",
+  "tomlkit>=0.14.0",
 ]
 
 [build-system]
