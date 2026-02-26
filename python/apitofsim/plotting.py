@@ -1,55 +1,18 @@
 def get_joint_survivals(db, er_id):
-    from functools import reduce
-    from operator import mul
-
     import duckdb
 
-    joint_survivals = {}
-
-    for cluster in db.clusters_df(parents_only=True).itertuples():
-        print("#", cluster.common_name)
-        df = (
-            db.db.table("experiment_report")
+    return dict(
+        (
+            db.db.table("experiment_cluster_report")
             .filter(
                 (
                     duckdb.ColumnExpression("experiment_run_id")
                     == duckdb.ConstantExpression(er_id)
                 )
-                & (
-                    duckdb.ColumnExpression("cluster_id")
-                    == duckdb.ConstantExpression(cluster.id)
-                )
             )
-            .select(
-                duckdb.SQLExpression(
-                    "format('{} -> {} + {}', cluster_common_name, product1_common_name, product2_common_name)"
-                ).alias("pathway_name"),
-                *(
-                    duckdb.ColumnExpression(col)
-                    for col in [
-                        "outcome_type",
-                        "failure_msg",
-                        "nwarnings",
-                        "n_fragmented_total",
-                        "n_escaped_total",
-                        "ncoll_total",
-                        "counter_collision_rejections",
-                    ]
-                ),
-                duckdb.SQLExpression(
-                    "n_escaped_total / (n_escaped_total + n_fragmented_total)"
-                ).alias("survival_rate"),
-            )
-        ).fetchdf()
-        print(df)
-        print()
-        if len(df) == 0:
-            print("No results for", cluster.common_name)
-            continue
-        # This seems a bit naughty
-        survival_rate = df["survival_rate"][df["survival_rate"] > 0]
-        joint_survivals[cluster.common_name] = reduce(mul, survival_rate, 1.0)
-    return joint_survivals
+            .select("cluster_common_name", "survival_rate")
+        ).fetchall()
+    )
 
 
 def make_survival_plot(outf, cluster_names, values):
