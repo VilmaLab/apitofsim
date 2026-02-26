@@ -637,14 +637,15 @@ def config(config_in, config_out):
     import orjson
     from tomlkit import dump
 
-    from apitofsim.config import dump_to_raw
+    from apitofsim.config import ConfigFile, dump_to_raw
 
     config = ConfigFile(filename=config_in)
     obj = config.into_json_config()
     # TOOD: Get rid of this; need reimplement orjson dumping numpy conversion/default behaviour
     obj_roundtripped = orjson.loads(dump_to_raw(obj))
-    exported_config = {"name": "converted_config", **remove_none(obj_roundtripped)}
-    assert isinstance(exported_config, dict)
+    obj_no_none = remove_none(obj_roundtripped)
+    assert isinstance(obj_no_none, dict)
+    exported_config = {"name": "converted_config", **obj_no_none}
     dump({"configs": [exported_config]}, config_out)
 
 
