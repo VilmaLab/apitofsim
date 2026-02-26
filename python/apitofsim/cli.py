@@ -1,6 +1,10 @@
 import pathlib
+from collections import Counter
+from itertools import combinations
+from typing import List, Tuple
 
 import click
+from ase import Atoms
 
 
 @click.group()
@@ -678,6 +682,103 @@ def qc_log(format, log_in):
         with open(log_in) as f:
             gaussian_result = parse_gaussian(f)
             pprint(gaussian_result)
+
+
+def atoms_to_counter(atoms: Atoms) -> Counter:
+    """Convert an Atoms object to a Counter of element symbols."""
+    return Counter(atoms.get_chemical_symbols())
+
+
+def find_combination_triples(
+    counters: List[Counter],
+) -> List[Tuple[int, int, int]]:
+    """
+    Given a list of Atoms objects, find all triples (i, j, k) of indices such
+    that atoms_list[i] + atoms_list[j] has exactly the same atoms as
+    atoms_list[k] (i.e. i and j are reactants that combine to form product k).
+
+    Returns a list of (reactant_a_index, reactant_b_index, product_index)
+    tuples. Each unordered pair {i, j} appears at most once per product k,
+    with i < j.
+    """
+    # Build a lookup from a frozen counter (i.e. a composition signature)
+    # to the list of indices that share that composition.
+    # This lets us do O(1) product lookups instead of scanning the whole list.
+    from collections import defaultdict
+
+    composition_to_indices: dict[frozenset, list[int]] = defaultdict(list)
+    for idx, c in enumerate(counters):
+        key = frozenset(c.items())
+        composition_to_indices[key].append(idx)
+
+    results: List[Tuple[int, int, int]] = []
+
+    # Enumerate all pairs of potential reactants
+    for i, j in combinations(range(len(counters)), 2):
+        # The combined composition is the element-wise sum of both counters
+        combined = counters[i] + counters[j]
+        combined_key = frozenset(combined.items())
+
+        # Check whether any Atoms object in our list matches the combined
+        # composition (those would be the products)
+        for k in composition_to_indices.get(combined_key, []):
+            results.append((i, j, k))
+
+    return results
+
+
+@cli.group(short_help="Commands to inspect different files")
+def generate():
+    pass
+
+
+@generate.command(short_help="")
+@click.argument(
+    "format",
+    required=True,
+    type=click.Choice(["gaussian", "orca", "xyz"], case_sensitive=False),
+)
+@click.argument(
+    "csv_out", required=True, type=click.Path(dir_okay=False, path_type=pathlib.Path)
+)
+@click.argument(
+    "files",
+    required=True,
+    nargs=-1,
+    type=click.Path(dir_okay=False, path_type=pathlib.Path),
+)
+@click.option("-g", "--guess-prefix", is_flag=True, help="")
+def pathways(format, csv_out, files, guess_prefix):
+    from ase.io import read as ase_read
+
+    counters = []
+    for file in files:
+        if format == "orca":
+            atoms = ase_read(file, format="orca-output")[0]
+        elif format == "gaussian":
+            atoms = ase_read(file, format="gaussian-out")[0]
+        else:
+            assert format == "xyz"
+            atoms = ase_read(file, format="xyz")
+        assert isinstance(atoms, Atoms)
+        counters.append(atoms_to_counter(atoms))
+    output_paths = []
+    for file in files:
+        output_path = file.relative_to(csv_out.parent)
+        if guess_prefix:
+            output_path = output_path.parent / output_path.stem
+        output_paths.append(str(output_path))
+    triples = find_combination_triples(counters)
+    with open(csv_out, "w") as out:
+        if guess_prefix:
+            attr = "prefix"
+        else:
+            attr = format
+        out.write(f"parent.{attr},product1.{attr},product2.{attr}\n")
+        for i, j, k in triples:
+            out.write(
+                ",".join([output_paths[k], output_paths[i], output_paths[j]]) + "\n"
+            )
 
 
 if __name__ == "__main__":
