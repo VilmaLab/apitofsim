@@ -459,15 +459,6 @@ class ExperimentDatabase(SuperClusterDatabase):
         assert id is not None
         return id[0]
 
-    def export(self, out_path, experiment_id=None):
-        if experiment_id:
-            where_clause = f" where experiment_run_id = {experiment_id}"
-        else:
-            where_clause = ""
-        self.db.execute(
-            f"copy (select * from experiment_report{where_clause}) to '{out_path}' (header, delimiter ',');"
-        )
-
     def report_df(self, tbl_name):
         return self.db.table(tbl_name).fetchdf()
 
