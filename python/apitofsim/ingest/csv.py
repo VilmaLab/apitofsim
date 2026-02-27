@@ -13,9 +13,17 @@ def parse_csv_tree(
     # TODO: Validate columns of clusters_df
     cluster_dict: dict[str, Any] = {}
     for cluster in clusters_df.itertuples():
-        particle_name = cluster.name
+        for attr in ["name", "prefix"]:
+            if not hasattr(cluster, attr):
+                raise ValueError(
+                    "Expected column '{attr}' in clusters CSV, but it was not found"
+                )
+        particle_name = cluster.name  # pyright: ignore[reportAttributeAccessIssue]
         sources = import_sources(
-            clusters_config, particle_name, cluster.prefix, path_base
+            clusters_config,
+            particle_name,
+            cluster.prefix,  # pyright: ignore[reportAttributeAccessIssue]
+            path_base,
         )
         try:
             combined, provenance = combine_sources(sources, clusters_config)
@@ -41,7 +49,12 @@ def parse_csv_tree(
     pathways_df = pandas.read_csv(expanduser(pathways_path))
     # TODO: Validate columns of pathways_df
     for tpl in pathways_df.itertuples():
+        for attr in ["parent", "product1", "product2"]:
+            if not hasattr(tpl, attr):
+                raise ValueError(
+                    "Expected column '{attr}' in pathways CSV, but it was not found"
+                )
         pathway = []
-        for particle_name in [tpl.parent, tpl.product1, tpl.product2]:
+        for particle_name in [tpl.parent, tpl.product1, tpl.product2]:  # pyright: ignore[reportAttributeAccessIssue]
             pathway.append(cluster_dict[particle_name])
         yield pathway

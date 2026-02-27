@@ -753,13 +753,13 @@ def qc_log(format, log_in):
             pprint(gaussian_result)
 
 
-def atoms_to_counter(atoms: Atoms) -> Counter:
+def atoms_to_counter(atoms: Atoms) -> Counter[str]:
     """Convert an Atoms object to a Counter of element symbols."""
     return Counter(atoms.get_chemical_symbols())
 
 
 def find_combination_triples(
-    counters: List[Counter],
+    counters: List[Counter[str]],
 ) -> List[Tuple[int, int, int]]:
     """
     Given a list of Atoms objects, find all triples (i, j, k) of indices such
@@ -775,7 +775,9 @@ def find_combination_triples(
     # This lets us do O(1) product lookups instead of scanning the whole list.
     from collections import defaultdict
 
-    composition_to_indices: dict[frozenset, list[int]] = defaultdict(list)
+    composition_to_indices: dict[frozenset[tuple[str, int]], list[int]] = defaultdict(
+        list
+    )
     for idx, c in enumerate(counters):
         key = frozenset(c.items())
         composition_to_indices[key].append(idx)

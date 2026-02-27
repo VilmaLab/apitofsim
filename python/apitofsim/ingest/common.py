@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, NoReturn
 
 
 class CombineError(Exception):
@@ -66,7 +66,7 @@ def combine_sources(sources, clusters):
         if "." in source_name:
             use_eval = True
 
-        def raise_combine_error(e):
+        def raise_combine_error(e) -> NoReturn:
             available_source_quantities = [
                 f"{source_name}.{quantity}"
                 for source_name, source in sources.items()
