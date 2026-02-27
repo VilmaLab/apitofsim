@@ -33,20 +33,35 @@ def insert_parsed_pathway(db, pathway, *, prefix=None):
     db.insert_pathway(*ids)
 
 
-def ingest_legacy_one(db: ClusterDatabase, filename, clusters, prefix=None):
+def ingest_legacy_one(
+    db: ClusterDatabase, filename, clusters, prefix=None, path_base=None
+):
     from apitofsim.ingest.legacy import parse_legacy_one
 
-    pathway = parse_legacy_one(filename, clusters)
-    insert_parsed_pathway(db, pathway, prefix=None)
+    pathway = parse_legacy_one(filename, clusters, path_base=path_base)
+    insert_parsed_pathway(db, pathway, prefix=prefix)
 
 
-def ingest_tree(db: ClusterDatabase, pathways):
+def ingest_tree(db: ClusterDatabase, pathways, path_base, descriptor):
     if isinstance(pathways, list):
-        for pathways_segment in pathways:
-            ingest_tree(db, pathways_segment)
+        for idx, pathways_segment in enumerate(pathways):
+            ingest_tree(db, pathways_segment, path_base, (descriptor, idx))
         return
     if pathways["type"] == "legacy_glob":
         from apitofsim.ingest.legacy import parse_legacy_tree
 
-        for pathway in parse_legacy_tree(pathways["path"], pathways["clusters"]):
+        for pathway in parse_legacy_tree(
+            pathways["path"], pathways["clusters"], path_base
+        ):
+            insert_parsed_pathway(db, pathway, prefix=pathways.get("prefix"))
+    elif pathways["type"] == "csv":
+        from apitofsim.ingest.csv import parse_csv_tree
+
+        for pathway in parse_csv_tree(
+            path_base / pathways["pathways_path"],
+            path_base / pathways["clusters_path"],
+            pathways["clusters"],
+            path_base,
+            descriptor,
+        ):
             insert_parsed_pathway(db, pathway, prefix=pathways.get("prefix"))
