@@ -48,7 +48,7 @@ select
     res.n_fragmented_pathway,
     res.n_escaped_cluster,
     res.ncoll_total,
-    res.counter_collision_rejections;
+    res.counter_collision_rejections
 
 from experiment_run as er
 left join (
@@ -133,5 +133,5 @@ select
         from single_pathway_experiment_result
         where single_pathway_experiment_result.experiment_run_id = er.id
     ) as is_single_pathway
-from experiment_run er
+from experiment_run as er
 join experiment_config conf on conf.id = er.experiment_config_id;
