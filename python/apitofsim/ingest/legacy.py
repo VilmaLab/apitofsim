@@ -1,7 +1,6 @@
 import os
 from glob import glob
-from os.path import dirname, expanduser
-from typing import Any
+from os.path import expanduser
 
 import numpy
 from pint import get_application_registry
@@ -51,87 +50,37 @@ def get_particle(config, particle):
     return particle_data
 
 
-class DotAccessDict(dict[str, Any]):
-    __getattr__ = dict.get
-
-
-def parse_legacy_one(filename, clusters):
+def parse_legacy_one(filename, clusters, path_base=None):
+    import pathlib
     from contextlib import chdir
 
     from apitofsim.config import parse_config
+    from apitofsim.ingest.common import combine_sources, import_source
 
     pathway = []
-    with chdir(dirname(filename)):
+    filename_path = pathlib.Path(filename)
+    if path_base is None:
+        working_dir = filename_path.parent
+    else:
+        working_dir = (path_base / filename_path).parent
+    with chdir(working_dir):
         config = parse_config(filename)
         for particle in ["cluster", "first_product", "second_product"]:
             prefix = get_common_prefix(config, particle)
-            name = prefix.split("/")[-1].rstrip("_").rstrip(".")
+            particle_name = prefix.split("/")[-1].rstrip("_").rstrip(".")
             sources = {}
             for source_name, source in clusters["sources"].items():
                 method = source.get("type", source_name)
                 if method == "dat":
                     sources[source_name] = get_particle(config, particle)
-                elif method == "orca":
-                    from apitofsim.ingest.orca import parse_orca
-
-                    extension = source["append_to_common_prefix"]
-                    path = prefix + extension
-                    with open(path) as f:
-                        orca_result = parse_orca(f)
-                        if len(orca_result) != 1:
-                            raise ValueError(
-                                f"Expected one structure in ORCA output {path}, got {len(orca_result)}"
-                            )
-                        sources[source_name] = orca_result[0]
-                elif method == "gaussian":
-                    from apitofsim.ingest.gaussian import parse_gaussian
-
-                    extension = source["append_to_common_prefix"]
-                    path = prefix + extension
-                    with open(path) as f:
-                        sources[source_name] = parse_gaussian(f)
-                elif method == "map":
-                    sources[source_name] = source.get(name, {})
                 else:
-                    raise ValueError(f"Unknown method: {method}")
-            provenance = {}
-            combined = {}
-            for quantity in [
-                "vibrational_temperatures",
-                "rotational_temperatures",
-                "electronic_energy",
-                "atomic_mass",
-                "charge",
-            ]:
-                use_eval = False
-                if quantity in clusters:
-                    source_name = clusters[quantity]
-                    if "." in source_name:
-                        use_eval = True
-                else:
-                    source_name = clusters["default_source"]
-                if use_eval:
-                    eval_ctx = {
-                        source_name: DotAccessDict(sources[source_name])
-                        for source_name in sources
-                    }
-                    try:
-                        combined[quantity] = eval(source_name, eval_ctx)
-                    except Exception as e:
-                        raise ValueError(
-                            f"Error evaluating expression for particle {filename} {particle} {name} ; source: {source_name} ; quantity: {quantity}"
-                        ) from e
-                else:
-                    try:
-                        combined[quantity] = sources[source_name][quantity]
-                    except Exception as e:
-                        raise ValueError(
-                            f"Error getting quantity for particle: {filename} {particle} {name} ; source: {source_name} ; quantity: {quantity}"
-                        ) from e
-                provenance[quantity] = source_name
+                    sources[source_name] = import_source(
+                        source, method, particle_name, prefix, path_base
+                    )
+            combined, provenance = combine_sources(sources, clusters)
             pathway.append(
                 {
-                    "name": name,
+                    "name": particle_name,
                     "sources": sources,
                     "provenance": provenance,
                     "particle": combined,
@@ -140,7 +89,7 @@ def parse_legacy_one(filename, clusters):
     return pathway
 
 
-def parse_legacy_tree(path, clusters):
+def parse_legacy_tree(path, clusters, path_base):
     filenames = glob(expanduser(path), recursive=True)
     for filename in filenames:
-        yield parse_legacy_one(filename, clusters)
+        yield parse_legacy_one(filename, clusters, path_base)

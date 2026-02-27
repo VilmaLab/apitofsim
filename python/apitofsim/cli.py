@@ -1,6 +1,10 @@
 import pathlib
+from collections import Counter
+from itertools import combinations
+from typing import List, Tuple
 
 import click
+from ase import Atoms
 
 
 @click.group()
@@ -35,7 +39,7 @@ def db():
 @click.option(
     "-w", "--warm", is_flag=True, help="Warm the database with histogrammed data"
 )
-def prepare(mode, config, database, append, replace_by_name, db_type, warm):
+def prepare(mode, config, database, db_type, warm):
     """
     Prepare the database according to MODE at path DATABASE using the json configuration file at path CONFIG.
 
@@ -46,11 +50,12 @@ def prepare(mode, config, database, append, replace_by_name, db_type, warm):
 
     You may choose to `--warm` your database, so that histogramming is done now, in advance of the simulation itself.
 
-    The CONFIG file specifies both where to import the information about the cluster and pathways from, and the parameters to use for the simulation.
+    The CONFIG file specifies a TOML formatted file containing both where to import the information about the cluster and pathways from, and the parameters to use for the simulation.
 
     **Pathways**
+    For pathways, you can specify the `type` as "legacy_glob" or "csv".
 
-    For pathways, currently only the "legacy_glob" type is supported, which imports pathways from the legacy .in files matching a glob pattern.
+    The "legacy_glob" type imports pathways from the legacy .in files matching a glob pattern.
     The per-cluster data is then taken either from .dat files specified in the .in file or ORCA or Gaussian outputs files next to the .in file.
 
     ```toml
@@ -64,12 +69,37 @@ def prepare(mode, config, database, append, replace_by_name, db_type, warm):
     cwd = "."
 
     [pathways.clusters]
-    # By default, all
+    # By default, all attributes are taken from the guassian source
     default_source = "gaussian"
+    # Individual attributes can be taken from different sources and combined using simple expressions. Here, the electronic energy is taken as the sum of the final single point energy from orca and the zero point energy from gaussian.
     electronic_energy = "orca.final_single_point_energy + gaussian.zero_point_energy"
 
     # Here the sources for cluster information are specified.
+    # The dat source is actually unused in this example
     [pathways.clusters.sources.dat]
+
+    # The ORCA source is only used for part of the electronic energy
+    [pathways.clusters.sources.orca]
+    # append_to_common_prefix means that the common name of the cluster will be taken as the .in file name with .out appended
+    append_to_common_prefix = ".out"
+
+    # Finally, the Guassian source, where most attributes are taken from is specified
+    [pathways.clusters.sources.gaussian]
+    append_to_common_prefix = ".log"
+    ```
+
+    For the "csv" type, you specify the pathways and clusters in separate CSV files, with, as above, the information about how to combine sources specified in the toml config file.
+
+    ```toml
+    [[pathways]]
+    type = "csv"
+    pathways_path = "pathways.csv"
+    clusters_path = "clusters.csv"
+
+    # These are the same as legacy_glob, see above
+    [pathways.clusters]
+    default_source = "gaussian"
+    electronic_energy = "orca.final_single_point_energy + gaussian.zero_point_energy"
 
     [pathways.clusters.sources.orca]
     append_to_common_prefix = ".out"
@@ -77,6 +107,23 @@ def prepare(mode, config, database, append, replace_by_name, db_type, warm):
     [pathways.clusters.sources.gaussian]
     append_to_common_prefix = ".log"
     ```
+
+    Then `clusters.csv` associates filename prefixes with common names for clusters:
+    ```csv
+    name,prefix
+    1A_1SA_negative,negative/1A_1SA
+    1A_2SA_negative,negative/1A_2SA
+    ```
+
+    While `pathways.csv` relates the parent clusters to their products for each pathway:
+    ```csv
+    parent,product1,product2
+    2A_2SA_negative,1A_1SA_negative,1A_1SA_neutral
+    2A_3SA_negative,1A_1SA_negative,1A_2SA_neutral
+    ```
+
+    Note that `apitofsim generate pathways` can be used to generate these CSV files from a directory of QC output files.
+    They can then be edited, e.g. with Excel, to remove unwanted clusters and pathways.
 
     **Parameters**
 
@@ -121,10 +168,13 @@ def prepare(mode, config, database, append, replace_by_name, db_type, warm):
     ```
     """
     import os
-    import tomllib
+    from copy import deepcopy
     from pprint import pprint
 
+    from tomlkit_extras import TOMLDocumentDescriptor, load_toml_file
+
     from apitofsim.config import import_raw_config
+    from apitofsim.ingest.common import CombineError
     from apitofsim.workflow import (
         ClusterDatabase,
         DerivedDataPreparer,
@@ -133,16 +183,16 @@ def prepare(mode, config, database, append, replace_by_name, db_type, warm):
         ingest_tree,
     )
 
-    def iter_raw_configs(json):
-        for config in json.get("configs", []):
-            yield config["name"], {**json.get("default_config", {}), **config}
+    def iter_raw_configs(config):
+        for config in config.get("configs", []):
+            yield config["name"], {**config.get("default_config", {}), **config}
 
     if os.path.exists(database) and mode == "create":
-        raise click.UsageError(
+        raise click.ClickException(
             f"Database file {database} already exists, will not overwrite (delete it yourself first if you want)"
         )
     if not os.path.exists(database) and mode != "create":
-        raise click.UsageError(
+        raise click.ClickException(
             f"Database file {database} does not exist, cannot append"
         )
 
@@ -151,7 +201,9 @@ def prepare(mode, config, database, append, replace_by_name, db_type, warm):
     elif db_type == "cluster":
         db = ClusterDatabase(database)
         if warm:
-            raise click.UsageError("Warm option is not supported for cluster database")
+            raise click.ClickException(
+                "Warm option is not supported for cluster database"
+            )
     elif db_type == "super":
         db = SuperClusterDatabase(database)
     else:
@@ -160,33 +212,54 @@ def prepare(mode, config, database, append, replace_by_name, db_type, warm):
     if mode == "create":
         db.create_tables()
 
-    with open(config, "rb") as f:
-        source = tomllib.load(f)
-
-    ingest_tree(db, source["pathways"])
+    source = load_toml_file(config)
+    path_base = pathlib.Path(config).parent
+    source_safe = deepcopy(source)
+    if "configs" in source_safe:
+        # It looks like tomlkit-extras can't handle arrays and stuff put in [...]
+        del source_safe["configs"]
+    try:
+        ingest_tree(
+            db, source["pathways"], path_base, TOMLDocumentDescriptor(source_safe)
+        )
+    except CombineError as e:
+        line_no = e.info.get("line_no")
+        path = e.info.get("path")
+        source_name = e.info.get("source_name")
+        raise click.ClickException(
+            f"Problem in configuration file {config} at {line_no}\n"
+            + f'[[{path}]] = "{source_name}"\n'
+            + str(e.info["exception"])
+            + "\n"
+            "Available source quantities were:\n"
+            + "\n".join(
+                f"- {quantity}"
+                for quantity in e.info.get("available_source_quantities", [])
+            )
+        )
 
     if warm and "densityandrate_configs" in source:
         assert isinstance(db, SuperClusterDatabase)
         preparer = DerivedDataPreparer(db)
-        for config in source["densityandrate_configs"]:
+        for config_dict in source["densityandrate_configs"].unwrap():
             print("Warming up density and rate for config:")
-            pprint(config)
+            pprint(config_dict)
             cluster_indexed, _, pathway_lookup = db.get_all_lookups()
             preparer.run_densityandrate(
-                import_raw_config(config), cluster_indexed, pathway_lookup
+                import_raw_config(config_dict), cluster_indexed, pathway_lookup
             )
 
     if db_type == "experiment":
         assert isinstance(db, ExperimentDatabase)
-        for name, config in iter_raw_configs(source):
-            db.insert_config(name, config)
+        for name, config_dict in iter_raw_configs(source.unwrap()):
+            db.insert_config(name, config_dict)
             if warm:
                 print("Warming up density and rate for config:", name)
-                pprint(config)
+                pprint(config_dict)
                 preparer = DerivedDataPreparer(db)
                 cluster_indexed, _, pathway_lookup = db.get_all_lookups()
                 preparer.run_densityandrate(
-                    import_raw_config(config), cluster_indexed, pathway_lookup
+                    import_raw_config(config_dict), cluster_indexed, pathway_lookup
                 )
 
 
@@ -238,7 +311,7 @@ def run(
     ).fetchone()
     assert num_configs is not None
     if num_configs[0] == 0:
-        raise click.UsageError(
+        raise click.ClickException(
             "The specified database does not contain experiment_config. Did you create it as an experiment database?"
         )
     runner = ExperimentRunner(db)
@@ -548,7 +621,7 @@ def spectrogram(database, pngout):
     db = ExperimentDatabase(database, readonly=True)
     experiment_id, cluster_id, is_single_pathway = select_cluster_result(db)
     if is_single_pathway:
-        raise click.UsageError("TODO: Single pathway experiments not supported yet")
+        raise NotImplementedError("TODO: Single pathway experiments not supported yet")
     df = get_intensities_multipathway(db, experiment_id, cluster_id)
     plot_spectrogram(pngout, df)
 
@@ -678,6 +751,140 @@ def qc_log(format, log_in):
         with open(log_in) as f:
             gaussian_result = parse_gaussian(f)
             pprint(gaussian_result)
+
+
+def atoms_to_counter(atoms: Atoms) -> Counter[str]:
+    """Convert an Atoms object to a Counter of element symbols."""
+    return Counter(atoms.get_chemical_symbols())
+
+
+def find_combination_triples(
+    counters: List[Counter[str]],
+) -> List[Tuple[int, int, int]]:
+    """
+    Given a list of Atoms objects, find all triples (i, j, k) of indices such
+    that atoms_list[i] + atoms_list[j] has exactly the same atoms as
+    atoms_list[k] (i.e. i and j are reactants that combine to form product k).
+
+    Returns a list of (reactant_a_index, reactant_b_index, product_index)
+    tuples. Each unordered pair {i, j} appears at most once per product k,
+    with i < j.
+    """
+    # Build a lookup from a frozen counter (i.e. a composition signature)
+    # to the list of indices that share that composition.
+    # This lets us do O(1) product lookups instead of scanning the whole list.
+    from collections import defaultdict
+
+    composition_to_indices: dict[frozenset[tuple[str, int]], list[int]] = defaultdict(
+        list
+    )
+    for idx, c in enumerate(counters):
+        key = frozenset(c.items())
+        composition_to_indices[key].append(idx)
+
+    results: List[Tuple[int, int, int]] = []
+
+    # Enumerate all pairs of potential reactants
+    for i, j in combinations(range(len(counters)), 2):
+        # The combined composition is the element-wise sum of both counters
+        combined = counters[i] + counters[j]
+        combined_key = frozenset(combined.items())
+
+        # Check whether any Atoms object in our list matches the combined
+        # composition (those would be the products)
+        for k in composition_to_indices.get(combined_key, []):
+            results.append((i, j, k))
+
+    return results
+
+
+def generate_common_names(paths):
+    result = []
+    level = 0
+    while 1:
+        for path in paths:
+            name = path.stem
+            for i in range(level):
+                try:
+                    name += "_" + path.parents[i].stem
+                except IndexError:
+                    raise ValueError(
+                        f"Failed to generate unique common name for {path}, ran out of disambiguating parent directories"
+                    )
+            if name in result:
+                result.clear()
+                level += 1
+                break
+            result.append(name)
+        else:
+            break
+    return result
+
+
+@cli.group(short_help="Commands to inspect different files")
+def generate():
+    pass
+
+
+@generate.command(short_help="")
+@click.argument(
+    "format",
+    required=True,
+    type=click.Choice(["gaussian", "orca", "xyz"], case_sensitive=False),
+)
+@click.argument(
+    "pathways_out",
+    required=True,
+    type=click.Path(dir_okay=False, path_type=pathlib.Path),
+)
+@click.argument(
+    "clusters_out",
+    required=True,
+    type=click.Path(dir_okay=False, path_type=pathlib.Path),
+)
+@click.argument(
+    "files",
+    required=True,
+    nargs=-1,
+    type=click.Path(dir_okay=False, path_type=pathlib.Path),
+)
+@click.option("-g", "--guess-prefix", is_flag=True, help="")
+def pathways(format, pathways_out, clusters_out, files, guess_prefix):
+    from ase.io import read as ase_read
+
+    counters = []
+    for file in files:
+        if format == "orca":
+            atoms = ase_read(file, format="orca-output")[0]
+        elif format == "gaussian":
+            atoms = ase_read(file, format="gaussian-out")[0]
+        else:
+            assert format == "xyz"
+            atoms = ase_read(file, format="xyz")
+        assert isinstance(atoms, Atoms)
+        counters.append(atoms_to_counter(atoms))
+    common_names = generate_common_names(files)
+    output_paths = []
+    for file in files:
+        output_path = file.relative_to(clusters_out.parent)
+        if guess_prefix:
+            output_path = output_path.parent / output_path.stem
+        output_paths.append(str(output_path))
+    triples = find_combination_triples(counters)
+    with open(pathways_out, "w") as out:
+        out.write("parent,product1,product2\n")
+        for i, j, k in triples:
+            out.write(
+                ",".join([common_names[k], common_names[i], common_names[j]]) + "\n"
+            )
+    with open(clusters_out, "w") as out:
+        if guess_prefix:
+            attr = "prefix"
+        else:
+            attr = format
+        out.write(f"name,{attr}\n")
+        for name, path in zip(common_names, output_paths):
+            out.write(f"{name},{path}\n")
 
 
 if __name__ == "__main__":

@@ -19,6 +19,8 @@ python.install_sources([
 'ingest/gaussian.py',
 'ingest/orca.py',
 'ingest/legacy.py',
+'ingest/common.py',
+'ingest/csv.py',
 ], subdir: 'apitofsim/ingest', pure : false)
 python.install_sources([
 'workflow/__init__.py',

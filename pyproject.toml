@@ -15,6 +15,7 @@ dependencies = [
   "pyarrow>=23.0.0",
   "questionary>=2.1.1",
   "tomlkit>=0.14.0",
+  "tomlkit-extras>=0.2.0",
 ]
 
 [build-system]
