@@ -346,7 +346,7 @@ def select_experiment(db):
             questionary.Choice(
                 f"#{row.experiment_run_id} {row.config_name} run at {row.start_time} "
                 f"({pathway_desc}, success rate: {row.successes}/{row.successes + row.failures})",
-                value=row.experiment_run_id,
+                value=(row.experiment_run_id, row.is_single_pathway),
             )
         )
     return questionary.prompt(
@@ -389,191 +389,6 @@ def select_cluster_result(db):
     )["cluster_result"]
 
 
-def get_joint_survivals(db, er_id):
-    from functools import reduce
-    from operator import mul
-
-    import duckdb
-
-    joint_survivals = {}
-
-    for cluster in db.clusters_df(parents_only=True).itertuples():
-        print("#", cluster.common_name)
-        df = (
-            db.db.table("experiment_report")
-            .filter(
-                (
-                    duckdb.ColumnExpression("experiment_run_id")
-                    == duckdb.ConstantExpression(er_id)
-                )
-                & (
-                    duckdb.ColumnExpression("cluster_id")
-                    == duckdb.ConstantExpression(cluster.id)
-                )
-            )
-            .select(
-                duckdb.SQLExpression(
-                    "format('{} -> {} + {}', cluster_common_name, product1_common_name, product2_common_name)"
-                ).alias("pathway_name"),
-                *(
-                    duckdb.ColumnExpression(col)
-                    for col in [
-                        "outcome_type",
-                        "failure_msg",
-                        "nwarnings",
-                        "n_fragmented_total",
-                        "n_escaped_total",
-                        "ncoll_total",
-                        "counter_collision_rejections",
-                    ]
-                ),
-                duckdb.SQLExpression(
-                    "n_escaped_total / (n_escaped_total + n_fragmented_total)"
-                ).alias("survival_rate"),
-            )
-        ).fetchdf()
-        print(df)
-        print()
-        if len(df) == 0:
-            print("No results for", cluster.common_name)
-            continue
-        # This seems a bit naughty
-        survival_rate = df["survival_rate"][df["survival_rate"] > 0]
-        joint_survivals[cluster.common_name] = reduce(mul, survival_rate, 1.0)
-    return joint_survivals
-
-
-def make_survival_plot(outf, cluster_names, values):
-    try:
-        import matplotlib.pyplot as plt  # pyright: ignore[reportMissingImports]
-    except ImportError:
-        raise ImportError("Plotting requires holoviews and matplotlib; please install")
-    import numpy as np
-
-    # Bar positions
-    x = np.arange(len(cluster_names))
-    width = 0.2
-
-    fig, ax = plt.subplots(figsize=(10, 6))
-
-    # Create bars
-    ax.bar(
-        x,
-        values,
-        width,
-        edgecolor="none",
-    )
-
-    # Customize axes
-    ax.set_xlabel("Cluster", fontsize=12)
-    ax.set_ylabel("Survival Probability", fontsize=12)
-    ax.set_xticks(x)
-    ax.tick_params(axis="x", labelrotation=90)
-    ax.set_xticklabels(cluster_names)
-    ax.set_yticks([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1])
-
-    # Add horizontal gridlines only
-    ax.yaxis.grid(True, linestyle="-", alpha=0.7, color="gray")
-    ax.xaxis.grid(False)
-    ax.set_axisbelow(True)
-
-    # Style spines
-    ax.spines["left"].set_color("gray")
-    ax.spines["right"].set_color("gray")
-    ax.spines["top"].set_color("gray")
-    ax.spines["bottom"].set_color("gray")
-
-    # Legend in upper right
-    fig.legend(loc="upper right", frameon=True, facecolor="white", edgecolor="gray")
-
-    plt.tight_layout()
-    plt.savefig(outf, dpi=150, facecolor=fig.get_facecolor(), bbox_inches="tight")
-
-
-def get_intensities_multipathway(db, er_id, cluster_id=None):
-    intensities_sql = """
-    with
-        pathway_products as (
-            select id as pathway_id, product1_id as product_id from pathway
-            union
-            select id as pathway_id, product2_id as product_id from pathway
-        ),
-        cluster_counts as (
-            select
-                multi_pathway_experiment_result.experiment_run_id as experiment_run_id,
-                multi_pathway_experiment_result.cluster_id as parent_id,
-                multi_pathway_experiment_result.id as experiment_result_id,
-                pathway_products.product_id as product_id,
-                pathway_fragmentation.count as count
-            from
-                multi_pathway_experiment_result
-            inner join
-                pathway_fragmentation on multi_pathway_experiment_result.id = pathway_fragmentation.experiment_result_id
-            inner join
-                pathway_products on pathway_products.pathway_id = pathway_fragmentation.pathway_id
-            union
-            select
-                multi_pathway_experiment_result.experiment_run_id as experiment_run_id,
-                multi_pathway_experiment_result.cluster_id as parent_id,
-                multi_pathway_experiment_result.id as experiment_result_id,
-                multi_pathway_experiment_result.cluster_id as product_id,
-                multi_pathway_experiment_result.n_escaped_total as count
-            from
-                multi_pathway_experiment_result
-        ),
-        experiment_counts as (
-            select
-                cluster_counts.parent_id as parent_id,
-                cluster_counts.experiment_result_id as experiment_result_id,
-                sum(cluster_counts.count) as count
-            from
-                cluster_counts
-            group by
-                parent_id,
-                experiment_result_id
-        )
-    select
-        parent_cluster.common_name as parent_name,
-        product_cluster.common_name as product_name,
-        product_cluster.atomic_mass,
-        cluster_counts.count / experiment_counts.count as relative_count,
-        abs(relative_count * product_cluster.charge) as intensity
-    from
-        cluster_counts
-    inner join
-        cluster as parent_cluster
-        on parent_cluster.id = cluster_counts.parent_id
-    inner join
-        cluster as product_cluster
-        on product_cluster.id = cluster_counts.product_id
-    inner join
-        experiment_counts
-        on experiment_counts.parent_id = cluster_counts.parent_id
-        and experiment_counts.experiment_result_id = cluster_counts.experiment_result_id
-    """
-    if cluster_id is None:
-        return db.db.execute(
-            intensities_sql
-            + """
-        where
-            cluster_counts.experiment_run_id = ?
-        order by
-            cluster_counts.parent_id
-        """,
-            (er_id,),
-        ).fetchdf()
-    else:
-        return db.db.execute(
-            intensities_sql
-            + """
-        where
-            cluster_counts.experiment_run_id = ? and
-            cluster_counts.parent_id = ?
-        """,
-            (er_id, cluster_id),
-        ).fetchdf()
-
-
 @plot.command(short_help="Plot survival rates for each parent cluster in an experiment")
 @click.argument("database", required=True, type=click.Path(exists=True, dir_okay=False))
 @click.argument("pngout", type=click.Path(dir_okay=False))
@@ -583,30 +398,14 @@ def survival(database, pngout):
     """
     from pprint import pprint
 
+    from apitofsim.plotting import get_joint_survivals, make_survival_plot
     from apitofsim.workflow import ExperimentDatabase
 
     db = ExperimentDatabase(database, readonly=True)
-    experiment_id = select_experiment(db)
+    experiment_id, _ = select_experiment(db)
     joint_survivals = get_joint_survivals(db, experiment_id)
     pprint(joint_survivals)
     make_survival_plot(pngout, joint_survivals.keys(), joint_survivals.values())
-
-
-def plot_spectrogram(outf, df):
-    try:
-        import holoviews  # pyright: ignore[reportMissingImports]
-    except ImportError:
-        raise ImportError("Plotting requires holoviews and matplotlib; please install")
-
-    holoviews.extension("matplotlib")  # type: ignore
-
-    spectrogram = holoviews.Spikes(
-        (df["atomic_mass"], df["intensity"]),
-        holoviews.Dimension("m/z", soft_range=(0, 1)),
-        "Intensity",
-    ).opts(fig_inches=(6, 3), aspect=2)
-    matplotlib_fig = holoviews.render(spectrogram)
-    matplotlib_fig.savefig(outf, dpi=300)
 
 
 @plot.command(short_help="Plot a spectrogram for a single cluster in an experiment")
@@ -616,14 +415,20 @@ def spectrogram(database, pngout):
     """
     Output to PNGOUT a spectrogram of the results for single cluster / experiment using the database at path DATABASE.
     """
+    from apitofsim.plotting import (
+        get_intensities_multipathway,
+        get_intensities_singlepathway,
+        plot_spectrogram,
+    )
     from apitofsim.workflow import ExperimentDatabase
 
     db = ExperimentDatabase(database, readonly=True)
     experiment_id, cluster_id, is_single_pathway = select_cluster_result(db)
     if is_single_pathway:
-        raise NotImplementedError("TODO: Single pathway experiments not supported yet")
-    df = get_intensities_multipathway(db, experiment_id, cluster_id)
-    plot_spectrogram(pngout, df)
+        df = get_intensities_singlepathway(db, experiment_id, cluster_id)
+    else:
+        df = get_intensities_multipathway(db, experiment_id, cluster_id)
+    plot_spectrogram(pngout, df, scale="max")
 
 
 @plot.command(short_help="Plot a spectrogram for each cluster in an experiment")
@@ -633,15 +438,24 @@ def spectrogram_many(database, dirout):
     """
     Output to DIROUT a spectrogram per cluster using the results from single experiments using the database at path DATABASE.
     """
+    from apitofsim.plotting import (
+        get_intensities_multipathway,
+        get_intensities_singlepathway,
+        plot_spectrogram,
+    )
     from apitofsim.workflow import ExperimentDatabase
 
     db = ExperimentDatabase(database, readonly=True)
-    experiment_id = select_experiment(db)
-    df = get_intensities_multipathway(db, experiment_id)
-    dirout.mkdir(exist_ok=True)
+    experiment_id, is_single_pathway = select_experiment(db)
+    if is_single_pathway:
+        df = get_intensities_singlepathway(db, experiment_id)
+    else:
+        df = get_intensities_multipathway(db, experiment_id)
+    dirout.mkdir(exist_ok=True, parents=True)
+    max_x = df["atomic_mass"].max() * 1.1
     for parent_name, cluster_df in df.groupby("parent_name"):
         pngout = dirout / f"{parent_name}.png"
-        plot_spectrogram(pngout, cluster_df)
+        plot_spectrogram(pngout, cluster_df, scale="max", max_x=max_x)
 
 
 @db.command(short_help="Produce an Excel-friendly CSV report from the database")
