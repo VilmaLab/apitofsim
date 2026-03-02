@@ -19,6 +19,7 @@ select
     c.id as cluster_id,
     c.common_name as cluster_common_name,
     c.atomic_mass as cluster_atomic_mass,
+    c.charge as cluster_charge,
     c.electronic_energy as cluster_electronic_energy,
     c.rotational_temperatures as cluster_rotational_temperatures,
     c.vibrational_temperatures as cluster_vibrational_temperatures,
@@ -27,6 +28,7 @@ select
     p1.id as product1_id,
     p1.common_name as product1_common_name,
     p1.atomic_mass as product1_atomic_mass,
+    p1.charge as product1_charge,
     p1.electronic_energy as product1_electronic_energy,
     p1.rotational_temperatures as product1_rotational_temperatures,
     p1.vibrational_temperatures as product1_vibrational_temperatures,
@@ -35,6 +37,7 @@ select
     p2.id as product2_id,
     p2.common_name as product2_common_name,
     p2.atomic_mass as product2_atomic_mass,
+    p2.charge as product2_charge,
     p2.electronic_energy as product2_electronic_energy,
     p2.rotational_temperatures as product2_rotational_temperatures,
     p2.vibrational_temperatures as product2_vibrational_temperatures,
@@ -103,7 +106,7 @@ select
     (
         select count(*) > 0
         from single_pathway_experiment_result
-        where single_pathway_experiment_result.experiment_run_id = experiment_run_id
+        where single_pathway_experiment_result.experiment_run_id = experiment_pathway_report.experiment_run_id
     ) as is_single_pathway,
 from experiment_pathway_report
 group by all;

@@ -346,7 +346,7 @@ def select_experiment(db):
             questionary.Choice(
                 f"#{row.experiment_run_id} {row.config_name} run at {row.start_time} "
                 f"({pathway_desc}, success rate: {row.successes}/{row.successes + row.failures})",
-                value=row.experiment_run_id,
+                value=(row.experiment_run_id, row.is_single_pathway),
             )
         )
     return questionary.prompt(
@@ -402,7 +402,7 @@ def survival(database, pngout):
     from apitofsim.workflow import ExperimentDatabase
 
     db = ExperimentDatabase(database, readonly=True)
-    experiment_id = select_experiment(db)
+    experiment_id, _ = select_experiment(db)
     joint_survivals = get_joint_survivals(db, experiment_id)
     pprint(joint_survivals)
     make_survival_plot(pngout, joint_survivals.keys(), joint_survivals.values())
@@ -415,15 +415,20 @@ def spectrogram(database, pngout):
     """
     Output to PNGOUT a spectrogram of the results for single cluster / experiment using the database at path DATABASE.
     """
-    from apitofsim.plotting import get_intensities_multipathway, plot_spectrogram
+    from apitofsim.plotting import (
+        get_intensities_multipathway,
+        get_intensities_singlepathway,
+        plot_spectrogram,
+    )
     from apitofsim.workflow import ExperimentDatabase
 
     db = ExperimentDatabase(database, readonly=True)
     experiment_id, cluster_id, is_single_pathway = select_cluster_result(db)
     if is_single_pathway:
-        raise NotImplementedError("TODO: Single pathway experiments not supported yet")
-    df = get_intensities_multipathway(db, experiment_id, cluster_id)
-    plot_spectrogram(pngout, df)
+        df = get_intensities_singlepathway(db, experiment_id, cluster_id)
+    else:
+        df = get_intensities_multipathway(db, experiment_id, cluster_id)
+    plot_spectrogram(pngout, df, scale="max")
 
 
 @plot.command(short_help="Plot a spectrogram for each cluster in an experiment")
@@ -433,16 +438,24 @@ def spectrogram_many(database, dirout):
     """
     Output to DIROUT a spectrogram per cluster using the results from single experiments using the database at path DATABASE.
     """
-    from apitofsim.plotting import get_intensities_multipathway, plot_spectrogram
+    from apitofsim.plotting import (
+        get_intensities_multipathway,
+        get_intensities_singlepathway,
+        plot_spectrogram,
+    )
     from apitofsim.workflow import ExperimentDatabase
 
     db = ExperimentDatabase(database, readonly=True)
-    experiment_id = select_experiment(db)
-    df = get_intensities_multipathway(db, experiment_id)
-    dirout.mkdir(exist_ok=True)
+    experiment_id, is_single_pathway = select_experiment(db)
+    if is_single_pathway:
+        df = get_intensities_singlepathway(db, experiment_id)
+    else:
+        df = get_intensities_multipathway(db, experiment_id)
+    dirout.mkdir(exist_ok=True, parents=True)
+    max_x = df["atomic_mass"].max() * 1.1
     for parent_name, cluster_df in df.groupby("parent_name"):
         pngout = dirout / f"{parent_name}.png"
-        plot_spectrogram(pngout, cluster_df)
+        plot_spectrogram(pngout, cluster_df, scale="max", max_x=max_x)
 
 
 @db.command(short_help="Produce an Excel-friendly CSV report from the database")
