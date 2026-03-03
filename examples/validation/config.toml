@@ -1,0 +1,91 @@
+[[pathways]]
+type = "legacy_glob"
+prefix = "nodat_"
+path = "/path/to/100DMA-100SA/Pathway*/**/*.in"
+cwd = "."
+
+[pathways.clusters]
+default_source = "gaussian"
+electronic_energy = "orca.final_single_point_energy + gaussian.zero_point_energy"
+
+[pathways.clusters.sources.orca]
+append_to_common_prefix = ".out"
+
+[pathways.clusters.sources.gaussian]
+append_to_common_prefix = ".log"
+
+[[pathways]]
+type = "legacy_glob"
+prefix = "pragdat_"
+path = "/path/to/100DMA-100SA/Pathway*/**/*.in"
+cwd = "."
+
+[pathways.clusters]
+default_source = "gaussian"
+atomic_mass = "dat"
+electronic_energy = "dat"
+
+[pathways.clusters.sources.dat]
+
+[pathways.clusters.sources.orca]
+append_to_common_prefix = ".out"
+
+[pathways.clusters.sources.gaussian]
+append_to_common_prefix = ".log"
+
+[[pathways]]
+type = "legacy_glob"
+prefix = "alldat_"
+path = "/path/to/100DMA-100SA/Pathway*/**/*.in"
+cwd = "."
+
+[pathways.clusters]
+default_source = "dat"
+charge = "orca"
+
+[pathways.clusters.sources.dat]
+
+[pathways.clusters.sources.orca]
+append_to_common_prefix = ".out"
+
+[default_config]
+M_iter = 1_000
+N = 1_000
+N_iter = 1_000
+T = "300.0 kelvin"
+alpha_factor = "0.25 halfturn"
+bin_width = "4.0 kelvin"
+dc = "0.0005 meter"
+energy_max = "2.0e5 kelvin"
+energy_max_rate = "2.0e4 kelvin"
+lengths = [ [ 0.001, 0.00244, 0.101, 0.00448, 0.0005 ], "meter" ]
+pressure_first = "194.0 pascal"
+pressure_second = "3.88 pascal"
+resolution = 1_000
+tolerance = 1e-8
+voltages = [ [ -19, -9, -7, -6, 11 ], "volt" ]
+
+[default_config.gas]
+radius = "1.84e-10 meter"
+mass = "4.65e-26 kilogram"
+adiabatic_index = 1.4
+
+[[configs]]
+name = "original"
+
+[[configs]]
+name = "improved"
+bin_width = "1.0 kelvin"
+energy_max_rate = "5.0e4 kelvin"
+
+[[configs]]
+name = "improved, quadrupole"
+bin_width = "1.0 kelvin"
+energy_max_rate = "1.0e5 kelvin"
+radius_pinhole = "1 mm"
+
+[configs.quadrupole]
+dc_field = "0.0 volt"
+ac_field = "200.0 volt"
+radiofrequency = "1.3e6 Hz"
+r_quadrupole = "6.0e-3 meter"
