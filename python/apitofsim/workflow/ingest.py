@@ -42,7 +42,7 @@ def ingest_legacy_one(
     insert_parsed_pathway(db, pathway, prefix=prefix)
 
 
-def ingest_tree(db: ClusterDatabase, pathways, path_base, descriptor):
+def ingest_tree(db: ClusterDatabase, pathways, path_base, descriptor=None):
     if isinstance(pathways, list):
         for idx, pathways_segment in enumerate(pathways):
             ingest_tree(db, pathways_segment, path_base, (descriptor, idx))
