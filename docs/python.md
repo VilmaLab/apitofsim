@@ -24,17 +24,3 @@ The `apitofsim.workflow` module, contains functions to keep cluster data in a da
 
 ::: apitofsim.workflow.ClusterDatabase
     members: true
-
-# Workflow example with Python
-
-The following example shows how to run a full simulation workflow using Python scripts.
-
---8<-- "examples/python-workflow/README.md"
-
-``` title="prepare.py"
---8<-- "examples/python-workflow/prepare.py"
-```
-
-``` title="run.py"
---8<-- "examples/python-workflow/run.py"
-```
