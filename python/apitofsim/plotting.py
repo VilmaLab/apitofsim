@@ -297,7 +297,7 @@ def plot_spectrogram_to_file(outf, df, *args, **kwargs):
         raise ImportError("Plotting requires holoviews and matplotlib; please install")
 
     holoviews.extension("matplotlib")  # type: ignore
-    spectrogram = plot_spectrogram(outf, df, *args, **kwargs)
+    spectrogram = plot_spectrogram(df, *args, **kwargs)
     spectrogram = spectrogram.opts(fig_inches=(6, 3), aspect=2)
     matplotlib_fig = holoviews.render(spectrogram)
     matplotlib_fig.savefig(outf, dpi=300)

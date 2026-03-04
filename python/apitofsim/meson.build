@@ -4,6 +4,7 @@ apitofsim_python_py_src = [
 'cli.py',
 'config.py',
 'plotting.py',
+'transmission.py',
 '__init__.py',
 '__main__.py',
 'py.typed',

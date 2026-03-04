@@ -414,7 +414,12 @@ def survival(database, pngout):
 @plot.command(short_help="Plot a spectrogram for a single cluster in an experiment")
 @click.argument("database", required=True, type=click.Path(exists=True, dir_okay=False))
 @click.argument("pngout", type=click.Path(dir_okay=False))
-def spectrogram(database, pngout):
+@click.option(
+    "--model-transmission",
+    type=click.Choice(["old", "new_neg", "new_pos"]),
+    default=None,
+)
+def spectrogram(database, pngout, model_transmission):
     """
     Output to PNGOUT a spectrogram of the results for single cluster / experiment using the database at path DATABASE.
     """
@@ -422,6 +427,11 @@ def spectrogram(database, pngout):
         get_intensities_multipathway,
         get_intensities_singlepathway,
         plot_spectrogram_to_file,
+    )
+    from apitofsim.transmission import (
+        new_transmission_neg,
+        new_transmsision_pos,
+        old_transmission,
     )
     from apitofsim.workflow import ExperimentDatabase
 
@@ -431,6 +441,13 @@ def spectrogram(database, pngout):
         df = get_intensities_singlepathway(db, experiment_id, cluster_id)
     else:
         df = get_intensities_multipathway(db, experiment_id, cluster_id)
+    if model_transmission is not None:
+        model_transmission_func = {
+            "old": old_transmission,
+            "new_neg": new_transmission_neg,
+            "new_pos": new_transmsision_pos,
+        }[model_transmission]
+        df["intensity"] = model_transmission_func(df["atomic_mass"]) * df["intensity"]
     plot_spectrogram_to_file(pngout, df, scale="max")
 
 
