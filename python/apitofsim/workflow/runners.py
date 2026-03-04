@@ -407,6 +407,14 @@ class DerivedDataPreparer:
 
 
 class ExperimentRunner:
+    """
+    This class helps with running the simulation across configs and clusters/pathways in an ExperimentDatabase.
+
+    It also records results and failures back into the database, and can optionally print progress tables to the terminal.
+
+    It precomputes all histograms of density of states and rate constants as needed, and caches them in the database for future runs.
+    """
+
     def __init__(self, db: ExperimentDatabase):
         self.db = db
         self.preparer = DerivedDataPreparer(db)
@@ -467,6 +475,10 @@ class ExperimentRunner:
                 cluster_id=cluster_id,
             )
         return counters
+
+    """
+    Run a `config` passed directly as a dict.
+    """
 
     def run_from_config(
         self,
@@ -822,6 +834,11 @@ class ExperimentRunner:
         mass_spec_table.close()
 
     def run_prepared_config(self, name=None, **kwargs):
+        """
+        Run from an experiment config that has been inserted into an ExperimentDatabase.
+
+         * `name` is the name of an experiment config, a list thereof, or None to run all configs
+        """
         from pprint import pprint
 
         configs = list(self.db.iter_configs(name))

@@ -111,16 +111,33 @@ Q_ = ureg.Quantity
 
 
 class ClusterLike(ABC):
+    """
+    A base class for cluster-like things.
+    """
+
     @abstractmethod
-    def get_frequencies(self) -> Optional[numpy.ndarray]: ...
+    def get_frequencies(self) -> Optional[numpy.ndarray]:
+        """
+        This method returns an array of vibrational temperatures in Kelvin.
+        In the case of an atom-like product this will return None.
+        """
+        ...
 
 
 @dataclass
 class ClusterData(ClusterLike):
+    """
+    The basic physical data for a cluster.
+    """
+
     mass: Quantity[float]
+    """The cluster's mass"""
     electronic_energy: Quantity[float]
+    """The cluster's electronic energy"""
     rotations: numpy.ndarray
+    """From quantum chemistry calcuations, the rotational temperatures in Kelvin for the cluster. This is a 3 element array."""
     frequencies: numpy.ndarray
+    """From quantum chemistry calcuations, the vibrational temperatures in Kelvin for the cluster."""
 
     def into_cpp(self) -> _ClusterData:
         frequencies = self.get_frequencies()
@@ -145,8 +162,19 @@ class ClusterData(ClusterLike):
 
 @dataclass
 class ProductsCluster(ClusterLike):
+    """
+    A combination of two clusters representing the products of a fragmentation pathway.
+    This is used to compute the density of states and derived quantities for the pathway products at the point of collision.
+    """
+
     cluster1: ClusterData
+    """
+    One cluster
+    """
     cluster2: ClusterData
+    """
+    The other cluster
+    """
 
     def get_frequencies(self) -> Optional[numpy.ndarray]:
         frequencies1 = self.cluster1.get_frequencies()
@@ -166,9 +194,22 @@ class ProductsCluster(ClusterLike):
 
 @dataclass
 class Gas:
+    """
+    The physical quantities related to gas in the mass spectrometer
+    """
+
     radius: Quantity[float]
+    """
+    The radius of the gas particle
+    """
     mass: Quantity[float]
+    """
+    The mass of the gas particle
+    """
     adiabatic_index: float
+    """
+    The adiabatic index of the gas particle
+    """
 
     def into_cpp(self) -> _Gas:
         return _Gas(
@@ -180,6 +221,12 @@ class Gas:
 
 @dataclass
 class Histogram:
+    """
+    A container for histogrammed data used to store precomputed density of states and rate constants.
+
+    You should not typically need to construc this yourself.
+    """
+
     x: Quantity[numpy.ndarray]
     y: numpy.ndarray
 
@@ -199,10 +246,26 @@ class Histogram:
 
 @dataclass
 class Quadrupole:
+    """
+    Configuration values related to the quadrupole mass filter in the mass spectrometer, if present
+    """
+
     dc_field: Quantity[float]
+    """
+    The DC voltage applied to the quadrupole rods
+    """
     ac_field: Quantity[float]
+    """
+    The AC voltage applied to the quadrupole rods
+    """
     radiofrequency: Quantity[float]
+    """
+    The radiofrequency of the AC voltage applied to the quadrupole rods
+    """
     r_quadrupole: Quantity[float]
+    """
+    The distance from the center of the quadrupole to the rods
+    """
 
     def into_cpp(self) -> _Quadrupole:
         return _Quadrupole(
@@ -215,16 +278,45 @@ class Quadrupole:
 
 @dataclass
 class MassSpectrometer:
+    """
+    The configuration values needed to simulate the mass spectrometer as well as the precomputed, histogrammed skimmer values.
+    """
+
     skimmer: numpy.ndarray
+    """
+    A 2D array of values along the skimmer, with either XXXXCHECK 3 columns (r, vel, T) or 6 columns (x, r, vel, T, P, rho)
+    """
     lengths: Quantity[numpy.ndarray]
+    """
+    An array of the lengths of the different sections of the mass spectrometer
+    """
     voltages: Quantity[numpy.ndarray]
+    """
+    The voltages applied at different points on the mass spectrometer
+    """
     T: Quantity[float]
+    """
+    The temperature in the mass spectrometer.
+    """
     pressures: Quantity[numpy.ndarray]
+    """
+    The pressures in the two chambers of the mass spectrometer
+    """
     _: KW_ONLY
     # Only None during init, but can't specify this annoyingly
     mesh_skimmer: Quantity[float] | None = None
+    """
+    The histogram mesh size used for the precomputed, histogrammed skimmer quantities.
+    If not given this will be computed from the skimmer array if it has 6 columns, otherwise it must be supplied.
+    """
     quadrupole: Quadrupole | None = None
+    """
+    The quadrupole configuration, if a quadrupole is present in the mass spectrometer.
+    """
     radius_pinhole: Quantity[float] | None = Q_(1, "mm")
+    """
+    The radius of the pinhole in the skimmer, if present.
+    """
 
     def __post_init__(self):
         if self.skimmer.shape[1] == 3:
@@ -391,6 +483,9 @@ class ArgGetter:
 
 
 def MassSpecInputFragmentationPathway(*args, **kwargs):
+    """
+    Construct a MassSpecInputFragmentationPathway
+    """
     process_arg = QuantityProcessor(kwargs.get("quantities_strict", True))
 
     def proc_bonding_energy(bonding_energy):
@@ -414,6 +509,9 @@ def MassSpecInputFragmentationPathway(*args, **kwargs):
 
 
 def MassSpecSubstanceInput(*args, **kwargs):
+    """
+    Construct a MassSpecSubstanceInput
+    """
     get = ArgGetter(args, kwargs)
     if len(args) >= 1 and isinstance(args[0], ClusterLike) or "cluster_0" in kwargs:
         if len(args) >= 2 and isinstance(args[1], ClusterLike) or "cluster_1" in kwargs:

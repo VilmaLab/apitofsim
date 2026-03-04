@@ -28,18 +28,15 @@ plugins:
             docstring_section_style: list
             filters: ["!^_"]
             heading_level: 1
-            inherited_members: true
             merge_init_into_class: true
-            parameter_headings: true
             separate_signature: true
             show_root_heading: true
-            show_root_full_path: false
+            show_root_full_path: true
             show_signature_annotations: true
             show_source: true
             show_symbol_type_heading: true
             show_symbol_type_toc: true
             signature_crossrefs: true
-            summary: true
 nav:
   - Getting started: index.md
   - Background: background.md
