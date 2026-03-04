@@ -80,7 +80,19 @@ inner join experiment_config as conf on conf.id = er.experiment_config_id
 inner join pathway p on p.id = res.pathway_id
 inner join cluster c on c.id = p.cluster_id
 inner join cluster p1 on p1.id = p.product1_id
-inner join cluster p2 on p2.id = p.product2_id;
+inner join cluster p2 on p2.id = p.product2_id
+
+order by
+    er.start_time,
+    er.id,
+    conf.name,
+    conf.id,
+    c.common_name,
+    c.id,
+    p1.common_name,
+    p1.id,
+    p2.common_name,
+    p2.id;
 
 
 create or replace view experiment_cluster_report as
@@ -109,7 +121,13 @@ select
         where single_pathway_experiment_result.experiment_run_id = experiment_pathway_report.experiment_run_id
     ) as is_single_pathway,
 from experiment_pathway_report
-group by all;
+group by all
+
+order by
+    start_time,
+    experiment_run_id,
+    config_name,
+    cluster_common_name;
 
 
 create or replace view experiment_summary as

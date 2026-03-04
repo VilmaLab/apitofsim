@@ -335,20 +335,23 @@ def plot():
     pass
 
 
+def select_experiment_choices(db):
+    df = db.report_df("experiment_summary")
+    for row in df.itertuples():
+        pathway_desc = "single pathway" if row.is_single_pathway else "multi-pathway"
+        yield (
+            f"#{row.experiment_run_id} {row.config_name} run at {row.start_time} "
+            f"({pathway_desc}, success rate: {row.successes}/{row.successes + row.failures})",
+            (row.experiment_run_id, row.is_single_pathway),
+        )
+
+
 def select_experiment(db):
     import questionary
 
-    df = db.report_df("experiment_summary")
     choices = []
-    for row in df.itertuples():
-        pathway_desc = "single pathway" if row.is_single_pathway else "multi-pathway"
-        choices.append(
-            questionary.Choice(
-                f"#{row.experiment_run_id} {row.config_name} run at {row.start_time} "
-                f"({pathway_desc}, success rate: {row.successes}/{row.successes + row.failures})",
-                value=(row.experiment_run_id, row.is_single_pathway),
-            )
-        )
+    for label, value in select_experiment_choices(db):
+        choices.append(questionary.Choice(label, value=value))
     return questionary.prompt(
         {
             "type": "select",
@@ -411,14 +414,24 @@ def survival(database, pngout):
 @plot.command(short_help="Plot a spectrogram for a single cluster in an experiment")
 @click.argument("database", required=True, type=click.Path(exists=True, dir_okay=False))
 @click.argument("pngout", type=click.Path(dir_okay=False))
-def spectrogram(database, pngout):
+@click.option(
+    "--model-transmission",
+    type=click.Choice(["old", "new_neg", "new_pos"]),
+    default=None,
+)
+def spectrogram(database, pngout, model_transmission):
     """
     Output to PNGOUT a spectrogram of the results for single cluster / experiment using the database at path DATABASE.
     """
     from apitofsim.plotting import (
         get_intensities_multipathway,
         get_intensities_singlepathway,
-        plot_spectrogram,
+        plot_spectrogram_to_file,
+    )
+    from apitofsim.transmission import (
+        new_transmission_neg,
+        new_transmsision_pos,
+        old_transmission,
     )
     from apitofsim.workflow import ExperimentDatabase
 
@@ -428,7 +441,14 @@ def spectrogram(database, pngout):
         df = get_intensities_singlepathway(db, experiment_id, cluster_id)
     else:
         df = get_intensities_multipathway(db, experiment_id, cluster_id)
-    plot_spectrogram(pngout, df, scale="max")
+    if model_transmission is not None:
+        model_transmission_func = {
+            "old": old_transmission,
+            "new_neg": new_transmission_neg,
+            "new_pos": new_transmsision_pos,
+        }[model_transmission]
+        df["intensity"] = model_transmission_func(df["atomic_mass"]) * df["intensity"]
+    plot_spectrogram_to_file(pngout, df, scale="max")
 
 
 @plot.command(short_help="Plot a spectrogram for each cluster in an experiment")
@@ -441,7 +461,7 @@ def spectrogram_many(database, dirout):
     from apitofsim.plotting import (
         get_intensities_multipathway,
         get_intensities_singlepathway,
-        plot_spectrogram,
+        plot_spectrogram_to_file,
     )
     from apitofsim.workflow import ExperimentDatabase
 
@@ -455,7 +475,7 @@ def spectrogram_many(database, dirout):
     max_x = df["atomic_mass"].max() * 1.1
     for parent_name, cluster_df in df.groupby("parent_name"):
         pngout = dirout / f"{parent_name}.png"
-        plot_spectrogram(pngout, cluster_df, scale="max", max_x=max_x)
+        plot_spectrogram_to_file(pngout, cluster_df, scale="max", max_x=max_x)
 
 
 @db.command(short_help="Produce an Excel-friendly CSV report from the database")

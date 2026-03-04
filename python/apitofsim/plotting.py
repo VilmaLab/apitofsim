@@ -260,13 +260,11 @@ def get_intensities_singlepathway(db, er_id, cluster_id=None):
     return pandas.DataFrame(new_df)
 
 
-def plot_spectrogram(outf, df, scale=None, max_x=None):
+def plot_spectrogram(df, scale=None, max_x=None):
     try:
         import holoviews  # pyright: ignore[reportMissingImports]
     except ImportError:
         raise ImportError("Plotting requires holoviews and matplotlib; please install")
-
-    holoviews.extension("matplotlib")  # type: ignore
 
     if scale == "max":
         df["intensity"] /= df["intensity"].max()
@@ -283,11 +281,23 @@ def plot_spectrogram(outf, df, scale=None, max_x=None):
         x_dim = holoviews.Dimension(
             "m/z", soft_range=(0, df["atomic_mass"].max() * 1.1)
         )
-    y_dim = holoviews.Dimension("Intensity", soft_range=(0, 1))
+    y_dim = holoviews.Dimension("Intensity", soft_range=(0, 1.05))
     spectrogram = holoviews.Spikes(
         (df["atomic_mass"], df["intensity"]),
         x_dim,
         y_dim,
-    ).opts(fig_inches=(6, 3), aspect=2)
+    )
+    return spectrogram
+
+
+def plot_spectrogram_to_file(outf, df, *args, **kwargs):
+    try:
+        import holoviews  # pyright: ignore[reportMissingImports]
+    except ImportError:
+        raise ImportError("Plotting requires holoviews and matplotlib; please install")
+
+    holoviews.extension("matplotlib")  # type: ignore
+    spectrogram = plot_spectrogram(df, *args, **kwargs)
+    spectrogram = spectrogram.opts(fig_inches=(6, 3), aspect=2)
     matplotlib_fig = holoviews.render(spectrogram)
     matplotlib_fig.savefig(outf, dpi=300)
