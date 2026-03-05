@@ -102,8 +102,6 @@ UNITS = {
 
 TOPLEVEL = [
     "T",
-    "pressure_first",
-    "pressure_second",
     "N",
     "N_iter",
     "M_iter",
@@ -285,7 +283,7 @@ class ConfigFile:
     def into_json_config(self):
         return {
             k: self.get(k, by="short_name")
-            for k in (["lengths", "voltages", "gas"] + TOPLEVEL)
+            for k in (["lengths", "voltages", "gas", "pressures"] + TOPLEVEL)
         }
 
 
@@ -419,6 +417,6 @@ def import_raw_config(config):
             config[k] = into_cls(
                 **{k2: into_quantity_obj(config[k], k2) for k2 in config[k]}  # pyright: ignore
             )
-        elif k in TOPLEVEL + ["voltages", "lengths"]:
+        elif k in TOPLEVEL + ["voltages", "lengths", "pressures"]:
             config[k] = into_quantity_obj(config, k)
     return config

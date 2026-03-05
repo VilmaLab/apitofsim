@@ -34,7 +34,7 @@ class DerivedDataPreparer:
 
         return skimmer(
             T0=config["T"],  # pyright: ignore[reportCallIssue]
-            P0=config["pressure_first"],
+            P0=config["pressures"][0],
             rmax=config["lengths"][-1],
             dc=config["dc"],
             alpha_factor=config["alpha_factor"],
@@ -507,15 +507,7 @@ class ExperimentRunner:
             config["lengths"],
             config["voltages"],
             config["T"],
-            Q_(
-                numpy.array(
-                    [
-                        config["pressure_first"].to("pascals").magnitude,
-                        config["pressure_second"].to("pascals").magnitude,
-                    ]
-                ),
-                "pascals",
-            ),
+            config["pressures"],
             quadrupole=config.get("quadrupole"),
         )
 
