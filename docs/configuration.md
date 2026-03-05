@@ -51,6 +51,7 @@ name = "myconfig"
 | alpha_factor    | halfturn     | Angle of skimmer |
 | T               | kelvin       | Temperature inside the mass spectrometer |
 | dc              | meter        | Radius at smallest cross section of skimmer |
+| radius_pinhole  | meter        | Radius of the pinhole at the end of the mass spectrometer. This is optional and if ommited, this part to the simulation will be ignored, i.e. collisions with gas molecules will not undergo extra checks. |
 
 ### Top level arrays
 
