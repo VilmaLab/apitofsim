@@ -12,17 +12,16 @@ def parse_csv_tree(
     clusters_df = pandas.read_csv(expanduser(clusters_path))
     # TODO: Validate columns of clusters_df
     cluster_dict: dict[str, Any] = {}
-    for cluster in clusters_df.itertuples():
-        for attr in ["name", "prefix"]:
-            if not hasattr(cluster, attr):
-                raise ValueError(
-                    "Expected column '{attr}' in clusters CSV, but it was not found"
-                )
-        particle_name = cluster.name  # pyright: ignore[reportAttributeAccessIssue]
+    for cluster_info in clusters_df.itertuples():
+        if not hasattr(cluster_info, "name"):
+            raise ValueError(
+                "Expected column 'name' in clusters CSV, but it was not found"
+            )
+        particle_name = cluster_info.name  # pyright: ignore[reportAttributeAccessIssue]
         sources = import_sources(
             clusters_config,
             particle_name,
-            cluster.prefix,  # pyright: ignore[reportAttributeAccessIssue]
+            cluster_info,  # pyright: ignore[reportAttributeAccessIssue]
             path_base,
         )
         try:

@@ -7,38 +7,46 @@ class CombineError(Exception):
         self.info = info
 
 
-def import_source(source, method, particle_name, prefix, path_base):
-    if method == "orca":
-        from apitofsim.ingest.orca import parse_orca
+def import_source(source, method, particle_name, source_name, cluster_info, path_base):
+    if method in ("orca", "gaussian"):
+        if hasattr(cluster_info, source_name):
+            path = getattr(cluster_info, source_name)
+        elif hasattr(cluster_info, "prefix"):
+            extension = source["append_to_common_prefix"]
+            path = path_base / (cluster_info.prefix + extension)
+        else:
+            raise ValueError(
+                f"Source {source_name} for particle {particle_name} does not have a path column, "
+                "and the cluster CSV does not have a prefix to construct one from"
+            )
+        if method == "orca":
+            from apitofsim.ingest.orca import parse_orca
 
-        extension = source["append_to_common_prefix"]
-        path = path_base / (prefix + extension)
-        with open(path) as f:
-            orca_result = parse_orca(f)
-            if len(orca_result) != 1:
-                raise ValueError(
-                    f"Expected one structure in ORCA output {path}, got {len(orca_result)}"
-                )
-            return orca_result[0]
-    elif method == "gaussian":
-        from apitofsim.ingest.gaussian import parse_gaussian
+            with open(path) as f:
+                orca_result = parse_orca(f)
+                if len(orca_result) != 1:
+                    raise ValueError(
+                        f"Expected one structure in ORCA output {path}, got {len(orca_result)}"
+                    )
+                return orca_result[0]
+        else:
+            assert method == "gaussian"
+            from apitofsim.ingest.gaussian import parse_gaussian
 
-        extension = source["append_to_common_prefix"]
-        path = path_base / (prefix + extension)
-        with open(path) as f:
-            return parse_gaussian(f)
+            with open(path) as f:
+                return parse_gaussian(f)
     elif method == "map":
         return source.get(particle_name, {})
     else:
         raise ValueError(f"Unknown method: {method}")
 
 
-def import_sources(clusters, particle_name, prefix, path_base):
+def import_sources(clusters, particle_name, cluster_info, path_base):
     sources = {}
     for source_name, source in clusters["sources"].items():
         method = source.get("type", source_name)
         sources[source_name] = import_source(
-            source, method, particle_name, prefix, path_base
+            source, method, particle_name, source_name, cluster_info, path_base
         )
     return sources
 
