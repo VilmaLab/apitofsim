@@ -20,6 +20,8 @@ markdown_extensions:
   - tables
   - pymdownx.arithmatex:
       generic: true
+  - pymdownx.tabbed:
+      alternate_style: true
 extra_javascript:
   - js/katex.js
   - https://unpkg.com/katex@0/dist/katex.min.js
@@ -52,8 +54,10 @@ plugins:
 nav:
   - Getting started: index.md
   - Background: background.md
-  - Configuration: configuration.md
-  - CLI tools: cli.md
-  - Python library: python.md
+  - Guide: guide.md
+  - Reference:
+    - Configuration: configuration.md
+    - CLI tools: cli.md
+    - Python library: python.md
   - Notebooks: notebooks.md
   - Development: development.md
