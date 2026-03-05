@@ -69,7 +69,7 @@ def prepare(mode, config, database, db_type, warm):
     cwd = "."
 
     [pathways.clusters]
-    # By default, all attributes are taken from the guassian source
+    # By default, all attributes are taken from the gaussian source
     default_source = "gaussian"
     # Individual attributes can be taken from different sources and combined using simple expressions. Here, the electronic energy is taken as the sum of the final single point energy from orca and the zero point energy from gaussian.
     electronic_energy = "orca.final_single_point_energy + gaussian.zero_point_energy"
@@ -83,7 +83,7 @@ def prepare(mode, config, database, db_type, warm):
     # append_to_common_prefix means that the common name of the cluster will be taken as the .in file name with .out appended
     append_to_common_prefix = ".out"
 
-    # Finally, the Guassian source, where most attributes are taken from is specified
+    # Finally, the Gaussian source, where most attributes are taken from is specified
     [pathways.clusters.sources.gaussian]
     append_to_common_prefix = ".log"
     ```
