@@ -10,13 +10,27 @@ markdown_extensions:
       anchor_linenums: true
       line_spans: __span
       pygments_lang_class: true
+  - pymdownx.blocks.caption
   - pymdownx.inlinehilite
   - pymdownx.snippets
   - pymdownx.superfences
   - attr_list
+  - md_in_html
   - mkdocs-click
+  - tables
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.tabbed:
+      alternate_style: true
+extra_javascript:
+  - js/katex.js
+  - https://unpkg.com/katex@0/dist/katex.min.js
+  - https://unpkg.com/katex@0/dist/contrib/auto-render.min.js
+extra_css:
+  - https://unpkg.com/katex@0/dist/katex.min.css
 plugins:
   - search
+  - autorefs
   - mkdocstrings:
       default_handler: python
       handlers:
@@ -28,22 +42,22 @@ plugins:
             docstring_section_style: list
             filters: ["!^_"]
             heading_level: 1
-            inherited_members: true
             merge_init_into_class: true
-            parameter_headings: true
             separate_signature: true
             show_root_heading: true
-            show_root_full_path: false
+            show_root_full_path: true
             show_signature_annotations: true
             show_source: true
             show_symbol_type_heading: true
             show_symbol_type_toc: true
             signature_crossrefs: true
-            summary: true
 nav:
   - Getting started: index.md
   - Background: background.md
-  - CLI tools: cli.md
-  - Python library: python.md
+  - Guide: guide.md
+  - Reference:
+    - Configuration: configuration.md
+    - CLI tools: cli.md
+    - Python library: python.md
   - Notebooks: notebooks.md
   - Development: development.md

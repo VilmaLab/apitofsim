@@ -7,22 +7,21 @@ from .common import CombineError, combine_sources, import_sources
 
 
 def parse_csv_tree(
-    pathways_path, clusters_path, clusters_config, path_base, descriptor
+    pathways_path, clusters_path, clusters_config, path_base, descriptor=None
 ):
     clusters_df = pandas.read_csv(expanduser(clusters_path))
     # TODO: Validate columns of clusters_df
     cluster_dict: dict[str, Any] = {}
-    for cluster in clusters_df.itertuples():
-        for attr in ["name", "prefix"]:
-            if not hasattr(cluster, attr):
-                raise ValueError(
-                    "Expected column '{attr}' in clusters CSV, but it was not found"
-                )
-        particle_name = cluster.name  # pyright: ignore[reportAttributeAccessIssue]
+    for cluster_info in clusters_df.itertuples():
+        if not hasattr(cluster_info, "name"):
+            raise ValueError(
+                "Expected column 'name' in clusters CSV, but it was not found"
+            )
+        particle_name = cluster_info.name  # pyright: ignore[reportAttributeAccessIssue]
         sources = import_sources(
             clusters_config,
             particle_name,
-            cluster.prefix,  # pyright: ignore[reportAttributeAccessIssue]
+            cluster_info,  # pyright: ignore[reportAttributeAccessIssue]
             path_base,
         )
         try:
@@ -32,12 +31,13 @@ def parse_csv_tree(
             source_specifier = e.info["source_specifier"]
             path = f"pathways.clusters.{source_specifier}"
             e.info["path"] = path
-            if isinstance(descriptor, tuple):
-                descriptor, idx = descriptor
-                field_descriptor = descriptor.get_field_from_aot(path)[idx]
-            else:
-                field_descriptor = descriptor.get_field(path)
-            e.info["line_no"] = field_descriptor.line_no
+            if descriptor is not None:
+                if isinstance(descriptor, tuple):
+                    descriptor, idx = descriptor
+                    field_descriptor = descriptor.get_field_from_aot(path)[idx]
+                else:
+                    field_descriptor = descriptor.get_field(path)
+                e.info["line_no"] = field_descriptor.line_no
             raise e
         cluster_dict[particle_name] = {
             "name": particle_name,

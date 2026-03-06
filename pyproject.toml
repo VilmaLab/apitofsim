@@ -42,6 +42,7 @@ docs = [
   "mkdocs-material>=9.7.0",
   "mkdocstrings>=1.0.0",
   "mkdocstrings-python>=2.0.1",
+  "mkdocs < 2"
 ]
 notebooks = ["scipy>=1.16.3", "sympy>=1.14.0", "marimo[sql]", "polars[pyarrow]"]
 

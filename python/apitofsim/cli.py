@@ -69,7 +69,7 @@ def prepare(mode, config, database, db_type, warm):
     cwd = "."
 
     [pathways.clusters]
-    # By default, all attributes are taken from the guassian source
+    # By default, all attributes are taken from the gaussian source
     default_source = "gaussian"
     # Individual attributes can be taken from different sources and combined using simple expressions. Here, the electronic energy is taken as the sum of the final single point energy from orca and the zero point energy from gaussian.
     electronic_energy = "orca.final_single_point_energy + gaussian.zero_point_energy"
@@ -83,7 +83,7 @@ def prepare(mode, config, database, db_type, warm):
     # append_to_common_prefix means that the common name of the cluster will be taken as the .in file name with .out appended
     append_to_common_prefix = ".out"
 
-    # Finally, the Guassian source, where most attributes are taken from is specified
+    # Finally, the Gaussian source, where most attributes are taken from is specified
     [pathways.clusters.sources.gaussian]
     append_to_common_prefix = ".log"
     ```
@@ -142,8 +142,7 @@ def prepare(mode, config, database, db_type, warm):
     energy_max = "2.0e5 kelvin"
     energy_max_rate = "1.0e5 kelvin"
     lengths = [ [ 0.001, 0.00244, 0.101, 0.00448, 0.0005 ], "meter" ]
-    pressure_first = "194.0 pascal"
-    pressure_second = "3.88 pascal"
+    pressures = [ [ 194.0, 3.88 ], "pascal"]
     resolution = 1_000
     tolerance = 1e-8
     voltages = [ [ -19, -9, -7, -6, 11 ], "volt" ]
@@ -215,9 +214,11 @@ def prepare(mode, config, database, db_type, warm):
     source = load_toml_file(config)
     path_base = pathlib.Path(config).parent
     source_safe = deepcopy(source)
+    # It looks like tomlkit-extras can't handle arrays and stuff put in [...]
     if "configs" in source_safe:
-        # It looks like tomlkit-extras can't handle arrays and stuff put in [...]
         del source_safe["configs"]
+    if "default_config" in source_safe:
+        del source_safe["default_config"]
     try:
         ingest_tree(
             db, source["pathways"], path_base, TOMLDocumentDescriptor(source_safe)
@@ -411,6 +412,22 @@ def survival(database, pngout):
     make_survival_plot(pngout, joint_survivals.keys(), joint_survivals.values())
 
 
+def transform_intensity(df, model_transmission):
+    from apitofsim.transmission import (
+        new_transmission_neg,
+        new_transmsision_pos,
+        old_transmission,
+    )
+
+    if model_transmission is not None:
+        model_transmission_func = {
+            "old": old_transmission,
+            "new_neg": new_transmission_neg,
+            "new_pos": new_transmsision_pos,
+        }[model_transmission]
+        df["intensity"] = model_transmission_func(df["atomic_mass"]) * df["intensity"]
+
+
 @plot.command(short_help="Plot a spectrogram for a single cluster in an experiment")
 @click.argument("database", required=True, type=click.Path(exists=True, dir_okay=False))
 @click.argument("pngout", type=click.Path(dir_okay=False))
@@ -428,11 +445,6 @@ def spectrogram(database, pngout, model_transmission):
         get_intensities_singlepathway,
         plot_spectrogram_to_file,
     )
-    from apitofsim.transmission import (
-        new_transmission_neg,
-        new_transmsision_pos,
-        old_transmission,
-    )
     from apitofsim.workflow import ExperimentDatabase
 
     db = ExperimentDatabase(database, readonly=True)
@@ -441,20 +453,19 @@ def spectrogram(database, pngout, model_transmission):
         df = get_intensities_singlepathway(db, experiment_id, cluster_id)
     else:
         df = get_intensities_multipathway(db, experiment_id, cluster_id)
-    if model_transmission is not None:
-        model_transmission_func = {
-            "old": old_transmission,
-            "new_neg": new_transmission_neg,
-            "new_pos": new_transmsision_pos,
-        }[model_transmission]
-        df["intensity"] = model_transmission_func(df["atomic_mass"]) * df["intensity"]
+    transform_intensity(df, model_transmission)
     plot_spectrogram_to_file(pngout, df, scale="max")
 
 
 @plot.command(short_help="Plot a spectrogram for each cluster in an experiment")
 @click.argument("database", required=True, type=click.Path(exists=True, dir_okay=False))
 @click.argument("dirout", type=click.Path(file_okay=False, path_type=pathlib.Path))
-def spectrogram_many(database, dirout):
+@click.option(
+    "--model-transmission",
+    type=click.Choice(["old", "new_neg", "new_pos"]),
+    default=None,
+)
+def spectrogram_many(database, dirout, model_transmission):
     """
     Output to DIROUT a spectrogram per cluster using the results from single experiments using the database at path DATABASE.
     """
@@ -471,6 +482,7 @@ def spectrogram_many(database, dirout):
         df = get_intensities_singlepathway(db, experiment_id)
     else:
         df = get_intensities_multipathway(db, experiment_id)
+    transform_intensity(df, model_transmission)
     dirout.mkdir(exist_ok=True, parents=True)
     max_x = df["atomic_mass"].max() * 1.1
     for parent_name, cluster_df in df.groupby("parent_name"):

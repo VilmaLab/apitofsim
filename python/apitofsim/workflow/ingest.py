@@ -42,7 +42,16 @@ def ingest_legacy_one(
     insert_parsed_pathway(db, pathway, prefix=prefix)
 
 
-def ingest_tree(db: ClusterDatabase, pathways, path_base, descriptor):
+def ingest_tree(db: ClusterDatabase, pathways, path_base, descriptor=None):
+    """
+    Ingest a tree of fragmentation pathways into the database.
+
+     * `pathways` can be a list or single element, and matches the configuration
+
+     * `path_base` is used to resolve relative paths in the config
+
+     * `descriptor` is used in case the config is parsed from TOML, to provide line numbers for errors, and so not typically used outside apitofsim itself.
+    """
     if isinstance(pathways, list):
         for idx, pathways_segment in enumerate(pathways):
             ingest_tree(db, pathways_segment, path_base, (descriptor, idx))

@@ -19,8 +19,8 @@ Basic functionality is available in both, but the Python API allows for more cus
 
 ### Using apitofsim from the command line
 
-See [Using the command line tools](cli.md).
+First, refer to the [guide](guide.md) which walks through using all major features of the package through the command line. Next, you can refer to the reference for [the command line tools](cli.md) and for [the configuration files](configuration.md).
 
 ### Using apitofsim from Python
 
-See [Using the Python library](python.md).
+See [the reference documentation](python.md).

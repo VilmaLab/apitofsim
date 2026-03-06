@@ -1,4 +1,5 @@
 import os
+from collections import namedtuple
 from glob import glob
 from os.path import expanduser
 
@@ -50,6 +51,9 @@ def get_particle(config, particle):
     return particle_data
 
 
+ingest_cluster_file_info = namedtuple("ingest_cluster_file_info", "prefix")
+
+
 def parse_legacy_one(filename, clusters, path_base=None):
     import pathlib
     from contextlib import chdir
@@ -75,7 +79,12 @@ def parse_legacy_one(filename, clusters, path_base=None):
                     sources[source_name] = get_particle(config, particle)
                 else:
                     sources[source_name] = import_source(
-                        source, method, particle_name, prefix, path_base
+                        source,
+                        method,
+                        particle_name,
+                        source_name,
+                        ingest_cluster_file_info(prefix),
+                        path_base,
                     )
             combined, provenance = combine_sources(sources, clusters)
             pathway.append(

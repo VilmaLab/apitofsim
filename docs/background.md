@@ -29,6 +29,7 @@ The software has some additional features not yet described in publication or vi
 
 * Support for either negatively or positively charged clusters.
 * Pinhole rejection: Extra code to compensate for reduced gas collision frequency near to the pinhole.
+* Modelling of the skimmer using a quasi-one-dimensional isentropic nozzle flow calculation.
 * Multiple fragmentation pathways: Support for considering multiple fragmentation pathways within a single simulation.
 
 [^1]:

@@ -34,7 +34,7 @@ class DerivedDataPreparer:
 
         return skimmer(
             T0=config["T"],  # pyright: ignore[reportCallIssue]
-            P0=config["pressure_first"],
+            P0=config["pressures"][0],
             rmax=config["lengths"][-1],
             dc=config["dc"],
             alpha_factor=config["alpha_factor"],
@@ -407,6 +407,14 @@ class DerivedDataPreparer:
 
 
 class ExperimentRunner:
+    """
+    This class helps with running the simulation across configs and clusters/pathways in an ExperimentDatabase.
+
+    It also records results and failures back into the database, and can optionally print progress tables to the terminal.
+
+    It precomputes all histograms of density of states and rate constants as needed, and caches them in the database for future runs.
+    """
+
     def __init__(self, db: ExperimentDatabase):
         self.db = db
         self.preparer = DerivedDataPreparer(db)
@@ -468,6 +476,10 @@ class ExperimentRunner:
             )
         return counters
 
+    """
+    Run a `config` passed directly as a dict.
+    """
+
     def run_from_config(
         self,
         config,
@@ -495,15 +507,7 @@ class ExperimentRunner:
             config["lengths"],
             config["voltages"],
             config["T"],
-            Q_(
-                numpy.array(
-                    [
-                        config["pressure_first"].to("pascals").magnitude,
-                        config["pressure_second"].to("pascals").magnitude,
-                    ]
-                ),
-                "pascals",
-            ),
+            config["pressures"],
             quadrupole=config.get("quadrupole"),
         )
 
@@ -822,6 +826,11 @@ class ExperimentRunner:
         mass_spec_table.close()
 
     def run_prepared_config(self, name=None, **kwargs):
+        """
+        Run from an experiment config that has been inserted into an ExperimentDatabase.
+
+         * `name` is the name of an experiment config, a list thereof, or None to run all configs
+        """
         from pprint import pprint
 
         configs = list(self.db.iter_configs(name))
