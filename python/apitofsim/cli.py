@@ -214,9 +214,11 @@ def prepare(mode, config, database, db_type, warm):
     source = load_toml_file(config)
     path_base = pathlib.Path(config).parent
     source_safe = deepcopy(source)
+    # It looks like tomlkit-extras can't handle arrays and stuff put in [...]
     if "configs" in source_safe:
-        # It looks like tomlkit-extras can't handle arrays and stuff put in [...]
         del source_safe["configs"]
+    if "default_config" in source_safe:
+        del source_safe["default_config"]
     try:
         ingest_tree(
             db, source["pathways"], path_base, TOMLDocumentDescriptor(source_safe)
