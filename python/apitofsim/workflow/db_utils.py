@@ -36,9 +36,9 @@ def duckdb_connect_roview_cow(filename, *, config=None, fallback="copy"):
     if exc is not None:
         if fallback == "copy":
             copy(filename, dest)
+            cleanup = dest
         elif fallback == "connect":
             dest = filename
-            cleanup = dest
         elif fallback == "error":
             raise exc
         else:

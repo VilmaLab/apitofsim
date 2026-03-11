@@ -494,7 +494,12 @@ def spectrogram_many(database, dirout, model_transmission):
 @click.argument(
     "report_type",
     type=click.Choice(
-        ["pathway-report", "experiment-report", "experiment-summary"],
+        [
+            "pathway-report",
+            "experiment-pathway-report",
+            "experiment-cluster-report",
+            "experiment-summary",
+        ],
         case_sensitive=False,
     ),
     required=False,
@@ -505,10 +510,10 @@ def report(report_type, database, csvout):
     """
     Produce a report REPORT_TYPE from the database at path DATABASE and write it to CSV at path CSVOUT.
 
-    * The pathway_report contains the input pathways giving one row per pathway, with no information about results.
-    * The experiment_pathway_report contains one row per pathway / experiment run, and includes the outcome of that run for that pathway.
-    * The experiment_cluster_report per parent cluster / experiment run, and includes the summarises information results from its pathways.
-    * The experiment_summary contains one row per experiment run, and summarizes the outcomes across all pathways for that run.
+    * The pathway-report contains the input pathways giving one row per pathway, with no information about results.
+    * The experiment-pathway-report contains one row per pathway / experiment run, and includes the outcome of that run for that pathway.
+    * The experiment-cluster-report per parent cluster / experiment run, and includes the summarises information results from its pathways.
+    * The experiment-summary contains one row per experiment run, and summarizes the outcomes across all pathways for that run.
     """
     from apitofsim.workflow import ExperimentDatabase
 
