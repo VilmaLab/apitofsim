@@ -37,6 +37,8 @@ build:
         pip install --config-settings=setup-args=--native-file=%SRC_DIR%\meson\pkg\windowsconda.ini .
   python:
     version_independent: true
+  entry_points:
+    - apitofsim = apitofsim.cli:cli
 
 requirements:
   build:
