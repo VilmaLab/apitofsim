@@ -127,6 +127,8 @@ def combine_sources(sources, clusters, *, ingest_ase=False):
         if "." in source_name:
             if quantity == "ase":
                 raise ValueError("Cannot use programmatic source for ASE information")
+            if quantity == "number_of_atoms":
+                raise ValueError("Cannot use programmatic source for number of atoms")
             use_eval = True
 
         def raise_combine_error(e) -> NoReturn:
@@ -160,13 +162,18 @@ def combine_sources(sources, clusters, *, ingest_ase=False):
                 if (
                     quantity == "vibrational_temperatures"
                     and quantity not in source_results
-                    and combined["number_of_atoms"] == 1
+                    and combined.get("number_of_atoms") == 1
                 ):
                     # Probably an atomic-like product
                     result = None
                 else:
                     result = source_results[quantity]
             except Exception as e:
+                if quantity == "number_of_atoms":
+                    # number_of_atoms is only really needed for deciding how to handle vibrational_temperatures
+                    # We don't get it for legacy import, but in that case we get an explicitly empty vibraitonal_tempertures
+                    # So just skip if it's missing
+                    continue
                 raise_combine_error(e)
             if quantity == "ase" and isinstance(result, Exception):
                 raise result
