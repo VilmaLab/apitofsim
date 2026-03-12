@@ -10,6 +10,8 @@ This section describes how to build the sources from scratch.
 
 **Note: You need Meson 1.10 or later to build the package. You can install this with `uv tool install meson`.**
 
+You can build with slightly older versions of Meson by disabling typestub generation by passing `-Dstubgen=disabled` to `meson setup` or adding it to your `setup-args` in `uv.toml` (see below).
+
 To compile using your system's default compiler:
 
 ```bash
