@@ -43,6 +43,8 @@ def parse_gaussian(fd):
         elif line.startswith(mass_marker):
             mass = float(line[len(mass_marker) :].strip().split()[0])
             out["atomic_mass"] = ureg.Quantity(mass, "amu")
+        elif line.startswith(" NAtoms="):
+            out["number_of_atoms"] = int(line.strip().split()[1])
         elif line.startswith(cite_marker):
             cite = []
             while 1:

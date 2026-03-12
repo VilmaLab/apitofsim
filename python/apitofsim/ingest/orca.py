@@ -24,6 +24,7 @@ def parse_orca(fd):
             temperature_marker = "Temperature         ..."
             pressure_marker = "Pressure            ..."
             total_mass_marker = "Total Mass          ..."
+            number_of_atoms_marker = "Number of atoms                             ..."
             line_bare = line.strip()
             if line_bare.startswith(version_marker):
                 out_chunk["software_version"] = line_bare
@@ -64,6 +65,8 @@ def parse_orca(fd):
                 out_chunk["atomic_mass"] = ureg.Quantity(
                     float(line.split("...")[-1].strip().split()[0]), "amu"
                 )
+            elif line.startswith(number_of_atoms_marker):
+                out_chunk["number_of_atoms"] = int(line.split("...")[-1].strip())
         if "vibrational_temperatures" in out_chunk:
             out_chunk["vibrational_temperatures"] = ureg.Quantity(
                 array(out_chunk["vibrational_temperatures"]), "reciprocal_centimeter"

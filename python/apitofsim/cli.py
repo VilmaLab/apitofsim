@@ -6,6 +6,8 @@ from typing import List, Tuple
 import click
 from ase import Atoms
 
+from apitofsim.workflow.db import guess_ase_db_filename
+
 
 @click.group()
 def cli():
@@ -36,10 +38,11 @@ def db():
     default="experiment",
     help="The type of database to create: this will determine which tables are created",
 )
+@click.option("-a", "--ase", is_flag=True, help="Create a linked ASE database")
 @click.option(
     "-w", "--warm", is_flag=True, help="Warm the database with histogrammed data"
 )
-def prepare(mode, config, database, db_type, warm):
+def prepare(mode, config, database, db_type, ase, warm):
     """
     Prepare the database according to MODE at path DATABASE using the json configuration file at path CONFIG.
 
@@ -186,25 +189,31 @@ def prepare(mode, config, database, db_type, warm):
         for config in config.get("configs", []):
             yield config["name"], {**config.get("default_config", {}), **config}
 
-    if os.path.exists(database) and mode == "create":
-        raise click.ClickException(
-            f"Database file {database} already exists, will not overwrite (delete it yourself first if you want)"
-        )
-    if not os.path.exists(database) and mode != "create":
-        raise click.ClickException(
-            f"Database file {database} does not exist, cannot append"
-        )
+    if ase:
+        ase_path = guess_ase_db_filename(database)
+    else:
+        ase_path = None
+
+    for path in (database, *((ase_path,) if ase_path else ())):
+        if os.path.exists(path) and mode == "create":
+            raise click.ClickException(
+                f"Database file {path} already exists, will not overwrite (delete it yourself first if you want)"
+            )
+        if not os.path.exists(path) and mode != "create":
+            raise click.ClickException(
+                f"Database file {path} does not exist, cannot append"
+            )
 
     if db_type == "experiment":
-        db = ExperimentDatabase(database)
+        db = ExperimentDatabase(database, ase_filename=ase_path)
     elif db_type == "cluster":
-        db = ClusterDatabase(database)
+        db = ClusterDatabase(database, ase_filename=ase_path)
         if warm:
             raise click.ClickException(
                 "Warm option is not supported for cluster database"
             )
     elif db_type == "super":
-        db = SuperClusterDatabase(database)
+        db = SuperClusterDatabase(database, ase_filename=ase_path)
     else:
         assert False
 
@@ -221,7 +230,11 @@ def prepare(mode, config, database, db_type, warm):
         del source_safe["default_config"]
     try:
         ingest_tree(
-            db, source["pathways"], path_base, TOMLDocumentDescriptor(source_safe)
+            db,
+            source["pathways"],
+            path_base,
+            TOMLDocumentDescriptor(source_safe),
+            ingest_ase=ase,
         )
     except CombineError as e:
         line_no = e.info.get("line_no")
@@ -706,12 +719,14 @@ def pathways(format, pathways_out, clusters_out, files, guess_prefix):
     counters = []
     for file in files:
         if format == "orca":
-            atoms = ase_read(file, format="orca-output")[0]
+            atoms = ase_read(file, format="orca-output")
         elif format == "gaussian":
-            atoms = ase_read(file, format="gaussian-out")[0]
+            atoms = ase_read(file, format="gaussian-out")
         else:
             assert format == "xyz"
             atoms = ase_read(file, format="xyz")
+        if isinstance(atoms, list):
+            atoms = atoms[-1]
         assert isinstance(atoms, Atoms)
         counters.append(atoms_to_counter(atoms))
     common_names = generate_common_names(files)

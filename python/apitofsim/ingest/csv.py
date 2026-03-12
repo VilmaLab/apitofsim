@@ -7,8 +7,15 @@ from .common import CombineError, combine_sources, import_sources
 
 
 def parse_csv_tree(
-    pathways_path, clusters_path, clusters_config, path_base, descriptor=None
+    pathways_path,
+    clusters_path,
+    clusters_config,
+    path_base,
+    *,
+    descriptor=None,
+    ingest_ase=False,
 ):
+
     clusters_df = pandas.read_csv(expanduser(clusters_path))
     # TODO: Validate columns of clusters_df
     cluster_dict: dict[str, Any] = {}
@@ -23,9 +30,12 @@ def parse_csv_tree(
             particle_name,
             cluster_info,  # pyright: ignore[reportAttributeAccessIssue]
             path_base,
+            ingest_ase=ingest_ase,
         )
         try:
-            combined, provenance = combine_sources(sources, clusters_config)
+            combined, provenance = combine_sources(
+                sources, clusters_config, ingest_ase=ingest_ase
+            )
         except CombineError as e:
             e.info["particle_name"] = particle_name
             source_specifier = e.info["source_specifier"]

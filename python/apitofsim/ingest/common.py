@@ -7,8 +7,25 @@ class CombineError(Exception):
         self.info = info
 
 
-def import_source(source, method, particle_name, source_name, cluster_info, path_base):
-    if method in ("orca", "gaussian"):
+def import_source(
+    source,
+    method,
+    particle_name,
+    source_name,
+    cluster_info,
+    path_base,
+    *,
+    ingest_ase=False,
+):
+    from ase.io import read as ase_read
+
+    ignore_unicode_errors = source.get("ignore_unicode_errors", False)
+    if ignore_unicode_errors:
+        error_handler = "ignore"
+    else:
+        error_handler = "strict"
+
+    if method in ("orca", "gaussian", "xyz"):
         if hasattr(cluster_info, source_name):
             path = getattr(cluster_info, source_name)
         elif hasattr(cluster_info, "prefix"):
@@ -22,31 +39,65 @@ def import_source(source, method, particle_name, source_name, cluster_info, path
         if method == "orca":
             from apitofsim.ingest.orca import parse_orca
 
-            with open(path) as f:
+            with open(path, errors=error_handler) as f:
                 orca_result = parse_orca(f)
                 if len(orca_result) != 1:
                     raise ValueError(
                         f"Expected one structure in ORCA output {path}, got {len(orca_result)}"
                     )
-                return orca_result[0]
-        else:
-            assert method == "gaussian"
+                result = orca_result[0]
+                if ingest_ase:
+                    f.seek(0)
+                    try:
+                        result["ase"] = ase_read(f, format="orca-output")
+                    except Exception as e:
+                        result["ase"] = e
+        elif method == "gaussian":
             from apitofsim.ingest.gaussian import parse_gaussian
 
-            with open(path) as f:
-                return parse_gaussian(f)
+            with open(path, errors=error_handler) as f:
+                result = parse_gaussian(f)
+                if ingest_ase:
+                    f.seek(0)
+                    try:
+                        result["ase"] = ase_read(f, format="gaussian-out")
+                    except Exception as e:
+                        result["ase"] = e
+        else:
+            assert method == "xyz"
+            result = {}
+            if ingest_ase:
+                try:
+                    result["ase"] = ase_read(path, format="xyz")
+                except Exception as e:
+                    result["ase"] = e
+        return result
     elif method == "map":
         return source.get(particle_name, {})
     else:
         raise ValueError(f"Unknown method: {method}")
 
 
-def import_sources(clusters, particle_name, cluster_info, path_base):
+def import_sources(
+    clusters,
+    particle_name,
+    cluster_info,
+    path_base,
+    *,
+    ingest_ase=False,
+    ignore_unicode_errors=False,
+):
     sources = {}
     for source_name, source in clusters["sources"].items():
         method = source.get("type", source_name)
         sources[source_name] = import_source(
-            source, method, particle_name, source_name, cluster_info, path_base
+            source,
+            method,
+            particle_name,
+            source_name,
+            cluster_info,
+            path_base,
+            ingest_ase=ingest_ase,
         )
     return sources
 
@@ -55,15 +106,17 @@ class DotAccessDict(dict[str, Any]):
     __getattr__ = dict.get
 
 
-def combine_sources(sources, clusters):
+def combine_sources(sources, clusters, *, ingest_ase=False):
     provenance = {}
     combined = {}
     for quantity in [
+        "number_of_atoms",
         "vibrational_temperatures",
         "rotational_temperatures",
         "electronic_energy",
         "atomic_mass",
         "charge",
+        *(("ase",) if ingest_ase else ()),
     ]:
         use_eval = False
         if quantity in clusters:
@@ -72,6 +125,10 @@ def combine_sources(sources, clusters):
             source_specifier = "default_source"
         source_name = clusters[source_specifier]
         if "." in source_name:
+            if quantity == "ase":
+                raise ValueError("Cannot use programmatic source for ASE information")
+            if quantity == "number_of_atoms":
+                raise ValueError("Cannot use programmatic source for number of atoms")
             use_eval = True
 
         def raise_combine_error(e) -> NoReturn:
@@ -101,9 +158,25 @@ def combine_sources(sources, clusters):
                 raise_combine_error(e)
         else:
             try:
-                result = sources[source_name][quantity]
+                source_results = sources[source_name]
+                if (
+                    quantity == "vibrational_temperatures"
+                    and quantity not in source_results
+                    and combined.get("number_of_atoms") == 1
+                ):
+                    # Probably an atomic-like product
+                    result = None
+                else:
+                    result = source_results[quantity]
             except Exception as e:
+                if quantity == "number_of_atoms":
+                    # number_of_atoms is only really needed for deciding how to handle vibrational_temperatures
+                    # We don't get it for legacy import, but in that case we get an explicitly empty vibraitonal_tempertures
+                    # So just skip if it's missing
+                    continue
                 raise_combine_error(e)
+            if quantity == "ase" and isinstance(result, Exception):
+                raise result
         combined[quantity] = result
         provenance[quantity] = source_name
     return combined, provenance

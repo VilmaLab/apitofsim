@@ -376,7 +376,13 @@ def dump_to_raw(obj):
     import pint
 
     def default(obj):
-        if isinstance(obj, pint.Quantity):
+        from ase import Atoms
+
+        if isinstance(obj, Exception):
+            return str(obj)
+        elif isinstance(obj, Atoms):
+            return str(obj.symbols)
+        elif isinstance(obj, pint.Quantity):
             return [obj.magnitude, str(obj.units)]
         elif isinstance(obj, Gas | Quadrupole):
             return vars(obj)
