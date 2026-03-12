@@ -6,6 +6,7 @@ from datetime import timedelta
 import duckdb
 import numpy
 import pandas
+from ase.db import connect as connect_ase_db
 from pint import get_application_registry
 
 import apitofsim.workflow.sql_files as sql_files
@@ -17,10 +18,18 @@ ureg = get_application_registry()
 Q_ = ureg.Quantity
 
 
+def guess_ase_db_filename(cluster_db_filename):
+    ase_path = cluster_db_filename
+    if ase_path.endswith(".duckdb"):
+        ase_path = ase_path[: -len(".duckdb")]
+    ase_path += ".ase.sqlite.db"
+    return ase_path
+
+
 class ClusterDatabase:
     TABLES = [sql_files.pathway]
 
-    def __init__(self, filename, readonly=False):
+    def __init__(self, filename, *, readonly=False, ase_filename=None):
         self.cleanup = None
         if readonly:
             self.db, self.cleanup = duckdb_connect_roview_cow(
@@ -28,6 +37,11 @@ class ClusterDatabase:
             )
         else:
             self.db = duckdb.connect(filename)
+        if ase_filename is not None:
+            # TODO: These ClusterDatabase, etc. objects should probably be context managers too
+            self.ase_db = connect_ase_db(ase_filename, type="db").__enter__()
+        else:
+            self.ase_db = None
         self._setup_db()
 
     def _setup_db(self):
@@ -41,10 +55,18 @@ class ClusterDatabase:
     def __del__(self):
         if self.cleanup is not None:
             self.cleanup()
+        if self.ase_db is not None:
+            self.ase_db.__exit__(None, None, None)
 
     def create_tables(self):
         sql = "\n".join(self.TABLES)
         self.db.execute(sql)
+        if self.ase_db is not None:
+            self.db.execute(
+                """
+                alter table cluster add column ase_mol_id integer default null;
+                """
+            )
 
     def clusters_query(
         self, parent=None, pathways=None, parents_only=False, children_only=False
@@ -179,8 +201,11 @@ class ClusterDatabase:
         vibrational_temperatures,
         import_info=None,
         *,
+        ase_id=None,
         allow_duplicates=False,
     ):
+        if ase_id is not None and self.ase_db is None:
+            raise ValueError("ASE database not initialized, cannot insert ASE molecule")
         value_names = [
             "atomic_mass",
             "charge",
@@ -235,8 +260,9 @@ class ClusterDatabase:
                         allow_duplicates=True,
                     )
             return False, existing[0]
+
         id = self.db.execute(
-            "insert into cluster values (default, ?, ?, ?, ?, ?, ?, ?) returning id",
+            f"insert into cluster values (default, ?, ?, ?, ?, ?, ?, ?, {'?' if self.ase_db is not None else ''}) returning id",
             (
                 name,
                 atomic_mass,
@@ -245,6 +271,7 @@ class ClusterDatabase:
                 rotational_temperatures,
                 vibrational_temperatures,
                 import_info,
+                *((ase_id,) if self.ase_db is not None else ()),
             ),
         ).fetchone()
         assert id is not None
@@ -318,6 +345,14 @@ class ClusterDatabase:
 
         return cluster_indexed, name_lookup, pathway_lookup
 
+    def insert_ase(self, cluster_id, ase_mol):
+        if self.ase_db is None:
+            raise ValueError("ASE database not initialized")
+        ase_mol_id = self.ase_db.write(ase_mol)
+        self.db.execute(
+            "update cluster set ase_mol_id = ? where id = ?", (ase_mol_id, cluster_id)
+        )
+
 
 class SuperClusterDatabase(ClusterDatabase):
     TABLES = [
@@ -326,8 +361,8 @@ class SuperClusterDatabase(ClusterDatabase):
         sql_files.pathway_report,
     ]
 
-    def __init__(self, filename, readonly=False):
-        super().__init__(filename, readonly=readonly)
+    def __init__(self, filename, **kwargs):
+        super().__init__(filename, **kwargs)
 
     def refresh_views(self):
         self.db.execute(sql_files.pathway_report)
@@ -346,8 +381,8 @@ class ExperimentDatabase(SuperClusterDatabase):
         sql_files.experiment_report,
     ]
 
-    def __init__(self, filename, readonly=False):
-        super().__init__(filename, readonly=readonly)
+    def __init__(self, filename, **kwargs):
+        super().__init__(filename, **kwargs)
 
     def insert_run(self, config_id=None, pathway_at_a_time=False):
         id = self.db.execute(
