@@ -46,7 +46,7 @@ name = "myconfig"
 | resolution      | -            | Number of points to use when histogramming across length of the skimmer region (as specified in lengths) |
 | N               | -            | Number of realizations to use in main particle simulation |
 | bin_width       | kelvin       | Bin width for histogramming density of states and k_total |
-| energy_max      | kelvin       | Maximum energy to consider when histogramming density of states |
+| energy_max      | kelvin       | Maximum energy to consider when histogramming density of states. The density of states must be evaluated up to an energy equal or greater to the to the sum of energy_max_rate and the maximum fragmentation energy you will simulate a pathway for. |
 | energy_max_rate | kelvin       | Maximum energy to consider when histogramming k_total |
 | alpha_factor    | halfturn     | Angle of skimmer |
 | T               | kelvin       | Temperature inside the mass spectrometer |
