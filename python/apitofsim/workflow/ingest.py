@@ -10,9 +10,6 @@ def insert_parsed_pathway(db, pathway, *, prefix=None):
 
     ids = []
     for particle_info in pathway:
-        from pprint import pprint
-
-        pprint(particle_info)
         name = particle_info["name"]
         if prefix is not None:
             name = prefix + name
