@@ -110,6 +110,7 @@ def combine_sources(sources, clusters, *, ingest_ase=False):
     provenance = {}
     combined = {}
     for quantity in [
+        "number_of_atoms",
         "vibrational_temperatures",
         "rotational_temperatures",
         "electronic_energy",
@@ -155,11 +156,20 @@ def combine_sources(sources, clusters, *, ingest_ase=False):
                 raise_combine_error(e)
         else:
             try:
-                result = sources[source_name][quantity]
-                if quantity == "ase" and isinstance(result, Exception):
-                    raise result
+                source_results = sources[source_name]
+                if (
+                    quantity == "vibrational_temperatures"
+                    and quantity not in source_results
+                    and combined["number_of_atoms"] == 1
+                ):
+                    # Probably an atomic-like product
+                    result = None
+                else:
+                    result = source_results[quantity]
             except Exception as e:
                 raise_combine_error(e)
+            if quantity == "ase" and isinstance(result, Exception):
+                raise result
         combined[quantity] = result
         provenance[quantity] = source_name
     return combined, provenance
