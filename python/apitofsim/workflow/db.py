@@ -332,7 +332,7 @@ class ClusterDatabase:
                         ),
                     )
                     .select("pathway_id")
-                    .fetch_arrow_table()["pathway_id"]
+                    .to_arrow_table()["pathway_id"]
                 )
         cluster_indexed, name_lookup = self.clusters_objects_indexed(
             include_name_lookup=True, parent=parent, pathways=pathways

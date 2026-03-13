@@ -117,7 +117,7 @@ def get_through_join_else(conn, rel, proj_col, result_dict, **match_cols):
             how="right",
         )
         .select(proj_col)
-        .fetch_arrow_table()
+        .to_arrow_table()
     )
     data = data.column(proj_col).chunk(0)
     for match_row, value in zip(zip(*iterable_match_vals), data):
