@@ -1,8 +1,23 @@
+import numpy
 from pint import get_application_registry
 
 from .db import ClusterDatabase
 
 ureg = get_application_registry()
+
+
+def to_kelvin_safe(x):
+    if numpy.isfinite(x.magnitude) and x.magnitude != 0.0:
+        return x.to("K").magnitude
+    else:
+        return 0.0
+
+
+def process_temperatures(temperatures):
+    if temperatures is None:
+        return None
+    else:
+        return numpy.array([to_kelvin_safe(x) for x in temperatures])
 
 
 def insert_parsed_pathway(db, pathway, *, prefix=None):
@@ -20,12 +35,8 @@ def insert_parsed_pathway(db, pathway, *, prefix=None):
                 combined["atomic_mass"].to("amu").magnitude,
                 combined["charge"],
                 combined["electronic_energy"].to("hartree").magnitude,
-                combined["rotational_temperatures"].to("K").magnitude
-                if combined["rotational_temperatures"] is not None
-                else None,
-                combined["vibrational_temperatures"].to("K").magnitude
-                if combined["vibrational_temperatures"] is not None
-                else None,
+                process_temperatures(combined["rotational_temperatures"]),
+                process_temperatures(combined["vibrational_temperatures"]),
                 dump_to_raw(particle_info).decode("utf-8"),
                 allow_duplicates=True,
             )
