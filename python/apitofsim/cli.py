@@ -509,6 +509,7 @@ def spectrogram_many(database, dirout, model_transmission):
     "report_type",
     type=click.Choice(
         [
+            "cluster-report",
             "pathway-report",
             "experiment-pathway-report",
             "experiment-cluster-report",
