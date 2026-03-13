@@ -535,3 +535,11 @@ class ExperimentDatabase(SuperClusterDatabase):
         if derived:
             for tbl in ["cluster_dos", "products_dos", "k_rate"]:
                 self.db.execute(f"truncate {tbl}")
+
+    def is_experiment_db(self):
+        try:
+            self.db.table("experiment_config")
+        except duckdb.CatalogException:
+            return False
+        else:
+            return True

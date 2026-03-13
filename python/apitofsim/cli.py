@@ -4,6 +4,7 @@ from itertools import combinations
 from typing import List, Tuple
 
 import click
+import pandas
 from ase import Atoms
 
 from apitofsim.workflow.db import connection_scope, guess_ase_db_filename
@@ -455,18 +456,14 @@ def spectrogram(database, pngout, model_transmission):
     Output to PNGOUT a spectrogram of the results for single cluster / experiment using the database at path DATABASE.
     """
     from apitofsim.plotting import (
-        get_intensities_multipathway,
-        get_intensities_singlepathway,
+        get_intensities,
         plot_spectrogram_to_file,
     )
     from apitofsim.workflow import ExperimentDatabase
 
     with connection_scope(ExperimentDatabase, database, readonly=True) as db:
         experiment_id, cluster_id, is_single_pathway = select_cluster_result(db)
-        if is_single_pathway:
-            df = get_intensities_singlepathway(db, experiment_id, cluster_id)
-        else:
-            df = get_intensities_multipathway(db, experiment_id, cluster_id)
+        df = get_intensities(db, experiment_id, cluster_id, is_single_pathway)
     transform_intensity(df, model_transmission)
     plot_spectrogram_to_file(pngout, df, scale="max")
 
@@ -484,18 +481,14 @@ def spectrogram_many(database, dirout, model_transmission):
     Output to DIROUT a spectrogram per cluster using the results from single experiments using the database at path DATABASE.
     """
     from apitofsim.plotting import (
-        get_intensities_multipathway,
-        get_intensities_singlepathway,
+        get_intensities,
         plot_spectrogram_to_file,
     )
     from apitofsim.workflow import ExperimentDatabase
 
     with connection_scope(ExperimentDatabase, database, readonly=True) as db:
         experiment_id, is_single_pathway = select_experiment(db)
-        if is_single_pathway:
-            df = get_intensities_singlepathway(db, experiment_id)
-        else:
-            df = get_intensities_multipathway(db, experiment_id)
+        df = get_intensities(db, experiment_id, is_single_pathway)
     transform_intensity(df, model_transmission)
     dirout.mkdir(exist_ok=True, parents=True)
     max_x = df["atomic_mass"].max() * 1.1
@@ -514,6 +507,7 @@ def spectrogram_many(database, dirout, model_transmission):
             "experiment-pathway-report",
             "experiment-cluster-report",
             "experiment-summary",
+            "spectrogram",
         ],
         case_sensitive=False,
     ),
@@ -525,15 +519,45 @@ def report(report_type, database, csvout):
     """
     Produce a report REPORT_TYPE from the database at path DATABASE and write it to CSV at path CSVOUT.
 
+    All databases have the following reports
+    * The cluster-report contains one row per parent cluster.
     * The pathway-report contains the input pathways giving one row per pathway, with no information about results.
+
+    Databases created as --db-type=experiment additionally have the following reports:
     * The experiment-pathway-report contains one row per pathway / experiment run, and includes the outcome of that run for that pathway.
     * The experiment-cluster-report per parent cluster / experiment run, and includes the summarises information results from its pathways.
     * The experiment-summary contains one row per experiment run, and summarizes the outcomes across all pathways for that run.
+    * The spectrogram report contains the same data used to plot spectograms.
     """
     from apitofsim.workflow import ExperimentDatabase
 
     with connection_scope(ExperimentDatabase, database, readonly=True) as db:
-        db.db.table(report_type.replace("-", "_")).to_csv(csvout)
+        if not db.is_experiment_db() and report_type in {
+            "experiment-pathway-report",
+            "experiment-cluster-report",
+            "experiment-summary",
+            "spectrogram",
+        }:
+            raise click.ClickException(
+                f"Report type {report_type} is only available for experiment databases"
+            )
+
+        if report_type == "spectrogram":
+            from apitofsim.plotting import get_intensities
+
+            dataframes: List[pandas.DataFrame] = []
+            for row in db.report_df("experiment_summary").itertuples():
+                dataframes.append(
+                    get_intensities(
+                        db,
+                        row.experiment_run_id,
+                        is_single_pathway=row.is_single_pathway,
+                    )
+                )
+            df = pandas.concat(dataframes)
+            df.to_csv(csvout)
+        else:
+            db.db.table(report_type.replace("-", "_")).to_csv(csvout)
 
 
 @db.command(help="Refresh views in the database at path DATABASE (please ignore)")

@@ -260,6 +260,13 @@ def get_intensities_singlepathway(db, er_id, cluster_id=None):
     return pandas.DataFrame(new_df)
 
 
+def get_intensities(db, experiment_id, cluster_id=None, is_single_pathway=False):
+    if is_single_pathway:
+        return get_intensities_singlepathway(db, experiment_id, cluster_id)
+    else:
+        return get_intensities_multipathway(db, experiment_id, cluster_id)
+
+
 def plot_spectrogram(df, scale=None, max_x=None):
     try:
         import holoviews  # pyright: ignore[reportMissingImports]
