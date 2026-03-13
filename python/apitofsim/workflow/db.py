@@ -1,6 +1,7 @@
 # pyright: reportAttributeAccessIssue=false
 
 from collections import namedtuple
+from contextlib import contextmanager
 from datetime import timedelta
 
 import duckdb
@@ -26,10 +27,18 @@ def guess_ase_db_filename(cluster_db_filename):
     return ase_path
 
 
+@contextmanager
+def connection_scope(database_type, filename, **kwargs):
+    db = database_type(filename, **kwargs)
+    yield db
+    db.close()
+
+
 class ClusterDatabase:
     TABLES = [sql_files.pathway]
 
     def __init__(self, filename, *, readonly=False, ase_filename=None):
+        self.closed = False
         self.cleanup = None
         if readonly:
             self.db, self.cleanup = duckdb_connect_roview_cow(
@@ -52,11 +61,18 @@ class ClusterDatabase:
             memory_limit = os.environ["DUCKDB_MEMORY_LIMIT"]
             self.db.execute(f"set memory_limit='{memory_limit}';")
 
-    def __del__(self):
+    def close(self):
+        if self.closed:
+            return
+        self.closed = True
         if self.cleanup is not None:
             self.cleanup()
+        self.db.close()
         if self.ase_db is not None:
             self.ase_db.__exit__(None, None, None)
+
+    def __del__(self):
+        self.close()
 
     def create_tables(self):
         sql = "\n".join(self.TABLES)
