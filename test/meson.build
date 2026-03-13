@@ -36,7 +36,7 @@ test(
 
 if python_feat.enabled()
    env = environment()
-   env.set('DATA_DIR', fs.parent(raw_test_data_files[0].full_path()))
+   env.set('DATA_DIR', fs.parent(fs.parent(raw_test_data_files[0].full_path())))
    env.append(
       'PYTHONPATH',
       fs.parent(apitofsim_python.full_path()),
