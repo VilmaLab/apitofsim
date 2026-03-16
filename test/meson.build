@@ -29,7 +29,7 @@ timeout = 900
 test(
    'apitofsim-tests',
    tests,
-   env : 'DATA_DIR=' + fs.parent(ready_test_data_files[0].full_path()),
+   env : 'DATA_DIR=' + fs.parent(fs.parent(ready_test_data_files[0].full_path())),
    depends: ready_test_data_files,
    timeout : timeout
 )
