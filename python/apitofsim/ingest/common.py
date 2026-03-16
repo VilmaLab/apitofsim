@@ -72,6 +72,8 @@ def import_source(
                 except Exception as e:
                     result["ase"] = e
         return result
+    elif method == "csv":
+        return cluster_info._asdict()  # pyright: ignore[reportUnknownMemberType]
     elif method == "map":
         return source.get(particle_name, {})
     else:
