@@ -16,12 +16,13 @@ These tools are not recommended for new users, and kept available to support exi
 
 If you have installed via Conda, and activated the relevant environment, the legacy command line tools `apitofsim-skimmer`, `apitofsim-densityandrate` and `apitofsim-mass-spec` should be installed and in your path.
 If you have compiled the sources yourself, you will need to add build/src to your path for the following example to work.
-You can run the included example pathway like so:
+
+An example is then available at `examples/legacy_cli`.
+First `cd` to that directory, and then follow the instructions in the `README.md` file, included below:
 
 ```bash
-apitofsim-skimmer < inputs/example/config.in
-apitofsim-densityandrate < inputs/example/config.in
-apitofsim-mass-spec < inputs/example/config.in
+$ git clone https://github.com/VilmaLab/apitofsim.git
+$ cd apitofsim/examples/legacy_cli
 ```
 
-Outputs are generated in `work/out` directory.
+--8<-- "examples/legacy_cli/README.md"
