@@ -4,9 +4,10 @@ from itertools import combinations
 from typing import List, Tuple
 
 import click
+import pandas
 from ase import Atoms
 
-from apitofsim.workflow.db import guess_ase_db_filename
+from apitofsim.workflow.db import connection_scope, guess_ase_db_filename
 
 
 @click.group()
@@ -205,76 +206,77 @@ def prepare(mode, config, database, db_type, ase, warm):
             )
 
     if db_type == "experiment":
-        db = ExperimentDatabase(database, ase_filename=ase_path)
+        db_cls = ExperimentDatabase
     elif db_type == "cluster":
-        db = ClusterDatabase(database, ase_filename=ase_path)
         if warm:
             raise click.ClickException(
                 "Warm option is not supported for cluster database"
             )
+        db_cls = ClusterDatabase
     elif db_type == "super":
-        db = SuperClusterDatabase(database, ase_filename=ase_path)
+        db_cls = SuperClusterDatabase
     else:
         assert False
 
-    if mode == "create":
-        db.create_tables()
+    with connection_scope(db_cls, database, ase_filename=ase_path) as db:
+        if mode == "create":
+            db.create_tables()
 
-    source = load_toml_file(config)
-    path_base = pathlib.Path(config).parent
-    source_safe = deepcopy(source)
-    # It looks like tomlkit-extras can't handle arrays and stuff put in [...]
-    if "configs" in source_safe:
-        del source_safe["configs"]
-    if "default_config" in source_safe:
-        del source_safe["default_config"]
-    try:
-        ingest_tree(
-            db,
-            source["pathways"],
-            path_base,
-            TOMLDocumentDescriptor(source_safe),
-            ingest_ase=ase,
-        )
-    except CombineError as e:
-        line_no = e.info.get("line_no")
-        path = e.info.get("path")
-        source_name = e.info.get("source_name")
-        raise click.ClickException(
-            f"Problem in configuration file {config} at {line_no}\n"
-            + f'[[{path}]] = "{source_name}"\n'
-            + str(e.info["exception"])
-            + "\n"
-            "Available source quantities were:\n"
-            + "\n".join(
-                f"- {quantity}"
-                for quantity in e.info.get("available_source_quantities", [])
+        source = load_toml_file(config)
+        path_base = pathlib.Path(config).parent
+        source_safe = deepcopy(source)
+        # It looks like tomlkit-extras can't handle arrays and stuff put in [...]
+        if "configs" in source_safe:
+            del source_safe["configs"]
+        if "default_config" in source_safe:
+            del source_safe["default_config"]
+        try:
+            ingest_tree(
+                db,
+                source["pathways"],
+                path_base,
+                TOMLDocumentDescriptor(source_safe),
+                ingest_ase=ase,
             )
-        )
-
-    if warm and "densityandrate_configs" in source:
-        assert isinstance(db, SuperClusterDatabase)
-        preparer = DerivedDataPreparer(db)
-        for config_dict in source["densityandrate_configs"].unwrap():
-            print("Warming up density and rate for config:")
-            pprint(config_dict)
-            cluster_indexed, _, pathway_lookup = db.get_all_lookups()
-            preparer.run_densityandrate(
-                import_raw_config(config_dict), cluster_indexed, pathway_lookup
+        except CombineError as e:
+            line_no = e.info.get("line_no")
+            path = e.info.get("path")
+            source_name = e.info.get("source_name")
+            raise click.ClickException(
+                f"Problem in configuration file {config} at {line_no}\n"
+                + f'[[{path}]] = "{source_name}"\n'
+                + str(e.info["exception"])
+                + "\n"
+                "Available source quantities were:\n"
+                + "\n".join(
+                    f"- {quantity}"
+                    for quantity in e.info.get("available_source_quantities", [])
+                )
             )
 
-    if db_type == "experiment":
-        assert isinstance(db, ExperimentDatabase)
-        for name, config_dict in iter_raw_configs(source.unwrap()):
-            db.insert_config(name, config_dict)
-            if warm:
-                print("Warming up density and rate for config:", name)
+        if warm and "densityandrate_configs" in source:
+            assert isinstance(db, SuperClusterDatabase)
+            preparer = DerivedDataPreparer(db)
+            for config_dict in source["densityandrate_configs"].unwrap():
+                print("Warming up density and rate for config:")
                 pprint(config_dict)
-                preparer = DerivedDataPreparer(db)
                 cluster_indexed, _, pathway_lookup = db.get_all_lookups()
                 preparer.run_densityandrate(
                     import_raw_config(config_dict), cluster_indexed, pathway_lookup
                 )
+
+        if db_type == "experiment":
+            assert isinstance(db, ExperimentDatabase)
+            for name, config_dict in iter_raw_configs(source.unwrap()):
+                db.insert_config(name, config_dict)
+                if warm:
+                    print("Warming up density and rate for config:", name)
+                    pprint(config_dict)
+                    preparer = DerivedDataPreparer(db)
+                    cluster_indexed, _, pathway_lookup = db.get_all_lookups()
+                    preparer.run_densityandrate(
+                        import_raw_config(config_dict), cluster_indexed, pathway_lookup
+                    )
 
 
 @db.command(short_help="Run the simulations according to the prepared database")
@@ -319,26 +321,26 @@ def run(
     """
     from apitofsim.workflow import ExperimentDatabase, ExperimentRunner
 
-    db = ExperimentDatabase(database)
-    num_configs = db.db.sql(
-        "select count(*) from duckdb_tables() where table_name = 'experiment_config'"
-    ).fetchone()
-    assert num_configs is not None
-    if num_configs[0] == 0:
-        raise click.ClickException(
-            "The specified database does not contain experiment_config. Did you create it as an experiment database?"
+    with connection_scope(ExperimentDatabase, database) as db:
+        num_configs = db.db.sql(
+            "select count(*) from duckdb_tables() where table_name = 'experiment_config'"
+        ).fetchone()
+        assert num_configs is not None
+        if num_configs[0] == 0:
+            raise click.ClickException(
+                "The specified database does not contain experiment_config. Did you create it as an experiment database?"
+            )
+        runner = ExperimentRunner(db)
+        runner.run_prepared_config(
+            name=filter_config or None,
+            strict_dos=strict_dos,
+            pathway_at_a_time=pathway_at_a_time,
+            parent=filter_parent,
+            pathways=(pathway.split(",") for pathway in filter_pathway)
+            if filter_pathway
+            else None,
+            verbose=verbose,
         )
-    runner = ExperimentRunner(db)
-    runner.run_prepared_config(
-        name=filter_config or None,
-        strict_dos=strict_dos,
-        pathway_at_a_time=pathway_at_a_time,
-        parent=filter_parent,
-        pathways=(pathway.split(",") for pathway in filter_pathway)
-        if filter_pathway
-        else None,
-        verbose=verbose,
-    )
 
 
 @db.group(help="Commands for plotting results")
@@ -418,9 +420,9 @@ def survival(database, pngout):
     from apitofsim.plotting import get_joint_survivals, make_survival_plot
     from apitofsim.workflow import ExperimentDatabase
 
-    db = ExperimentDatabase(database, readonly=True)
-    experiment_id, _ = select_experiment(db)
-    joint_survivals = get_joint_survivals(db, experiment_id)
+    with connection_scope(ExperimentDatabase, database, readonly=True) as db:
+        experiment_id, _ = select_experiment(db)
+        joint_survivals = get_joint_survivals(db, experiment_id)
     pprint(joint_survivals)
     make_survival_plot(pngout, joint_survivals.keys(), joint_survivals.values())
 
@@ -454,18 +456,14 @@ def spectrogram(database, pngout, model_transmission):
     Output to PNGOUT a spectrogram of the results for single cluster / experiment using the database at path DATABASE.
     """
     from apitofsim.plotting import (
-        get_intensities_multipathway,
-        get_intensities_singlepathway,
+        get_intensities,
         plot_spectrogram_to_file,
     )
     from apitofsim.workflow import ExperimentDatabase
 
-    db = ExperimentDatabase(database, readonly=True)
-    experiment_id, cluster_id, is_single_pathway = select_cluster_result(db)
-    if is_single_pathway:
-        df = get_intensities_singlepathway(db, experiment_id, cluster_id)
-    else:
-        df = get_intensities_multipathway(db, experiment_id, cluster_id)
+    with connection_scope(ExperimentDatabase, database, readonly=True) as db:
+        experiment_id, cluster_id, is_single_pathway = select_cluster_result(db)
+        df = get_intensities(db, experiment_id, cluster_id, is_single_pathway)
     transform_intensity(df, model_transmission)
     plot_spectrogram_to_file(pngout, df, scale="max")
 
@@ -483,18 +481,14 @@ def spectrogram_many(database, dirout, model_transmission):
     Output to DIROUT a spectrogram per cluster using the results from single experiments using the database at path DATABASE.
     """
     from apitofsim.plotting import (
-        get_intensities_multipathway,
-        get_intensities_singlepathway,
+        get_intensities,
         plot_spectrogram_to_file,
     )
     from apitofsim.workflow import ExperimentDatabase
 
-    db = ExperimentDatabase(database, readonly=True)
-    experiment_id, is_single_pathway = select_experiment(db)
-    if is_single_pathway:
-        df = get_intensities_singlepathway(db, experiment_id)
-    else:
-        df = get_intensities_multipathway(db, experiment_id)
+    with connection_scope(ExperimentDatabase, database, readonly=True) as db:
+        experiment_id, is_single_pathway = select_experiment(db)
+        df = get_intensities(db, experiment_id, is_single_pathway)
     transform_intensity(df, model_transmission)
     dirout.mkdir(exist_ok=True, parents=True)
     max_x = df["atomic_mass"].max() * 1.1
@@ -508,10 +502,12 @@ def spectrogram_many(database, dirout, model_transmission):
     "report_type",
     type=click.Choice(
         [
+            "cluster-report",
             "pathway-report",
             "experiment-pathway-report",
             "experiment-cluster-report",
             "experiment-summary",
+            "spectrogram",
         ],
         case_sensitive=False,
     ),
@@ -523,15 +519,45 @@ def report(report_type, database, csvout):
     """
     Produce a report REPORT_TYPE from the database at path DATABASE and write it to CSV at path CSVOUT.
 
+    All databases have the following reports
+    * The cluster-report contains one row per parent cluster.
     * The pathway-report contains the input pathways giving one row per pathway, with no information about results.
+
+    Databases created as --db-type=experiment additionally have the following reports:
     * The experiment-pathway-report contains one row per pathway / experiment run, and includes the outcome of that run for that pathway.
     * The experiment-cluster-report per parent cluster / experiment run, and includes the summarises information results from its pathways.
     * The experiment-summary contains one row per experiment run, and summarizes the outcomes across all pathways for that run.
+    * The spectrogram report contains the same data used to plot spectograms.
     """
     from apitofsim.workflow import ExperimentDatabase
 
-    db = ExperimentDatabase(database, readonly=True)
-    db.db.table(report_type.replace("-", "_")).to_csv(csvout)
+    with connection_scope(ExperimentDatabase, database, readonly=True) as db:
+        if not db.is_experiment_db() and report_type in {
+            "experiment-pathway-report",
+            "experiment-cluster-report",
+            "experiment-summary",
+            "spectrogram",
+        }:
+            raise click.ClickException(
+                f"Report type {report_type} is only available for experiment databases"
+            )
+
+        if report_type == "spectrogram":
+            from apitofsim.plotting import get_intensities
+
+            dataframes: List[pandas.DataFrame] = []
+            for row in db.report_df("experiment_summary").itertuples():
+                dataframes.append(
+                    get_intensities(
+                        db,
+                        row.experiment_run_id,
+                        is_single_pathway=row.is_single_pathway,
+                    )
+                )
+            df = pandas.concat(dataframes)
+            df.to_csv(csvout)
+        else:
+            db.db.table(report_type.replace("-", "_")).to_csv(csvout)
 
 
 @db.command(help="Refresh views in the database at path DATABASE (please ignore)")
@@ -544,8 +570,8 @@ def refresh_views(database):
     """
     from apitofsim.workflow import ExperimentDatabase
 
-    db = ExperimentDatabase(database)
-    db.refresh_views()
+    with connection_scope(ExperimentDatabase, database) as db:
+        db.refresh_views()
 
 
 @cli.group(short_help="Commands to convert between different file formats")

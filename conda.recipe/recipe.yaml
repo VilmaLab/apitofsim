@@ -70,6 +70,7 @@ requirements:
     - pint >= 0.25.1
     - duckdb >= 1.4.2
     - matplotlib >=3.10.7
+    - holoviews >= 1.21.0
     - orjson >= 3.11.4
     - progress-table >= 3.2.2
     - ase >= 3.27.0
@@ -87,7 +88,7 @@ tests:
       python_version: ["${{ python_min ~ '.*' }}"]
 
   - script:
-      - DATA_DIR=$(pwd)/test/data/raw pytest ./test
+      - DATA_DIR=$(pwd)/test/data pytest ./test
     requirements:
       run:
         - pytest

@@ -29,14 +29,14 @@ timeout = 900
 test(
    'apitofsim-tests',
    tests,
-   env : 'DATA_DIR=' + fs.parent(ready_test_data_files[0].full_path()),
+   env : 'DATA_DIR=' + fs.parent(fs.parent(ready_test_data_files[0].full_path())),
    depends: ready_test_data_files,
    timeout : timeout
 )
 
 if python_feat.enabled()
    env = environment()
-   env.set('DATA_DIR', fs.parent(raw_test_data_files[0].full_path()))
+   env.set('DATA_DIR', fs.parent(fs.parent(raw_test_data_files[0].full_path())))
    env.append(
       'PYTHONPATH',
       fs.parent(apitofsim_python.full_path()),

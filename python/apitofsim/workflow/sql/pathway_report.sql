@@ -1,3 +1,32 @@
+create or replace view cluster_report as
+select
+    -- Cluster info (the main cluster)
+    c.id as cluster_id,
+    c.common_name as cluster_common_name,
+    c.atomic_mass as cluster_atomic_mass,
+    c.charge as cluster_charge,
+    c.electronic_energy as cluster_electronic_energy,
+    c.rotational_temperatures as cluster_rotational_temperatures,
+    c.vibrational_temperatures as cluster_vibrational_temperatures,
+
+    coalesce(parent_counts.pathways_as_parent, 0) as num_pathways_as_parent,
+    coalesce(prod_counts.pathways_as_product, 0) as num_pathways_as_product
+from cluster c
+left join (
+    select cluster_id, count(*) as pathways_as_parent
+    from pathway
+    group by cluster_id
+) parent_counts on parent_counts.cluster_id = c.id
+left join (
+    select cluster_id, count(*) as pathways_as_product
+    from (
+        select id, product1_id as cluster_id from pathway where product1_id is not null
+        union
+        select id, product2_id as cluster_id from pathway where product2_id is not null
+    ) t
+    group by cluster_id
+) prod_counts on prod_counts.cluster_id = c.id;
+
 create or replace view pathway_report as
 select
     -- Pathway info

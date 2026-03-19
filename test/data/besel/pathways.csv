@@ -1,0 +1,4 @@
+parent,product1,product2
+1A_2SA_negative,1A_1SA_negative,1SA_neutral
+1A_2SA_negative,1SA_negative,1A_1SA_neutral
+1A_2SA_negative,2SA_negative,1A_neutral

@@ -1,0 +1,40 @@
+[[pathways]]
+type = "csv"
+pathways_path = "pathways.csv"
+clusters_path = "clusters.csv"
+
+[pathways.clusters]
+default_source = "gaussian"
+electronic_energy = "orca.final_single_point_energy + gaussian.zero_point_energy"
+ase = "xyz"
+
+[pathways.clusters.sources.orca]
+append_to_common_prefix = ".out"
+
+[pathways.clusters.sources.gaussian]
+append_to_common_prefix = ".log"
+
+[pathways.clusters.sources.xyz]
+append_to_common_prefix = ".xyz"
+
+[[configs]]
+name = "testconfig"
+M_iter = 100
+N = 3
+N_iter = 100
+T = "300.0 kelvin"
+alpha_factor = "0.25 halfturn"
+bin_width = "16.0 kelvin"
+dc = "0.0005 meter"
+energy_max = "2.0e5 kelvin"
+energy_max_rate = "2.0e4 kelvin"
+lengths = [ [ 0.001, 0.00244, 0.101, 0.00448, 0.0005 ], "meter" ]
+pressures = [ [ 194.0, 3.88 ], "pascal"]
+resolution = 100
+tolerance = 1e-5
+voltages = [ [ -19, -9, -7, -6, 11 ], "volt" ]
+
+[configs.gas]
+radius = "1.84e-10 meter"
+mass = "4.65e-26 kilogram"
+adiabatic_index = 1.4

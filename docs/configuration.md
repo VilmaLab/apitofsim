@@ -16,7 +16,56 @@ The second is how to run the simulation, as given by the `[default_config]` sect
 
 ## Ingestion configuration
 
-See the documentation for the [apitofsim db prepare][apitofsim-db-prepare] command.
+See the documentation for the [apitofsim db prepare][apitofsim-db-prepare] command to get started.
+Here some more extra reference information about `type = "csv"` ingestion is given.
+
+### [[pathways]]
+
+We can start with ingestion parameters like so:
+
+```toml
+[[pathways]]
+type = "csv"
+```
+
+| Name            | Description                           |
+| --------------- | --------------------------------------|
+| type            | Set to "csv" here. See the help page for [apitofsim db prepare][apitofsim-db-prepare] for "legacy_glob". |
+| pathways_path   | A path, given either as absolute or relative to the .toml to the pathways CSV |
+| clusters_path   | A path, given either as absolute or relative to the .toml to the clusters CSV |
+
+### [[pathways.clusters]]
+
+Next is a section `[pathways.clusters]` consisting firstly of top level keys referencing one or more sources by their name, each of which is specified secondly as `[pathways.clusters.sources.SOURCE_NAME]` where `SOURCE_NAME` is a name of your choice.
+
+#### [[pathways.clusters.source.SOURCE_NAME]]
+
+The `SOURCE_NAME` will be used as the name of a column of the clusters CSV file given by `clusters_path` which will contain for each cluster the location of the file to import its data from. Alternatively in case several sources have a common prefix, a `prefix` column can be given and each starting with the prefix can specify and extension with `append_to_common_prefix`.
+
+| Name            | Description                           |
+| --------------- | --------------------------------------|
+| type            | This can be "csv", "gaussian", "map", "orca" or "xyz". If not specified `SOURCE_NAME` will be used. |
+| append_to_common_prefix | This is a string such as ".out" to append to the `prefix` column of the clusters CSV. |
+| ignore_unicode_errors | This can be set to `true` to skip over invalid characters in poorly encoded or corrupted files |
+
+Types `"csv"` and `"map"` allow setting specific values inline, which can be useful, e.g. for overriding specific quantities.
+For `"map`" cluster names can be given as keys of `[[pathways.clusters.source.SOURCE_NAME]]` and values can be given inline.
+For `"csv"`, new columns can be added to the clusters CSV named after the corresponding `"ATTRIBUTE"`.
+
+#### [[pathways.clusters.ATTRIBUTE]]
+
+| Name                     | Description                           |
+| ------------------------ | --------------------------------------|
+| default_source           | The source to be used for any attributes not specified. |
+| number_of_atoms          | The number of atoms in the compound. This is currently only used to determine whether a compound is an atom-like product and therefore does not need to have vibrational_temperatures specified. |
+| vibrational_temperatures | The vibrational temperatures of the compound. |
+| rotational_temperatures  | The rotational temperatures of the compound. |
+| electronic_energy        | The electronic energy of the compound. |
+| atomic_mass              | The atomic mass of the compound. |
+| charge                   | The charge of the compound. |
+| ase                      | Where to obtain the ASE `Atoms` object from the cluster to insert into an ASE database. Needed only if `--ase` is specified when running [apitofsim db prepare][apitofsim-db-prepare]`. |
+
+Each of these attributes can be either as `"SOURCE_NAME"` or as an arithmetic expression (using Python syntax) e.g. `"SOURCE_NAME.attribute1 + SOURCE_NAME.attribute2"`.
 
 ## Simulation parameters
 
@@ -46,7 +95,7 @@ name = "myconfig"
 | resolution      | -            | Number of points to use when histogramming across length of the skimmer region (as specified in lengths) |
 | N               | -            | Number of realizations to use in main particle simulation |
 | bin_width       | kelvin       | Bin width for histogramming density of states and k_total |
-| energy_max      | kelvin       | Maximum energy to consider when histogramming density of states |
+| energy_max      | kelvin       | Maximum energy to consider when histogramming density of states. The density of states must be evaluated up to an energy equal or greater to the to the sum of energy_max_rate and the maximum fragmentation energy you will simulate a pathway for. |
 | energy_max_rate | kelvin       | Maximum energy to consider when histogramming k_total |
 | alpha_factor    | halfturn     | Angle of skimmer |
 | T               | kelvin       | Temperature inside the mass spectrometer |

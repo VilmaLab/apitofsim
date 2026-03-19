@@ -1,14 +1,15 @@
 import os
 
+from click.testing import CliRunner
 import pytest
 from apitofsim.config import ConfigFile
 from apitofsim.workflow import ExperimentDatabase, ExperimentRunner, ingest_legacy_one
 
 
-def test_runner():
+def test_legacy_atom_like_runner_functional():
     data_dir = os.environ.get("DATA_DIR")
     assert data_dir is not None, "DATA_DIR environment variable not set"
-    config_filename = data_dir + "/config.in"
+    config_filename = data_dir + "/raw/config.in"
     db = ExperimentDatabase(":memory:")
     db.create_tables()
     ingest_legacy_one(
@@ -49,3 +50,29 @@ def test_runner():
         assert df["successes"].iloc[0] == 1 and df["failures"].iloc[0] == 0, (
             "Unexpected number of successes/failures"
         )
+
+
+def test_cli_functional():
+    from tempfile import TemporaryDirectory
+    from pandas import read_csv
+    from apitofsim.cli import prepare, run, report
+    runner = CliRunner()
+    data_dir = os.environ.get("DATA_DIR")
+    assert data_dir is not None, "DATA_DIR environment variable not set"
+    config_filename = data_dir + "/besel/config.toml"
+    with TemporaryDirectory() as tmpdir:
+        database_filename = tmpdir + "/testdb.duckdb"
+        prepare_result = runner.invoke(prepare, ["create", config_filename, database_filename, "--ase"])
+        assert prepare_result.exit_code == 0
+        initial_report = runner.invoke(report, ["pathway-report", database_filename, "pathway_report.csv"])
+        assert initial_report.exit_code == 0
+        pathway_report = read_csv("pathway_report.csv")
+        assert len(pathway_report) == 3, "Expected 3 pathways in initial report"
+        run_result = runner.invoke(run, [database_filename])
+        assert run_result.exit_code == 0
+        run_pathway_at_a_time_result = runner.invoke(run, [database_filename, "--pathway-at-a-time"])
+        assert run_pathway_at_a_time_result.exit_code == 0
+        experiment_summary_result = runner.invoke(report, ["experiment-summary", database_filename, "experiment_summary.csv"])
+        assert experiment_summary_result.exit_code == 0
+        experiment_summary = read_csv("experiment_summary.csv")
+        assert len(experiment_summary) == 2, "Expected 2 experiments after conducting runs"

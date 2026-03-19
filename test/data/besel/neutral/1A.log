@@ -1,0 +1,82 @@
+ Charge =  0 Multiplicity = 1
+ Stoichiometry    H3N
+ Framework group  C3V[C3(N),3SGV(H)]
+ Deg. of freedom     2
+ Full point group                 C3V     NOp   6
+ NAtoms= 4
+
+## STRUCTURE ##
+                         Standard orientation:                         
+ ---------------------------------------------------------------------
+ Center     Atomic      Atomic             Coordinates (Angstroms)
+ Number     Number       Type             X           Y           Z
+ ---------------------------------------------------------------------
+      1          7           0        0.000000    0.000000    0.106969
+      2          1           0        0.000000    0.948510   -0.249593
+      3          1           0       -0.821434   -0.474255   -0.249593
+      4          1           0        0.821434   -0.474255   -0.249593
+ ---------------------------------------------------------------------
+ Mulliken charges:
+               1
+     1  N   -0.872047
+     2  H    0.290682
+     3  H    0.290682
+     4  H    0.290682
+
+## ELECTRONIC ENERGY ##
+ SCF Done:  E(RwB97XD) =  -56.5464986551     A.U. after   10 cycles
+
+## FREQUENCIES ##
+                      1                      2                      3
+                     A1                      E                      E
+ Frequencies --    998.2321              1680.2712              1680.2712
+ Red. masses --      1.1838                 1.0685                 1.0685
+ Frc consts  --      0.6950                 1.7774                 1.7774
+ IR Inten    --    254.7365                31.6159                31.5616
+--
+                      4                      5                      6
+                     A1                      E                      E
+ Frequencies --   3533.8098              3686.8917              3686.8972
+ Red. masses --      1.0243                 1.0918                 1.0918
+ Frc consts  --      7.5366                 8.7441                 8.7441
+ IR Inten    --      1.2782                 4.6198                 4.6187
+
+## THERMOCHEMISTRY ##
+ -------------------
+ Temperature   298.150 Kelvin.  Pressure   1.00000 Atm.
+ Atom     1 has atomic number  7 and mass  14.00307
+ Atom     2 has atomic number  1 and mass   1.00783
+ Atom     3 has atomic number  1 and mass   1.00783
+ Atom     4 has atomic number  1 and mass   1.00783
+ Molecular mass:    17.02655 amu.
+ Principal axes and moments of inertia in atomic units:
+                           1         2         3
+     Eigenvalues --     5.98583   5.98583   9.71377
+           X            0.98845  -0.15152   0.00000
+           Y            0.15152   0.98845   0.00000
+           Z            0.00000  -0.00000   1.00000
+ This molecule is an oblate symmetric top.
+ Rotational symmetry number  3.
+ Rotational temperatures (Kelvin)     14.46983    14.46983     8.91661
+ Rotational constants (GHZ):         301.50240   301.50240   185.79198
+ Zero-point vibrational energy      91313.2 (Joules/Mol)
+                                   21.82438 (Kcal/Mol)
+ Vibrational temperatures:   1436.23  2417.54  2417.54  5084.36  5304.61
+          (Kelvin)           5304.62
+ 
+ Zero-point correction=                           0.034779 (Hartree/Particle)
+ Thermal correction to Energy=                    0.037654
+ Thermal correction to Enthalpy=                  0.038598
+ Thermal correction to Gibbs Free Energy=         0.016751
+ Sum of electronic and zero-point Energies=            -56.511719
+ Sum of electronic and thermal Energies=               -56.508845
+ Sum of electronic and thermal Enthalpies=             -56.507901
+ Sum of electronic and thermal Free Energies=          -56.529748
+ 
+                     E (Thermal)             CV                S
+                      KCal/Mol        Cal/Mol-Kelvin    Cal/Mol-Kelvin
+ Total                   23.628              6.420             45.981
+ Electronic               0.000              0.000              0.000
+ Translational            0.889              2.981             34.441
+ Rotational               0.889              2.981             11.435
+ Vibrational             21.851              0.458              0.105

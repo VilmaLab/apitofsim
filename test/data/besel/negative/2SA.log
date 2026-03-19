@@ -1,0 +1,197 @@
+ Charge = -1 Multiplicity = 1
+ Stoichiometry    H3O8S2(1-)
+ Framework group  C1[X(H3O8S2)]
+ Deg. of freedom    33
+ Full point group                 C1      NOp   1
+ NAtoms= 13
+
+## STRUCTURE ##
+                         Standard orientation:                         
+ ---------------------------------------------------------------------
+ Center     Atomic      Atomic             Coordinates (Angstroms)
+ Number     Number       Type             X           Y           Z
+ ---------------------------------------------------------------------
+      1         16           0        1.881800    0.079820   -0.000002
+      2          8           0        1.209057    1.381077   -0.000025
+      3          8           0        3.322264    0.038126   -0.000003
+      4          8           0        1.374485   -0.742458    1.241661
+      5          8           0        1.374481   -0.742505   -1.241632
+      6          1           0        0.354004   -0.702199   -1.287364
+      7          1           0        0.354008   -0.702157    1.287389
+      8         16           0       -1.872813   -0.093365    0.000001
+      9          8           0       -1.189638   -0.603288    1.225169
+     10          8           0       -1.189641   -0.603319   -1.225155
+     11          8           0       -3.314515   -0.235588    0.000005
+     12          8           0       -1.612741    1.505569   -0.000019
+     13          1           0       -0.641815    1.640154   -0.000023
+ ---------------------------------------------------------------------
+ Mulliken charges:
+               1
+     1  S    1.715968
+     2  O   -0.745634
+     3  O   -0.660902
+     4  O   -0.708404
+     5  O   -0.708405
+     6  H    0.481867
+     7  H    0.481867
+     8  S    1.732668
+     9  O   -0.825188
+    10  O   -0.825186
+    11  O   -0.675538
+    12  O   -0.686382
+    13  H    0.423268
+
+## ELECTRONIC ENERGY ##
+ SCF Done:  E(RwB97XD) =  -1399.82214934     A.U. after   13 cycles
+
+## FREQUENCIES ##
+                      1                      2                      3
+                      A                      A                      A
+ Frequencies --     55.4577               116.8502               125.5404
+ Red. masses --     14.8913                11.0984                11.3143
+ Frc consts  --      0.0270                 0.0893                 0.1051
+ IR Inten    --      0.2836                 1.6755                 0.8102
+--
+                      4                      5                      6
+                      A                      A                      A
+ Frequencies --    147.7593               169.4609               226.2153
+ Red. masses --     13.6209                11.8302                13.3763
+ Frc consts  --      0.1752                 0.2002                 0.4033
+ IR Inten    --      3.9587                 1.8967                53.1890
+--
+                      7                      8                      9
+                      A                      A                      A
+ Frequencies --    385.7817               394.1508               396.7182
+ Red. masses --      7.1043                11.0972                 8.2560
+ Frc consts  --      0.6230                 1.0158                 0.7656
+ IR Inten    --      2.3969                11.3892                 0.3810
+--
+                     10                     11                     12
+                      A                      A                      A
+ Frequencies --    422.2989               537.3970               537.6864
+ Red. masses --      8.2882                11.2323                13.1605
+ Frc consts  --      0.8709                 1.9112                 2.2417
+ IR Inten    --     27.7656                20.0323                12.8854
+--
+                     13                     14                     15
+                      A                      A                      A
+ Frequencies --    557.5273               562.4006               577.6556
+ Red. masses --     13.6061                 9.0170                11.0922
+ Frc consts  --      2.4918                 1.6804                 2.1808
+ IR Inten    --     33.4013                 0.3513                95.3492
+--
+                     16                     17                     18
+                      A                      A                      A
+ Frequencies --    577.7702               641.9114               819.7082
+ Red. masses --      7.8155                 1.2240                14.0822
+ Frc consts  --      1.5371                 0.2971                 5.5749
+ IR Inten    --     12.6030                79.6769               143.6723
+--
+                     19                     20                     21
+                      A                      A                      A
+ Frequencies --    875.6149               892.4066               937.5983
+ Red. masses --     12.1348                 1.2925                 4.3700
+ Frc consts  --      5.4816                 0.6065                 2.2634
+ IR Inten    --     27.9507                 8.8516               165.1044
+--
+                     22                     23                     24
+                      A                      A                      A
+ Frequencies --    966.8959              1031.3983              1150.4312
+ Red. masses --      1.1258                12.3778                17.6009
+ Frc consts  --      0.6201                 7.7580                13.7248
+ IR Inten    --    130.0418               134.8213               513.1529
+--
+                     25                     26                     27
+                      A                      A                      A
+ Frequencies --   1179.0988              1277.3867              1345.4229
+ Red. masses --     16.5523                 2.2570                 5.9114
+ Frc consts  --     13.5584                 2.1699                 6.3046
+ IR Inten    --    387.2697               125.5206               337.9355
+--
+                     28                     29                     30
+                      A                      A                      A
+ Frequencies --   1367.1545              1431.6236              1528.0594
+ Red. masses --      1.9414                 1.0691                 1.2774
+ Frc consts  --      2.1380                 1.2911                 1.7574
+ IR Inten    --    578.4333               105.5249               102.4428
+--
+                     31                     32                     33
+                      A                      A                      A
+ Frequencies --   2738.8608              2873.1824              3618.6592
+ Red. masses --      1.0903                 1.0780                 1.0666
+ Frc consts  --      4.8187                 5.2430                 8.2287
+ IR Inten    --      5.2229              3720.0974               668.2698
+
+## THERMOCHEMISTRY ##
+ -------------------
+ Temperature   298.150 Kelvin.  Pressure   1.00000 Atm.
+ Atom     1 has atomic number 16 and mass  31.97207
+ Atom     2 has atomic number  8 and mass  15.99491
+ Atom     3 has atomic number  8 and mass  15.99491
+ Atom     4 has atomic number  8 and mass  15.99491
+ Atom     5 has atomic number  8 and mass  15.99491
+ Atom     6 has atomic number  1 and mass   1.00783
+ Atom     7 has atomic number  1 and mass   1.00783
+ Atom     8 has atomic number 16 and mass  31.97207
+ Atom     9 has atomic number  8 and mass  15.99491
+ Atom    10 has atomic number  8 and mass  15.99491
+ Atom    11 has atomic number  8 and mass  15.99491
+ Atom    12 has atomic number  8 and mass  15.99491
+ Atom    13 has atomic number  1 and mass   1.00783
+ Molecular mass:   194.92694 amu.
+ Principal axes and moments of inertia in atomic units:
+                           1         2         3
+     Eigenvalues --   720.691513034.195243035.84341
+           X            1.00000  -0.00236   0.00000
+           Y            0.00236   1.00000  -0.00005
+           Z           -0.00000   0.00005   1.00000
+ This molecule is an asymmetric top.
+ Rotational symmetry number  1.
+ Warning -- assumption of classical behavior for rotation
+           may cause significant error
+ Rotational temperatures (Kelvin)      0.12018     0.02855     0.02853
+ Rotational constants (GHZ):           2.50418     0.59480     0.59448
+ Zero-point vibrational energy     182227.6 (Joules/Mol)
+                                   43.55345 (Kcal/Mol)
+ Warning -- explicit consideration of  16 degrees of freedom as
+           vibrations may cause significant error
+ Vibrational temperatures:     79.79   168.12   180.62   212.59   243.82
+          (Kelvin)            325.47   555.05   567.10   570.79   607.59
+                              773.19   773.61   802.16   809.17   831.12
+                              831.28   923.57  1179.38  1259.81  1283.97
+                             1348.99  1391.15  1483.95  1655.21  1696.46
+                             1837.87  1935.76  1967.03  2059.79  2198.54
+                             3940.61  4133.87  5206.44
+ 
+ Zero-point correction=                           0.069407 (Hartree/Particle)
+ Thermal correction to Energy=                    0.079105
+ Thermal correction to Enthalpy=                  0.080049
+ Thermal correction to Gibbs Free Energy=         0.033383
+ Sum of electronic and zero-point Energies=          -1399.752742
+ Sum of electronic and thermal Energies=             -1399.743045
+ Sum of electronic and thermal Enthalpies=           -1399.742100
+ Sum of electronic and thermal Free Energies=        -1399.788766
+ 
+                     E (Thermal)             CV                S
+                      KCal/Mol        Cal/Mol-Kelvin    Cal/Mol-Kelvin
+ Total                   49.639             34.842             98.216
+ Electronic               0.000              0.000              0.000
+ Translational            0.889              2.981             41.708
+ Rotational               0.889              2.981             30.274
+ Vibrational             47.862             28.880             26.234
+ Vibration     1          0.596              1.975              4.613
+ Vibration     2          0.608              1.935              3.152
+ Vibration     3          0.610              1.928              3.013
+ Vibration     4          0.617              1.905              2.701
+ Vibration     5          0.625              1.880              2.441
+ Vibration     6          0.650              1.801              1.909
+ Vibration     7          0.754              1.501              1.016
+ Vibration     8          0.761              1.483              0.984
+ Vibration     9          0.763              1.477              0.975
+ Vibration    10          0.785              1.422              0.884
+ Vibration    11          0.892              1.167              0.571
+ Vibration    12          0.893              1.167              0.570
+ Vibration    13          0.913              1.123              0.529
+ Vibration    14          0.918              1.113              0.519
+ Vibration    15          0.934              1.080              0.490
+ Vibration    16          0.934              1.079              0.490
