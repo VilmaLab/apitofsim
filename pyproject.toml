@@ -24,7 +24,11 @@ requires = ["meson-python", "meson >= 1.10.0"]
 
 [project.optional-dependencies]
 reflink = ["reflink>=0.2.2"]
-plot = ["matplotlib>=3.10.7", "holoviews>=1.21.0"]
+plot = [
+    "matplotlib>=3.10.7",
+    "holoviews>=1.21.0",
+    "textalloc>=1.2.3",
+]
 
 [project.scripts]
 apitofsim = "apitofsim.cli:cli"

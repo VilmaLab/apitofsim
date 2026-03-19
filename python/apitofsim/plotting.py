@@ -267,9 +267,209 @@ def get_intensities(db, experiment_id, cluster_id=None, is_single_pathway=False)
         return get_intensities_multipathway(db, experiment_id, cluster_id)
 
 
-def plot_spectrogram(df, scale=None, max_x=None):
+def rotmat(deg):
+    import numpy as np
+
+    theta = np.radians(deg)
+    c, s = np.cos(theta), np.sin(theta)
+    return np.array(((c, -s), (s, c)))
+
+
+ccw90_mat = rotmat(45)
+cw90_mat = rotmat(-45)
+
+
+def draw_boxes(boxes_np, lines_np, outfn):
+    # This function is not used in the final code, but is useful for debugging the relayout_labels(...)
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import Rectangle
+
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    ax.set_aspect("equal")
+    plt.title("Rectangles")
+
+    xmin = 0
+    xmax = 1
+    ymin = 0
+    ymax = 1
+    for box in boxes_np:
+        x0, y0, x1, y1 = box
+        if x0 < xmin:
+            xmin = x0
+        if y0 < ymin:
+            ymin = y0
+        if x1 > xmax:
+            xmax = x1
+        if y1 > ymax:
+            ymax = y1
+        width = x1 - x0
+        height = y1 - y0
+        rect = Rectangle((x0, y0), width, height, color="blue", fc="none", lw=2)
+        ax.add_patch(rect)
+
+    for line in lines_np:
+        ax.plot(line[[0, 2]], line[[1, 3]], color="red", lw=1)
+
+    plt.xlim([xmin, xmax])
+    plt.ylim([ymin, ymax])
+    plt.xlabel("x - axis")
+    plt.ylabel("y - axis")
+
+    fig.savefig(outfn, dpi=300)
+
+
+def relayout_labels(spectrogram, labels, fig_inches, aspect):
+    import holoviews
+    import numpy as np
+
+    bounding_boxes = []
+    xlims = None
+    ylims = None
+    aspect_ratio = None
+    collected_bboxes = False
+    box_xs = []
+
+    def collect_normal_bboxes(plot, element):
+        nonlocal collected_bboxes
+        if collected_bboxes:
+            return
+        nonlocal xlims, ylims, aspect_ratio
+        from matplotlib.text import Text
+        from textalloc import _get_renderer
+
+        fig = plot.state
+        ax = plot.handles["axis"]
+        renderer = _get_renderer(fig)
+        artists = plot.handles["artist"]
+        xlims = ax.get_xlim()
+        ylims = ax.get_ylim()
+        aspect_ratio = fig.get_size_inches()[0] / fig.get_size_inches()[1]
+        idx = 0
+        for artist in artists:
+            assert isinstance(artist, Text)
+            artist.set_verticalalignment("bottom")
+            artist.set_horizontalalignment("left")
+            box = artist.get_window_extent(renderer=renderer)
+            box_xs.append(-box.x0)
+            pt = np.array((box.x0, box.y0))[:, np.newaxis]
+            ptrot = np.dot(cw90_mat, pt)
+            bounding_boxes.append(
+                np.array(
+                    (
+                        ptrot[0, 0],
+                        ptrot[1, 0],
+                        ptrot[0, 0] + box.width,
+                        ptrot[1, 0] + box.height,
+                    )
+                )
+            )
+            idx += 1
+        collected_bboxes = True
+
+    collected_spikes = False
+    spikes = []
+
+    def collect_spikes(plot, element):
+        nonlocal collected_spikes, spikes
+        if collected_spikes:
+            return
+        segs = plot.handles["artist"].get_segments()
+        transform = plot.handles["artist"].get_transform()
+        for seg in segs:
+            if (seg[0] == seg[1]).all():
+                continue
+            start = transform.transform(seg[0])
+            end = transform.transform(seg[1])
+            segrot1 = np.dot(cw90_mat, start)
+            segrot2 = np.dot(cw90_mat, end)
+            spikes.append(np.concatenate((segrot1, segrot2)))
+        collected_spikes = True
+
+    spectrogram_draft = spectrogram.clone()
+    spectrogram_draft.opts(hooks=[collect_spikes])
+    spectrogram_draft *= labels.opts(
+        holoviews.opts.Labels(color="black", size=10, hooks=[collect_normal_bboxes])
+    )
+    spectrogram_draft = spectrogram_draft.opts(fig_inches=fig_inches, aspect=aspect)
+    holoviews.render(spectrogram_draft)
+
+    bounding_boxes_np = np.vstack(bounding_boxes)
+
+    assert isinstance(spikes, list)
+
+    spikes_np = np.vstack(spikes)
+    # spikes_np = np.dot(cw90_mat, spikes_np)
+
+    # draw_boxes(bounding_boxes_np, spikes_np, "orig_boxes.png")
+
+    from textalloc.overlap_functions import (
+        non_overlapping_with_boxes,
+        non_overlapping_with_lines,
+    )
+
+    done = []
+    for idx in np.argsort(box_xs):
+        new_box = bounding_boxes_np[idx, :]
+        incrs = np.concatenate((np.array([0, 1]), np.arange(5, 1000, 5)))[:, np.newaxis]
+        new_box_cands = new_box[np.newaxis, :] + np.hstack([incrs, incrs, incrs, incrs])
+        prev_bboxes = bounding_boxes_np[done]
+        done.append(idx)
+        acceptable = np.bitwise_and.reduce(
+            (
+                non_overlapping_with_boxes(prev_bboxes, new_box_cands, 0.01, 0.01),
+                non_overlapping_with_lines(spikes_np, new_box_cands, 0.01, 0.01),
+            )
+        )
+        nz = np.nonzero(acceptable)[0]
+        if len(nz) == 0:
+            continue  # Just accept the original position
+        bounding_boxes_np[idx] = new_box_cands[nz[0]]
+
+    # draw_boxes(bounding_boxes_np, spikes_np, "new_boxes.png")
+
+    def apply_moved_labels(plot, element):
+        from matplotlib.collections import LineCollection
+        from matplotlib.text import Text
+
+        idx = 0
+        artists = plot.handles["artist"]
+        fig = plot.state
+        lines = []
+        for artist in artists:
+            if isinstance(artist, Text):
+                artist.set_verticalalignment("bottom")
+                artist.set_horizontalalignment("left")
+                data_x, data_y = artist.get_position()
+                x, y, _, _ = bounding_boxes_np[idx]
+                ptrot = np.array((x, y))[:, np.newaxis]
+                pt = np.dot(ccw90_mat, ptrot)
+                x, y = pt[0, 0], pt[1, 0]
+                x, y = artist.get_transform().inverted().transform((x, y))
+                artist.set_position((x, y))
+                bump_x, bump_y = artist.get_transform().inverted().transform(
+                    (5, 5)
+                ) - artist.get_transform().inverted().transform((0, 0))
+                lines.append(
+                    np.array(((data_x, data_y), (data_x, y), (x + bump_x, y + bump_y)))
+                )
+                idx += 1
+        line_collection = LineCollection(
+            lines, linewidths=0.5, colors="gray", linestyles="dashed", zorder=0
+        )
+        line_collection.set_clip_on(False)
+        fig.gca().add_collection(line_collection)
+
+    return apply_moved_labels
+
+
+def plot_spectrogram(
+    df, *, scale=None, max_x=None, label=False, label_threshold=0.1, fig_inches, aspect
+):
     try:
         import holoviews  # pyright: ignore[reportMissingImports]
+
+        holoviews.extension("matplotlib")
     except ImportError:
         raise ImportError("Plotting requires holoviews and matplotlib; please install")
 
@@ -281,7 +481,6 @@ def plot_spectrogram(df, scale=None, max_x=None):
         raise ValueError(
             f"Unsupported scale {scale}; expected one of 'max', 'sum', or None"
         )
-    print(df)
     if max_x is not None:
         x_dim = holoviews.Dimension("m/z", soft_range=(0, max_x))
     else:
@@ -294,7 +493,41 @@ def plot_spectrogram(df, scale=None, max_x=None):
         x_dim,
         y_dim,
     )
-    return spectrogram
+
+    def render():
+        return holoviews.render(spectrogram.opts(fig_inches=fig_inches, aspect=aspect))
+
+    if label == "none":
+        return render()
+    elif label == "threshold":
+        labels_df = df[df["intensity"] >= label_threshold]
+    elif label == "all":
+        labels_df = df
+    elif label == "nonzero":
+        labels_df = df[df["intensity"] > 0]
+    else:
+        raise ValueError(
+            "Unknown value for `label`: expected one of 'none', 'threshold', 'all', or 'nonzero'"
+        )
+    labels = holoviews.Labels(
+        {
+            "x": labels_df["atomic_mass"].to_numpy(copy=True),
+            "y": labels_df["intensity"].to_numpy(copy=True),
+            "text": labels_df["product_name"].to_list(),
+        },
+        ["x", "y"],
+        "text",
+    )
+
+    spectrogram *= labels.opts(
+        holoviews.opts.Labels(
+            color="black",
+            size=10,
+            rotation=45,
+            hooks=[relayout_labels(spectrogram, labels, fig_inches, aspect)],
+        )
+    )
+    return render()
 
 
 def plot_spectrogram_to_file(outf, df, *args, **kwargs):
@@ -304,7 +537,5 @@ def plot_spectrogram_to_file(outf, df, *args, **kwargs):
         raise ImportError("Plotting requires holoviews and matplotlib; please install")
 
     holoviews.extension("matplotlib")  # type: ignore
-    spectrogram = plot_spectrogram(df, *args, **kwargs)
-    spectrogram = spectrogram.opts(fig_inches=(6, 3), aspect=2)
-    matplotlib_fig = holoviews.render(spectrogram)
-    matplotlib_fig.savefig(outf, dpi=300)
+    spectrogram = plot_spectrogram(df, *args, **kwargs, fig_inches=(6, 3), aspect=2)
+    spectrogram.savefig(outf, dpi=300, bbox_inches="tight")

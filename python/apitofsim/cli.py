@@ -301,7 +301,7 @@ def prepare(mode, config, database, db_type, ase, warm):
     "--filter-config",
     multiple=True,
     default=None,
-    help="Only run the experiment the parameters in the named configuration",
+    help="Only run the experiment using the parameters in the named configuration",
 )
 @click.option(
     "--pathway-at-a-time", default=False, is_flag=True, help="Run one pathway at a time"
@@ -351,7 +351,7 @@ def plot():
     pass
 
 
-def select_experiment_choices(db):
+def select_experiment_choices(db, filter_config):
     df = db.report_df("experiment_summary")
     for row in df.itertuples():
         pathway_desc = "single pathway" if row.is_single_pathway else "multi-pathway"
@@ -362,12 +362,16 @@ def select_experiment_choices(db):
         )
 
 
-def select_experiment(db):
+def select_experiment(db, filter_config=None):
     import questionary
 
     choices = []
-    for label, value in select_experiment_choices(db):
+    for label, value in select_experiment_choices(db, filter_config):
         choices.append(questionary.Choice(label, value=value))
+    if len(choices) == 0:
+        raise click.ClickException("No experiments found in the database")
+    if len(choices) == 1:
+        return choices[0].value
     return questionary.prompt(
         {
             "type": "select",
@@ -380,11 +384,34 @@ def select_experiment(db):
     )["experiment"]
 
 
-def select_cluster_result(db):
+def select_cluster_result(db, filter_parent=None, filter_config=None):
     import questionary
 
-    df = db.report_df("experiment_cluster_report")
-    print(df)
+    tbl_orig = tbl = db.db.table("experiment_cluster_report")
+    if filter_parent:
+        tbl = tbl.filter(f"(cluster_common_name ~~~ '{filter_parent}')")
+    matches = tbl.count("*").fetchone()[0]
+    if matches == 0:
+        raise click.ClickException(
+            f"No cluster results found in the database with parent cluster name matching glob '{filter_parent}'"
+        )
+    if filter_config:
+        print("filter_config", filter_config)
+        tbl = tbl.filter(f"(config_name ~~~ '{filter_config}')")
+    matches = tbl.count("*").fetchone()[0]
+    if matches == 0:
+        tbl_test = tbl_orig.filter(f"(config_name ~~~ '{filter_config}')")
+        matches_test = tbl_test.count("*").fetchone()[0]
+        if matches_test == 0:
+            raise click.ClickException(
+                f"No cluster results found in the database with config name matching glob '{filter_config}'"
+            )
+        else:
+            raise click.ClickException(
+                f"No cluster results found in the database with config name matching glob '{filter_config}' "
+                f"and config name matching glob '{filter_parent}' (but both were found individually)"
+            )
+    df = tbl.fetchdf()
     choices = []
     for row in df.itertuples():
         pathway_desc = "single pathway" if row.is_single_pathway else "multi-pathway"
@@ -396,6 +423,8 @@ def select_cluster_result(db):
                 value=(row.experiment_run_id, row.cluster_id, row.is_single_pathway),
             )
         )
+    if len(choices) == 1:
+        return choices[0].value
     return questionary.prompt(
         {
             "type": "select",
@@ -447,11 +476,49 @@ def transform_intensity(df, model_transmission):
 @click.argument("database", required=True, type=click.Path(exists=True, dir_okay=False))
 @click.argument("pngout", type=click.Path(dir_okay=False))
 @click.option(
+    "--filter-parent",
+    default=None,
+    help="Only run pathways with a specified common name for the parent cluster",
+)
+@click.option(
+    "--filter-config",
+    default=None,
+    help="Only run the experiment using the parameters in the named configuration",
+)
+@click.option(
     "--model-transmission",
     type=click.Choice(["old", "new_neg", "new_pos"]),
     default=None,
 )
-def spectrogram(database, pngout, model_transmission):
+@click.option(
+    "--label",
+    type=click.Choice(
+        [
+            "all",
+            "nonzero",
+            "threshold",
+            "none",
+        ],
+        case_sensitive=False,
+    ),
+    default="none",
+    help="Add labels indicating the cluster",
+)
+@click.option(
+    "--label-threshold",
+    type=float,
+    default=0.1,
+    help="specified threshold for labeling clusters when --label=threshold",
+)
+def spectrogram(
+    database,
+    pngout,
+    filter_parent,
+    filter_config,
+    model_transmission,
+    label,
+    label_threshold,
+):
     """
     Output to PNGOUT a spectrogram of the results for single cluster / experiment using the database at path DATABASE.
     """
@@ -462,21 +529,52 @@ def spectrogram(database, pngout, model_transmission):
     from apitofsim.workflow import ExperimentDatabase
 
     with connection_scope(ExperimentDatabase, database, readonly=True) as db:
-        experiment_id, cluster_id, is_single_pathway = select_cluster_result(db)
+        experiment_id, cluster_id, is_single_pathway = select_cluster_result(
+            db, filter_parent, filter_config
+        )
         df = get_intensities(db, experiment_id, cluster_id, is_single_pathway)
     transform_intensity(df, model_transmission)
-    plot_spectrogram_to_file(pngout, df, scale="max")
+    plot_spectrogram_to_file(
+        pngout, df, scale="max", label=label, label_threshold=label_threshold
+    )
 
 
 @plot.command(short_help="Plot a spectrogram for each cluster in an experiment")
 @click.argument("database", required=True, type=click.Path(exists=True, dir_okay=False))
 @click.argument("dirout", type=click.Path(file_okay=False, path_type=pathlib.Path))
 @click.option(
+    "--filter-config",
+    default=None,
+    help="Only run the experiment using the parameters in the named configuration",
+)
+@click.option(
     "--model-transmission",
     type=click.Choice(["old", "new_neg", "new_pos"]),
     default=None,
 )
-def spectrogram_many(database, dirout, model_transmission):
+@click.option(
+    "--label",
+    type=click.Choice(
+        [
+            "all",
+            "nonzero",
+            "threshold",
+            "none",
+        ],
+        case_sensitive=False,
+    ),
+    default="none",
+    help="Add labels indicating the cluster",
+)
+@click.option(
+    "--label-threshold",
+    type=float,
+    default=0.1,
+    help="specified threshold for labeling clusters when --label=threshold",
+)
+def spectrogram_many(
+    database, dirout, filter_config, model_transmission, label, label_threshold
+):
     """
     Output to DIROUT a spectrogram per cluster using the results from single experiments using the database at path DATABASE.
     """
@@ -487,14 +585,23 @@ def spectrogram_many(database, dirout, model_transmission):
     from apitofsim.workflow import ExperimentDatabase
 
     with connection_scope(ExperimentDatabase, database, readonly=True) as db:
-        experiment_id, is_single_pathway = select_experiment(db)
+        experiment_id, is_single_pathway = select_experiment(
+            db, filter_config=filter_config
+        )
         df = get_intensities(db, experiment_id, is_single_pathway)
     transform_intensity(df, model_transmission)
     dirout.mkdir(exist_ok=True, parents=True)
     max_x = df["atomic_mass"].max() * 1.1
     for parent_name, cluster_df in df.groupby("parent_name"):
         pngout = dirout / f"{parent_name}.png"
-        plot_spectrogram_to_file(pngout, cluster_df, scale="max", max_x=max_x)
+        plot_spectrogram_to_file(
+            pngout,
+            cluster_df,
+            scale="max",
+            max_x=max_x,
+            label=label,
+            label_threshold=label_threshold,
+        )
 
 
 @db.command(short_help="Produce an Excel-friendly CSV report from the database")
