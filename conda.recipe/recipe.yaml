@@ -88,7 +88,7 @@ tests:
       python_version: ["${{ python_min ~ '.*' }}"]
 
   - script:
-      - DATA_DIR=$(pwd)/test/data/raw pytest ./test
+      - DATA_DIR=$(pwd)/test/data pytest ./test
     requirements:
       run:
         - pytest
