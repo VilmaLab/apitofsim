@@ -105,7 +105,7 @@ __all__ = [
 
 ureg = get_application_registry()
 ureg.define(
-    "halfturn = 2 * π * radian = _ = halfrevolution = halfcycle = halfcircle = multiple_of_PI"
+    "halfturn = π * radian = _ = halfrevolution = halfcycle = halfcircle = multiple_of_PI"
 )
 Q_ = ureg.Quantity
 
