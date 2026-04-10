@@ -119,7 +119,10 @@ def get_through_join_else(conn, rel, proj_col, result_dict, **match_cols):
         .select(proj_col)
         .to_arrow_table()
     )
-    data = data.column(proj_col).chunk(0)
+    try:
+        data = data.column(proj_col).chunk(0)
+    except IndexError:
+        return
     for match_row, value in zip(zip(*iterable_match_vals), data):
         value = value.values
         if value is not None:
