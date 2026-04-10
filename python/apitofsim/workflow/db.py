@@ -409,6 +409,17 @@ class SuperClusterDatabase(ClusterDatabase):
         self.db.execute(sql_files.pathway_report)
         self.db.execute(sql_files.experiment_report)
 
+    def get_histogram_params(self, histogram_id):
+        bin_width, x_max = (
+            self.db.table("histogram_params")
+            .filter(
+                duckdb.ColumnExpression("id") == duckdb.ConstantExpression(histogram_id)
+            )
+            .select("bin_width", "max")
+            .fetchone()
+        )
+        return Q_(bin_width, "K"), Q_(x_max, "K")
+
 
 ConfigRow = namedtuple("ConfigRow", ["id", "name", "config"])
 
