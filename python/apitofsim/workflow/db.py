@@ -7,7 +7,7 @@ from datetime import timedelta
 import duckdb
 import numpy
 import pandas
-from ase.db import connect as connect_ase_db
+from ase.db.sqlite import SQLite3Database
 from pint import get_application_registry
 
 import apitofsim.workflow.sql_files as sql_files
@@ -34,6 +34,28 @@ def connection_scope(database_type, filename, **kwargs):
     db.close()
 
 
+class SQLite3DatabaseWithUri(SQLite3Database):
+    def _connect(self):
+        import sqlite3
+
+        return sqlite3.connect(
+            self.filename, timeout=20, uri=True, check_same_thread=False
+        )
+
+
+def connect_ase_sqlite_db(
+    name,
+    create_indices=True,
+    use_lock_file=True,
+    append=True,
+    serial=False,
+    **db_kwargs,
+):
+    return SQLite3DatabaseWithUri(
+        name, create_indices, use_lock_file, serial=serial, **db_kwargs
+    )
+
+
 class ClusterDatabase:
     TABLES = [sql_files.pathway]
 
@@ -48,7 +70,10 @@ class ClusterDatabase:
             self.db = duckdb.connect(filename)
         if ase_filename is not None:
             # TODO: These ClusterDatabase, etc. objects should probably be context managers too
-            self.ase_db = connect_ase_db(ase_filename, type="db").__enter__()
+            uri = "file:" + ase_filename
+            if readonly:
+                uri += "?mode=ro"
+            self.ase_db = connect_ase_sqlite_db(uri).__enter__()
         else:
             self.ase_db = None
         self._setup_db()
