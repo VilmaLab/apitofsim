@@ -45,24 +45,10 @@ class DerivedDataPreparer:
             tolerance=config["tolerance"],
         )
 
-    def _run_dos(
-        self,
-        cluster_indexed,
-        histogram_id,
-        bin_width,
-        energy_max,
-        pathway_lookup,
-        status_table=None,
+    def _get_cluster_dos_through_join_else(
+        self, cluster_indexed, histogram_id, cluster_dos_dict
     ):
-        import pyarrow as pa
-
-        from apitofsim.api import ProductsCluster, compute_density_of_states_batch
-
-        num_clusters_missed = 0
-        cluster_dos_dict = {}
-        missed_cluster_ids = []
         wanted_cluster_ids = numpy.array(list(cluster_indexed.keys()))
-        density_of_states_inputs = []
         for miss_info in get_through_join_else(
             self.db.db,
             self.db.db.table("cluster_dos"),
@@ -76,9 +62,12 @@ class DerivedDataPreparer:
             if cluster.is_atom_like_product():
                 cluster_dos_dict[cluster_id] = None
             else:
-                missed_cluster_ids.append(cluster_id)
-                density_of_states_inputs.append(cluster)
-                num_clusters_missed += 1
+                yield cluster_id, cluster
+
+    def _get_product_dos_through_join_else(
+        self, cluster_indexed, histogram_id, cluster_dos_dict, pathway_lookup
+    ):
+        from apitofsim.api import ProductsCluster
 
         wanted_p1 = []
         wanted_p2 = []
@@ -98,8 +87,111 @@ class DerivedDataPreparer:
         ):
             p1 = miss_info["cluster1_id"]
             p2 = miss_info["cluster2_id"]
-            products = ProductsCluster(cluster_indexed[p1], cluster_indexed[p2])
-            density_of_states_inputs.append(products)
+            yield ProductsCluster(cluster_indexed[p1], cluster_indexed[p2])
+
+    def _get_k_rate_through_join_else(self, histogram_id, k_total_dict, pathway_lookup):
+        print("_get_k_rate_through_join_else", histogram_id)
+        for miss_info in get_through_join_else(
+            self.db.db,
+            self.db.db.table("k_rate").filter(
+                duckdb.ColumnExpression("histogram_params_id")
+                == duckdb.ConstantExpression(histogram_id)
+            ),
+            "data",
+            k_total_dict,
+            pathway_id=pathway_lookup.keys(),
+        ):
+            pathway_id = miss_info["pathway_id"]
+            cluster_id, product1_id, product2_id = pathway_lookup[pathway_id]
+            yield pathway_id, cluster_id, product1_id, product2_id
+
+    def _get_cached_dos(
+        self,
+        cluster_indexed,
+        histogram_id,
+        pathway_lookup,
+        include_cluster_dos=True,
+        include_product_dos=True,
+    ):
+        num_misses = 0
+        cluster_dos_dict = {}
+        if include_cluster_dos:
+            for cluster_id, cluster in self._get_cluster_dos_through_join_else(
+                cluster_indexed,
+                histogram_id,
+                cluster_dos_dict,
+            ):
+                num_misses += 1
+
+        if include_product_dos:
+            for product_cluster in self._get_product_dos_through_join_else(
+                cluster_indexed,
+                histogram_id,
+                cluster_dos_dict,
+                pathway_lookup,
+            ):
+                num_misses += 1
+
+        if num_misses > 0:
+            raise ValueError(
+                f"Expected to get all cluster DOS from the database, but got {num_misses} misses"
+            )
+
+        return cluster_dos_dict
+
+    def _rekey_cluster_dos_by_pathway(self, cluster_dos_dict, pathway_lookup):
+        cluster_dos_by_pathway = {}
+
+        for pathway_id, (
+            _,
+            product1_id,
+            product2_id,
+        ) in pathway_lookup.items():
+            product1_id, product2_id = sorted((product1_id, product2_id))
+            cluster_dos_by_pathway[pathway_id] = cluster_dos_dict[
+                (product1_id, product2_id)
+            ]
+
+        return cluster_dos_by_pathway
+
+    def _run_dos(
+        self,
+        cluster_indexed,
+        histogram_id,
+        bin_width,
+        energy_max,
+        pathway_lookup,
+        status_table=None,
+    ):
+        import pyarrow as pa
+
+        from apitofsim.api import compute_density_of_states_batch
+
+        num_clusters_missed = 0
+        cluster_dos_dict = {}
+        missed_cluster_ids = []
+        density_of_states_inputs = []
+        for cluster_id, cluster in self._get_cluster_dos_through_join_else(
+            cluster_indexed,
+            histogram_id,
+            cluster_dos_dict,
+        ):
+            missed_cluster_ids.append(cluster_id)
+            density_of_states_inputs.append(cluster)
+            num_clusters_missed += 1
+
+        wanted_p1 = []
+        wanted_p2 = []
+        for _, product1_id, product2_id in pathway_lookup.values():
+            product1_id, product2_id = sorted((product1_id, product2_id))
+            wanted_p1.append(product1_id)
+            wanted_p2.append(product2_id)
+
+        density_of_states_inputs.extend(
+            self._get_product_dos_through_join_else(
+                cluster_indexed, histogram_id, cluster_dos_dict, pathway_lookup
+            )
+        )
 
         if status_table is not None:
             status_table["Description"] = (
@@ -156,7 +248,6 @@ class DerivedDataPreparer:
         self,
         cluster_indexed,
         cluster_dos_dict,
-        histogram_id,
         mesh,
         bin_width,
         energy_max,
@@ -184,18 +275,14 @@ class DerivedDataPreparer:
         k_total_keys = []
         k_total_dict = {}
 
-        for miss_info in get_through_join_else(
-            self.db.db,
-            self.db.db.table("k_rate").filter(
-                duckdb.ColumnExpression("histogram_params_id")
-                == duckdb.ConstantExpression(histogram_id)
-            ),
-            "data",
-            k_total_dict,
-            pathway_id=pathway_lookup.keys(),
+        for (
+            pathway_id,
+            cluster_id,
+            product1_id,
+            product2_id,
+        ) in self._get_k_rate_through_join_else(
+            histogram_id, k_total_dict, pathway_lookup
         ):
-            pathway_id = miss_info["pathway_id"]
-            cluster_id, product1_id, product2_id = pathway_lookup[pathway_id]
             product1_cpp = cluster_indexed[product1_id].into_cpp()
             product2_cpp = cluster_indexed[product2_id].into_cpp()
             fragmentation_energy = FragmentationPathway(
@@ -342,7 +429,6 @@ class DerivedDataPreparer:
         k_rates = self._run_k_total(
             cluster_indexed,
             cluster_dos_dict,
-            histogram_id,
             mesh,
             config["bin_width"],
             config["energy_max"],
@@ -357,51 +443,96 @@ class DerivedDataPreparer:
             # Not sure why this is sometimes needed
             pbar.close()
 
-        cluster_dos_by_pathway = {}
-
-        for pathway_id, (
-            _,
-            product1_id,
-            product2_id,
-        ) in pathway_lookup.items():
-            product1_id, product2_id = sorted((product1_id, product2_id))
-            cluster_dos_by_pathway[pathway_id] = cluster_dos_dict[
-                (product1_id, product2_id)
-            ]
+        cluster_dos_by_pathway = self._rekey_cluster_dos_by_pathway(
+            cluster_dos_dict, pathway_lookup
+        )
 
         return k_rates, cluster_dos_by_pathway
 
-    def run_preliminaries(self, config, cluster_indexed, pathway_lookup):
+    def get_cached_densityandrate(
+        self, cluster_indexed, dos_histogram_id, rate_histogram_id, pathway_lookup
+    ):
+        num_missed = 0
+        k_rates = {}
+        for (
+            pathway_id,
+            cluster_id,
+            product1_id,
+            product2_id,
+        ) in self._get_k_rate_through_join_else(
+            rate_histogram_id, k_rates, pathway_lookup
+        ):
+            num_missed += 1
+
+        if num_missed > 0:
+            raise ValueError(
+                f"Expected to get all k rates from the database, but got {num_missed} misses"
+            )
+
+        cluster_dos_dict = self._get_cached_dos(
+            cluster_indexed, dos_histogram_id, pathway_lookup, include_product_dos=True
+        )
+        cluster_dos_by_pathway = self._rekey_cluster_dos_by_pathway(
+            cluster_dos_dict, pathway_lookup
+        )
+
+        return k_rates, cluster_dos_by_pathway
+
+    def run_preliminaries(
+        self,
+        config,
+        cluster_indexed,
+        pathway_lookup,
+        use_cached=False,
+        show_progress=True,
+        use_cached_densityandrate=False,
+    ):
         from timeit import default_timer as timer
 
-        from progress_table import ProgressTable
+        if show_progress:
+            from progress_table import ProgressTable
 
-        prelim_table = ProgressTable(default_column_alignment="left", refresh_rate=0)
-        outer_pbar = prelim_table(
-            4,
-            description="Preliminary steps",
-            show_throughput=False,
-            show_progress=True,
-            position=2,
-        )
-        prelim_table.add_column("#", alignment="right", width=3)
-        prelim_table.add_column("Step", width=20)
-        prelim_table.add_column("Description", width=40)
-        prelim_table.add_column("Time (s)", alignment="right")
-        prelim_table["#"] = "1/4"
-        prelim_table["Step"] = "Skimmer"
-        outer_pbar.update()
-        start = timer()
+            prelim_table = ProgressTable(
+                default_column_alignment="left", refresh_rate=0
+            )
+            outer_pbar = prelim_table(
+                4,
+                description="Preliminary steps",
+                show_throughput=False,
+                show_progress=True,
+                position=2,
+            )
+            prelim_table.add_column("#", alignment="right", width=3)
+            prelim_table.add_column("Step", width=20)
+            prelim_table.add_column("Description", width=40)
+            prelim_table.add_column("Time (s)", alignment="right")
+            prelim_table["#"] = "1/4"
+            prelim_table["Step"] = "Skimmer"
+            outer_pbar.update()
+            start = timer()
+
         skimmer_np = self._run_skimmer(config)
-        prelim_table["Time (s)"] = f"{(timer() - start):.2f}"
-        prelim_table.next_row()
 
-        k_rates, cluster_dos_by_pathway = self.run_densityandrate(
-            config,
-            cluster_indexed,
-            pathway_lookup,
-            tablepbar=(prelim_table, outer_pbar),
-        )
+        if show_progress:
+            prelim_table["Time (s)"] = f"{(timer() - start):.2f}"
+            prelim_table.next_row()
+
+        if use_cached_densityandrate:
+            if use_cached_densityandrate is True:
+                raise ValueError(
+                    "Set use_cached_densityandrate to a tuple (dos_histogram_id, rate_histogram_id) to use cached values"
+                )
+            dos_histogram_id, rate_histogram_id = use_cached_densityandrate
+            k_rates, cluster_dos_by_pathway = self.get_cached_densityandrate(
+                cluster_indexed, dos_histogram_id, rate_histogram_id, pathway_lookup
+            )
+        else:
+            k_rates, cluster_dos_by_pathway = self.run_densityandrate(
+                config,
+                cluster_indexed,
+                pathway_lookup,
+                tablepbar=(prelim_table, outer_pbar) if show_progress else None,
+            )
 
         return skimmer_np, k_rates, cluster_dos_by_pathway
 
