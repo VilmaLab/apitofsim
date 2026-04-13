@@ -1,3 +1,4 @@
+#include <cassert>
 #include <iostream>
 #include <optional>
 #include <stdlib.h>
@@ -14,6 +15,7 @@
 #include <nanobind/stl/vector.h>
 #include <nanobind/stl/chrono.h>
 #include <nanobind/stl/tuple.h>
+#include <nanobind/stl/variant.h>
 
 #include "skimmer.h"
 #include "densityandrate.h"
@@ -28,6 +30,8 @@ namespace nb = nanobind;
 using namespace nb::literals;
 
 typedef Eigen::Array<double, Eigen::Dynamic, 6> SkimmerResult;
+
+const unsigned long long DEFAULT_SEED = 42ull;
 
 struct PythonWarningHelper
 {
@@ -123,7 +127,7 @@ nb::typed<nb::tuple, Histogram, Histogram> densityandrate(
 
 struct MassSpecCleanup
 {
-  std::thread &execution_thread;
+  std::thread execution_thread;
 
   ~MassSpecCleanup()
   {
@@ -131,36 +135,43 @@ struct MassSpecCleanup
   }
 };
 
-SimulationResult
-mass_spec(
+unsigned long long root_seed(unsigned long long seed)
+{
+  mt19937 root_gen = mt19937(seed);
+  return root_gen();
+}
+
+typedef Eigen::Array<int, Eigen::Dynamic, Eigen::Dynamic> PartialCounters;
+
+PartialCounters mk_partial_counters(const MassSpecSubstanceInput &subs)
+{
+  int total_counters = n_counters - 1 + subs.pathways.size();
+  return Eigen::Array<int, Eigen::Dynamic, Eigen::Dynamic>::Zero(omp_get_max_threads(), total_counters);
+}
+
+/* Caller must ensure that all parameters passed as reference outlive thread */
+std::thread run_mass_spec_in_thread(
+  SimulationResult &result,
+  OMPExceptionHelper &exception_helper,
   const MassSpectrometer &ms,
   const MassSpecSubstanceInput &subs,
   int N,
-  unsigned long long seed = 42ull,
-  std::optional<std::function<void(std::string_view, std::string)>> log_callback = nullopt,
-  std::optional<std::function<void(Eigen::ArrayXi)>> result_callback = nullopt,
-  SampleMode sample_mode = SampleMode::rejection,
-  bool strict = true,
-  int loglevel = DEFAULT_LOGLEVEL)
+  unsigned long long seed,
+  StreamingResultQueue &result_queue,
+  SampleMode sample_mode,
+  bool strict,
+  int loglevel)
 {
-  using magic_enum::enum_name;
-  mt19937 root_gen = mt19937(seed);
-  unsigned long long root_seed = root_gen();
-
-  StreamingResultQueue result_queue;
-
-  OMPExceptionHelper exception_helper;
-  SimulationResult result;
-  std::thread execution_thread = std::thread([&]
+  return std::thread([&, N, seed, sample_mode, strict, loglevel]
   {
     // TODO: Probably want to switch to jthread when possible
-    exception_helper.guard([&]
+    exception_helper.guard([&, N, seed, sample_mode, strict, loglevel]
     {
       result = apitof_mass_spec(
         ms,
         subs,
         N,
-        root_seed,
+        root_seed(seed),
         result_queue,
         sample_mode,
         strict,
@@ -168,16 +179,23 @@ mass_spec(
     });
     result_queue.enqueue(std::monostate{});
   });
-  auto cleanup = MassSpecCleanup{execution_thread};
-  int total_counters = n_counters - 1 + subs.pathways.size();
-  Eigen::Array<int, Eigen::Dynamic, Eigen::Dynamic> partial_counters = Eigen::Array<int, Eigen::Dynamic, Eigen::Dynamic>::Zero(omp_get_max_threads(), total_counters);
-  bool exiting = false;
+}
+
+std::variant<std::tuple<const std::string, const std::string>, Eigen::ArrayXi, std::monostate> pump_mass_spec_queue(
+  StreamingResultQueue &result_queue,
+  PartialCounters &partial_counters,
+  OMPExceptionHelper &exception_helper)
+{
+  using magic_enum::enum_name;
+
   try
   {
-    while (true)
+    StreamingResultElement result;
+    result_queue.wait_dequeue(result);
+    if (std::holds_alternative<std::monostate>(result))
     {
-      StreamingResultElement result;
-      if (exiting)
+      // Still need to pump out any pending messages
+      while (true)
       {
         bool got = result_queue.try_dequeue(result);
         if (!got)
@@ -185,33 +203,19 @@ mass_spec(
           break;
         }
       }
-      else
-      {
-        result_queue.wait_dequeue(result);
-      }
-      if (std::holds_alternative<std::monostate>(result))
-      {
-        // Still need to pump out any pending messages
-        exiting = true;
-      }
-      else if (std::holds_alternative<PartialResult>(result))
-      {
-        const PartialResult &partial_result = std::get<PartialResult>(result);
-        partial_counters.row(partial_result.thread_id) = partial_result.counters.transpose();
-        Eigen::ArrayXi cur_counters = partial_counters.colwise().sum();
-        if (result_callback)
-        {
-          (*result_callback)(cur_counters);
-        }
-      }
-      else if (std::holds_alternative<LogMessage>(result))
-      {
-        const LogMessage &msg = std::get<LogMessage>(result);
-        if (log_callback)
-        {
-          (*log_callback)(enum_name(msg.type), msg.message);
-        }
-      }
+    }
+    else if (std::holds_alternative<PartialResult>(result))
+    {
+      const PartialResult &partial_result = std::get<PartialResult>(result);
+      partial_counters.row(partial_result.thread_id) = partial_result.counters.transpose();
+      Eigen::ArrayXi cur_counters = partial_counters.colwise().sum();
+      return cur_counters;
+    }
+    else if (std::holds_alternative<LogMessage>(result))
+    {
+      const LogMessage &msg = std::get<LogMessage>(result);
+      const std::string name = std::string(enum_name(msg.type));
+      return std::tuple<const std::string, const std::string>(name, msg.message);
     }
   }
   catch (...)
@@ -232,9 +236,110 @@ mass_spec(
     }
     throw;
   }
+  return std::monostate{};
+}
+
+SimulationResult
+mass_spec(
+  const MassSpectrometer &ms,
+  const MassSpecSubstanceInput &subs,
+  int N,
+  unsigned long long seed = DEFAULT_SEED,
+  std::optional<std::function<void(std::string_view, std::string)>> log_callback = nullopt,
+  std::optional<std::function<void(Eigen::ArrayXi)>> result_callback = nullopt,
+  SampleMode sample_mode = SampleMode::rejection,
+  bool strict = true,
+  int loglevel = DEFAULT_LOGLEVEL)
+{
+  StreamingResultQueue result_queue;
+  OMPExceptionHelper exception_helper;
+  SimulationResult result;
+  PartialCounters partial_counters = mk_partial_counters(subs);
+  auto cleanup = MassSpecCleanup{run_mass_spec_in_thread(result, exception_helper, ms, subs, N, seed, result_queue, sample_mode, strict, loglevel)};
+  while (true)
+  {
+    auto result = pump_mass_spec_queue(result_queue, partial_counters, exception_helper);
+    if (std::holds_alternative<std::tuple<const std::string, const std::string>>(result))
+    {
+      auto tpl = std::get<std::tuple<const std::string, const std::string>>(result);
+      if (log_callback)
+      {
+        (*log_callback)(std::get<0>(tpl), std::get<1>(tpl));
+      }
+    }
+    else if (std::holds_alternative<Eigen::ArrayXi>(result))
+    {
+      if (result_callback)
+      {
+        (*result_callback)(std::get<Eigen::ArrayXi>(result));
+      }
+    }
+    else
+    {
+      assert(std::holds_alternative<std::monostate>(result));
+      break;
+    }
+  }
   exception_helper.rethrow();
   return result;
 }
+
+struct MassSpecIterator
+{
+  StreamingResultQueue result_queue;
+  PartialCounters partial_counters;
+  OMPExceptionHelper exception_helper;
+  std::thread execution_thread;
+  SimulationResult final_result{};
+  bool finished;
+
+  MassSpecIterator(
+    const MassSpectrometer &ms,
+    const MassSpecSubstanceInput &subs,
+    int N,
+    unsigned long long seed = DEFAULT_SEED,
+    SampleMode sample_mode = SampleMode::rejection,
+    bool strict = true,
+    int loglevel = DEFAULT_LOGLEVEL) : result_queue(),
+                                       partial_counters(mk_partial_counters(subs)),
+                                       exception_helper(),
+                                       execution_thread(run_mass_spec_in_thread(final_result, exception_helper, ms, subs, N, seed, result_queue, sample_mode, strict, loglevel)),
+                                       finished(false)
+  {
+  }
+
+  std::variant<std::tuple<const std::string, const std::string>, Eigen::ArrayXi, SimulationResult> __next__()
+  {
+    if (finished)
+    {
+      throw nb::stop_iteration();
+    }
+    auto result = pump_mass_spec_queue(result_queue, partial_counters, exception_helper);
+    if (std::holds_alternative<std::monostate>(result))
+    {
+      finished = true;
+      execution_thread.join();
+      return final_result;
+    }
+    else if (std::holds_alternative<Eigen::ArrayXi>(result))
+    {
+      return std::get<Eigen::ArrayXi>(result);
+    }
+    else
+    {
+      assert((std::holds_alternative<std::tuple<const std::string, const std::string>>(result)));
+      return std::get<std::tuple<const std::string, const std::string>>(result);
+    }
+  }
+
+  void join_if_joinable()
+  {
+    if (execution_thread.joinable())
+    {
+      execution_thread.join();
+    }
+  }
+};
 
 template <typename SamplerT, typename GenT>
 Eigen::ArrayX2d dispatch_sample_collision(
@@ -524,12 +629,25 @@ NB_MODULE(apitofsimraw, m)
         "ms"_a,
         "subs"_a,
         "N"_a,
-        "seed"_a = 42ull,
+        "seed"_a = DEFAULT_SEED,
         "log_callback"_a = std::nullopt,
         "result_callback"_a = std::nullopt,
         "sample_mode"_a = SampleMode::rejection,
         "strict"_a = true,
         "loglevel"_a = DEFAULT_LOGLEVEL);
+
+  nb::class_<MassSpecIterator>(m, "MassSpecIterator")
+    .def(nb::init<const MassSpectrometer &, const MassSpecSubstanceInput &, int, unsigned long long, SampleMode, bool, int>(),
+         nb::call_guard<nb::gil_scoped_release>(),
+         "ms"_a,
+         "subs"_a,
+         "N"_a,
+         "seed"_a = DEFAULT_SEED,
+         "sample_mode"_a = SampleMode::rejection,
+         "strict"_a = true,
+         "loglevel"_a = DEFAULT_LOGLEVEL)
+    .def("__next__", &MassSpecIterator::__next__)
+    .def("join_if_joinable", &MassSpecIterator::join_if_joinable);
 
   nb::class_<FragmentationPathway>(m, "FragmentationPathway")
     .def(nb::init<ClusterData, ClusterData, ClusterData>(),

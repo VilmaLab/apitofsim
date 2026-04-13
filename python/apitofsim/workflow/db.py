@@ -7,7 +7,8 @@ from datetime import timedelta
 import duckdb
 import numpy
 import pandas
-from ase.db import connect as connect_ase_db
+from ase.db import connect as ase_connect
+from ase.db.sqlite import SQLite3Database
 from pint import get_application_registry
 
 import apitofsim.workflow.sql_files as sql_files
@@ -34,6 +35,31 @@ def connection_scope(database_type, filename, **kwargs):
     db.close()
 
 
+class SQLite3DatabaseWithUri(SQLite3Database):
+    def _connect(self):
+        assert self.filename is not None
+        import sqlite3
+
+        return sqlite3.connect(
+            self.filename, timeout=20, uri=True, check_same_thread=False
+        )
+
+
+def connect_ase_sqlite_db_readonly(
+    filename,
+    create_indices=True,
+    use_lock_file=True,
+    append=True,
+    serial=False,
+    **db_kwargs,
+):
+    # TODO: These ClusterDatabase, etc. objects should probably be context managers too
+    uri = f"file:{filename}?mode=ro"
+    return SQLite3DatabaseWithUri(
+        uri, create_indices, use_lock_file, serial=serial, **db_kwargs
+    )
+
+
 class ClusterDatabase:
     TABLES = [sql_files.pathway]
 
@@ -48,7 +74,10 @@ class ClusterDatabase:
             self.db = duckdb.connect(filename)
         if ase_filename is not None:
             # TODO: These ClusterDatabase, etc. objects should probably be context managers too
-            self.ase_db = connect_ase_db(ase_filename, type="db").__enter__()
+            if readonly:
+                self.ase_db = connect_ase_sqlite_db_readonly(ase_filename).__enter__()
+            else:
+                self.ase_db = ase_connect(ase_filename).__enter__()
         else:
             self.ase_db = None
         self._setup_db()
@@ -383,6 +412,20 @@ class SuperClusterDatabase(ClusterDatabase):
     def refresh_views(self):
         self.db.execute(sql_files.pathway_report)
         self.db.execute(sql_files.experiment_report)
+
+    def get_histogram_params(self, histogram_id):
+        row = (
+            self.db.table("histogram_params")
+            .filter(
+                duckdb.ColumnExpression("id") == duckdb.ConstantExpression(histogram_id)
+            )
+            .select("bin_width", "max")
+            .fetchone()
+        )
+        if row is None:
+            return None
+        bin_width, x_max = row
+        return Q_(bin_width, "K"), Q_(x_max, "K")
 
 
 ConfigRow = namedtuple("ConfigRow", ["id", "name", "config"])
