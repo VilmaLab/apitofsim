@@ -64,7 +64,7 @@ def make_survival_plot(outf, cluster_names, values):
 
 def _get_intensities_helper(db, sql, er_id, cluster_id=None, qual=""):
     if cluster_id is None:
-        return db.db.execute(
+        args = (
             sql
             + f"""
         where
@@ -73,9 +73,9 @@ def _get_intensities_helper(db, sql, er_id, cluster_id=None, qual=""):
             {qual}parent_id
         """,
             (er_id,),
-        ).fetchdf()
+        )
     else:
-        return db.db.execute(
+        args = (
             sql
             + f"""
         where
@@ -83,7 +83,8 @@ def _get_intensities_helper(db, sql, er_id, cluster_id=None, qual=""):
             {qual}parent_id = ?
         """,
             (er_id, cluster_id),
-        ).fetchdf()
+        )
+    return db.db.execute(*args).fetchdf()
 
 
 def get_intensities_multipathway(db, er_id, cluster_id=None):
@@ -260,7 +261,7 @@ def get_intensities_singlepathway(db, er_id, cluster_id=None):
     return pandas.DataFrame(new_df)
 
 
-def get_intensities(db, experiment_id, cluster_id=None, is_single_pathway=False):
+def get_intensities(db, *, experiment_id, cluster_id=None, is_single_pathway=False):
     if is_single_pathway:
         return get_intensities_singlepathway(db, experiment_id, cluster_id)
     else:
