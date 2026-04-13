@@ -90,7 +90,6 @@ class DerivedDataPreparer:
             yield ProductsCluster(cluster_indexed[p1], cluster_indexed[p2])
 
     def _get_k_rate_through_join_else(self, histogram_id, k_total_dict, pathway_lookup):
-        print("_get_k_rate_through_join_else", histogram_id)
         for miss_info in get_through_join_else(
             self.db.db,
             self.db.db.table("k_rate").filter(
