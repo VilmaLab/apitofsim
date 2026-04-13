@@ -149,6 +149,7 @@ PartialCounters mk_partial_counters(const MassSpecSubstanceInput &subs)
   return Eigen::Array<int, Eigen::Dynamic, Eigen::Dynamic>::Zero(omp_get_max_threads(), total_counters);
 }
 
+/* Caller must ensure that all parameters passed as reference outlive thread */
 std::thread run_mass_spec_in_thread(
   SimulationResult &result,
   OMPExceptionHelper &exception_helper,
@@ -161,10 +162,10 @@ std::thread run_mass_spec_in_thread(
   bool strict,
   int loglevel)
 {
-  return std::thread([&]
+  return std::thread([&, N, seed, sample_mode, strict, loglevel]
   {
     // TODO: Probably want to switch to jthread when possible
-    exception_helper.guard([&]
+    exception_helper.guard([&, N, seed, sample_mode, strict, loglevel]
     {
       result = apitof_mass_spec(
         ms,
