@@ -11,6 +11,7 @@ from apitofsim.api import (
     MassSpecSubstanceInput,
     MassSpectrometer,
     MeshMode,
+    SampleMode,
     defaults,
 )
 
@@ -781,7 +782,7 @@ class ExperimentRunner:
                 subs,
                 realizations,
                 pathway_id=pathway_id,
-                sample_mode=2,
+                sample_mode=SampleMode.rejection,
                 loglevel=1 if verbose else 0,
                 strict="STRICT" in environ,
                 strict_dos=strict_dos,
@@ -930,7 +931,7 @@ class ExperimentRunner:
                 realizations,
                 cluster_id=group["cluster_id"],
                 pathway_ids=group["pathway_ids"],
-                sample_mode=2,
+                sample_mode=SampleMode.rejection,
                 loglevel=1 if verbose else 0,
                 strict="STRICT" in environ,
                 strict_dos=strict_dos,
