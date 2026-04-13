@@ -7,6 +7,7 @@ from datetime import timedelta
 import duckdb
 import numpy
 import pandas
+from ase.db import connect as ase_connect
 from ase.db.sqlite import SQLite3Database
 from pint import get_application_registry
 
@@ -43,16 +44,18 @@ class SQLite3DatabaseWithUri(SQLite3Database):
         )
 
 
-def connect_ase_sqlite_db(
-    name,
+def connect_ase_sqlite_db_readonly(
+    filename,
     create_indices=True,
     use_lock_file=True,
     append=True,
     serial=False,
     **db_kwargs,
 ):
+    # TODO: These ClusterDatabase, etc. objects should probably be context managers too
+    uri = f"file:{filename}?mode=ro"
     return SQLite3DatabaseWithUri(
-        name, create_indices, use_lock_file, serial=serial, **db_kwargs
+        uri, create_indices, use_lock_file, serial=serial, **db_kwargs
     )
 
 
@@ -70,10 +73,10 @@ class ClusterDatabase:
             self.db = duckdb.connect(filename)
         if ase_filename is not None:
             # TODO: These ClusterDatabase, etc. objects should probably be context managers too
-            uri = "file:" + ase_filename
             if readonly:
-                uri += "?mode=ro"
-            self.ase_db = connect_ase_sqlite_db(uri).__enter__()
+                self.ase_db = connect_ase_sqlite_db_readonly(ase_filename).__enter__()
+            else:
+                self.ase_db = ase_connect(ase_filename).__enter__()
         else:
             self.ase_db = None
         self._setup_db()
