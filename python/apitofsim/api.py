@@ -41,6 +41,9 @@ from .apitofsimraw import (
     MassSpecInputFragmentationPathway as _MassSpecInputFragmentationPathway,
 )
 from .apitofsimraw import (
+    MassSpecIterator as _MassSpecIterator,
+)
+from .apitofsimraw import (
     MassSpecSubstanceInput as _MassSpecSubstanceInput,
 )
 from .apitofsimraw import (
@@ -588,6 +591,10 @@ Counters = namedtuple("Counters", [t.name for t in Counter])
 Timings = namedtuple("Timings", ["loop", "total"])
 
 
+def counters_named_tuple(counters):
+    return Counters(*counters[: len(Counter) - 1], counters[len(Counter) - 1 :])
+
+
 def mass_spec(
     mass_spec: MassSpectrometer,
     subs: _MassSpecSubstanceInput,
@@ -608,7 +615,7 @@ def mass_spec(
 
     def convert_counters(counters):
         if named_tuple_counters:
-            return Counters(*counters[: len(Counter) - 1], counters[len(Counter) - 1 :])
+            return counters_named_tuple(counters)
         else:
             return counters
 
@@ -638,6 +645,70 @@ def mass_spec(
         return counters, Timings(loop_time, total_time)
     else:
         return counters
+
+
+@dataclass
+class MassSpecIntermediateCounter:
+    counters: Counters
+
+
+@dataclass
+class MassSpecLogItem:
+    type: str
+    name: str
+
+
+@dataclass
+class MassSpecFinalResult:
+    counters: Counters
+    timings: Timings
+
+
+class MassSpecIterator(_MassSpecIterator):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        val = super().__next__()
+        if isinstance(val, tuple):
+            if len(val) == 2:
+                return MassSpecLogItem(*val)
+            else:
+                return MassSpecFinalResult(
+                    counters=counters_named_tuple(val[0]), timings=Timings(*val[1:])
+                )
+        elif isinstance(val, numpy.ndarray):
+            return MassSpecIntermediateCounter(counters_named_tuple(val))
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.join_if_joinable()
+
+
+def mass_spec_iter(
+    mass_spec: MassSpectrometer,
+    subs: _MassSpecSubstanceInput,
+    N: int,
+    *,
+    sample_mode: SampleMode = SampleMode.rejection,
+    strict=True,
+    loglevel: int = 0,
+    seed: int = 42,
+):
+    return MassSpecIterator(
+        mass_spec.into_cpp(),
+        subs,
+        N,
+        sample_mode=sample_mode,
+        strict=strict,
+        loglevel=loglevel,
+        seed=seed,
+    )
 
 
 def validate_max_energies(
