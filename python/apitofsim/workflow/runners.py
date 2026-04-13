@@ -1,4 +1,4 @@
-from typing import Callable
+from typing import Callable, Optional, Tuple
 
 import duckdb
 import numpy
@@ -485,10 +485,11 @@ class DerivedDataPreparer:
         pathway_lookup,
         use_cached=False,
         show_progress=True,
-        use_cached_densityandrate=False,
+        cached_densityandrate: Optional[Tuple[int, int]] = None,
     ):
         from timeit import default_timer as timer
 
+        prelim_table = outer_pbar = None
         if show_progress:
             from progress_table import ProgressTable
 
@@ -511,18 +512,15 @@ class DerivedDataPreparer:
             outer_pbar.update()
             start = timer()
 
-        skimmer_np = self._run_skimmer(config)
+            skimmer_np = self._run_skimmer(config)
 
-        if show_progress:
             prelim_table["Time (s)"] = f"{(timer() - start):.2f}"
             prelim_table.next_row()
+        else:
+            skimmer_np = self._run_skimmer(config)
 
-        if use_cached_densityandrate:
-            if use_cached_densityandrate is True:
-                raise ValueError(
-                    "Set use_cached_densityandrate to a tuple (dos_histogram_id, rate_histogram_id) to use cached values"
-                )
-            dos_histogram_id, rate_histogram_id = use_cached_densityandrate
+        if cached_densityandrate:
+            dos_histogram_id, rate_histogram_id = cached_densityandrate
             k_rates, cluster_dos_by_pathway = self.get_cached_densityandrate(
                 cluster_indexed, dos_histogram_id, rate_histogram_id, pathway_lookup
             )

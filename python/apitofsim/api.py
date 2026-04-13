@@ -683,10 +683,10 @@ class MassSpecIterator(_MassSpecIterator):
         elif isinstance(val, numpy.ndarray):
             return MassSpecIntermediateCounter(counters_named_tuple(val))
 
-    def __enter__(self):
+    def __enter__(self):  # pyright: ignore [reportMissingSuperCall]
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type, exc_val, exc_tb):  # pyright: ignore [reportMissingSuperCall]
         self.join_if_joinable()
 
 

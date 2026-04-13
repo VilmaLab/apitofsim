@@ -37,6 +37,7 @@ def connection_scope(database_type, filename, **kwargs):
 
 class SQLite3DatabaseWithUri(SQLite3Database):
     def _connect(self):
+        assert self.filename is not None
         import sqlite3
 
         return sqlite3.connect(
@@ -413,7 +414,7 @@ class SuperClusterDatabase(ClusterDatabase):
         self.db.execute(sql_files.experiment_report)
 
     def get_histogram_params(self, histogram_id):
-        bin_width, x_max = (
+        row = (
             self.db.table("histogram_params")
             .filter(
                 duckdb.ColumnExpression("id") == duckdb.ConstantExpression(histogram_id)
@@ -421,6 +422,9 @@ class SuperClusterDatabase(ClusterDatabase):
             .select("bin_width", "max")
             .fetchone()
         )
+        if row is None:
+            return None
+        bin_width, x_max = row
         return Q_(bin_width, "K"), Q_(x_max, "K")
 
 
