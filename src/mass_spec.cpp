@@ -203,7 +203,7 @@ void redistribute_internal_energy(GenT &gen, uniform_real_distribution<double> &
 void eval_velocities(Eigen::Vector3d &v, Eigen::Vector3d &omega, const Eigen::Vector2d &u, double vib_energy, double vib_energy_old, double M, double m, double R_cluster);
 void change_coord(const Eigen::Vector3d &v_cluster, double theta, double phi, double alpha, Eigen::Vector3d &x3, Eigen::Vector3d &y3, Eigen::Vector3d &z3);
 template <typename GenT>
-void eval_collision(GenT &gen, uniform_real_distribution<double> &unif, bool &collision_accepted, double gas_mean_free_path, double x, double y, double z, double L, std::optional<double> pinhole, double quadrupole_end, Eigen::Vector3d &v_cluster, Eigen::Vector3d &omega, double u_norm, double theta, double R_cluster, double vib_energy, double vib_energy_old, double m_ion, double m_gas, double temperature, LogHelper pinhole_logger, int loglevel);
+bool eval_collision(GenT &gen, uniform_real_distribution<double> &unif, double gas_mean_free_path, double x, double y, double z, double L, std::optional<double> pinhole, double quadrupole_end, Eigen::Vector3d &v_cluster, Eigen::Vector3d &omega, double u_norm, double theta, double R_cluster, double vib_energy, double vib_energy_old, double m_ion, double m_gas, double temperature, LogHelper pinhole_logger, int loglevel);
 template <typename GenT>
 double onedimMaxwell(GenT &gen, normal_distribution<double> &gauss, double m, double kT);
 double mean_free_path(double R, double kT, double pressure);
@@ -638,8 +638,7 @@ firstprivate( \
             // Evaluate the dissipated energy in the collision (energy that goes to vibrational modes)
             vib_energy_new = vib_energy_sampler.sample(gen, boundary_vib_energy(vib_energy_old, reduced_mass, u_norm, v_rel_norm, theta));
 
-            bool collision_accepted = true;
-            eval_collision(gen, unif, collision_accepted, gas_mean_free_path, x, y, z, clens.total_length, radius_pinhole, clens.quadrupole_end, v_rel, omega, u_norm, theta, subs.R_cluster, vib_energy_new, vib_energy_old, subs.m_ion, subs.gas.mass, temperature, LogHelper{result_queue, LogMessage::pinhole}, loglevel);
+            bool collision_accepted = eval_collision(gen, unif, gas_mean_free_path, x, y, z, clens.total_length, radius_pinhole, clens.quadrupole_end, v_rel, omega, u_norm, theta, subs.R_cluster, vib_energy_new, vib_energy_old, subs.m_ion, subs.gas.mass, temperature, LogHelper{result_queue, LogMessage::pinhole}, loglevel);
 
             if (collision_accepted)
             {
@@ -1361,7 +1360,7 @@ double eval_solid_angle_stokes(double R, double L, double xx, double yy, double 
 
 //
 template <typename GenT>
-void eval_collision(GenT &gen, uniform_real_distribution<double> &unif, bool &collision_accepted, double gas_mean_free_path, double x, double y, double z, double L, std::optional<double> pinhole, double quadrupole_end, Eigen::Vector3d &v_cluster, Eigen::Vector3d &omega, double u_norm, double theta, double R_cluster, double vib_energy, double vib_energy_old, double m_ion, double m_gas, double temperature, LogHelper pinhole_logger, int loglevel)
+bool eval_collision(GenT &gen, uniform_real_distribution<double> &unif, double gas_mean_free_path, double x, double y, double z, double L, std::optional<double> pinhole, double quadrupole_end, Eigen::Vector3d &v_cluster, Eigen::Vector3d &omega, double u_norm, double theta, double R_cluster, double vib_energy, double vib_energy_old, double m_ion, double m_gas, double temperature, LogHelper pinhole_logger, int loglevel)
 {
   using namespace consts;
   Eigen::Vector3d x3;
@@ -1379,7 +1378,7 @@ void eval_collision(GenT &gen, uniform_real_distribution<double> &unif, bool &co
   double prob_coll = 1.0;
   double distance;
 
-  collision_accepted = true;
+  bool collision_accepted = true;
   change_coord(v_cluster, theta, phi, alpha, x3, y3, z3);
 
 
@@ -1465,6 +1464,7 @@ void eval_collision(GenT &gen, uniform_real_distribution<double> &unif, bool &co
       omega[i] = omega2[0] * x3[i] + omega2[1] * y3[i] + omega2[2] * z3[i];
     }
   }
+  return collision_accepted;
 }
 
 int zone(double z, CumulativeLengths &clens)
