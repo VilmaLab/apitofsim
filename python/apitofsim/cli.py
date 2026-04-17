@@ -35,7 +35,7 @@ def db():
 @click.option(
     "-t",
     "--db-type",
-    type=click.Choice(["experiment", "cluster", "super"]),
+    type=click.Choice(["experiment", "cluster", "super", "realization"]),
     default="experiment",
     help="The type of database to create: this will determine which tables are created",
 )
@@ -62,31 +62,37 @@ def prepare(mode, config, database, db_type, ase, warm):
     The "legacy_glob" type imports pathways from the legacy .in files matching a glob pattern.
     The per-cluster data is then taken either from .dat files specified in the .in file or ORCA or Gaussian outputs files next to the .in file.
 
+    \b
     ```toml
     [[pathways]]
     type = "legacy_glob"
     # An optional prefix to add to the common names of all clusters imported here
     prefix = ""
-    # A glob pattern to use to find .in files. The wildcard * matches any number of characters, while ** can span directories.
+    # A glob pattern to use to find .in files.
+    # The wildcard * matches any number of characters, while ** can span directories.
     path = "/path/to/**/*.in"
     # Paths specified in the .in files are relative to the .in file directory.
     cwd = "."
-
+    \b
     [pathways.clusters]
     # By default, all attributes are taken from the gaussian source
     default_source = "gaussian"
-    # Individual attributes can be taken from different sources and combined using simple expressions. Here, the electronic energy is taken as the sum of the final single point energy from orca and the zero point energy from gaussian.
+    # Individual attributes can be taken from different sources and combined
+    # using simple expressions. Here, the electronic energy is taken as the
+    # sum of the final single point energy from orca and the zero point energy
+    # from gaussian.
     electronic_energy = "orca.final_single_point_energy + gaussian.zero_point_energy"
-
+    \b
     # Here the sources for cluster information are specified.
     # The dat source is actually unused in this example
     [pathways.clusters.sources.dat]
-
+    \b
     # The ORCA source is only used for part of the electronic energy
     [pathways.clusters.sources.orca]
-    # append_to_common_prefix means that the common name of the cluster will be taken as the .in file name with .out appended
+    # append_to_common_prefix means that the common name of the cluster will
+    # be taken as the .in file name with .out appended
     append_to_common_prefix = ".out"
-
+    \b
     # Finally, the Gaussian source, where most attributes are taken from is specified
     [pathways.clusters.sources.gaussian]
     append_to_common_prefix = ".log"
@@ -94,24 +100,26 @@ def prepare(mode, config, database, db_type, ase, warm):
 
     For the "csv" type, you specify the pathways and clusters in separate CSV files, with, as above, the information about how to combine sources specified in the toml config file.
 
+    \b
     ```toml
     [[pathways]]
     type = "csv"
     pathways_path = "pathways.csv"
     clusters_path = "clusters.csv"
-
+    \b
     # These are the same as legacy_glob, see above
     [pathways.clusters]
     default_source = "gaussian"
     electronic_energy = "orca.final_single_point_energy + gaussian.zero_point_energy"
-
+    \b
     [pathways.clusters.sources.orca]
     append_to_common_prefix = ".out"
-
+    \b
     [pathways.clusters.sources.gaussian]
     append_to_common_prefix = ".log"
     ```
 
+    \b
     Then `clusters.csv` associates filename prefixes with common names for clusters:
     ```csv
     name,prefix
@@ -119,6 +127,7 @@ def prepare(mode, config, database, db_type, ase, warm):
     1A_2SA_negative,negative/1A_2SA
     ```
 
+    \b
     While `pathways.csv` relates the parent clusters to their products for each pathway:
     ```csv
     parent,product1,product2
@@ -134,6 +143,7 @@ def prepare(mode, config, database, db_type, ase, warm):
     For the simulation parameters, you can specify one or more `[[configs]]` sections, each with a `name` field and the values of all parameters.
     You can put common parameters in the `default_config` section, so that each `[[configs]]` section inherits these as overridable defaults.
 
+    \b
     ```toml
     [default_config]
     M_iter = 1_000
@@ -150,19 +160,19 @@ def prepare(mode, config, database, db_type, ase, warm):
     resolution = 1_000
     tolerance = 1e-8
     voltages = [ [ -19, -9, -7, -6, 11 ], "volt" ]
-
+    \b
     [default_config.gas]
     radius = "1.84e-10 meter"
     mass = "4.65e-26 kilogram"
     adiabatic_index = 1.4
-
+    \b
     [[configs]]
     name = "simple"
-
+    \b
     [[configs]]
     name = "with-quadrupole-and-pinhole"
     radius_pinhole = "1 mm"
-
+    \b
     [configs.quadrupole]
     dc_field = "0.0 volt"
     ac_field = "200.0 volt"
@@ -182,6 +192,7 @@ def prepare(mode, config, database, db_type, ase, warm):
         ClusterDatabase,
         DerivedDataPreparer,
         ExperimentDatabase,
+        RealizationDatabase,
         SuperClusterDatabase,
         ingest_tree,
     )
@@ -215,6 +226,8 @@ def prepare(mode, config, database, db_type, ase, warm):
         db_cls = ClusterDatabase
     elif db_type == "super":
         db_cls = SuperClusterDatabase
+    elif db_type == "realization":
+        db_cls = RealizationDatabase
     else:
         assert False
 
