@@ -278,7 +278,7 @@ def prepare(mode, config, database, db_type, ase, warm):
                     import_raw_config(config_dict), cluster_indexed, pathway_lookup
                 )
 
-        if db_type == "experiment":
+        if db_type in ("experiment", "realization"):
             assert isinstance(db, ExperimentDatabase)
             for name, config_dict in iter_raw_configs(source.unwrap()):
                 db.insert_config(name, config_dict)
@@ -332,9 +332,18 @@ def run(
     """
     Run simulation according to the configurations in DATABASE.
     """
-    from apitofsim.workflow import ExperimentDatabase, ExperimentRunner
+    from apitofsim.workflow import (
+        ExperimentDatabase,
+        ExperimentRunner,
+        RealizationDatabase,
+        auto_db_type,
+    )
 
-    with connection_scope(ExperimentDatabase, database) as db:
+    with connection_scope(auto_db_type, database) as db:
+        if not isinstance(db, (ExperimentDatabase, RealizationDatabase)):
+            raise click.ClickException(
+                "Database must be created as an experiment database or a realization database"
+            )
         num_configs = db.db.sql(
             "select count(*) from duckdb_tables() where table_name = 'experiment_config'"
         ).fetchone()

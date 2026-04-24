@@ -39,4 +39,5 @@ python.install_sources([
 'workflow/sql/histograms.sql',
 'workflow/sql/pathway.sql',
 'workflow/sql/pathway_report.sql',
+'workflow/sql/realizations.sql',
 ], subdir: 'apitofsim/workflow/sql', pure : false)
