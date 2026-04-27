@@ -532,7 +532,12 @@ def spectrogram(
         experiment_id, cluster_id, is_single_pathway = select_cluster_result(
             db, filter_parent, filter_config
         )
-        df = get_intensities(db, experiment_id, cluster_id, is_single_pathway)
+        df = get_intensities(
+            db,
+            experiment_id=experiment_id,
+            cluster_id=cluster_id,
+            is_single_pathway=is_single_pathway,
+        )
     transform_intensity(df, model_transmission)
     plot_spectrogram_to_file(
         pngout, df, scale="max", label=label, label_threshold=label_threshold
@@ -572,8 +577,9 @@ def spectrogram(
     default=0.1,
     help="specified threshold for labeling clusters when --label=threshold",
 )
+@click.option("--verbose", default=False, is_flag=True)
 def spectrogram_many(
-    database, dirout, filter_config, model_transmission, label, label_threshold
+    database, dirout, filter_config, model_transmission, label, label_threshold, verbose
 ):
     """
     Output to DIROUT a spectrogram per cluster using the results from single experiments using the database at path DATABASE.
@@ -588,12 +594,19 @@ def spectrogram_many(
         experiment_id, is_single_pathway = select_experiment(
             db, filter_config=filter_config
         )
-        df = get_intensities(db, experiment_id, is_single_pathway)
+        df = get_intensities(
+            db, experiment_id=experiment_id, is_single_pathway=is_single_pathway
+        )
     transform_intensity(df, model_transmission)
     dirout.mkdir(exist_ok=True, parents=True)
     max_x = df["atomic_mass"].max() * 1.1
+    if verbose:
+        print("Intensities:")
+        print(df)
     for parent_name, cluster_df in df.groupby("parent_name"):
         pngout = dirout / f"{parent_name}.png"
+        if verbose:
+            print(f"Writing {pngout}")
         plot_spectrogram_to_file(
             pngout,
             cluster_df,
@@ -657,7 +670,7 @@ def report(report_type, database, csvout):
                 dataframes.append(
                     get_intensities(
                         db,
-                        row.experiment_run_id,
+                        experiment_id=row.experiment_run_id,
                         is_single_pathway=row.is_single_pathway,
                     )
                 )
