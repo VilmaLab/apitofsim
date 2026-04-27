@@ -86,6 +86,9 @@ class ClusterDatabase:
             self.ase_db = None
         self._setup_db()
 
+    def refresh_views(self):
+        pass
+
     def _setup_db(self):
         import os
 
@@ -414,6 +417,7 @@ class SuperClusterDatabase(ClusterDatabase):
         super().__init__(filename, **kwargs)
 
     def refresh_views(self):
+        super().refresh_views()
         self.db.execute(sql_files.pathway_report)
         self.db.execute(sql_files.experiment_report)
 
@@ -446,6 +450,9 @@ class ExperimentDatabase(SuperClusterDatabase):
 
     def __init__(self, filename, **kwargs):
         super().__init__(filename, **kwargs)
+
+    def refresh_views(self):
+        super().refresh_views()
 
     def insert_run(self, config_id=None, pathway_at_a_time=False):
         id = self.db.execute(
@@ -584,7 +591,7 @@ class ExperimentDatabase(SuperClusterDatabase):
                 self.db.execute(f"truncate {tbl}")
 
     def is_experiment_db(self):
-        is_experiment_db(self.db)
+        return is_experiment_db(self.db)
 
 
 def is_experiment_db(db):
@@ -604,10 +611,15 @@ class RealizationDatabase(ExperimentDatabase):
         sql_files.pathway_report,
         sql_files.experiment_report,
         sql_files.realizations,
+        sql_files.event_report,
     ]
 
     def __init__(self, filename, **kwargs):
         super().__init__(filename, **kwargs)
+
+    def refresh_views(self):
+        super().refresh_views()
+        self.db.execute(sql_files.event_report)
 
     def insert_realization(self, experiment_run_id):
         id = self.db.execute(
@@ -622,6 +634,9 @@ class RealizationDatabase(ExperimentDatabase):
             "update realization set experiment_result_id = ? where id = ?",
             (experiment_result_id, realization_id),
         )
+
+    def is_realization_db(self):
+        return is_realization_db(self.db)
 
 
 def is_realization_db(db):

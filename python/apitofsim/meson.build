@@ -40,4 +40,5 @@ python.install_sources([
 'workflow/sql/pathway.sql',
 'workflow/sql/pathway_report.sql',
 'workflow/sql/realizations.sql',
+'workflow/sql/event_report.sql',
 ], subdir: 'apitofsim/workflow/sql', pure : false)
