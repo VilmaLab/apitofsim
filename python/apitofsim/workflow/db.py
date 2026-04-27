@@ -405,10 +405,10 @@ class ClusterDatabase:
             "update cluster set ase_mol_id = ? where id = ?", (ase_mol_id, cluster_id)
         )
 
-    def is_experiment_db(self):
+    def is_experiment_db(self) -> bool:
         return False
 
-    def is_realization_db(self):
+    def is_realization_db(self) -> bool:
         return False
 
 
@@ -596,11 +596,11 @@ class ExperimentDatabase(SuperClusterDatabase):
             for tbl in ["cluster_dos", "products_dos", "k_rate"]:
                 self.db.execute(f"truncate {tbl}")
 
-    def is_experiment_db(self):
+    def is_experiment_db(self) -> bool:
         return is_experiment_db(self.db)
 
 
-def is_experiment_db(db):
+def is_experiment_db(db) -> bool:
     try:
         db.table("experiment_config")
     except duckdb.CatalogException:
@@ -641,11 +641,11 @@ class RealizationDatabase(ExperimentDatabase):
             (experiment_result_id, realization_id),
         )
 
-    def is_realization_db(self):
+    def is_realization_db(self) -> bool:
         return is_realization_db(self.db)
 
 
-def is_realization_db(db):
+def is_realization_db(db) -> bool:
     try:
         db.table("realization")
     except duckdb.CatalogException:

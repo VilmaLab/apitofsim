@@ -660,7 +660,14 @@ def plot_events(database, dirout, plot_type, rescale):
     """
 
     import numpy as np
-    from seaborn import relplot, scatterplot, stripplot, swarmplot, violinplot
+    from seaborn import (
+        FacetGrid,
+        relplot,
+        scatterplot,
+        stripplot,
+        swarmplot,
+        violinplot,
+    )
 
     from apitofsim.config import import_raw_config
     from apitofsim.workflow import RealizationDatabase
@@ -785,21 +792,41 @@ def plot_events(database, dirout, plot_type, rescale):
             if rescale == "equal":
                 boundaries = np.linspace(0, 1, len(cumulative_lengths))
             elif rescale == "schematic":
-                pass
+                raise NotImplementedError("schematic rescaling is not implemented yet")
             else:
                 assert rescale == "none"
                 boundaries = cumulative_lengths
             if plot_type in ("off-center", "off-center-facet"):
-                ax.vlines(boundaries, 0.0, cluster_df["d"].max(), color="black")
+                if isinstance(ax, FacetGrid):
+                    for ax in ax.axes:
+                        ax.vlines(boundaries, 0.0, cluster_df["d"].max(), color="black")
+                else:
+                    ax.vlines(boundaries, 0.0, cluster_df["d"].max(), color="black")
             else:
                 for x in boundaries:
-                    ax.axvline(x, color="black")
+                    if isinstance(ax, FacetGrid):
+                        for ax in ax.axes:
+                            ax.axvline(x, color="black")
+                    else:
+                        ax.axvline(x, color="black")
             pngout = dirout / f"{parent_name}.png"
-            fig = ax.get_figure()
-            assert fig is not None
-            fig.savefig(
-                str(pngout), dpi=150, facecolor=fig.get_facecolor(), bbox_inches="tight"
-            )
+            if isinstance(ax, FacetGrid):
+                fig = ax.figure
+                fig.savefig(
+                    str(pngout),
+                    dpi=150,
+                    facecolor=fig.get_facecolor(),
+                    bbox_inches="tight",
+                )
+            else:
+                fig = ax.get_figure()
+                assert fig is not None
+                fig.savefig(
+                    str(pngout),
+                    dpi=150,
+                    facecolor=fig.get_facecolor(),
+                    bbox_inches="tight",
+                )
 
 
 @db.command(short_help="Produce an Excel-friendly CSV report from the database")
