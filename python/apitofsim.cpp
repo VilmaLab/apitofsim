@@ -318,10 +318,10 @@ struct MassSpecIterator
     SampleMode sample_mode = SampleMode::rejection,
     bool strict = true,
     MassSpecLogConf logconf = MassSpecLogConf{}) : result_queue(),
-                                       partial_counters(mk_partial_counters(subs)),
-                                       exception_helper(),
-                                       execution_thread(run_mass_spec_in_thread(final_result, exception_helper, ms, subs, N, seed, result_queue, sample_mode, strict, logconf)),
-                                       finished(false)
+                                                   partial_counters(mk_partial_counters(subs)),
+                                                   exception_helper(),
+                                                   execution_thread(run_mass_spec_in_thread(final_result, exception_helper, ms, subs, N, seed, result_queue, sample_mode, strict, logconf)),
+                                                   finished(false)
   {
   }
 
