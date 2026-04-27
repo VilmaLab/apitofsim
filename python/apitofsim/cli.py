@@ -819,7 +819,7 @@ def plot_events(database, dirout, plot_type, rescale):
                     bbox_inches="tight",
                 )
             else:
-                fig = ax.get_figure()
+                fig = ax.get_figure(root=True)
                 assert fig is not None
                 fig.savefig(
                     str(pngout),
