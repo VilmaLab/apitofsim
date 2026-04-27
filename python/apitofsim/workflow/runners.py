@@ -8,6 +8,7 @@ from apitofsim.api import (
     ApiTofError,
     ApiTofOverflowError,
     MassSpecInputFragmentationPathway,
+    MassSpecLogConf,
     MassSpecSubstanceInput,
     MassSpectrometer,
     MeshMode,
@@ -15,7 +16,12 @@ from apitofsim.api import (
     defaults,
 )
 
-from .db import ExperimentDatabase, SuperClusterDatabase
+from .db import (
+    EventRecorder,
+    ExperimentDatabase,
+    RealizationDatabase,
+    SuperClusterDatabase,
+)
 from .db_utils import get_or_insert, get_through_join_else, insert_via_arrow
 
 ureg = get_application_registry()
@@ -558,24 +564,41 @@ class ExperimentRunner:
 
     def run_mass_spec(
         self,
+        mass_spec,
+        subs,
         *args,
         pathway_id=None,
         cluster_id=None,
         pathway_ids=None,
         strict=False,
         strict_dos=True,
+        loglevel=0,
         **kwargs,
     ):
         self._guard_run_started()
         if pathway_id is None and cluster_id is None:
             raise ValueError("Either pathway_id or cluster_id must be provided")
-        from apitofsim.api import mass_spec
+        from apitofsim.api import mass_spec as _mass_spec
+
+        event_recorder = None
+
+        if isinstance(self.db, RealizationDatabase):
+            event_recorder = EventRecorder(
+                self.db, pathway_ids if pathway_ids is not None else [pathway_id]
+            )
+            logconf = MassSpecLogConf(loglevel, True)
+        else:
+            logconf = MassSpecLogConf(loglevel, False)
 
         counters = None
         try:
-            counters, timings = mass_spec(
+            counters, timings = _mass_spec(
+                mass_spec,
+                subs,
                 *args,
                 **kwargs,
+                logconf=logconf,
+                event_callback=event_recorder,
                 named_tuple_counters=True,
                 output_timings=True,
                 strict=strict_dos,
@@ -586,7 +609,7 @@ class ExperimentRunner:
             overflow_requested = None
             if isinstance(e, ApiTofOverflowError):
                 overflow_requested = e.current
-            self.db.record_failure(
+            experiment_result_id = self.db.record_failure(
                 self.current_run_id,
                 type(e).__name__,
                 str(e),
@@ -595,7 +618,7 @@ class ExperimentRunner:
                 cluster_id=cluster_id,
             )
         else:
-            self.db.record_result(
+            experiment_result_id = self.db.record_result(
                 self.current_run_id,
                 counters,
                 timings,
@@ -603,6 +626,8 @@ class ExperimentRunner:
                 pathway_ids=pathway_ids,
                 cluster_id=cluster_id,
             )
+        if event_recorder is not None:
+            event_recorder.relate_realizations(experiment_result_id)
         return counters
 
     """

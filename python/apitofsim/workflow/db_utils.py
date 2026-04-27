@@ -136,7 +136,7 @@ def get_through_join_else(conn, rel, proj_col, result_dict, **match_cols):
             yield dict(zip(match_cols.keys(), match_row))
 
 
-def insert_via_arrow(conn, table, chunk_size=None, **kwargs):
+def insert_via_arrow_limitoffset(conn, table, *, chunk_size=None, **kwargs):
     import pyarrow as pa
 
     arrow_table = pa.table(dict(kwargs))
@@ -167,3 +167,35 @@ def insert_via_arrow(conn, table, chunk_size=None, **kwargs):
                 break
     finally:
         conn.unregister("arrow_table")
+
+
+def insert_via_arrow_recordbatches(conn, table, *, chunk_size=None, **kwargs):
+    import pyarrow as pa
+
+    tables = [pa.table(dict(kwargs))]
+
+    while len(tables) > 0:
+        current_table = tables[0]
+        conn.register("arrow_table", current_table)
+        try:
+            conn.execute(f"insert into {table} by name select * from arrow_table")
+        except duckdb.OutOfMemoryException:
+            if chunk_size is None:
+                chunk_size = current_table.num_rows
+            chunk_size = chunk_size // 2
+            if chunk_size <= 1:
+                raise
+            print(f"Out of memory, reducing chunk size to {chunk_size}")
+            conn.unregister("arrow_table")
+            new_tables = []
+            for table in tables:
+                for chunk in table.to_batches(chunk_size):
+                    new_tables.append(pa.Table.from_batches([chunk]))
+            tables = new_tables
+        else:
+            tables.pop(0)
+        finally:
+            conn.unregister("arrow_table")
+
+
+insert_via_arrow = insert_via_arrow_recordbatches

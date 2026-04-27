@@ -203,7 +203,7 @@ void redistribute_internal_energy(GenT &gen, uniform_real_distribution<double> &
 void eval_velocities(Eigen::Vector3d &v, Eigen::Vector3d &omega, const Eigen::Vector2d &u, double vib_energy, double vib_energy_old, double M, double m, double R_cluster);
 void change_coord(const Eigen::Vector3d &v_cluster, double theta, double phi, double alpha, Eigen::Vector3d &x3, Eigen::Vector3d &y3, Eigen::Vector3d &z3);
 template <typename GenT>
-void eval_collision(GenT &gen, uniform_real_distribution<double> &unif, bool &collision_accepted, double gas_mean_free_path, double x, double y, double z, double L, std::optional<double> pinhole, double quadrupole_end, Eigen::Vector3d &v_cluster, Eigen::Vector3d &omega, double u_norm, double theta, double R_cluster, double vib_energy, double vib_energy_old, double m_ion, double m_gas, double temperature, LogHelper pinhole_logger, int loglevel);
+bool eval_collision(GenT &gen, uniform_real_distribution<double> &unif, double gas_mean_free_path, double x, double y, double z, double L, std::optional<double> pinhole, double quadrupole_end, Eigen::Vector3d &v_cluster, Eigen::Vector3d &omega, double u_norm, double theta, double R_cluster, double vib_energy, double vib_energy_old, double m_ion, double m_gas, double temperature, LogHelper pinhole_logger, int loglevel);
 template <typename GenT>
 double onedimMaxwell(GenT &gen, normal_distribution<double> &gauss, double m, double kT);
 double mean_free_path(double R, double kT, double pressure);
@@ -220,7 +220,7 @@ SimulationResult apitof_mass_spec(
   GasCollSamplerT gas_coll_sampler,
   VibEnergySamplerT vib_energy_sampler,
   bool strict = true,
-  int loglevel = DEFAULT_LOGLEVEL,
+  MassSpecLogConf logconf = MassSpecLogConf{},
   bool on_main_thread = false);
 
 SimulationResult apitof_mass_spec(
@@ -231,7 +231,7 @@ SimulationResult apitof_mass_spec(
   StreamingResultQueue &result_queue,
   SampleMode sample_mode,
   bool strict,
-  int loglevel,
+  MassSpecLogConf logconf,
   bool on_main_thread)
 {
   using consts::boltzmann;
@@ -252,7 +252,7 @@ SimulationResult apitof_mass_spec(
       GasCollCondNormHistDSSSampler(dtheta, du, boundary_u),
       VibEnergyNormSampler(subs.density_cluster),
       strict,
-      loglevel,
+      logconf,
       on_main_thread);
   }
   else if (sample_mode == SampleMode::dss_unnormalized)
@@ -266,7 +266,7 @@ SimulationResult apitof_mass_spec(
       GasCollCondUnnormHistDSSSampler(dtheta, du, boundary_u),
       VibEnergyUnnormSampler(subs.density_cluster),
       strict,
-      loglevel,
+      logconf,
       on_main_thread);
   }
   else if (sample_mode == SampleMode::rejection)
@@ -280,7 +280,7 @@ SimulationResult apitof_mass_spec(
       GasCollRejectionSampler(boundary_u),
       VibEnergyNormSampler(subs.density_cluster),
       strict,
-      loglevel,
+      logconf,
       on_main_thread);
   }
   else
@@ -371,29 +371,23 @@ SimulationResult apitof_mass_spec(
   GasCollSamplerT gas_coll_sampler,
   VibEnergySamplerT vib_energy_sampler,
   bool strict,
-  int loglevel,
+  MassSpecLogConf logconf,
   bool on_main_thread)
 {
   using namespace consts;
   // TO BE DELETED ###############
   //  R_cluster=4.675e-10;
   // #############################
-  double R_gas = subs.gas.radius;
-  double m_gas = subs.gas.mass;
-  double R_cluster = subs.R_cluster;
-  double m_ion = subs.m_ion;
-  auto pathways = subs.pathways;
   double kT = boltzmann * ms.T;
-  double R_tot = R_cluster + R_gas;
-  double reduced_mass = 1. / (1. / m_ion + 1. / m_gas);
-  double inertia = 0.4 * m_ion * R_cluster * R_cluster;
-  const double mobility_gas = kT / m_gas; // thermal agitation
+  double reduced_mass = 1. / (1. / subs.m_ion + 1. / subs.gas.mass);
+  double inertia = 0.4 * subs.m_ion * subs.R_cluster * subs.R_cluster;
+  const double mobility_gas = kT / subs.gas.mass; // thermal agitation
   // std_gas=sqrt(mobility_gas);
-  const double mobility_gas_inv = 1.0 / mobility_gas;
+  const double mobility_gas_inv = subs.gas.mass / kT;
   CumulativeLengths clens(ms.lengths);
 
   LogHelper initial_trace = LogHelper{result_queue, LogMessage::initial_trace};
-  if (loglevel >= LOGLEVEL_MIN)
+  if (logconf.level >= LOGLEVEL_MIN)
   {
     initial_trace([&](auto &initial_trace)
     {
@@ -406,16 +400,16 @@ SimulationResult apitof_mass_spec(
   std::optional<Quadrupole> quadrupole = ms.quadrupole;
   if (quadrupole)
   {
-    quadrupole->compute_mathieu_factor(m_ion);
+    quadrupole->compute_mathieu_factor(subs.m_ion);
   }
   Eigen::Array4d E = -((
                          ms.voltages(Eigen::seq(1, 4)) - ms.voltages(Eigen::seq(0, 3))) /
                        ms.lengths(Eigen::seq(0, 3)));
-  Eigen::Array4d acc = E * consts::eV * subs.cluster_charge_sign / m_ion;
+  Eigen::Array4d acc = E * consts::eV * subs.cluster_charge_sign / subs.m_ion;
   double P1 = ms.pressures[0];
   double P2 = ms.pressures[1];
-  double gas_mean_free_path = mean_free_path(R_gas, kT, P2);
-  if (loglevel >= LOGLEVEL_MIN)
+  double gas_mean_free_path = mean_free_path(subs.gas.radius, kT, P2);
+  if (logconf.level >= LOGLEVEL_MIN)
   {
     initial_trace([&](auto &initial_trace)
     {
@@ -430,39 +424,39 @@ SimulationResult apitof_mass_spec(
   }
   double n1 = particle_density(P1, kT);
   double n2 = particle_density(P2, kT);
-  if (loglevel >= LOGLEVEL_MIN)
+  if (logconf.level >= LOGLEVEL_MIN)
   {
     initial_trace([&](auto &initial_trace)
     {
-      for (size_t i = 0; i < pathways.size(); i++)
+      for (size_t i = 0; i < subs.pathways.size(); i++)
       {
-        initial_trace << "Pathway #" << (i + 1) << " fragmentation energy: " << pathways[i].bonding_energy / boltzmann << " K (" << pathways[i].bonding_energy * kcal << " kcal/mol)" << endl;
+        initial_trace << "Pathway #" << (i + 1) << " fragmentation energy: " << subs.pathways[i].bonding_energy / boltzmann << " K (" << subs.pathways[i].bonding_energy * kcal << " kcal/mol)" << endl;
       }
-      initial_trace << "Cluster mass: " << m_ion << " Kg" << endl;
+      initial_trace << "Cluster mass: " << subs.m_ion << " Kg" << endl;
       initial_trace << "Inertia momentum: " << inertia << " kg*m^2" << endl;
-      initial_trace << "Cluster radius: " << R_cluster << " m" << endl;
+      initial_trace << "Cluster radius: " << subs.R_cluster << " m" << endl;
       initial_trace << "Particle density 1st chamber: " << n1 << " 1/m^3" << endl;
       initial_trace << "Particle density 2nd chamber: " << n2 << " 1/m^3" << endl;
-      initial_trace << "Cluster mean free path 1st chamber: " << mean_free_path(R_tot, kT, P1) << " m" << endl;
-      initial_trace << "Cluster mean free path 2nd chamber: " << mean_free_path(R_tot, kT, P2) << " m" << endl;
-      initial_trace << "Gas mean free path 1st chamber: " << mean_free_path(R_gas, kT, P1) << " m" << endl;
-      initial_trace << "Gas mean free path 2nd chamber: " << mean_free_path(R_gas, kT, P2) << " m" << endl;
+      initial_trace << "Cluster mean free path 1st chamber: " << mean_free_path(subs.R_cluster + subs.gas.radius, kT, P1) << " m" << endl;
+      initial_trace << "Cluster mean free path 2nd chamber: " << mean_free_path(subs.R_cluster + subs.gas.radius, kT, P2) << " m" << endl;
+      initial_trace << "Gas mean free path 1st chamber: " << mean_free_path(subs.gas.radius, kT, P1) << " m" << endl;
+      initial_trace << "Gas mean free path 2nd chamber: " << mean_free_path(subs.gas.radius, kT, P2) << " m" << endl;
       initial_trace << "Gas density 1st chamber: " << n1 << " 1/m^3" << endl;
       initial_trace << "Gas density 2nd chamber: " << n2 << " 1/m^3" << endl;
-      initial_trace << "Collision frequency 1st chamber (at v=0): " << coll_freq(n1, mobility_gas, mobility_gas_inv, R_tot, 0.0) << " 1/s" << endl;
-      initial_trace << "Collision frequency 2nd chamber (at v=0): " << coll_freq(n2, mobility_gas, mobility_gas_inv, R_tot, 0.0) << " 1/s" << endl;
-      initial_trace << "Standard deviation velocity_x: " << sqrt(boltzmann * ms.T / m_ion) << " m/s" << endl;
-      initial_trace << "R_tot: " << R_tot << " m" << endl;
+      initial_trace << "Collision frequency 1st chamber (at v=0): " << coll_freq(n1, mobility_gas, mobility_gas_inv, subs.R_cluster + subs.gas.radius, 0.0) << " 1/s" << endl;
+      initial_trace << "Collision frequency 2nd chamber (at v=0): " << coll_freq(n2, mobility_gas, mobility_gas_inv, subs.R_cluster + subs.gas.radius, 0.0) << " 1/s" << endl;
+      initial_trace << "Standard deviation velocity_x: " << sqrt(boltzmann * ms.T / subs.m_ion) << " m/s" << endl;
+      initial_trace << "R_tot: " << subs.R_cluster + subs.gas.radius << " m" << endl;
     });
   }
 
   // dt1=1.934e-16;
-  double dt1 = 1.0e-3 / coll_freq(n1, mobility_gas, mobility_gas_inv, R_tot, 0.0);
-  double dt2 = 1.0e-3 / coll_freq(n2, mobility_gas, mobility_gas_inv, R_tot, 0.0);
+  double dt1 = 1.0e-3 / coll_freq(n1, mobility_gas, mobility_gas_inv, subs.R_cluster + subs.gas.radius, 0.0);
+  double dt2 = 1.0e-3 / coll_freq(n2, mobility_gas, mobility_gas_inv, subs.R_cluster + subs.gas.radius, 0.0);
   if (ms.quadrupole && dt2 > 1.0 / ms.quadrupole->radiofrequency / 1000.0)
     dt2 = 1.0 / ms.quadrupole->radiofrequency / 1000.0;
 
-  if (loglevel >= LOGLEVEL_MIN)
+  if (logconf.level >= LOGLEVEL_MIN)
   {
     initial_trace([&](auto &initial_trace)
     {
@@ -474,7 +468,7 @@ SimulationResult apitof_mass_spec(
 
   Eigen::ArrayXi counters = Eigen::ArrayXi::Zero(n_counters - 1 + subs.pathways.size());
 
-  if (loglevel >= LOGLEVEL_MIN)
+  if (logconf.level >= LOGLEVEL_MIN)
   {
     result_queue.enqueue(LogMessage{LogMessage::probabilities, "#1_FragmentationEnergy 2_SurvivalProbability 3_Error\n"});
     result_queue.enqueue(LogMessage{LogMessage::fragments, "#1_Realization 2_Time 3_Position 4_FragmentationZone 5_PositionOfCollision 6_CollisionZone 7_VelocityAtCollision\n"});
@@ -482,7 +476,7 @@ SimulationResult apitof_mass_spec(
 
   // cout << bin_width_rate << endl;
   //  N realizations
-  if (loglevel >= LOGLEVEL_MIN)
+  if (logconf.level >= LOGLEVEL_MIN)
   {
     initial_trace([&](auto &initial_trace)
     {
@@ -497,15 +491,14 @@ SimulationResult apitof_mass_spec(
   auto skimmer = ms.skimmer;
   auto mesh_skimmer = ms.mesh_skimmer;
   auto radius_pinhole = ms.radius_pinhole;
-  auto density_cluster = subs.density_cluster;
 #pragma omp parallel for OMP_VISIBILITY_NONE \
 firstprivate( \
-    N, T, kT, m_ion, R_cluster, R_tot, density_cluster, \
+    N, T, kT, subs, \
       inertia, clens, n1, n2, dt1, dt2, \
       skimmer, mesh_skimmer, radius_pinhole, mobility_gas, \
       mobility_gas_inv, gas_mean_free_path, root_seed, acc, \
-      P1, P2, pathways, m_gas, quadrupole, reduced_mass, pi, boltzmann, \
-      vib_energy_sampler, gas_coll_sampler, loglevel, strict) \
+      P1, P2, quadrupole, reduced_mass, pi, boltzmann, \
+      vib_energy_sampler, gas_coll_sampler, logconf, strict) \
   shared(exception_helper, result_queue) \
   reduction(+ : counters) \
   schedule(guided)
@@ -544,9 +537,9 @@ firstprivate( \
       double delta_t;
 
       // Draw initial random velocity from Maxwell-Boltzmann distribution
-      Eigen::Vector3d v_cluster = init_vel(gen, gauss, m_ion, kT);
-      Eigen::Vector3d omega = init_ang_vel(gen, gauss, m_ion, kT, R_cluster);
-      init_vib_energy(gen, unif, vib_energy, kT, density_cluster);
+      Eigen::Vector3d v_cluster = init_vel(gen, gauss, subs.m_ion, kT);
+      Eigen::Vector3d omega = init_ang_vel(gen, gauss, subs.m_ion, kT, subs.R_cluster);
+      init_vib_energy(gen, unif, vib_energy, kT, subs.density_cluster);
 
       while (z < clens.total_length) // single realization // TO BE CHANGED IN SECOND CHAMBER!!!!!!!!!!!
       {
@@ -560,8 +553,8 @@ firstprivate( \
         v_cluster_norm = v_cluster.norm();
 
         // Checking the collision frequencies during the evolution
-        // if(z<sk_end) tmp << coll_freq(n1, mobility_gas, mobility_gas_inv, R_tot, v_cluster_norm)<<endl;
-        // else tmp << coll_freq(n2, mobility_gas, mobility_gas_inv, R_tot, v_cluster_norm)<<endl;
+        // if(z<sk_end) tmp << coll_freq(n1, mobility_gas, mobility_gas_inv, subs.R_cluster + subs.gas.radius, v_cluster_norm)<<endl;
+        // else tmp << coll_freq(n2, mobility_gas, mobility_gas_inv, subs.R_cluster + subs.gas.radius, v_cluster_norm)<<endl;
 
         rot_energy = evaluate_rotational_energy(omega, inertia);
         internal_energy = evaluate_internal_energy(vib_energy, rot_energy);
@@ -572,11 +565,11 @@ firstprivate( \
         int effective_pathway_index;
         double t_fragmentation;
         std::optional<ApiTofRateConstantOverflow> overflow_exception = std::nullopt;
-        std::tie(effective_pathway_index, t_fragmentation, overflow_exception) = next_fragmentation_time_multi(gen, unif, pathways, internal_energy, strict);
+        std::tie(effective_pathway_index, t_fragmentation, overflow_exception) = next_fragmentation_time_multi(gen, unif, subs.pathways, internal_energy, strict);
 
-        TimeNextCollOutcome outcome = time_next_coll_quadrupole(gen, unif, v_cluster, v_cluster_norm, n1, n2, mobility_gas, mobility_gas_inv, R_tot, dt1, dt2, z, x, y, delta_t, t_fragmentation, clens, acc, t, m_gas, skimmer, mesh_skimmer, quadrupole);
+        TimeNextCollOutcome outcome = time_next_coll_quadrupole(gen, unif, v_cluster, v_cluster_norm, n1, n2, mobility_gas, mobility_gas_inv, subs.gas.radius + subs.R_cluster, dt1, dt2, z, x, y, delta_t, t_fragmentation, clens, acc, t, subs.gas.mass, skimmer, mesh_skimmer, quadrupole);
 
-        if (loglevel >= LOGLEVEL_NORMAL)
+        if (logconf.level >= LOGLEVEL_NORMAL)
         {
           if (z < clens.first_chamber_end)
           {
@@ -596,12 +589,16 @@ firstprivate( \
           counters[Counter::n_fragmented_total + effective_pathway_index]++;
           // if(a==1) cout << "Fragmentation with max energy for rate exceeded. Realization: " << j+1 << endl;
           // if(coll_z>quadrupole_start && coll_z<quadrupole_end)
-          if (loglevel >= LOGLEVEL_NORMAL)
+          if (logconf.level >= LOGLEVEL_NORMAL)
           {
             fragments([&](auto &fragments)
             {
               fragments << j + 1 << "\t" << t << "\t" << z << "\t" << zone(z, clens) << "\t" << coll_z << "\t" << zone(coll_z, clens) << endl;
             });
+          }
+          if (logconf.log_events)
+          {
+            result_queue.enqueue(FragmentationEvent{ParticleStateMsg{j, {x, y, z, t}, v_cluster, omega, rot_energy, vib_energy}, effective_pathway_index});
           }
           break;
         }
@@ -637,16 +634,20 @@ firstprivate( \
             double v_rel_norm;
             double effective_mobility_gas;
             double effective_mobility_gas_inv;
-            std::tie(effective_n, v_rel, v_rel_norm, effective_mobility_gas, effective_mobility_gas_inv) = get_quantities_for_collision(z, n1, n2, m_gas, mobility_gas, mobility_gas_inv, v_cluster, v_gas, pressure, temperature, clens.first_chamber_end, clens.sk_end);
-            std::tie(theta, u_norm) = gas_coll_sampler.sample(gen, effective_n, v_rel_norm, effective_mobility_gas, effective_mobility_gas_inv, R_tot, warn);
+            std::tie(effective_n, v_rel, v_rel_norm, effective_mobility_gas, effective_mobility_gas_inv) = get_quantities_for_collision(z, n1, n2, subs.gas.mass, mobility_gas, mobility_gas_inv, v_cluster, v_gas, pressure, temperature, clens.first_chamber_end, clens.sk_end);
+            std::tie(theta, u_norm) = gas_coll_sampler.sample(gen, effective_n, v_rel_norm, effective_mobility_gas, effective_mobility_gas_inv, subs.R_cluster + subs.gas.radius, warn);
 
             vib_energy_old = vib_energy;
 
             // Evaluate the dissipated energy in the collision (energy that goes to vibrational modes)
             vib_energy_new = vib_energy_sampler.sample(gen, boundary_vib_energy(vib_energy_old, reduced_mass, u_norm, v_rel_norm, theta));
 
-            bool collision_accepted = true;
-            eval_collision(gen, unif, collision_accepted, gas_mean_free_path, x, y, z, clens.total_length, radius_pinhole, clens.quadrupole_end, v_rel, omega, u_norm, theta, R_cluster, vib_energy_new, vib_energy_old, m_ion, m_gas, temperature, LogHelper{result_queue, LogMessage::pinhole}, loglevel);
+            bool collision_accepted = eval_collision(gen, unif, gas_mean_free_path, x, y, z, clens.total_length, radius_pinhole, clens.quadrupole_end, v_rel, omega, u_norm, theta, subs.R_cluster, vib_energy_new, vib_energy_old, subs.m_ion, subs.gas.mass, temperature, LogHelper{result_queue, LogMessage::pinhole}, logconf.level);
+
+            if (logconf.log_events)
+            {
+              result_queue.enqueue(CollisionEvent{ParticleStateMsg{j, {x, y, z, t}, v_cluster, omega, rot_energy, vib_energy}, theta, u_norm, collision_accepted});
+            }
 
             if (collision_accepted)
             {
@@ -656,7 +657,7 @@ firstprivate( \
 
               rot_energy_old = evaluate_rotational_energy(omega, inertia);
               rot_energy = rot_energy_old;
-              redistribute_internal_energy(gen, unif, vib_energy, rot_energy, density_cluster);
+              redistribute_internal_energy(gen, unif, vib_energy, rot_energy, subs.density_cluster);
               update_rot_vel(omega, rot_energy_old, rot_energy);
             }
             else
@@ -667,12 +668,16 @@ firstprivate( \
           else // outcome == TimeNextCollOutcome::escape
           {
             counters[Counter::n_escaped_total]++;
-            if (loglevel >= LOGLEVEL_NORMAL)
+            if (logconf.level >= LOGLEVEL_NORMAL)
             {
               final_position([&](auto &final_position)
               {
                 final_position << x << "\t" << y << endl;
               });
+            }
+            if (logconf.log_events)
+            {
+              result_queue.enqueue(EscapeEvent{ParticleStateMsg{j, {x, y, z, t}, v_cluster, omega, rot_energy, vib_energy}});
             }
             // cout << "Distance from exit on x: " << x << "and y: " << y << endl; // Distance from the exit on x and y axes
           }
@@ -1368,7 +1373,7 @@ double eval_solid_angle_stokes(double R, double L, double xx, double yy, double 
 
 //
 template <typename GenT>
-void eval_collision(GenT &gen, uniform_real_distribution<double> &unif, bool &collision_accepted, double gas_mean_free_path, double x, double y, double z, double L, std::optional<double> pinhole, double quadrupole_end, Eigen::Vector3d &v_cluster, Eigen::Vector3d &omega, double u_norm, double theta, double R_cluster, double vib_energy, double vib_energy_old, double m_ion, double m_gas, double temperature, LogHelper pinhole_logger, int loglevel)
+bool eval_collision(GenT &gen, uniform_real_distribution<double> &unif, double gas_mean_free_path, double x, double y, double z, double L, std::optional<double> pinhole, double quadrupole_end, Eigen::Vector3d &v_cluster, Eigen::Vector3d &omega, double u_norm, double theta, double R_cluster, double vib_energy, double vib_energy_old, double m_ion, double m_gas, double temperature, LogHelper pinhole_logger, int loglevel)
 {
   using namespace consts;
   Eigen::Vector3d x3;
@@ -1386,7 +1391,7 @@ void eval_collision(GenT &gen, uniform_real_distribution<double> &unif, bool &co
   double prob_coll = 1.0;
   double distance;
 
-  collision_accepted = true;
+  bool collision_accepted = true;
   change_coord(v_cluster, theta, phi, alpha, x3, y3, z3);
 
 
@@ -1472,6 +1477,7 @@ void eval_collision(GenT &gen, uniform_real_distribution<double> &unif, bool &co
       omega[i] = omega2[0] * x3[i] + omega2[1] * y3[i] + omega2[2] * z3[i];
     }
   }
+  return collision_accepted;
 }
 
 int zone(double z, CumulativeLengths &clens)

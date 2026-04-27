@@ -43,6 +43,37 @@ struct PartialResult
   }
 };
 
+struct ParticleStateMsg
+{
+  int realization;
+  Eigen::Array4d postime;
+  Eigen::Array3d velocity;
+  Eigen::Array3d omega;
+  double rot_energy;
+  double internal_energy;
+};
+
+struct CollisionEvent
+{
+  ParticleStateMsg state;
+  double theta;
+  double u_norm;
+  bool accepted;
+};
+
+struct FragmentationEvent
+{
+  ParticleStateMsg state;
+  int pathway_index;
+};
+
+struct EscapeEvent
+{
+  ParticleStateMsg state;
+};
+
+using EventMessage = std::variant<CollisionEvent, FragmentationEvent, EscapeEvent>;
+
 struct LogMessage
 {
   enum LogType
@@ -70,7 +101,7 @@ struct LogMessage
   }
 };
 
-using StreamingResultElement = std::variant<std::monostate, LogMessage, PartialResult, std::exception>;
+using StreamingResultElement = std::variant<std::monostate, LogMessage, EventMessage, PartialResult, std::exception>;
 using StreamingResultQueue = BlockingConcurrentQueue<StreamingResultElement>;
 
 struct WarningHelper

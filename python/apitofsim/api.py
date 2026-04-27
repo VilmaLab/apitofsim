@@ -17,10 +17,16 @@ from .apitofsimraw import (
     ApiTofOverflowError,
     ApiTofRateConstantOverflow,
     ApiTofUnexpectedNumericalError,
+    CollisionEvent,
+    EscapeEvent,
+    FragmentationEvent,
     FragmentationPathway,
     KTotalInput,
+    MassSpecLogConf,
     # Enums
     MeshMode,
+    # EventMessage
+    ParticleState,
     SampleMode,
     # Defaults
     defaults,
@@ -90,6 +96,7 @@ __all__ = [
     "MassSpecInputFragmentationPathway",
     "MassSpecSubstanceInput",
     "FragmentationPathway",
+    "MassSpecLogConf",
     # Exceptions
     "ApiTofError",
     "ApiTofArgumentError",
@@ -98,6 +105,11 @@ __all__ = [
     "ApiTofRateConstantOverflow",
     "ApiTofMaxCollisions",
     "ApiTofUnexpectedNumericalError",
+    # EventMessage
+    "ParticleState",
+    "CollisionEvent",
+    "FragmentationEvent",
+    "EscapeEvent",
     # Enums
     "MeshMode",
     "SampleMode",
@@ -602,10 +614,14 @@ def mass_spec(
     *,
     sample_mode: SampleMode = SampleMode.rejection,
     strict=True,
-    loglevel: int = 0,
+    logconf: MassSpecLogConf = MassSpecLogConf(),
     seed: int = 42,
     log_callback: Callable[[str, str], None] | None = None,
     result_callback: Callable[[numpy.ndarray], None] | None = None,
+    event_callback: Callable[
+        [ParticleState | CollisionEvent | FragmentationEvent | EscapeEvent], None
+    ]
+    | None = None,
     named_tuple_counters=False,
     output_timings=False,
 ):
@@ -635,9 +651,10 @@ def mass_spec(
         seed=seed,
         log_callback=log_callback,
         result_callback=wrap_callback(result_callback),
+        event_callback=event_callback,
         sample_mode=sample_mode,
         strict=strict,
-        loglevel=loglevel,
+        logconf=logconf,
     )
     if named_tuple_counters:
         counters = convert_counters(counters)
@@ -676,12 +693,14 @@ class MassSpecIterator(_MassSpecIterator):
         if isinstance(val, tuple):
             if len(val) == 2:
                 return MassSpecLogItem(*val)
-            else:
+            elif isinstance(val[0], numpy.ndarray):
                 return MassSpecFinalResult(
                     counters=counters_named_tuple(val[0]), timings=Timings(*val[1:])
                 )
         elif isinstance(val, numpy.ndarray):
             return MassSpecIntermediateCounter(counters_named_tuple(val))
+        else:
+            return val
 
     def __enter__(self):  # pyright: ignore [reportMissingSuperCall]
         return self

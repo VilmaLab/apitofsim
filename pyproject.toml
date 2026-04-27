@@ -28,6 +28,7 @@ plot = [
     "matplotlib>=3.10.7",
     "holoviews>=1.21.0",
     "textalloc>=1.2.3",
+    "seaborn>=0.13.2",
 ]
 
 [project.scripts]

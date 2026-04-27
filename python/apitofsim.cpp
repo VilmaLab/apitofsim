@@ -160,12 +160,12 @@ std::thread run_mass_spec_in_thread(
   StreamingResultQueue &result_queue,
   SampleMode sample_mode,
   bool strict,
-  int loglevel)
+  MassSpecLogConf logconf)
 {
-  return std::thread([&, N, seed, sample_mode, strict, loglevel]
+  return std::thread([&, N, seed, sample_mode, strict, logconf]
   {
     // TODO: Probably want to switch to jthread when possible
-    exception_helper.guard([&, N, seed, sample_mode, strict, loglevel]
+    exception_helper.guard([&, N, seed, sample_mode, strict, logconf]
     {
       result = apitof_mass_spec(
         ms,
@@ -175,13 +175,13 @@ std::thread run_mass_spec_in_thread(
         result_queue,
         sample_mode,
         strict,
-        loglevel);
+        logconf);
     });
     result_queue.enqueue(std::monostate{});
   });
 }
 
-std::variant<std::tuple<const std::string, const std::string>, Eigen::ArrayXi, std::monostate> pump_mass_spec_queue(
+std::variant<std::tuple<const std::string, const std::string>, Eigen::ArrayXi, EventMessage, std::monostate> pump_mass_spec_queue(
   StreamingResultQueue &result_queue,
   PartialCounters &partial_counters,
   OMPExceptionHelper &exception_helper)
@@ -217,6 +217,15 @@ std::variant<std::tuple<const std::string, const std::string>, Eigen::ArrayXi, s
       const std::string name = std::string(enum_name(msg.type));
       return std::tuple<const std::string, const std::string>(name, msg.message);
     }
+    else if (std::holds_alternative<EventMessage>(result))
+    {
+      return std::get<EventMessage>(result);
+    }
+    else if (std::holds_alternative<std::exception>(result))
+    {
+      const std::exception &exc = std::get<std::exception>(result);
+      throw exc;
+    }
   }
   catch (...)
   {
@@ -247,15 +256,16 @@ mass_spec(
   unsigned long long seed = DEFAULT_SEED,
   std::optional<std::function<void(std::string_view, std::string)>> log_callback = nullopt,
   std::optional<std::function<void(Eigen::ArrayXi)>> result_callback = nullopt,
+  std::optional<std::function<void(EventMessage)>> event_callback = nullopt,
   SampleMode sample_mode = SampleMode::rejection,
   bool strict = true,
-  int loglevel = DEFAULT_LOGLEVEL)
+  MassSpecLogConf logconf = MassSpecLogConf{})
 {
   StreamingResultQueue result_queue;
   OMPExceptionHelper exception_helper;
   SimulationResult result;
   PartialCounters partial_counters = mk_partial_counters(subs);
-  auto cleanup = MassSpecCleanup{run_mass_spec_in_thread(result, exception_helper, ms, subs, N, seed, result_queue, sample_mode, strict, loglevel)};
+  auto cleanup = MassSpecCleanup{run_mass_spec_in_thread(result, exception_helper, ms, subs, N, seed, result_queue, sample_mode, strict, logconf)};
   while (true)
   {
     auto result = pump_mass_spec_queue(result_queue, partial_counters, exception_helper);
@@ -272,6 +282,13 @@ mass_spec(
       if (result_callback)
       {
         (*result_callback)(std::get<Eigen::ArrayXi>(result));
+      }
+    }
+    else if (std::holds_alternative<EventMessage>(result))
+    {
+      if (event_callback)
+      {
+        (*event_callback)(std::get<EventMessage>(result));
       }
     }
     else
@@ -300,15 +317,15 @@ struct MassSpecIterator
     unsigned long long seed = DEFAULT_SEED,
     SampleMode sample_mode = SampleMode::rejection,
     bool strict = true,
-    int loglevel = DEFAULT_LOGLEVEL) : result_queue(),
-                                       partial_counters(mk_partial_counters(subs)),
-                                       exception_helper(),
-                                       execution_thread(run_mass_spec_in_thread(final_result, exception_helper, ms, subs, N, seed, result_queue, sample_mode, strict, loglevel)),
-                                       finished(false)
+    MassSpecLogConf logconf = MassSpecLogConf{}) : result_queue(),
+                                                   partial_counters(mk_partial_counters(subs)),
+                                                   exception_helper(),
+                                                   execution_thread(run_mass_spec_in_thread(final_result, exception_helper, ms, subs, N, seed, result_queue, sample_mode, strict, logconf)),
+                                                   finished(false)
   {
   }
 
-  std::variant<std::tuple<const std::string, const std::string>, Eigen::ArrayXi, SimulationResult> __next__()
+  std::variant<std::tuple<const std::string, const std::string>, Eigen::ArrayXi, EventMessage, SimulationResult> __next__()
   {
     if (finished)
     {
@@ -324,6 +341,10 @@ struct MassSpecIterator
     else if (std::holds_alternative<Eigen::ArrayXi>(result))
     {
       return std::get<Eigen::ArrayXi>(result);
+    }
+    else if (std::holds_alternative<EventMessage>(result))
+    {
+      return std::get<EventMessage>(result);
     }
     else
     {
@@ -623,6 +644,12 @@ NB_MODULE(apitofsimraw, m)
 
   nb_magic_enum<SampleMode>(m, "SampleMode");
 
+  nb::class_<MassSpecLogConf>(m, "MassSpecLogConf")
+    .def(nb::init<>())
+    .def(nb::init<int, bool>(), "level"_a, "log_events"_a)
+    .def_ro("level", &MassSpecLogConf::level)
+    .def_ro("log_events", &MassSpecLogConf::log_events);
+
   m.def("mass_spec",
         &mass_spec,
         nb::call_guard<nb::gil_scoped_release>(),
@@ -632,12 +659,34 @@ NB_MODULE(apitofsimraw, m)
         "seed"_a = DEFAULT_SEED,
         "log_callback"_a = std::nullopt,
         "result_callback"_a = std::nullopt,
+        "event_callback"_a = std::nullopt,
         "sample_mode"_a = SampleMode::rejection,
         "strict"_a = true,
-        "loglevel"_a = DEFAULT_LOGLEVEL);
+        "logconf"_a = DEFAULT_LOGCONF);
+
+  nb::class_<ParticleStateMsg>(m, "ParticleState")
+    .def_ro("realization", &ParticleStateMsg::realization)
+    .def_ro("postime", &ParticleStateMsg::postime)
+    .def_ro("velocity", &ParticleStateMsg::velocity)
+    .def_ro("omega", &ParticleStateMsg::omega)
+    .def_ro("rot_energy", &ParticleStateMsg::rot_energy)
+    .def_ro("internal_energy", &ParticleStateMsg::internal_energy);
+
+  nb::class_<CollisionEvent>(m, "CollisionEvent")
+    .def_ro("state", &CollisionEvent::state)
+    .def_ro("theta", &CollisionEvent::theta)
+    .def_ro("u_norm", &CollisionEvent::u_norm)
+    .def_ro("accepted", &CollisionEvent::accepted);
+
+  nb::class_<FragmentationEvent>(m, "FragmentationEvent")
+    .def_ro("state", &FragmentationEvent::state)
+    .def_ro("pathway_index", &FragmentationEvent::pathway_index);
+
+  nb::class_<EscapeEvent>(m, "EscapeEvent")
+    .def_ro("state", &EscapeEvent::state);
 
   nb::class_<MassSpecIterator>(m, "MassSpecIterator")
-    .def(nb::init<const MassSpectrometer &, const MassSpecSubstanceInput &, int, unsigned long long, SampleMode, bool, int>(),
+    .def(nb::init<const MassSpectrometer &, const MassSpecSubstanceInput &, int, unsigned long long, SampleMode, bool, MassSpecLogConf>(),
          nb::call_guard<nb::gil_scoped_release>(),
          "ms"_a,
          "subs"_a,
@@ -645,7 +694,7 @@ NB_MODULE(apitofsimraw, m)
          "seed"_a = DEFAULT_SEED,
          "sample_mode"_a = SampleMode::rejection,
          "strict"_a = true,
-         "loglevel"_a = DEFAULT_LOGLEVEL)
+         "logconf"_a = MassSpecLogConf{})
     .def("__next__", &MassSpecIterator::__next__)
     .def("join_if_joinable", &MassSpecIterator::join_if_joinable);
 

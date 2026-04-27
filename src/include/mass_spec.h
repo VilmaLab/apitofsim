@@ -106,6 +106,14 @@ enum struct SampleMode
   rejection,
 };
 
+struct MassSpecLogConf
+{
+  int level = DEFAULT_LOGLEVEL;
+  bool log_events = false;
+};
+
+const MassSpecLogConf DEFAULT_LOGCONF = MassSpecLogConf{};
+
 typedef std::chrono::high_resolution_clock::duration RuntimeDuration;
 typedef std::tuple<Eigen::ArrayXi, RuntimeDuration, RuntimeDuration> SimulationResult;
 
@@ -117,7 +125,7 @@ SimulationResult apitof_mass_spec(
   StreamingResultQueue &result_queue,
   SampleMode sample_mode,
   bool strict = true,
-  int loglevel = DEFAULT_LOGLEVEL,
+  MassSpecLogConf logconf = MassSpecLogConf{},
   bool on_main_thread = false);
 
 void rescale_density(Histogram &density);

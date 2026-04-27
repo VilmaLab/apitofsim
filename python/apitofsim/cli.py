@@ -35,7 +35,7 @@ def db():
 @click.option(
     "-t",
     "--db-type",
-    type=click.Choice(["experiment", "cluster", "super"]),
+    type=click.Choice(["experiment", "cluster", "super", "realization"]),
     default="experiment",
     help="The type of database to create: this will determine which tables are created",
 )
@@ -62,31 +62,37 @@ def prepare(mode, config, database, db_type, ase, warm):
     The "legacy_glob" type imports pathways from the legacy .in files matching a glob pattern.
     The per-cluster data is then taken either from .dat files specified in the .in file or ORCA or Gaussian outputs files next to the .in file.
 
+    \b
     ```toml
     [[pathways]]
     type = "legacy_glob"
     # An optional prefix to add to the common names of all clusters imported here
     prefix = ""
-    # A glob pattern to use to find .in files. The wildcard * matches any number of characters, while ** can span directories.
+    # A glob pattern to use to find .in files.
+    # The wildcard * matches any number of characters, while ** can span directories.
     path = "/path/to/**/*.in"
     # Paths specified in the .in files are relative to the .in file directory.
     cwd = "."
-
+    \b
     [pathways.clusters]
     # By default, all attributes are taken from the gaussian source
     default_source = "gaussian"
-    # Individual attributes can be taken from different sources and combined using simple expressions. Here, the electronic energy is taken as the sum of the final single point energy from orca and the zero point energy from gaussian.
+    # Individual attributes can be taken from different sources and combined
+    # using simple expressions. Here, the electronic energy is taken as the
+    # sum of the final single point energy from orca and the zero point energy
+    # from gaussian.
     electronic_energy = "orca.final_single_point_energy + gaussian.zero_point_energy"
-
+    \b
     # Here the sources for cluster information are specified.
     # The dat source is actually unused in this example
     [pathways.clusters.sources.dat]
-
+    \b
     # The ORCA source is only used for part of the electronic energy
     [pathways.clusters.sources.orca]
-    # append_to_common_prefix means that the common name of the cluster will be taken as the .in file name with .out appended
+    # append_to_common_prefix means that the common name of the cluster will
+    # be taken as the .in file name with .out appended
     append_to_common_prefix = ".out"
-
+    \b
     # Finally, the Gaussian source, where most attributes are taken from is specified
     [pathways.clusters.sources.gaussian]
     append_to_common_prefix = ".log"
@@ -94,24 +100,26 @@ def prepare(mode, config, database, db_type, ase, warm):
 
     For the "csv" type, you specify the pathways and clusters in separate CSV files, with, as above, the information about how to combine sources specified in the toml config file.
 
+    \b
     ```toml
     [[pathways]]
     type = "csv"
     pathways_path = "pathways.csv"
     clusters_path = "clusters.csv"
-
+    \b
     # These are the same as legacy_glob, see above
     [pathways.clusters]
     default_source = "gaussian"
     electronic_energy = "orca.final_single_point_energy + gaussian.zero_point_energy"
-
+    \b
     [pathways.clusters.sources.orca]
     append_to_common_prefix = ".out"
-
+    \b
     [pathways.clusters.sources.gaussian]
     append_to_common_prefix = ".log"
     ```
 
+    \b
     Then `clusters.csv` associates filename prefixes with common names for clusters:
     ```csv
     name,prefix
@@ -119,6 +127,7 @@ def prepare(mode, config, database, db_type, ase, warm):
     1A_2SA_negative,negative/1A_2SA
     ```
 
+    \b
     While `pathways.csv` relates the parent clusters to their products for each pathway:
     ```csv
     parent,product1,product2
@@ -134,6 +143,7 @@ def prepare(mode, config, database, db_type, ase, warm):
     For the simulation parameters, you can specify one or more `[[configs]]` sections, each with a `name` field and the values of all parameters.
     You can put common parameters in the `default_config` section, so that each `[[configs]]` section inherits these as overridable defaults.
 
+    \b
     ```toml
     [default_config]
     M_iter = 1_000
@@ -150,19 +160,19 @@ def prepare(mode, config, database, db_type, ase, warm):
     resolution = 1_000
     tolerance = 1e-8
     voltages = [ [ -19, -9, -7, -6, 11 ], "volt" ]
-
+    \b
     [default_config.gas]
     radius = "1.84e-10 meter"
     mass = "4.65e-26 kilogram"
     adiabatic_index = 1.4
-
+    \b
     [[configs]]
     name = "simple"
-
+    \b
     [[configs]]
     name = "with-quadrupole-and-pinhole"
     radius_pinhole = "1 mm"
-
+    \b
     [configs.quadrupole]
     dc_field = "0.0 volt"
     ac_field = "200.0 volt"
@@ -182,6 +192,7 @@ def prepare(mode, config, database, db_type, ase, warm):
         ClusterDatabase,
         DerivedDataPreparer,
         ExperimentDatabase,
+        RealizationDatabase,
         SuperClusterDatabase,
         ingest_tree,
     )
@@ -215,6 +226,8 @@ def prepare(mode, config, database, db_type, ase, warm):
         db_cls = ClusterDatabase
     elif db_type == "super":
         db_cls = SuperClusterDatabase
+    elif db_type == "realization":
+        db_cls = RealizationDatabase
     else:
         assert False
 
@@ -265,7 +278,7 @@ def prepare(mode, config, database, db_type, ase, warm):
                     import_raw_config(config_dict), cluster_indexed, pathway_lookup
                 )
 
-        if db_type == "experiment":
+        if db_type in ("experiment", "realization"):
             assert isinstance(db, ExperimentDatabase)
             for name, config_dict in iter_raw_configs(source.unwrap()):
                 db.insert_config(name, config_dict)
@@ -319,9 +332,18 @@ def run(
     """
     Run simulation according to the configurations in DATABASE.
     """
-    from apitofsim.workflow import ExperimentDatabase, ExperimentRunner
+    from apitofsim.workflow import (
+        ExperimentDatabase,
+        ExperimentRunner,
+        RealizationDatabase,
+        auto_db_type,
+    )
 
-    with connection_scope(ExperimentDatabase, database) as db:
+    with connection_scope(auto_db_type, database) as db:
+        if not isinstance(db, (ExperimentDatabase, RealizationDatabase)):
+            raise click.ClickException(
+                "Database must be created as an experiment database or a realization database"
+            )
         num_configs = db.db.sql(
             "select count(*) from duckdb_tables() where table_name = 'experiment_config'"
         ).fetchone()
@@ -617,6 +639,209 @@ def spectrogram_many(
         )
 
 
+@plot.command(
+    short_help="Plot a diagram of events (collisions/fragmentations/escapes) for a whole run"
+)
+@click.argument("database", required=True, type=click.Path(exists=True, dir_okay=False))
+@click.argument("dirout", type=click.Path(file_okay=False, path_type=pathlib.Path))
+@click.option(
+    "-t",
+    "--plot-type",
+    type=click.Choice(
+        [
+            "off-center",
+            "off-center-facet",
+            "beeswarm",
+            "beeswarm-facet",
+            "stripplot",
+            "stripplot-facet",
+            "violinplot",
+            "violinplot-facet",
+        ]
+    ),
+    default="experiment",
+    help="The type of database to create: this will determine which tables are created",
+)
+@click.option(
+    "-r",
+    "--rescale",
+    type=click.Choice(["none", "equal", "schematic"]),
+)
+def plot_events(database, dirout, plot_type, rescale):
+    """
+    Output to DIROUT a diagram of events (collisions/fragmentations/escapes) for a whole run using the database at path DATABASE.
+    """
+
+    import numpy as np
+    from seaborn import (
+        FacetGrid,
+        relplot,
+        scatterplot,
+        stripplot,
+        swarmplot,
+        violinplot,
+    )
+
+    from apitofsim.config import import_raw_config
+    from apitofsim.workflow import RealizationDatabase
+
+    def get_geometery(db, experiment_run_id):
+        import orjson
+
+        res = db.db.execute(
+            """
+            select
+                config
+            from
+                experiment_config
+            inner join
+                experiment_run
+                on experiment_run.experiment_config_id = experiment_config.id
+            where
+                experiment_run.id = ?
+            """,
+            (experiment_run_id,),
+        ).fetchone()
+        assert res is not None
+        config = res[0]
+        config = import_raw_config(orjson.loads(config))
+        return config["lengths"]
+
+    def get_events(db, experiment_run_id, is_single_pathway):
+        assert not is_single_pathway
+        return db.db.execute(
+            "select * from event_report where experiment_result_id = ?",
+            (experiment_run_id,),
+        ).fetchdf()
+        # return db.db.table("realization_events").filter(f"experiment_run_id = {experiment_id}").fetchdf()
+
+    with connection_scope(RealizationDatabase, database, readonly=True) as db:
+        experiment_id, is_single_pathway = select_experiment(db)
+        if is_single_pathway:
+            raise click.ClickException(
+                "Event plotting is not supported for single pathway experiments"
+            )
+
+        lengths = get_geometery(db, experiment_id)
+
+        first_chamber_end = lengths[0]
+        sk_end = first_chamber_end + lengths[-1]
+        quadrupole_start = sk_end + lengths[1]
+        quadrupole_end = quadrupole_start + lengths[2]
+        second_chamber_end = quadrupole_end + lengths[3]
+        # total_length = second_chamber_end
+        cumulative_lengths = [
+            first_chamber_end,
+            sk_end,
+            quadrupole_start,
+            quadrupole_end,
+            second_chamber_end,
+        ]
+        cumulative_lengths = [
+            length.to("meters").magnitude for length in cumulative_lengths
+        ]
+        cumulative_lengths.insert(0, 0.0)
+        cumulative_lengths = np.array(cumulative_lengths)
+
+        df = get_events(db, experiment_id, is_single_pathway)
+        dirout.mkdir(exist_ok=True, parents=True)
+        df["d"] = np.sqrt(df["x"] ** 2 + df["y"] ** 2)
+        df["event_type"] = df["event_type"].astype("category")
+        if rescale == "equal":
+            insertion_points = np.searchsorted(cumulative_lengths, df["z"])
+            insertion_points = np.clip(insertion_points, 0, len(cumulative_lengths) - 1)
+            new_z = []
+            for idx, z in zip(insertion_points, df["z"]):
+                lo = cumulative_lengths[idx - 1]
+                hi = cumulative_lengths[idx]
+                new_z.append(
+                    (z - lo) / (hi - lo) + (idx - 1) / (len(cumulative_lengths) - 1)
+                )
+            df["z"] = np.array(new_z)
+        elif rescale == "schematic":
+            # insertion_points = np.searchsorted(cumulative_lengths, df["z"])
+            raise NotImplementedError("schematic rescaling is not implemented yet")
+        for parent_name, cluster_df in df.groupby("parent_name"):
+            cluster_df = cluster_df.sort_values(by=["event_type"])
+            if plot_type == "off-center":
+                ax = scatterplot(
+                    cluster_df,
+                    s=5,
+                    linewidths=0.25,
+                    marker="x",
+                    x="z",
+                    y="d",
+                    hue="event_type",
+                )
+            elif plot_type == "off-center-facet":
+                ax = relplot(
+                    cluster_df,
+                    s=5,
+                    linewidths=0.25,
+                    marker="x",
+                    x="z",
+                    y="d",
+                    col="event_type",
+                    kind="scatter",
+                )
+            elif plot_type == "beeswarm":
+                ax = swarmplot(cluster_df, x="z", hue="event_type")
+            elif plot_type == "beeswarm-facet":
+                ax = swarmplot(cluster_df, x="z", col="event_type")
+            elif plot_type == "stripplot":
+                ax = stripplot(
+                    cluster_df, s=5, linewidth=0.25, marker="x", x="z", hue="event_type"
+                )
+            elif plot_type == "stripplot-facet":
+                ax = stripplot(
+                    cluster_df, s=5, linewidth=0.25, marker="x", x="z", y="event_type"
+                )
+            elif plot_type == "violinplot":
+                ax = violinplot(cluster_df, x="z", split=True, cut=0)
+            elif plot_type == "violinplot-facet":
+                ax = violinplot(cluster_df, x="z", y="event_type", split=True, cut=0)
+            else:
+                raise click.ClickException(f"Unknown plot type {plot_type}")
+            if rescale == "equal":
+                boundaries = np.linspace(0, 1, len(cumulative_lengths))
+            elif rescale == "schematic":
+                raise NotImplementedError("schematic rescaling is not implemented yet")
+            else:
+                assert rescale == "none"
+                boundaries = cumulative_lengths
+            if plot_type in ("off-center", "off-center-facet"):
+                if isinstance(ax, FacetGrid):
+                    for ax in ax.axes:
+                        ax.vlines(boundaries, 0.0, cluster_df["d"].max(), color="black")
+                else:
+                    ax.vlines(boundaries, 0.0, cluster_df["d"].max(), color="black")
+            else:
+                for x in boundaries:
+                    if isinstance(ax, FacetGrid):
+                        for ax in ax.axes:
+                            ax.axvline(x, color="black")
+                    else:
+                        ax.axvline(x, color="black")
+            pngout = dirout / f"{parent_name}.png"
+            if isinstance(ax, FacetGrid):
+                fig = ax.figure
+                fig.savefig(
+                    str(pngout),
+                    dpi=150,
+                    facecolor=fig.get_facecolor(),
+                    bbox_inches="tight",
+                )
+            else:
+                fig = ax.get_figure(root=True)
+                assert fig is not None
+                fig.savefig(
+                    str(pngout),
+                    dpi=150,
+                    facecolor=fig.get_facecolor(),
+                    bbox_inches="tight",
+                )
+
+
 @db.command(short_help="Produce an Excel-friendly CSV report from the database")
 @click.argument(
     "report_type",
@@ -628,6 +853,7 @@ def spectrogram_many(
             "experiment-cluster-report",
             "experiment-summary",
             "spectrogram",
+            "event-report",
         ],
         case_sensitive=False,
     ),
@@ -649,9 +875,14 @@ def report(report_type, database, csvout):
     * The experiment-summary contains one row per experiment run, and summarizes the outcomes across all pathways for that run.
     * The spectrogram report contains the same data used to plot spectograms.
     """
-    from apitofsim.workflow import ExperimentDatabase
+    from apitofsim.workflow import auto_db_type
 
-    with connection_scope(ExperimentDatabase, database, readonly=True) as db:
+    with connection_scope(auto_db_type, database, readonly=True) as db:
+        if not db.is_realization_db() and report_type in {"event-report"}:
+            raise click.ClickException(
+                f"Report type {report_type} is only available for realization databases"
+            )
+
         if not db.is_experiment_db() and report_type in {
             "experiment-pathway-report",
             "experiment-cluster-report",
@@ -688,9 +919,9 @@ def refresh_views(database):
 
     End-users shouldn't typically need to run this command.
     """
-    from apitofsim.workflow import ExperimentDatabase
+    from apitofsim.workflow import auto_db_type
 
-    with connection_scope(ExperimentDatabase, database) as db:
+    with connection_scope(auto_db_type, database) as db:
         db.refresh_views()
 
 

@@ -60,18 +60,22 @@ def connect_ase_sqlite_db_readonly(
     )
 
 
+def connect_duckdb_cleanup(filename, *, readonly=False):
+    if readonly:
+        return duckdb_connect_roview_cow(filename, fallback="connect")
+    else:
+        return duckdb.connect(filename), None
+
+
 class ClusterDatabase:
     TABLES = [sql_files.pathway]
 
     def __init__(self, filename, *, readonly=False, ase_filename=None):
-        self.closed = False
-        self.cleanup = None
-        if readonly:
-            self.db, self.cleanup = duckdb_connect_roview_cow(
-                filename, fallback="connect"
-            )
+        if isinstance(filename, tuple):
+            self.db, self.cleanup = filename
         else:
-            self.db = duckdb.connect(filename)
+            self.db, self.cleanup = connect_duckdb_cleanup(filename, readonly=readonly)
+        self.closed = False
         if ase_filename is not None:
             # TODO: These ClusterDatabase, etc. objects should probably be context managers too
             if readonly:
@@ -81,6 +85,9 @@ class ClusterDatabase:
         else:
             self.ase_db = None
         self._setup_db()
+
+    def refresh_views(self):
+        pass
 
     def _setup_db(self):
         import os
@@ -398,6 +405,12 @@ class ClusterDatabase:
             "update cluster set ase_mol_id = ? where id = ?", (ase_mol_id, cluster_id)
         )
 
+    def is_experiment_db(self) -> bool:
+        return False
+
+    def is_realization_db(self) -> bool:
+        return False
+
 
 class SuperClusterDatabase(ClusterDatabase):
     TABLES = [
@@ -410,6 +423,7 @@ class SuperClusterDatabase(ClusterDatabase):
         super().__init__(filename, **kwargs)
 
     def refresh_views(self):
+        super().refresh_views()
         self.db.execute(sql_files.pathway_report)
         self.db.execute(sql_files.experiment_report)
 
@@ -442,6 +456,9 @@ class ExperimentDatabase(SuperClusterDatabase):
 
     def __init__(self, filename, **kwargs):
         super().__init__(filename, **kwargs)
+
+    def refresh_views(self):
+        super().refresh_views()
 
     def insert_run(self, config_id=None, pathway_at_a_time=False):
         id = self.db.execute(
@@ -579,10 +596,122 @@ class ExperimentDatabase(SuperClusterDatabase):
             for tbl in ["cluster_dos", "products_dos", "k_rate"]:
                 self.db.execute(f"truncate {tbl}")
 
-    def is_experiment_db(self):
-        try:
-            self.db.table("experiment_config")
-        except duckdb.CatalogException:
-            return False
+    def is_experiment_db(self) -> bool:
+        return is_experiment_db(self.db)
+
+
+def is_experiment_db(db) -> bool:
+    try:
+        db.table("experiment_config")
+    except duckdb.CatalogException:
+        return False
+    else:
+        return True
+
+
+class RealizationDatabase(ExperimentDatabase):
+    TABLES = [
+        sql_files.pathway,
+        sql_files.histograms,
+        sql_files.experiment,
+        sql_files.pathway_report,
+        sql_files.experiment_report,
+        sql_files.realizations,
+        sql_files.event_report,
+    ]
+
+    def __init__(self, filename, **kwargs):
+        super().__init__(filename, **kwargs)
+
+    def refresh_views(self):
+        super().refresh_views()
+        self.db.execute(sql_files.event_report)
+
+    def insert_realization(self, experiment_run_id):
+        id = self.db.execute(
+            "insert into realization values (default, ?) returning id",
+            (experiment_run_id,),
+        ).fetchone()
+        assert id is not None
+        return id[0]
+
+    def update_realization_experiment(self, realization_id, experiment_result_id):
+        self.db.execute(
+            "update realization set experiment_result_id = ? where id = ?",
+            (experiment_result_id, realization_id),
+        )
+
+    def is_realization_db(self) -> bool:
+        return is_realization_db(self.db)
+
+
+def is_realization_db(db) -> bool:
+    try:
+        db.table("realization")
+    except duckdb.CatalogException:
+        return False
+    else:
+        return True
+
+
+def auto_db_type(filename, *, readonly=False):
+    db, cleanup = connect_duckdb_cleanup(filename, readonly=readonly)
+    conn = (db, cleanup)
+    if is_realization_db(db):
+        return RealizationDatabase(conn)
+    elif is_experiment_db(db):
+        return ExperimentDatabase(conn)
+    else:
+        return SuperClusterDatabase(conn)
+
+
+class EventRecorder:
+    def __init__(self, db, pathways):
+        self.db = db
+        self.pathways = pathways
+        assert isinstance(db, RealizationDatabase)
+        self.realization_ids = {}
+        self.event_ids = []
+
+    def __call__(self, event):
+        from apitofsim.api import (
+            CollisionEvent,
+            EscapeEvent,
+            FragmentationEvent,
+        )
+
+        state = event.state
+        if state.realization not in self.realization_ids:
+            self.realization_ids[state.realization] = self.db.insert_realization(None)
+        realization_id = self.realization_ids[state.realization]
+        if isinstance(event, CollisionEvent):
+            self.db.db.execute(
+                "insert into collision_event values (default, ?, {'x': ?, 'y': ?, 'z': ?, 't': ?})",
+                (
+                    realization_id,
+                    *state.postime,
+                ),
+            ).fetchone()
+        elif isinstance(event, FragmentationEvent):
+            pathway_id = self.pathways[event.pathway_index]
+            self.db.db.execute(
+                "insert into fragmentation_event values (default, ?, {'x': ?, 'y': ?, 'z': ?, 't': ?}, ?)",
+                (
+                    realization_id,
+                    *state.postime,
+                    pathway_id,
+                ),
+            ).fetchone()
         else:
-            return True
+            assert isinstance(event, EscapeEvent)
+            self.db.db.execute(
+                "insert into escape_event values (default, ?, {'x': ?, 'y': ?, 'z': ?, 't': ?})",
+                (
+                    realization_id,
+                    *state.postime,
+                ),
+            ).fetchone()
+
+    def relate_realizations(self, experiment_result_id):
+        for realization_id in self.realization_ids.values():
+            self.db.update_realization_experiment(realization_id, experiment_result_id)
