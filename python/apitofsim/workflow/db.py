@@ -405,6 +405,12 @@ class ClusterDatabase:
             "update cluster set ase_mol_id = ? where id = ?", (ase_mol_id, cluster_id)
         )
 
+    def is_experiment_db(self):
+        return False
+
+    def is_realization_db(self):
+        return False
+
 
 class SuperClusterDatabase(ClusterDatabase):
     TABLES = [
