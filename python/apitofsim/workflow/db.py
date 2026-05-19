@@ -14,7 +14,7 @@ from pint import get_application_registry
 import apitofsim.workflow.sql_files as sql_files
 from apitofsim import ClusterData
 
-from .db_utils import duckdb_connect_roview_cow
+from .db_utils import duckdb_connect_roview_cow, get_through_join_else
 
 ureg = get_application_registry()
 Q_ = ureg.Quantity
@@ -71,11 +71,11 @@ class ClusterDatabase:
     TABLES = [sql_files.pathway]
 
     def __init__(self, filename, *, readonly=False, ase_filename=None):
+        self.closed = False
         if isinstance(filename, tuple):
             self.db, self.cleanup = filename
         else:
             self.db, self.cleanup = connect_duckdb_cleanup(filename, readonly=readonly)
-        self.closed = False
         if ase_filename is not None:
             # TODO: These ClusterDatabase, etc. objects should probably be context managers too
             if readonly:
@@ -101,9 +101,10 @@ class ClusterDatabase:
         if self.closed:
             return
         self.closed = True
-        if self.cleanup is not None:
+        if hasattr(self, "cleanup") and self.cleanup is not None:
             self.cleanup()
-        self.db.close()
+        if hasattr(self, "db"):
+            self.db.close()
         if self.ase_db is not None:
             self.ase_db.__exit__(None, None, None)
 
@@ -440,6 +441,65 @@ class SuperClusterDatabase(ClusterDatabase):
             return None
         bin_width, x_max = row
         return Q_(bin_width, "K"), Q_(x_max, "K")
+
+    def get_cluster_dos_through_join_else(
+        self, cluster_indexed, histogram_id, cluster_dos_dict
+    ):
+        wanted_cluster_ids = numpy.array(list(cluster_indexed.keys()))
+        for miss_info in get_through_join_else(
+            self.db,
+            self.db.table("cluster_dos"),
+            "data",
+            cluster_dos_dict,
+            cluster_id=wanted_cluster_ids,
+            histogram_params_id=histogram_id,
+        ):
+            cluster_id = miss_info["cluster_id"]
+            cluster = cluster_indexed[cluster_id]
+            if cluster.is_atom_like_product():
+                cluster_dos_dict[cluster_id] = None
+            else:
+                yield cluster_id, cluster
+
+    def get_product_dos_through_join_else(
+        self, cluster_indexed, histogram_id, cluster_dos_dict, pathway_lookup
+    ):
+        from apitofsim.api import ProductsCluster
+
+        wanted_p1 = []
+        wanted_p2 = []
+        for _, product1_id, product2_id in pathway_lookup.values():
+            product1_id, product2_id = sorted((product1_id, product2_id))
+            wanted_p1.append(product1_id)
+            wanted_p2.append(product2_id)
+
+        for miss_info in get_through_join_else(
+            self.db,
+            self.db.table("products_dos"),
+            "data",
+            cluster_dos_dict,
+            cluster1_id=wanted_p1,
+            cluster2_id=wanted_p2,
+            histogram_params_id=histogram_id,
+        ):
+            p1 = miss_info["cluster1_id"]
+            p2 = miss_info["cluster2_id"]
+            yield ProductsCluster(cluster_indexed[p1], cluster_indexed[p2])
+
+    def get_k_rate_through_join_else(self, histogram_id, k_total_dict, pathway_lookup):
+        for miss_info in get_through_join_else(
+            self.db.db,
+            self.db.db.table("k_rate").filter(
+                duckdb.ColumnExpression("histogram_params_id")
+                == duckdb.ConstantExpression(histogram_id)
+            ),
+            "data",
+            k_total_dict,
+            pathway_id=pathway_lookup.keys(),
+        ):
+            pathway_id = miss_info["pathway_id"]
+            cluster_id, product1_id, product2_id = pathway_lookup[pathway_id]
+            yield pathway_id, cluster_id, product1_id, product2_id
 
 
 ConfigRow = namedtuple("ConfigRow", ["id", "name", "config"])

@@ -1,6 +1,5 @@
 from typing import Callable, Optional, Tuple
 
-import duckdb
 import numpy
 from pint import get_application_registry
 
@@ -22,7 +21,7 @@ from .db import (
     RealizationDatabase,
     SuperClusterDatabase,
 )
-from .db_utils import get_or_insert, get_through_join_else, insert_via_arrow
+from .db_utils import get_or_insert, insert_via_arrow
 
 ureg = get_application_registry()
 Q_ = ureg.Quantity
@@ -52,65 +51,6 @@ class DerivedDataPreparer:
             tolerance=config["tolerance"],
         )
 
-    def _get_cluster_dos_through_join_else(
-        self, cluster_indexed, histogram_id, cluster_dos_dict
-    ):
-        wanted_cluster_ids = numpy.array(list(cluster_indexed.keys()))
-        for miss_info in get_through_join_else(
-            self.db.db,
-            self.db.db.table("cluster_dos"),
-            "data",
-            cluster_dos_dict,
-            cluster_id=wanted_cluster_ids,
-            histogram_params_id=histogram_id,
-        ):
-            cluster_id = miss_info["cluster_id"]
-            cluster = cluster_indexed[cluster_id]
-            if cluster.is_atom_like_product():
-                cluster_dos_dict[cluster_id] = None
-            else:
-                yield cluster_id, cluster
-
-    def _get_product_dos_through_join_else(
-        self, cluster_indexed, histogram_id, cluster_dos_dict, pathway_lookup
-    ):
-        from apitofsim.api import ProductsCluster
-
-        wanted_p1 = []
-        wanted_p2 = []
-        for _, product1_id, product2_id in pathway_lookup.values():
-            product1_id, product2_id = sorted((product1_id, product2_id))
-            wanted_p1.append(product1_id)
-            wanted_p2.append(product2_id)
-
-        for miss_info in get_through_join_else(
-            self.db.db,
-            self.db.db.table("products_dos"),
-            "data",
-            cluster_dos_dict,
-            cluster1_id=wanted_p1,
-            cluster2_id=wanted_p2,
-            histogram_params_id=histogram_id,
-        ):
-            p1 = miss_info["cluster1_id"]
-            p2 = miss_info["cluster2_id"]
-            yield ProductsCluster(cluster_indexed[p1], cluster_indexed[p2])
-
-    def _get_k_rate_through_join_else(self, histogram_id, k_total_dict, pathway_lookup):
-        for miss_info in get_through_join_else(
-            self.db.db,
-            self.db.db.table("k_rate").filter(
-                duckdb.ColumnExpression("histogram_params_id")
-                == duckdb.ConstantExpression(histogram_id)
-            ),
-            "data",
-            k_total_dict,
-            pathway_id=pathway_lookup.keys(),
-        ):
-            pathway_id = miss_info["pathway_id"]
-            cluster_id, product1_id, product2_id = pathway_lookup[pathway_id]
-            yield pathway_id, cluster_id, product1_id, product2_id
-
     def _get_cached_dos(
         self,
         cluster_indexed,
@@ -122,7 +62,7 @@ class DerivedDataPreparer:
         num_misses = 0
         cluster_dos_dict = {}
         if include_cluster_dos:
-            for cluster_id, cluster in self._get_cluster_dos_through_join_else(
+            for cluster_id, cluster in self.db.get_cluster_dos_through_join_else(
                 cluster_indexed,
                 histogram_id,
                 cluster_dos_dict,
@@ -130,7 +70,7 @@ class DerivedDataPreparer:
                 num_misses += 1
 
         if include_product_dos:
-            for product_cluster in self._get_product_dos_through_join_else(
+            for product_cluster in self.db.get_product_dos_through_join_else(
                 cluster_indexed,
                 histogram_id,
                 cluster_dos_dict,
@@ -177,7 +117,7 @@ class DerivedDataPreparer:
         cluster_dos_dict = {}
         missed_cluster_ids = []
         density_of_states_inputs = []
-        for cluster_id, cluster in self._get_cluster_dos_through_join_else(
+        for cluster_id, cluster in self.db.get_cluster_dos_through_join_else(
             cluster_indexed,
             histogram_id,
             cluster_dos_dict,
@@ -194,7 +134,7 @@ class DerivedDataPreparer:
             wanted_p2.append(product2_id)
 
         density_of_states_inputs.extend(
-            self._get_product_dos_through_join_else(
+            self.db.get_product_dos_through_join_else(
                 cluster_indexed, histogram_id, cluster_dos_dict, pathway_lookup
             )
         )
@@ -286,7 +226,7 @@ class DerivedDataPreparer:
             cluster_id,
             product1_id,
             product2_id,
-        ) in self._get_k_rate_through_join_else(
+        ) in self.db.get_k_rate_through_join_else(
             histogram_id, k_total_dict, pathway_lookup
         ):
             product1_cpp = cluster_indexed[product1_id].into_cpp()
@@ -465,7 +405,7 @@ class DerivedDataPreparer:
             cluster_id,
             product1_id,
             product2_id,
-        ) in self._get_k_rate_through_join_else(
+        ) in self.db.get_k_rate_through_join_else(
             rate_histogram_id, k_rates, pathway_lookup
         ):
             num_missed += 1
