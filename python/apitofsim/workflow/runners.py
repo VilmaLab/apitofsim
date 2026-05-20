@@ -85,21 +85,6 @@ class DerivedDataPreparer:
 
         return cluster_dos_dict
 
-    def _rekey_cluster_dos_by_pathway(self, cluster_dos_dict, pathway_lookup):
-        cluster_dos_by_pathway = {}
-
-        for pathway_id, (
-            _,
-            product1_id,
-            product2_id,
-        ) in pathway_lookup.items():
-            product1_id, product2_id = sorted((product1_id, product2_id))
-            cluster_dos_by_pathway[pathway_id] = cluster_dos_dict[
-                (product1_id, product2_id)
-            ]
-
-        return cluster_dos_by_pathway
-
     def _run_dos(
         self,
         cluster_indexed,
@@ -389,11 +374,7 @@ class DerivedDataPreparer:
             # Not sure why this is sometimes needed
             pbar.close()
 
-        cluster_dos_by_pathway = self._rekey_cluster_dos_by_pathway(
-            cluster_dos_dict, pathway_lookup
-        )
-
-        return k_rates, cluster_dos_by_pathway
+        return k_rates, cluster_dos_dict
 
     def get_cached_densityandrate(
         self, cluster_indexed, dos_histogram_id, rate_histogram_id, pathway_lookup
@@ -416,13 +397,13 @@ class DerivedDataPreparer:
             )
 
         cluster_dos_dict = self._get_cached_dos(
-            cluster_indexed, dos_histogram_id, pathway_lookup, include_product_dos=True
+            cluster_indexed,
+            dos_histogram_id,
+            pathway_lookup,
+            include_cluster_dos=True,
+            include_product_dos=False,
         )
-        cluster_dos_by_pathway = self._rekey_cluster_dos_by_pathway(
-            cluster_dos_dict, pathway_lookup
-        )
-
-        return k_rates, cluster_dos_by_pathway
+        return k_rates, cluster_dos_dict
 
     def run_preliminaries(
         self,
@@ -467,18 +448,18 @@ class DerivedDataPreparer:
 
         if cached_densityandrate:
             dos_histogram_id, rate_histogram_id = cached_densityandrate
-            k_rates, cluster_dos_by_pathway = self.get_cached_densityandrate(
+            k_rates, cluster_dos = self.get_cached_densityandrate(
                 cluster_indexed, dos_histogram_id, rate_histogram_id, pathway_lookup
             )
         else:
-            k_rates, cluster_dos_by_pathway = self.run_densityandrate(
+            k_rates, cluster_dos = self.run_densityandrate(
                 config,
                 cluster_indexed,
                 pathway_lookup,
                 tablepbar=(prelim_table, outer_pbar) if show_progress else None,
             )
 
-        return skimmer_np, k_rates, cluster_dos_by_pathway
+        return skimmer_np, k_rates, cluster_dos
 
 
 class ExperimentRunner:
@@ -693,7 +674,7 @@ class ExperimentRunner:
             position=2,
         )
         for pathway_id, (cluster_id, product1_id, product2_id) in outer_pbar:
-            density_cluster = cluster_dos[pathway_id]
+            density_cluster = cluster_dos[cluster_id]
             rate_const = k_rates[pathway_id]
             cluster = cluster_indexed[cluster_id]
             product1 = cluster_indexed[product1_id]
@@ -800,7 +781,7 @@ class ExperimentRunner:
             product2_id,
         ) in pathway_lookup.items():
             rate_const = k_rates[pathway_id]
-            density_cluster = cluster_dos[pathway_id]
+            density_cluster = cluster_dos[cluster_id]
             cluster = cluster_indexed[cluster_id]
             if cluster_id != last_cluster_id:
                 if cur_group is not None:
