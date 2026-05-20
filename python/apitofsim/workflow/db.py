@@ -488,8 +488,8 @@ class SuperClusterDatabase(ClusterDatabase):
 
     def get_k_rate_through_join_else(self, histogram_id, k_total_dict, pathway_lookup):
         for miss_info in get_through_join_else(
-            self.db.db,
-            self.db.db.table("k_rate").filter(
+            self.db,
+            self.db.table("k_rate").filter(
                 duckdb.ColumnExpression("histogram_params_id")
                 == duckdb.ConstantExpression(histogram_id)
             ),
