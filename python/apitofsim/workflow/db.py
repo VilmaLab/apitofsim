@@ -105,7 +105,7 @@ class ClusterDatabase:
             self.cleanup()
         if hasattr(self, "db"):
             self.db.close()
-        if self.ase_db is not None:
+        if hasattr(self, "ase_db") and self.ase_db is not None:
             self.ase_db.__exit__(None, None, None)
 
     def __del__(self):
