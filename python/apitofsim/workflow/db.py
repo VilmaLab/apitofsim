@@ -339,7 +339,7 @@ class ClusterDatabase:
 
     def get_all_lookups(self, parent=None, pathways=None):
         if isinstance(parent, str):
-            parent = self.db.db.execute(
+            parent = self.db.execute(
                 """
                 select id
                 from cluster
@@ -362,7 +362,7 @@ class ClusterDatabase:
                 wanted_tbl = pa.table(
                     list(zip(*pathways)), names=["pathway", "product1", "product2"]
                 )
-                pathway_common_names = self.db.db.sql(
+                pathway_common_names = self.db.sql(
                     """
                     select
                         p.id as pathway_id,
@@ -378,7 +378,7 @@ class ClusterDatabase:
                 )
                 pathways = (
                     pathway_common_names.join(
-                        self.db.db.from_arrow(wanted_tbl).set_alias("wanted"),
+                        self.db.from_arrow(wanted_tbl).set_alias("wanted"),
                         condition=(
                             "wanted.pathway = cluster_common_name "
                             "and ((wanted.product1 = product1_common_name and wanted.product2 = product2_common_name) "
