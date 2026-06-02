@@ -172,6 +172,7 @@ class ClusterDatabase:
             Q_(cluster.electronic_energy, "hartree"),
             cluster.rotational_temperatures,
             cluster.vibrational_temperatures,
+            cluster.charge
         )
 
     def iter_clusters_objects(self, *args, **kwargs):

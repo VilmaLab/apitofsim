@@ -474,11 +474,12 @@ NB_MODULE(apitofsimraw, m)
   m.def("skimmer", &skimmer);
 
   nb::class_<ClusterData>(m, "ClusterData")
-    .def(nb::init<int, double, Eigen::Vector3d, Eigen::ArrayXd>(),
+    .def(nb::init<int, double, Eigen::Vector3d, Eigen::ArrayXd, int>(),
          "atomic_mass"_a,
          "electronic_energy"_a,
          "rotations"_a,
-         "frequencies"_a)
+         "frequencies"_a,
+         "charge"_a)
     .def_ro("atomic_mass", &ClusterData::atomic_mass)
     .def_ro("electronic_energy", &ClusterData::electronic_energy)
     .def_ro("rotations", &ClusterData::rotations)

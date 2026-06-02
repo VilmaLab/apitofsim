@@ -148,6 +148,8 @@ class ClusterData(ClusterLike):
     """From quantum chemistry calcuations, the rotational temperatures in Kelvin for the cluster. This is a 3 element array."""
     frequencies: numpy.ndarray
     """From quantum chemistry calcuations, the vibrational temperatures in Kelvin for the cluster."""
+    charge: int
+    """The cluster's charge"""
 
     def into_cpp(self) -> _ClusterData:
         frequencies = self.get_frequencies()
@@ -158,6 +160,7 @@ class ClusterData(ClusterLike):
             self.electronic_energy.to("hartree").magnitude,
             self.rotations,
             frequencies,
+            self.charge,
         )
 
     def get_frequencies(self) -> Optional[numpy.ndarray]:

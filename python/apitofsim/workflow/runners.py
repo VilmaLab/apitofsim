@@ -11,7 +11,6 @@ from apitofsim.api import (
     MassSpectrometer,
     MeshMode,
     SampleMode,
-    defaults,
 )
 
 from .db import (
@@ -702,9 +701,7 @@ class ExperimentRunner:
                 density_hist,
                 rate_hist,
                 fragmentation_energy=config.get("fragmentation_energy"),
-                cluster_charge_sign=config.get(
-                    "cluster_charge_sign", defaults.cluster_charge_sign
-                ),
+                cluster_charge_sign=cluster.charge,
             )
             realizations = (
                 int(environ["N_OVERRIDE"]) if "N_OVERRIDE" in environ else config["N"]
@@ -859,7 +856,7 @@ class ExperimentRunner:
                 group["pathways"],
                 config["gas"],
                 group["density_hist"],
-                config.get("cluster_charge_sign", defaults.cluster_charge_sign),
+                cluster.charge,
             )
             inner_pbar = mass_spec_table(
                 realizations, position=1, description="Realization"

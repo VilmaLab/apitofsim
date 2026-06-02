@@ -190,6 +190,7 @@ def parse_config(fn):
             else:
                 value = float(value)
         config[name] = value
+    check_for_deprecated_keys(config)
     return config
 
 
@@ -425,4 +426,16 @@ def import_raw_config(config):
             )
         elif k in TOPLEVEL + ["voltages", "lengths", "pressures"]:
             config[k] = into_quantity_obj(config, k)
+    check_for_deprecated_keys(config)
     return config
+
+
+def check_for_deprecated_keys(config):
+    import warnings
+
+    for k in config:
+        if k == "cluster_charge_sign":
+            warnings.warn(
+                "'cluster_charge_sign' is deprecated, add cluster charges during data import instead",
+                DeprecationWarning
+            )
