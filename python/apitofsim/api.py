@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from collections import namedtuple
 from dataclasses import KW_ONLY, MISSING, dataclass
-from typing import Callable, List, Optional, cast
+from typing import Callable, List, Optional, Tuple, cast
 
 import numpy
 from pandas import DataFrame
@@ -9,9 +9,9 @@ from pint import Quantity, get_application_registry
 from pint._typing import Magnitude
 
 from .apitofsimraw import (
+    DEFAULT_LOGLEVEL,
     ApiTofArgumentError,
     ApiTofDosOverflow,
-    # Exceptions
     ApiTofError,
     ApiTofMaxCollisions,
     ApiTofOverflowError,
@@ -22,13 +22,9 @@ from .apitofsimraw import (
     FragmentationEvent,
     FragmentationPathway,
     KTotalInput,
-    MassSpecLogConf,
-    # Enums
     MeshMode,
-    # EventMessage
     ParticleState,
     SampleMode,
-    # Defaults
     defaults,
 )
 from .apitofsimraw import (
@@ -96,7 +92,6 @@ __all__ = [
     "MassSpecInputFragmentationPathway",
     "MassSpecSubstanceInput",
     "FragmentationPathway",
-    "MassSpecLogConf",
     # Exceptions
     "ApiTofError",
     "ApiTofArgumentError",
@@ -614,7 +609,7 @@ def mass_spec(
     *,
     sample_mode: SampleMode = SampleMode.rejection,
     strict=True,
-    logconf: MassSpecLogConf = MassSpecLogConf(),
+    logconf: Tuple[int, bool] = (DEFAULT_LOGLEVEL, False),
     seed: int = 42,
     log_callback: Callable[[str, str], None] | None = None,
     result_callback: Callable[[numpy.ndarray], None] | None = None,
@@ -716,7 +711,7 @@ def mass_spec_iter(
     *,
     sample_mode: SampleMode = SampleMode.rejection,
     strict=True,
-    loglevel: int = 0,
+    logconf: Tuple[int, bool] = (DEFAULT_LOGLEVEL, False),
     seed: int = 42,
 ):
     return MassSpecIterator(
@@ -725,7 +720,7 @@ def mass_spec_iter(
         N,
         sample_mode=sample_mode,
         strict=strict,
-        loglevel=loglevel,
+        logconf=logconf,
         seed=seed,
     )
 

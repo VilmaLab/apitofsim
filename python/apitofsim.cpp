@@ -32,6 +32,7 @@ using namespace nb::literals;
 typedef Eigen::Array<double, Eigen::Dynamic, 6> SkimmerResult;
 
 const unsigned long long DEFAULT_SEED = 42ull;
+const std::tuple<int, bool> DEFAULT_LOGCONF_TUPLE = std::tuple(DEFAULT_LOGLEVEL, false);
 
 struct PythonWarningHelper
 {
@@ -160,7 +161,7 @@ std::thread run_mass_spec_in_thread(
   StreamingResultQueue &result_queue,
   SampleMode sample_mode,
   bool strict,
-  MassSpecLogConf logconf)
+  std::tuple<int, bool> logconf)
 {
   return std::thread([&, N, seed, sample_mode, strict, logconf]
   {
@@ -175,7 +176,8 @@ std::thread run_mass_spec_in_thread(
         result_queue,
         sample_mode,
         strict,
-        logconf);
+        MassSpecLogConf(std::get<0>(logconf), std::get<1>(logconf))
+      );
     });
     result_queue.enqueue(std::monostate{});
   });
@@ -259,7 +261,7 @@ mass_spec(
   std::optional<std::function<void(EventMessage)>> event_callback = nullopt,
   SampleMode sample_mode = SampleMode::rejection,
   bool strict = true,
-  MassSpecLogConf logconf = MassSpecLogConf{})
+  std::tuple<int, bool> logconf = DEFAULT_LOGCONF_TUPLE)
 {
   StreamingResultQueue result_queue;
   OMPExceptionHelper exception_helper;
@@ -317,7 +319,7 @@ struct MassSpecIterator
     unsigned long long seed = DEFAULT_SEED,
     SampleMode sample_mode = SampleMode::rejection,
     bool strict = true,
-    MassSpecLogConf logconf = MassSpecLogConf{}) : result_queue(),
+    std::tuple<int, bool> logconf = DEFAULT_LOGCONF_TUPLE) : result_queue(),
                                                    partial_counters(mk_partial_counters(subs)),
                                                    exception_helper(),
                                                    execution_thread(run_mass_spec_in_thread(final_result, exception_helper, ms, subs, N, seed, result_queue, sample_mode, strict, logconf)),
@@ -644,11 +646,6 @@ NB_MODULE(apitofsimraw, m)
 
   nb_magic_enum<SampleMode>(m, "SampleMode");
 
-  nb::class_<MassSpecLogConf>(m, "MassSpecLogConf")
-    .def(nb::init<>())
-    .def(nb::init<int, bool>(), "level"_a, "log_events"_a)
-    .def_ro("level", &MassSpecLogConf::level)
-    .def_ro("log_events", &MassSpecLogConf::log_events);
 
   m.def("mass_spec",
         &mass_spec,
@@ -662,7 +659,7 @@ NB_MODULE(apitofsimraw, m)
         "event_callback"_a = std::nullopt,
         "sample_mode"_a = SampleMode::rejection,
         "strict"_a = true,
-        "logconf"_a = DEFAULT_LOGCONF);
+        "logconf"_a = DEFAULT_LOGCONF_TUPLE);
 
   nb::class_<ParticleStateMsg>(m, "ParticleState")
     .def_ro("realization", &ParticleStateMsg::realization)
@@ -694,7 +691,7 @@ NB_MODULE(apitofsimraw, m)
          "seed"_a = DEFAULT_SEED,
          "sample_mode"_a = SampleMode::rejection,
          "strict"_a = true,
-         "logconf"_a = MassSpecLogConf{})
+         "logconf"_a = DEFAULT_LOGCONF_TUPLE)
     .def("__next__", &MassSpecIterator::__next__)
     .def("join_if_joinable", &MassSpecIterator::join_if_joinable);
 
@@ -733,6 +730,7 @@ NB_MODULE(apitofsimraw, m)
         "du"_a = std::nullopt);
 
   m.def("debug_info", &debug_info);
+  m.attr("DEFAULT_LOGLEVEL") = DEFAULT_LOGLEVEL;
 
   nb::module_ m_defaults = m.def_submodule("defaults", "Default parameter values");
 

@@ -7,7 +7,6 @@ from apitofsim.api import (
     ApiTofError,
     ApiTofOverflowError,
     MassSpecInputFragmentationPathway,
-    MassSpecLogConf,
     MassSpecSubstanceInput,
     MassSpectrometer,
     MeshMode,
@@ -507,9 +506,9 @@ class ExperimentRunner:
             event_recorder = EventRecorder(
                 self.db, pathway_ids if pathway_ids is not None else [pathway_id]
             )
-            logconf = MassSpecLogConf(loglevel, True)
+            logconf = (loglevel, True)
         else:
-            logconf = MassSpecLogConf(loglevel, False)
+            logconf = (loglevel, False)
 
         counters = None
         try:
