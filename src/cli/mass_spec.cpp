@@ -251,7 +251,7 @@ void mass_spec_config_in()
         InstrumentPressures{pressure_first, pressure_second},
         quadrupole};
       std::vector<MassSpecInputFragmentationPathway> pathways = {MassSpecInputFragmentationPathway(rate_const, bonding_energy)};
-      MassSpecSubstanceInput subs(
+      MassSpecSubstanceSingleInput subs(
         cluster_charge_sign,
         m_ion,
         R_cluster,

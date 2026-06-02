@@ -46,11 +46,13 @@ from .apitofsimraw import (
     MassSpecIterator as _MassSpecIterator,
 )
 from .apitofsimraw import (
-    MassSpecSubstanceInput as _MassSpecSubstanceInput,
+    MassSpecSubstanceSingleInput as _MassSpecSubstanceSingleInput,
 )
+from .apitofsimraw import MassSpecSubstanceTreeInput as _MassSpecSubstanceTreeInput
 from .apitofsimraw import (
     MassSpectrometer as _MassSpectrometer,
 )
+from .apitofsimraw import MSSubstanceTreeNode as _MSSubstanceTreeNode
 from .apitofsimraw import (
     Quadrupole as _Quadrupole,
 )
@@ -90,7 +92,7 @@ __all__ = [
     "compute_k_total_batch",
     "KTotalInput",
     "MassSpecInputFragmentationPathway",
-    "MassSpecSubstanceInput",
+    "MassSpecSubstanceSingleInput",
     "FragmentationPathway",
     # Exceptions
     "ApiTofError",
@@ -521,14 +523,14 @@ def MassSpecInputFragmentationPathway(*args, **kwargs):
         )
 
 
-def MassSpecSubstanceInput(*args, **kwargs):
+def MassSpecSubstanceSingleInput(*args, **kwargs):
     """
-    Construct a MassSpecSubstanceInput
+    Construct a MassSpecSubstanceSingleInput
     """
     get = ArgGetter(args, kwargs)
     if len(args) >= 1 and isinstance(args[0], ClusterLike) or "cluster_0" in kwargs:
         if len(args) >= 2 and isinstance(args[1], ClusterLike) or "cluster_1" in kwargs:
-            return _MassSpecSubstanceInput(
+            return _MassSpecSubstanceSingleInput(
                 cluster_0=get("cluster_0", 0).into_cpp(),
                 cluster_1=get("cluster_1", 1).into_cpp(),
                 cluster_2=get("cluster_2", 2).into_cpp(),
@@ -541,7 +543,7 @@ def MassSpecSubstanceInput(*args, **kwargs):
                 ),
             )
         else:
-            return _MassSpecSubstanceInput(
+            return _MassSpecSubstanceSingleInput(
                 cluster_0=get("cluster_0", 0).into_cpp(),
                 pathways=get("pathways", 1),
                 gas=get("gas", 2).into_cpp(),
@@ -551,7 +553,7 @@ def MassSpecSubstanceInput(*args, **kwargs):
                 ),
             )
     else:
-        return _MassSpecSubstanceInput(
+        return _MassSpecSubstanceSingleInput(
             cluster_charge_sign=get("cluster_charge_sign", 0),
             m_ion=get("m_ion", 1),
             R_cluster=get("R_cluster", 2),
@@ -559,6 +561,68 @@ def MassSpecSubstanceInput(*args, **kwargs):
             pathway=get("pathway", 4),
             gas=get("gas", 5).into_cpp(),
         )
+
+
+def build_ms_substance_tree_input(root, root_node_index=0, root_pathway_index=0):
+    cluster_data, density_cluster, children = root
+    pathways = []
+    pathway_products = []
+    current_node_index = root_node_index + 1
+    current_pathway_index = root_pathway_index
+    pathway_counts = len(children)
+    for k_rate, product_1, product_2 in children:
+        initial_pathway_index = current_pathway_index
+        product_1_node, current_node_index, pathway_count1 = (
+            build_ms_substance_tree_input(
+                product_1, current_node_index, current_pathway_index + 1
+            )
+        )
+        current_pathway_index += pathway_count1
+        product_2_node, current_node_index, pathway_count2 = (
+            build_ms_substance_tree_input(
+                product_2, current_node_index, current_pathway_index + 1
+            )
+        )
+        current_pathway_index += pathway_count2
+        pathway_counts += pathway_count1 + pathway_count2
+        if isinstance(k_rate, _MassSpecInputFragmentationPathway):
+            pathways.append(k_rate)
+        else:
+            pathways.append(
+                MassSpecInputFragmentationPathway(
+                    cluster_data,
+                    product_1[0],
+                    product_2[0],
+                    k_rate,
+                )
+            )
+        pathway_products.append((product_1_node, product_2_node, initial_pathway_index))
+    return (
+        _MSSubstanceTreeNode(
+            root_node_index,
+            cluster_data.into_cpp(),
+            pathways,
+            pathway_products,
+            density_cluster.into_cpp(),
+        ),
+        current_node_index,
+        pathway_counts,
+    )
+
+
+def MassSpecSubstanceTreeInput(*args, **kwargs):
+    get = ArgGetter(args, kwargs)
+    gas = get("gas", 0)
+    root = get("tree", 1)
+    count = get("count", 2, default=None)
+    pathway_count = get("pathway_count", 3, default=None)
+    if not isinstance(root, _MSSubstanceTreeNode):
+        root, count, pathway_count = build_ms_substance_tree_input(root)
+    if count is None or pathway_count is None:
+        raise ValueError(
+            "Arguments `count` and `pathway_counts` must be provided if `root` is given as a pre-built _MSSubstanceTreeNode"
+        )
+    return _MassSpecSubstanceTreeInput(gas.into_cpp(), root, count, pathway_count)
 
 
 def densityandrate(
@@ -607,7 +671,7 @@ def counters_named_tuple(counters):
 
 def mass_spec(
     mass_spec: MassSpectrometer,
-    subs: _MassSpecSubstanceInput,
+    subs: _MassSpecSubstanceSingleInput,
     N: int,
     *,
     sample_mode: SampleMode = SampleMode.rejection,
@@ -709,7 +773,7 @@ class MassSpecIterator(_MassSpecIterator):
 
 def mass_spec_iter(
     mass_spec: MassSpectrometer,
-    subs: _MassSpecSubstanceInput,
+    subs: _MassSpecSubstanceSingleInput,
     N: int,
     *,
     sample_mode: SampleMode = SampleMode.rejection,

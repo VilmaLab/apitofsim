@@ -48,7 +48,7 @@ These classes input data to the simulation, as well as output data from intermed
     options:
       heading_level: 3
 
-::: apitofsim.MassSpecSubstanceInput
+::: apitofsim.MassSpecSubstanceSingleInput
     options:
       heading_level: 3
 

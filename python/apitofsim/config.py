@@ -437,5 +437,5 @@ def check_for_deprecated_keys(config):
         if k == "cluster_charge_sign":
             warnings.warn(
                 "'cluster_charge_sign' is deprecated, add cluster charges during data import instead",
-                DeprecationWarning
+                DeprecationWarning,
             )

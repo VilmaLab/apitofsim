@@ -125,7 +125,7 @@ TEST_CASE("apitof pinhole smoke tests")
       1.3e6,
       6.0e-3),
   };
-  auto subs = MassSpecSubstanceInput(
+  auto subs = MassSpecSubstanceSingleInput(
     -1,
     m_ion,
     R_cluster,

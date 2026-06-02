@@ -144,18 +144,25 @@ unsigned long long root_seed(unsigned long long seed)
 
 typedef Eigen::Array<int, Eigen::Dynamic, Eigen::Dynamic> PartialCounters;
 
-PartialCounters mk_partial_counters(const MassSpecSubstanceInput &subs)
+PartialCounters mk_partial_counters(const MassSpecSubstanceSingleInput &subs)
 {
   int total_counters = n_counters - 1 + subs.pathways.size();
   return Eigen::Array<int, Eigen::Dynamic, Eigen::Dynamic>::Zero(omp_get_max_threads(), total_counters);
 }
 
+PartialCounters mk_partial_counters(const MassSpecSubstanceTreeInput &subs)
+{
+  int total_counters = n_counters - 1 + subs.pathway_count;
+  return Eigen::Array<int, Eigen::Dynamic, Eigen::Dynamic>::Zero(omp_get_max_threads(), total_counters);
+}
+
 /* Caller must ensure that all parameters passed as reference outlive thread */
+template <typename MassSpecSubstanceT>
 std::thread run_mass_spec_in_thread(
   SimulationResult &result,
   OMPExceptionHelper &exception_helper,
   const MassSpectrometer &ms,
-  const MassSpecSubstanceInput &subs,
+  const MassSpecSubstanceT &subs,
   int N,
   unsigned long long seed,
   StreamingResultQueue &result_queue,
@@ -250,10 +257,11 @@ std::variant<std::tuple<const std::string, const std::string>, Eigen::ArrayXi, E
   return std::monostate{};
 }
 
+template <typename MassSpecSubstanceT>
 SimulationResult
 mass_spec(
   const MassSpectrometer &ms,
-  const MassSpecSubstanceInput &subs,
+  const MassSpecSubstanceT &subs,
   int N,
   unsigned long long seed = DEFAULT_SEED,
   std::optional<std::function<void(std::string_view, std::string)>> log_callback = nullopt,
@@ -267,7 +275,7 @@ mass_spec(
   OMPExceptionHelper exception_helper;
   SimulationResult result;
   PartialCounters partial_counters = mk_partial_counters(subs);
-  auto cleanup = MassSpecCleanup{run_mass_spec_in_thread(result, exception_helper, ms, subs, N, seed, result_queue, sample_mode, strict, logconf)};
+  auto cleanup = MassSpecCleanup{run_mass_spec_in_thread<MassSpecSubstanceT>(result, exception_helper, ms, subs, N, seed, result_queue, sample_mode, strict, logconf)};
   while (true)
   {
     auto result = pump_mass_spec_queue(result_queue, partial_counters, exception_helper);
@@ -312,9 +320,10 @@ struct MassSpecIterator
   SimulationResult final_result{};
   bool finished;
 
+  template <typename MassSpecSubstanceT>
   MassSpecIterator(
     const MassSpectrometer &ms,
-    const MassSpecSubstanceInput &subs,
+    const MassSpecSubstanceT &subs,
     int N,
     unsigned long long seed = DEFAULT_SEED,
     SampleMode sample_mode = SampleMode::rejection,
@@ -322,7 +331,7 @@ struct MassSpecIterator
     std::tuple<int, bool> logconf = DEFAULT_LOGCONF_TUPLE) : result_queue(),
                                                    partial_counters(mk_partial_counters(subs)),
                                                    exception_helper(),
-                                                   execution_thread(run_mass_spec_in_thread(final_result, exception_helper, ms, subs, N, seed, result_queue, sample_mode, strict, logconf)),
+                                                   execution_thread(run_mass_spec_in_thread<MassSpecSubstanceT>(final_result, exception_helper, ms, subs, N, seed, result_queue, sample_mode, strict, logconf)),
                                                    finished(false)
   {
   }
@@ -552,7 +561,7 @@ NB_MODULE(apitofsimraw, m)
     .def_ro("rate_const", &MassSpecInputFragmentationPathway::rate_const)
     .def_ro("bonding_energy", &MassSpecInputFragmentationPathway::bonding_energy);
 
-  nb::class_<MassSpecSubstanceInput>(m, "MassSpecSubstanceInput")
+  nb::class_<MassSpecSubstanceSingleInput>(m, "MassSpecSubstanceSingleInput")
     .def(nb::init<ClusterData &, ClusterData &, ClusterData &, Gas, const Histogram &, const Histogram &, std::optional<double>, int>(),
          "cluster_0"_a,
          "cluster_1"_a,
@@ -575,12 +584,35 @@ NB_MODULE(apitofsimraw, m)
          "density_cluster"_a,
          "pathways"_a,
          "gas"_a)
-    .def_ro("cluster_charge_sign", &MassSpecSubstanceInput::cluster_charge_sign)
-    .def_ro("m_ion", &MassSpecSubstanceInput::m_ion)
-    .def_ro("R_cluster", &MassSpecSubstanceInput::R_cluster)
-    .def_ro("density_cluster", &MassSpecSubstanceInput::density_cluster)
-    .def_ro("pathways", &MassSpecSubstanceInput::pathways)
-    .def_ro("gas", &MassSpecSubstanceInput::gas);
+    .def_ro("cluster_charge_sign", &MassSpecSubstanceSingleInput::cluster_charge_sign)
+    .def_ro("m_ion", &MassSpecSubstanceSingleInput::m_ion)
+    .def_ro("R_cluster", &MassSpecSubstanceSingleInput::R_cluster)
+    .def_ro("density_cluster", &MassSpecSubstanceSingleInput::density_cluster)
+    .def_ro("pathways", &MassSpecSubstanceSingleInput::pathways)
+    .def_ro("gas", &MassSpecSubstanceSingleInput::gas);
+
+  nb::class_<MSSubstanceTreeNode>(m, "MSSubstanceTreeNode")
+    .def(nb::init<int, int, double, double, Histogram, const std::vector<MassSpecInputFragmentationPathway>, const std::vector<std::tuple<MSSubstanceTreeNode, MSSubstanceTreeNode, int>>>(),
+        "index"_a,
+        "cluster_charge_sign"_a,
+        "m_ion"_a,
+        "R_cluster"_a,
+        "density_cluster"_a,
+        "pathways"_a,
+        "pathway_products"_a)
+    .def(nb::init<int, ClusterData&, const std::vector<MassSpecInputFragmentationPathway>, const std::vector<std::tuple<MSSubstanceTreeNode, MSSubstanceTreeNode, int>>, Histogram>(),
+        "index"_a,
+        "cluster_0"_a,
+        "pathways"_a,
+        "pathway_products"_a,
+        "density_cluster"_a);
+
+  nb::class_<MassSpecSubstanceTreeInput>(m, "MassSpecSubstanceTreeInput")
+    .def(nb::init<Gas, MSSubstanceTreeNode, int, int>(),
+        "gas"_a,
+        "root"_a,
+        "count"_a,
+        "pathway_count"_a);
 
   m.def("validate_max_energies", static_cast<void (*)(double, double, double, double)>(validate_max_energies),
         "fragmentation_energy"_a,
@@ -647,9 +679,22 @@ NB_MODULE(apitofsimraw, m)
 
   nb_magic_enum<SampleMode>(m, "SampleMode");
 
+  m.def("mass_spec",
+        &mass_spec<MassSpecSubstanceSingleInput>,
+        nb::call_guard<nb::gil_scoped_release>(),
+        "ms"_a,
+        "subs"_a,
+        "N"_a,
+        "seed"_a = DEFAULT_SEED,
+        "log_callback"_a = std::nullopt,
+        "result_callback"_a = std::nullopt,
+        "event_callback"_a = std::nullopt,
+        "sample_mode"_a = SampleMode::rejection,
+        "strict"_a = true,
+        "logconf"_a = DEFAULT_LOGCONF_TUPLE);
 
   m.def("mass_spec",
-        &mass_spec,
+        &mass_spec<MassSpecSubstanceTreeInput>,
         nb::call_guard<nb::gil_scoped_release>(),
         "ms"_a,
         "subs"_a,
@@ -684,7 +729,16 @@ NB_MODULE(apitofsimraw, m)
     .def_ro("state", &EscapeEvent::state);
 
   nb::class_<MassSpecIterator>(m, "MassSpecIterator")
-    .def(nb::init<const MassSpectrometer &, const MassSpecSubstanceInput &, int, unsigned long long, SampleMode, bool, MassSpecLogConf>(),
+    .def(nb::init<const MassSpectrometer &, const MassSpecSubstanceSingleInput &, int, unsigned long long, SampleMode, bool, std::tuple<int, bool>>(),
+         nb::call_guard<nb::gil_scoped_release>(),
+         "ms"_a,
+         "subs"_a,
+         "N"_a,
+         "seed"_a = DEFAULT_SEED,
+         "sample_mode"_a = SampleMode::rejection,
+         "strict"_a = true,
+         "logconf"_a = DEFAULT_LOGCONF_TUPLE)
+    .def(nb::init<const MassSpectrometer &, const MassSpecSubstanceTreeInput &, int, unsigned long long, SampleMode, bool, std::tuple<int, bool>>(),
          nb::call_guard<nb::gil_scoped_release>(),
          "ms"_a,
          "subs"_a,
