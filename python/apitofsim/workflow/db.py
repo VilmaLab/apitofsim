@@ -92,6 +92,7 @@ class ClusterDatabase:
     def _setup_db(self):
         import os
 
+        self.db.execute("SET threads=1")
         self.db.execute("SET preserve_insertion_order=false")
         if "DUCKDB_MEMORY_LIMIT" in os.environ:
             memory_limit = os.environ["DUCKDB_MEMORY_LIMIT"]
