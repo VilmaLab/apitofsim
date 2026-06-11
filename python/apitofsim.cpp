@@ -605,14 +605,25 @@ NB_MODULE(apitofsimraw, m)
         "cluster_0"_a,
         "pathways"_a,
         "pathway_products"_a,
-        "density_cluster"_a);
+        "density_cluster"_a)
+    .def_ro("index", &MSSubstanceTreeNode::index)
+    .def_ro("cluster_charge_sign", &MSSubstanceTreeNode::cluster_charge_sign)
+    .def_ro("m_ion", &MSSubstanceTreeNode::m_ion)
+    .def_ro("R_cluster", &MSSubstanceTreeNode::R_cluster)
+    .def_ro("density_cluster", &MSSubstanceTreeNode::density_cluster)
+    .def_ro("pathways", &MSSubstanceTreeNode::pathways)
+    .def_ro("pathway_products", &MSSubstanceTreeNode::pathway_products);
 
   nb::class_<MassSpecSubstanceTreeInput>(m, "MassSpecSubstanceTreeInput")
     .def(nb::init<Gas, MSSubstanceTreeNode, int, int>(),
         "gas"_a,
         "root"_a,
         "count"_a,
-        "pathway_count"_a);
+        "pathway_count"_a)
+    .def_ro("gas", &MassSpecSubstanceTreeInput::gas)
+    .def_ro("root", &MassSpecSubstanceTreeInput::root)
+    .def_ro("count", &MassSpecSubstanceTreeInput::count)
+    .def_ro("pathway_count", &MassSpecSubstanceTreeInput::pathway_count);
 
   m.def("validate_max_energies", static_cast<void (*)(double, double, double, double)>(validate_max_energies),
         "fragmentation_energy"_a,
@@ -790,4 +801,7 @@ NB_MODULE(apitofsimraw, m)
   nb::module_ m_defaults = m.def_submodule("defaults", "Default parameter values");
 
   m_defaults.attr("cluster_charge_sign") = defaults::cluster_charge_sign;
+
+  nb::module_ m_consts = m.def_submodule("consts", "Constants");
+  m_consts.attr("hartK") = consts::hartK;
 }

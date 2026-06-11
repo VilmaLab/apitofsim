@@ -7,6 +7,7 @@ dependencies = [
   "ase>=3.27.0",
   "click>=8.2.0",
   "duckdb>=1.4.2",
+  "graphviz>=0.21",
   "numpy",
   "orjson>=3.11.4",
   "pandas",
@@ -97,3 +98,4 @@ no-build-isolation-package = ["apitofsim"]
 
 [tool.uv.sources]
 apitofsim = { path = ".", editable = true }
+ase = { path = "../../sources/ase" }

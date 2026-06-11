@@ -1,6 +1,6 @@
 # pyright: reportAttributeAccessIssue=false
 
-from collections import namedtuple
+from collections import Counter, namedtuple
 from contextlib import contextmanager
 from datetime import timedelta
 
@@ -14,6 +14,7 @@ from pint import get_application_registry
 import apitofsim.workflow.sql_files as sql_files
 from apitofsim import ClusterData
 
+from .base import SimulationMode
 from .db_utils import duckdb_connect_roview_cow, get_through_join_else
 
 ureg = get_application_registry()
@@ -172,7 +173,7 @@ class ClusterDatabase:
             Q_(cluster.electronic_energy, "hartree"),
             cluster.rotational_temperatures,
             cluster.vibrational_temperatures,
-            cluster.charge
+            cluster.charge,
         )
 
     def iter_clusters_objects(self, *args, **kwargs):
@@ -522,10 +523,12 @@ class ExperimentDatabase(SuperClusterDatabase):
     def refresh_views(self):
         super().refresh_views()
 
-    def insert_run(self, config_id=None, pathway_at_a_time=False):
+    def insert_run(self, config_id=None, simulation_mode=SimulationMode.SINGLE_CLUSTER):
+        import orjson
+
         id = self.db.execute(
             "insert into experiment_run values (default, ?, ?, current_timestamp) returning id",
-            (config_id, pathway_at_a_time),
+            (config_id, orjson.dumps({"simulation_mode": simulation_mode.name})),
         ).fetchone()
         assert id is not None
         return id[0]
@@ -606,13 +609,25 @@ class ExperimentDatabase(SuperClusterDatabase):
             ).fetchone()
             assert pathway_ids is not None
             assert id is not None
-            for pathway_id, fragmented in zip(
-                pathway_ids, counters.n_fragmented_total, strict=True
-            ):
-                self.db.execute(
-                    "insert into pathway_fragmentation values (default, ?, ?, ?)",
-                    (id[0], pathway_id, int(fragmented)),
-                )
+            if pathway_ids is not None:
+                counter = Counter()
+                for pathway_id, cnt in zip(
+                    pathway_ids, counters.n_fragmented_total, strict=True
+                ):
+                    counter[pathway_id] += cnt
+                for pathway_id, cnt in counter.items():
+                    self.db.execute(
+                        "insert into pathway_fragmentation values (default, ?, ?, ?)",
+                        (id[0], pathway_id, int(cnt)),
+                    )
+            else:
+                for pathway_id, fragmented in zip(
+                    pathway_ids, counters.n_fragmented_total, strict=True
+                ):
+                    self.db.execute(
+                        "insert into pathway_fragmentation values (default, ?, ?, ?)",
+                        (id[0], pathway_id, int(fragmented)),
+                    )
         assert id is not None
         return id[0]
 

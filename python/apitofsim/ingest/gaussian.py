@@ -40,6 +40,21 @@ def parse_gaussian(fd):
             out["zero_point_energy"] = ureg.Quantity(
                 float(line[len(zpc_marker) :].strip().split()[0]), "hartree"
             )
+            while 1:
+                line = next(lines)
+                if "=" not in line:
+                    break
+                bits = line.split("=", 1)
+                key = bits[0].strip().replace(" ", "_").replace("-", "_").lower()
+                value = ureg.Quantity(
+                    float(bits[1].strip().split()[0].strip()), "hartree"
+                )
+                out[key] = value
+        elif line.strip() == "## ELECTRONIC ENERGY ##":
+            line = next(lines)
+            out["scf_electronic_energy"] = ureg.Quantity(
+                float(line.split("=", 1)[1].strip().split()[0].strip()), "hartree"
+            )
         elif line.startswith(mass_marker):
             mass = float(line[len(mass_marker) :].strip().split()[0])
             out["atomic_mass"] = ureg.Quantity(mass, "amu")

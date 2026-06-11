@@ -59,6 +59,10 @@ select
     p2.rotational_temperatures as product2_rotational_temperatures,
     p2.vibrational_temperatures as product2_vibrational_temperatures,
 
+    -- Energy
+    product1_electronic_energy + product2_electronic_energy - cluster_electronic_energy as fragmentation_energy_hart,
+    fragmentation_energy_hart * 3.157732e+5 as fragmentation_energy_kelvin,
+
 from pathway p
 inner join cluster c on c.id = p.cluster_id
 inner join cluster p1 on p1.id = p.product1_id

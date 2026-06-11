@@ -16,7 +16,7 @@ from .api import (
     precompute_mesh,
     skimmer,
 )
-from .apitofsimraw import debug_info
+from .apitofsimraw import consts, debug_info, defaults
 from .config import (
     config_to_shortnames,
     get_clusters,
@@ -54,4 +54,6 @@ __all__ = [
     "get_clusters",
     "get_gas",
     "debug_info",
+    "defaults",
+    "consts",
 ]

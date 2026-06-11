@@ -7,12 +7,14 @@ from apitofsim.api import (
     ApiTofError,
     ApiTofOverflowError,
     MassSpecInputFragmentationPathway,
-    MassSpecSubstanceInput,
+    MassSpecSubstanceSingleInput,
+    MassSpecSubstanceTreeInput,
     MassSpectrometer,
     MeshMode,
     SampleMode,
 )
 
+from .base import SimulationMode
 from .db import (
     EventRecorder,
     ExperimentDatabase,
@@ -183,6 +185,7 @@ class DerivedDataPreparer:
         energy_max_rate,
         pathway_lookup,
         status_table=None,
+        name_lookup=None,
     ):
         import pyarrow as pa
 
@@ -190,6 +193,7 @@ class DerivedDataPreparer:
             FragmentationPathway,
             KTotalInput,
             compute_k_total_batch,
+            consts,
         )
         from apitofsim.api import validate_max_energies
 
@@ -212,18 +216,38 @@ class DerivedDataPreparer:
         ) in self.db.get_k_rate_through_join_else(
             histogram_id, k_total_dict, pathway_lookup
         ):
+            parent_cpp = cluster_indexed[cluster_id].into_cpp()
             product1_cpp = cluster_indexed[product1_id].into_cpp()
             product2_cpp = cluster_indexed[product2_id].into_cpp()
             fragmentation_energy = FragmentationPathway(
-                cluster_indexed[cluster_id].into_cpp(), product1_cpp, product2_cpp
+                parent_cpp, product1_cpp, product2_cpp
             ).fragmentation_energy_kelvin()
-            validate_max_energies(
-                fragmentation_energy=fragmentation_energy,
-                bin_width=bin_width,
-                energy_max=energy_max,
-                energy_max_rate=energy_max_rate,
-                quantities_strict=False,
-            )
+            try:
+                validate_max_energies(
+                    fragmentation_energy=fragmentation_energy,
+                    bin_width=bin_width,
+                    energy_max=energy_max,
+                    energy_max_rate=energy_max_rate,
+                    quantities_strict=False,
+                )
+            except ApiTofError as e:
+                if name_lookup is not None:
+                    parent_name = name_lookup[cluster_id]
+                    product1_name = name_lookup[product1_id]
+                    product2_name = name_lookup[product2_id]
+                    e.add_note(
+                        f"Pathway is {parent_name} -> {product1_name} + {product2_name}"
+                    )
+                    e.add_note(
+                        f"{parent_name}: {parent_cpp.electronic_energy * consts.hartK}K"
+                    )
+                    e.add_note(
+                        f"{product1_name}: {product1_cpp.electronic_energy * consts.hartK}K"
+                    )
+                    e.add_note(
+                        f"{product2_name}: {product2_cpp.electronic_energy * consts.hartK}K"
+                    )
+                raise e
             product_id_tpl = tuple(sorted((product1_id, product2_id)))
             k_total_keys.append(pathway_id)
             assert cluster_dos_dict[cluster_id].flags.c_contiguous
@@ -281,7 +305,7 @@ class DerivedDataPreparer:
         return k_total_dict
 
     def run_densityandrate(
-        self, config, cluster_indexed, pathway_lookup, tablepbar=None
+        self, config, cluster_indexed, pathway_lookup, tablepbar=None, name_lookup=None
     ):
         from timeit import default_timer as timer
 
@@ -364,6 +388,7 @@ class DerivedDataPreparer:
             config["energy_max_rate"],
             pathway_lookup=pathway_lookup,
             status_table=table,
+            name_lookup=name_lookup,
         )
 
         table["Time (s)"] = f"{(timer() - start):.2f}"
@@ -411,6 +436,7 @@ class DerivedDataPreparer:
         use_cached=False,
         show_progress=True,
         cached_densityandrate: Optional[Tuple[int, int]] = None,
+        name_lookup=None,
     ):
         from timeit import default_timer as timer
 
@@ -455,6 +481,7 @@ class DerivedDataPreparer:
                 cluster_indexed,
                 pathway_lookup,
                 tablepbar=(prelim_table, outer_pbar) if show_progress else None,
+                name_lookup=name_lookup,
             )
 
         return skimmer_np, k_rates, cluster_dos
@@ -489,6 +516,7 @@ class ExperimentRunner:
         pathway_id=None,
         cluster_id=None,
         pathway_ids=None,
+        product_ids=None,
         strict=False,
         strict_dos=True,
         loglevel=0,
@@ -549,29 +577,21 @@ class ExperimentRunner:
             event_recorder.relate_realizations(experiment_result_id)
         return counters
 
-    """
-    Run a `config` passed directly as a dict.
-    """
-
-    def run_from_config(
+    def _prepare_from_config(
         self,
         config,
-        run_started=False,
-        strict_dos=True,
-        pathway_at_a_time=False,
         parent=None,
         pathways=None,
-        verbose=False,
     ):
-        if not run_started:
-            self.start_run()
-
         cluster_indexed, name_lookup, pathway_lookup = self.db.get_all_lookups(
             parent, pathways
         )
 
         skimmer_np, k_rates, cluster_dos = self.preparer.run_preliminaries(
-            config, cluster_indexed, pathway_lookup=pathway_lookup
+            config,
+            cluster_indexed,
+            pathway_lookup=pathway_lookup,
+            name_lookup=name_lookup,
         )
 
         assert isinstance(skimmer_np, numpy.ndarray)
@@ -584,7 +604,46 @@ class ExperimentRunner:
             quadrupole=config.get("quadrupole"),
         )
 
-        if pathway_at_a_time:
+        return (
+            mass_spec,
+            cluster_indexed,
+            name_lookup,
+            pathway_lookup,
+            k_rates,
+            cluster_dos,
+        )
+
+    """
+    Run a `config` passed directly as a dict.
+    """
+
+    def run_from_config(
+        self,
+        config,
+        run_started=False,
+        strict_dos=True,
+        mode=SimulationMode.SINGLE_CLUSTER,
+        parent=None,
+        pathways=None,
+        verbose=False,
+    ):
+        if not run_started:
+            self.start_run()
+
+        (
+            mass_spec,
+            cluster_indexed,
+            name_lookup,
+            pathway_lookup,
+            k_rates,
+            cluster_dos,
+        ) = self._prepare_from_config(
+            config,
+            parent=parent,
+            pathways=pathways,
+        )
+
+        if mode == SimulationMode.PATHWAY_AT_A_TIME:
             self._run_pathways_at_a_time(
                 mass_spec,
                 config,
@@ -596,8 +655,21 @@ class ExperimentRunner:
                 strict_dos=strict_dos,
                 verbose=verbose,
             )
-        else:
+        elif mode == SimulationMode.SINGLE_CLUSTER:
             self._run_cluster_grouped(
+                mass_spec,
+                config,
+                cluster_indexed,
+                name_lookup,
+                pathway_lookup,
+                k_rates,
+                cluster_dos,
+                strict_dos=strict_dos,
+                verbose=verbose,
+            )
+        else:
+            assert mode == SimulationMode.CLUSTER_TREE
+            self._run_cluster_tree(
                 mass_spec,
                 config,
                 cluster_indexed,
@@ -612,7 +684,7 @@ class ExperimentRunner:
     def _mk_update_from_counters(self, table, pbar):
         def update_from_counters(counters):
             fragmented_total = counter_fragmented_total(counters)
-            realizations = fragmented_total + counters.n_escaped_total
+            realizations = counters.n_realizations
             table["Frags"] = int(fragmented_total)
             table["Intacts"] = int(counters.n_escaped_total)
             table["Avg colls"] = counters.ncoll_total / realizations
@@ -693,7 +765,7 @@ class ExperimentRunner:
                 config["energy_max_rate"],
                 rate_const,
             )
-            subs = MassSpecSubstanceInput(
+            subs = MassSpecSubstanceSingleInput(
                 cluster,
                 product1,
                 product2,
@@ -851,8 +923,9 @@ class ExperimentRunner:
             realizations = (
                 int(environ["N_OVERRIDE"]) if "N_OVERRIDE" in environ else config["N"]
             )
-            subs = MassSpecSubstanceInput(
-                group["cluster"],
+            cluster = group["cluster"]
+            subs = MassSpecSubstanceSingleInput(
+                cluster,
                 group["pathways"],
                 config["gas"],
                 group["density_hist"],
@@ -896,6 +969,226 @@ class ExperimentRunner:
             cluster_seq += 1
         mass_spec_table.close()
 
+    def _prepare_cluster_tree_lookup(
+        self,
+        config,
+        cluster_indexed,
+        name_lookup,
+        pathway_lookup,
+        k_rates,
+        cluster_dos,
+    ):
+        from apitofsim.api import Histogram
+
+        cluster_lookup = {}
+        for cluster_id, cluster in cluster_indexed.items():
+            density_cluster = cluster_dos[cluster_id]
+            density_hist = Histogram.from_mesh(
+                config["bin_width"],
+                config["energy_max"],
+                density_cluster,
+            )
+            cluster_lookup[cluster_id] = {
+                "pathways": [],
+                "cluster": cluster,
+                "cluster_id": cluster_id,
+                "cluster_label": name_lookup[cluster_id],
+                "density_hist": density_hist,
+                "product_labels": [],
+                "pathway_products": [],
+                "pathway_ids": [],
+            }
+
+        for pathway_id, (
+            cluster_id,
+            product1_id,
+            product2_id,
+        ) in pathway_lookup.items():
+            rate_const = k_rates[pathway_id]
+            cluster = cluster_indexed[cluster_id]
+            cur_cluster_dict = cluster_lookup[cluster_id]
+            product1 = cluster_indexed[product1_id]
+            product2 = cluster_indexed[product2_id]
+            rate_hist = Histogram.from_mesh(
+                config["bin_width"],
+                config["energy_max_rate"],
+                rate_const,
+            )
+            cur_cluster_dict["pathways"].append(
+                MassSpecInputFragmentationPathway(
+                    cluster, product1, product2, rate_hist
+                )
+            )
+            cur_cluster_dict["product_labels"].append(
+                f"{name_lookup[product1_id]} + {name_lookup[product2_id]}"
+            )
+            cur_cluster_dict["pathway_products"].append((product1_id, product2_id))
+            cur_cluster_dict["pathway_ids"].append(pathway_id)
+        return cluster_lookup
+
+    def _prepare_cluster_tree(
+        self,
+        config,
+        cluster_indexed,
+        name_lookup,
+        pathway_lookup,
+        k_rates,
+        cluster_dos,
+    ):
+        cluster_lookup = self._prepare_cluster_tree_lookup(
+            config,
+            cluster_indexed,
+            name_lookup,
+            pathway_lookup,
+            k_rates,
+            cluster_dos,
+        )
+
+        viable_roots = [
+            cluster
+            for cluster in cluster_lookup.values()
+            if cluster["pathway_products"]
+        ]
+
+        def build_tree(root, parents=()):
+            cluster_id = root["cluster_id"]
+            if cluster_id in parents:
+                raise ValueError(
+                    f"Cycle detected in cluster tree with parents {parents} and current cluster {cluster_id}"
+                )
+            children = []
+            new_parents = (*parents, cluster_id)
+            for pathway, products in zip(root["pathways"], root["pathway_products"]):
+                children.append(
+                    (
+                        pathway,
+                        build_tree(cluster_lookup[products[0]], parents=new_parents),
+                        build_tree(cluster_lookup[products[1]], parents=new_parents),
+                    )
+                )
+            return (root["cluster"], root["density_hist"], children)
+
+        for root in viable_roots:
+            pathway_ids = []
+            product_ids = []
+
+            def mk_pathway_ids(root, parents=()):
+                new_parents = (*parents, root["cluster_id"])
+                for (product1_id, product2_id), pathway_id in zip(
+                    root["pathway_products"], root["pathway_ids"]
+                ):
+                    pathway_ids.append(pathway_id)
+                    for product_id in (product1_id, product2_id):
+                        if product_id in parents:
+                            raise ValueError(
+                                f"Cycle detected in cluster tree with parents {parents} and current product {product_id}"
+                            )
+                        product_ids.append(product_id)
+                        mk_pathway_ids(cluster_lookup[product_id], new_parents)
+
+            mk_pathway_ids(root)
+            tree = build_tree(root)
+
+            yield (pathway_ids, product_ids, tree, root)
+
+    def _run_cluster_tree(
+        self,
+        mass_spec,
+        config,
+        cluster_indexed,
+        name_lookup,
+        pathway_lookup,
+        k_rates,
+        cluster_dos,
+        strict_dos=True,
+        verbose=False,
+    ):
+        from os import environ
+        from timeit import default_timer as timer
+
+        from progress_table import ProgressTable
+
+        mass_spec_table = ProgressTable(
+            default_column_alignment="right",
+            refresh_rate=0,
+            interactive=0 if verbose else int(environ.get("PTABLE_INTERACTIVE", "2")),
+        )
+        mass_spec_table.add_column("Cluster", width=16, alignment="left")
+        mass_spec_table.add_column("Paths", width=5, alignment="left")
+        mass_spec_table.add_column("Frags", width=5)
+        mass_spec_table.add_columns(
+            "Intacts",
+            "Avg colls",
+        )
+        mass_spec_table.add_column("PH rej", width=6)
+        mass_spec_table.add_column("Warns", width=5)
+        mass_spec_table.add_columns(
+            "Surv prob",
+            "Time (s)",
+        )
+        cluster_seq = 1
+        outer_pbar = mass_spec_table(
+            self._prepare_cluster_tree(
+                config,
+                cluster_indexed,
+                name_lookup,
+                pathway_lookup,
+                k_rates,
+                cluster_dos,
+            ),
+            description="Cluster",
+            show_throughput=False,
+            show_progress=True,
+            show_eta=True,
+            position=2,
+        )
+
+        for pathway_ids, product_ids, tree, root in outer_pbar:
+            mass_spec_table["Cluster"] = root["cluster_label"]
+            mass_spec_table["Paths"] = str(len(root["pathways"]))
+            start = timer()
+            realizations = (
+                int(environ["N_OVERRIDE"]) if "N_OVERRIDE" in environ else config["N"]
+            )
+            subs = MassSpecSubstanceTreeInput(config["gas"], tree)
+            inner_pbar = mass_spec_table(
+                realizations, position=1, description="Realization"
+            )
+
+            update_from_counters = self._mk_update_from_counters(
+                mass_spec_table, inner_pbar
+            )
+            counters = self.run_mass_spec(
+                mass_spec,
+                subs,
+                realizations,
+                cluster_id=root["cluster_id"],
+                pathway_ids=pathway_ids,
+                sample_mode=SampleMode.rejection,
+                loglevel=1 if verbose else 0,
+                strict="STRICT" in environ,
+                strict_dos=strict_dos,
+                result_callback=update_from_counters,
+            )
+            t_total = timer() - start
+            if counters is None:
+                for k in [
+                    "Frags",
+                    "Intacts",
+                    "Avg colls",
+                    "PH rej",
+                    "Surv prob",
+                    "Warns",
+                ]:
+                    mass_spec_table[k] = "FAIL"
+            else:
+                update_from_counters(counters)
+            mass_spec_table["Time (s)"] = f"{t_total:.2f}"
+            inner_pbar.close()
+            mass_spec_table.next_row()
+            cluster_seq += 1
+        mass_spec_table.close()
+
     def run_prepared_config(self, name=None, **kwargs):
         """
         Run from an experiment config that has been inserted into an ExperimentDatabase.
@@ -910,7 +1203,10 @@ class ExperimentRunner:
             pprint(row.config)
             print()
             self.start_run(
-                row.id, pathway_at_a_time=kwargs.get("pathway_at_a_time", False)
+                row.id,
+                simulation_mode=kwargs.get(
+                    "simulation_mode", SimulationMode.SINGLE_CLUSTER
+                ),
             )
             self.run_from_config(row.config, run_started=True, **kwargs)
             print()
