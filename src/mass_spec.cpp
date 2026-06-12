@@ -216,8 +216,8 @@ void update_physical_quantities(double z, const SkimmerData skimmer, double mesh
 void update_velocities(Eigen::Vector3d &v_cluster, double &v_cluster_norm, const Eigen::Vector3d &v_rel, double v_gas);
 void update_rot_vel(Eigen::Vector3d &omega, double rot_energy_old, double rot_energy);
 double boundary_vib_energy(double vib_energy_old, double reduced_mass, double u_norm, double v_cluster_norm, double theta);
-template <typename GenT>
-void redistribute_internal_energy(GenT &gen, uniform_real_distribution<double> &unif, double &vib_energy, double &rot_energy, const Histogram &density_cluster);
+template <typename GenT, typename VibEnergySamplerT>
+std::tuple<double, double> redistribute_internal_energy(GenT &gen, VibEnergySamplerT &sampler, double vib_energy, double rot_energy);
 void eval_velocities(Eigen::Vector3d &v, Eigen::Vector3d &omega, const Eigen::Vector2d &u, double vib_energy, double vib_energy_old, double M, double m, double R_cluster);
 void change_coord(const Eigen::Vector3d &v_cluster, double theta, double phi, double alpha, Eigen::Vector3d &x3, Eigen::Vector3d &y3, Eigen::Vector3d &z3);
 template <typename GenT>
@@ -751,9 +751,9 @@ firstprivate( \
               update_velocities(v_cluster, v_cluster_norm, v_rel, v_gas);
               // tmp << kin_energy << endl;
 
-              double rot_energy_old = evaluate_rotational_energy(omega, subquants.inertia);
-              rot_energy = rot_energy_old;
-              redistribute_internal_energy(gen, unif, vib_energy, rot_energy, subs.density_cluster);
+              rot_energy = evaluate_rotational_energy(omega, subquants.inertia);
+              double rot_energy_old = rot_energy;
+              std::tie(vib_energy, rot_energy) = redistribute_internal_energy(gen, vib_energy_sampler, vib_energy, rot_energy);
               update_rot_vel(omega, rot_energy_old, rot_energy);
             }
             else
@@ -1022,9 +1022,9 @@ firstprivate( \
               update_velocities(v_cluster, v_cluster_norm, v_rel, v_gas);
               // tmp << kin_energy << endl;
 
-              double rot_energy_old = evaluate_rotational_energy(omega, subquants.inertia);
-              rot_energy = rot_energy_old;
-              redistribute_internal_energy(gen, unif, vib_energy, rot_energy, subnode.density_cluster);
+              rot_energy = evaluate_rotational_energy(omega, subquants.inertia);
+              double rot_energy_old = rot_energy;
+              std::tie(vib_energy, rot_energy) = redistribute_internal_energy(gen, *vib_energy_sampler, vib_energy, rot_energy);
               update_rot_vel(omega, rot_energy_old, rot_energy);
             }
             else
@@ -1467,42 +1467,14 @@ double boundary_vib_energy(double vib_energy_old, double reduced_mass, double u_
 }
 
 // Redistribution of internal energy (between vibrational and rotational modes)
-template <typename GenT>
-void redistribute_internal_energy(GenT &gen, uniform_real_distribution<double> &unif, double &vib_energy, double &rot_energy, const Histogram &density_cluster)
+template <typename GenT, typename VibEnergySamplerT>
+std::tuple<double, double> redistribute_internal_energy(GenT &gen, VibEnergySamplerT &sampler, double vib_energy, double rot_energy)
 {
-  using consts::boltzmann;
-  double r = unif(gen);
   double E = vib_energy + rot_energy;
-  double integral = 0.0;
-  double integral2 = 0.0;
-  int m;
 
-
-  if (E > density_cluster.x_max)
-  {
-    throw ApiTofDosOverflow(density_cluster.x_max, E / boltzmann);
-  }
-
-  // 1st step: I evaluate the integral (normalization)
-  m = 0;
-  while (density_cluster.x[m] < E)
-  {
-    assert(E - density_cluster.x[m] >= 0);
-    integral += sqrt(E - density_cluster.x[m]) * density_cluster.y[m];
-    m++;
-  }
-
-  // 2nd step: I evaluate the random transferred energy to the cluster
-  m = 0;
-  while (integral2 < r)
-  {
-    assert(E - density_cluster.x[m] >= 0);
-    integral2 += sqrt(E - density_cluster.x[m]) * density_cluster.y[m] / integral;
-    m++;
-  }
-  vib_energy = density_cluster.x[m - 1];
+  vib_energy = sampler.sample(gen, E);
   rot_energy = E - vib_energy;
-  // cout << vib_energy<< " " << rot_energy<<endl<<endl;
+  return std::make_tuple(vib_energy, rot_energy);
 }
 
 
