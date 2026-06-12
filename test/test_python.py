@@ -91,8 +91,8 @@ def test_cli_functional():
         )
         assert experiment_summary_result.exit_code == 0
         experiment_summary = read_csv("experiment_summary.csv")
-        assert len(experiment_summary) == 2, (
-            "Expected 2 experiments after conducting runs"
+        assert len(experiment_summary) == 3, (
+            "Expected 3 experiments after conducting runs"
         )
 
 
