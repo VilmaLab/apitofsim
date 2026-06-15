@@ -252,11 +252,35 @@ class Histogram:
         return cls.from_cpp(_Histogram(bin_width_mag, m_max, y))
 
     @classmethod
-    def from_cpp(cls, histogram: _Histogram):
-        return cls(Q_(histogram.x, "kelvin"), histogram.y)
+    def from_cpp(cls, histogram: _Histogram, mass_spec_stage=False):
+        units = "J" if mass_spec_stage else "kelvin"
+        return cls(Q_(histogram.x, units), histogram.y)
 
-    def into_cpp(self) -> _Histogram:
-        return _Histogram(self.x.to("kelvin").magnitude, self.y)
+    def into_cpp(self, mass_spec_stage=False) -> _Histogram:
+        units = str(self.x.units)
+        if not mass_spec_stage and units != "kelvin":
+            raise ValueError(
+                f"Unit of xs must be Kelvin for stages other than mass spec, got: {units}"
+            )
+        if mass_spec_stage and units != "joule":
+            raise ValueError(
+                f"Unit of xs must be Joules for mass spec stage, got: {units}"
+            )
+        return _Histogram(self.x.magnitude, self.y)
+
+
+def scaled_density(density_cluster: Histogram):
+    from .apitofsimraw import consts
+
+    with ureg.context("boltzmann", "spectroscopy"):
+        x = density_cluster.x.to("J")
+    return Histogram(x, density_cluster.y / consts.boltzmann)
+
+
+def scaled_rate_const(rate_const):
+    with ureg.context("boltzmann", "spectroscopy"):
+        x = rate_const.x.to("J")
+    return Histogram(x, rate_const.y)
 
 
 @dataclass
@@ -513,12 +537,12 @@ def MassSpecInputFragmentationPathway(*args, **kwargs):
             cluster_0=get("cluster_0", 0).into_cpp(),
             cluster_1=get("cluster_1", 1).into_cpp(),
             cluster_2=get("cluster_2", 2).into_cpp(),
-            rate_const=get("rate_const", 3).into_cpp(),
+            rate_const=get("rate_const", 3).into_cpp(mass_spec_stage=True),
             bonding_energy=proc_bonding_energy(get("bonding_energy", 4, None)),
         )
     else:
         return _MassSpecInputFragmentationPathway(
-            rate_const=get("rate_const", 0).into_cpp(),
+            rate_const=get("rate_const", 0).into_cpp(mass_spec_stage=True),
             bonding_energy=proc_bonding_energy(get("bonding_energy", 1, None)),
         )
 
@@ -535,8 +559,10 @@ def MassSpecSubstanceSingleInput(*args, **kwargs):
                 cluster_1=get("cluster_1", 1).into_cpp(),
                 cluster_2=get("cluster_2", 2).into_cpp(),
                 gas=get("gas", 3).into_cpp(),
-                density_cluster=get("density_cluster", 4).into_cpp(),
-                rate_const=get("rate_const", 5).into_cpp(),
+                density_cluster=get("density_cluster", 4).into_cpp(
+                    mass_spec_stage=True
+                ),
+                rate_const=get("rate_const", 5).into_cpp(mass_spec_stage=True),
                 fragmentation_energy=get("fragmentation_energy", 6, None),
                 cluster_charge_sign=get(
                     "cluster_charge_sign", 7, defaults.cluster_charge_sign
@@ -547,7 +573,9 @@ def MassSpecSubstanceSingleInput(*args, **kwargs):
                 cluster_0=get("cluster_0", 0).into_cpp(),
                 pathways=get("pathways", 1),
                 gas=get("gas", 2).into_cpp(),
-                density_cluster=get("density_cluster", 3).into_cpp(),
+                density_cluster=get("density_cluster", 3).into_cpp(
+                    mass_spec_stage=True
+                ),
                 cluster_charge_sign=get(
                     "cluster_charge_sign", 4, defaults.cluster_charge_sign
                 ),
@@ -557,7 +585,7 @@ def MassSpecSubstanceSingleInput(*args, **kwargs):
             cluster_charge_sign=get("cluster_charge_sign", 0),
             m_ion=get("m_ion", 1),
             R_cluster=get("R_cluster", 2),
-            density_cluster=get("density_cluster", 3).into_cpp(),
+            density_cluster=get("density_cluster", 3).into_cpp(mass_spec_stage=True),
             pathway=get("pathway", 4),
             gas=get("gas", 5).into_cpp(),
         )
@@ -603,7 +631,7 @@ def build_ms_substance_tree_input(root, root_node_index=0, root_pathway_index=0)
             cluster_data.into_cpp(),
             pathways,
             pathway_products,
-            density_cluster.into_cpp(),
+            density_cluster.into_cpp(mass_spec_stage=True),
         ),
         current_node_index,
         pathway_counts,

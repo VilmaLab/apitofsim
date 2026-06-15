@@ -255,9 +255,10 @@ SimulationResult apitof_mass_spec(
   MassSpecLogConf logconf = DEFAULT_LOGCONF,
   bool on_main_thread = false);
 
-void rescale_density(Histogram &density);
-void rescale_energies(Histogram &energies);
 double particle_density(double pressure, double kT);
 double evaluate_error(int n, int k);
+
+Histogram scaled_density(const Histogram &density_cluster);
+Histogram scaled_rate_const(const Histogram &rate_const);
 
 #include "samplers.h"

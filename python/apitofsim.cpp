@@ -692,6 +692,14 @@ NB_MODULE(apitofsimraw, m)
 
   nb_magic_enum<SampleMode>(m, "SampleMode");
 
+  m.def("scaled_density",
+        &scaled_density,
+        "density_cluster"_a);
+
+  m.def("scaled_rate_const",
+        &scaled_rate_const,
+        "scaled_rate_const"_a);
+
   m.def("mass_spec",
         &mass_spec<MassSpecSubstanceSingleInput>,
         nb::call_guard<nb::gil_scoped_release>(),
@@ -806,4 +814,5 @@ NB_MODULE(apitofsimraw, m)
 
   nb::module_ m_consts = m.def_submodule("consts", "Constants");
   m_consts.attr("hartK") = consts::hartK;
+  m_consts.attr("boltzmann") = consts::boltzmann;
 }

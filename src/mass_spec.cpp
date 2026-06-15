@@ -79,7 +79,7 @@ MassSpecInputFragmentationPathway::MassSpecInputFragmentationPathway(
   const ClusterData &cluster_1,
   const ClusterData &cluster_2,
   const Histogram &rate_const,
-  std::optional<double> fragmentation_energy) : rate_const(scaled_rate_const(rate_const))
+  std::optional<double> fragmentation_energy) : rate_const(rate_const)
 {
   using consts::hartK;
   double computed_fragmentation_energy;
@@ -97,7 +97,7 @@ MassSpecInputFragmentationPathway::MassSpecInputFragmentationPathway(
 
 MassSpecInputFragmentationPathway::MassSpecInputFragmentationPathway(
   const Histogram rate_const,
-  double bonding_energy) : rate_const(scaled_rate_const(rate_const)), bonding_energy(bonding_energy * boltzmann)
+  double bonding_energy) : rate_const(rate_const), bonding_energy(bonding_energy * boltzmann)
 {
 }
 
@@ -110,7 +110,7 @@ MassSpecSubstanceSingleInput::MassSpecSubstanceSingleInput(
   const Histogram &rate_const,
   std::optional<double> fragmentation_energy,
   int cluster_charge_sign) : cluster_charge_sign(cluster_charge_sign),
-                             density_cluster(scaled_density(density_cluster)),
+                             density_cluster(density_cluster),
                              pathways({MassSpecInputFragmentationPathway(cluster_0, cluster_1, cluster_2, rate_const, fragmentation_energy)}),
                              gas(gas)
 {
@@ -126,7 +126,7 @@ MassSpecSubstanceSingleInput::MassSpecSubstanceSingleInput(
   const Gas gas) : cluster_charge_sign(cluster_charge_sign),
                    m_ion(m_ion),
                    R_cluster(R_cluster),
-                   density_cluster(scaled_density(density_cluster)),
+                   density_cluster(density_cluster),
                    pathways(pathways),
                    gas(gas)
 {
@@ -138,7 +138,7 @@ MassSpecSubstanceSingleInput::MassSpecSubstanceSingleInput(
   Gas gas,
   const Histogram &density_cluster,
   int cluster_charge_sign) : cluster_charge_sign(cluster_charge_sign),
-                             density_cluster(scaled_density(density_cluster)),
+                             density_cluster(density_cluster),
                              pathways(pathways),
                              gas(gas)
 {
@@ -171,7 +171,7 @@ MSSubstanceTreeNode::MSSubstanceTreeNode(
   const Histogram &density_cluster
 ) : index(index),
     cluster_charge_sign(cluster_0.charge),
-    density_cluster(scaled_density(density_cluster)),
+    density_cluster(density_cluster),
     pathways(pathways),
     pathway_products(pathway_products)
 {

@@ -6,12 +6,15 @@ from pint import get_application_registry
 from apitofsim.api import (
     ApiTofError,
     ApiTofOverflowError,
+    Histogram,
     MassSpecInputFragmentationPathway,
     MassSpecSubstanceSingleInput,
     MassSpecSubstanceTreeInput,
     MassSpectrometer,
     MeshMode,
     SampleMode,
+    scaled_density,
+    scaled_rate_const,
 )
 
 from .base import SimulationMode
@@ -755,15 +758,19 @@ class ExperimentRunner:
                 f"{name_lookup[product1_id]} + {name_lookup[product2_id]}"
             )
             start = timer()
-            density_hist = Histogram.from_mesh(
-                config["bin_width"],
-                config["energy_max"],
-                density_cluster,
+            density_hist = scaled_density(
+                Histogram.from_mesh(
+                    config["bin_width"],
+                    config["energy_max"],
+                    density_cluster,
+                )
             )
-            rate_hist = Histogram.from_mesh(
-                config["bin_width"],
-                config["energy_max_rate"],
-                rate_const,
+            rate_hist = scaled_rate_const(
+                Histogram.from_mesh(
+                    config["bin_width"],
+                    config["energy_max_rate"],
+                    rate_const,
+                )
             )
             subs = MassSpecSubstanceSingleInput(
                 cluster,
@@ -838,8 +845,6 @@ class ExperimentRunner:
 
         from progress_table import ProgressTable
 
-        from apitofsim.api import Histogram
-
         last_cluster_id = None
         groups = []
         cur_group: dict[str, Any] | None = None
@@ -854,10 +859,12 @@ class ExperimentRunner:
             if cluster_id != last_cluster_id:
                 if cur_group is not None:
                     groups.append(cur_group)
-                density_hist = Histogram.from_mesh(
-                    config["bin_width"],
-                    config["energy_max"],
-                    density_cluster,
+                density_hist = scaled_density(
+                    Histogram.from_mesh(
+                        config["bin_width"],
+                        config["energy_max"],
+                        density_cluster,
+                    )
                 )
                 cur_group = {
                     "pathways": [],
@@ -870,10 +877,12 @@ class ExperimentRunner:
                 }
             product1 = cluster_indexed[product1_id]
             product2 = cluster_indexed[product2_id]
-            rate_hist = Histogram.from_mesh(
-                config["bin_width"],
-                config["energy_max_rate"],
-                rate_const,
+            rate_hist = scaled_rate_const(
+                Histogram.from_mesh(
+                    config["bin_width"],
+                    config["energy_max_rate"],
+                    rate_const,
+                )
             )
             assert cur_group is not None
             cur_group["pathways"].append(
@@ -978,15 +987,16 @@ class ExperimentRunner:
         k_rates,
         cluster_dos,
     ):
-        from apitofsim.api import Histogram
 
         cluster_lookup = {}
         for cluster_id, cluster in cluster_indexed.items():
             density_cluster = cluster_dos[cluster_id]
-            density_hist = Histogram.from_mesh(
-                config["bin_width"],
-                config["energy_max"],
-                density_cluster,
+            density_hist = scaled_density(
+                Histogram.from_mesh(
+                    config["bin_width"],
+                    config["energy_max"],
+                    density_cluster,
+                )
             )
             cluster_lookup[cluster_id] = {
                 "pathways": [],
@@ -1009,10 +1019,12 @@ class ExperimentRunner:
             cur_cluster_dict = cluster_lookup[cluster_id]
             product1 = cluster_indexed[product1_id]
             product2 = cluster_indexed[product2_id]
-            rate_hist = Histogram.from_mesh(
-                config["bin_width"],
-                config["energy_max_rate"],
-                rate_const,
+            rate_hist = scaled_rate_const(
+                Histogram.from_mesh(
+                    config["bin_width"],
+                    config["energy_max_rate"],
+                    rate_const,
+                )
             )
             cur_cluster_dict["pathways"].append(
                 MassSpecInputFragmentationPathway(

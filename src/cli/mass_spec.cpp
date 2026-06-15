@@ -194,8 +194,8 @@ void mass_spec_config_in()
     bonding_energy = (electronic_energy_1 + electronic_energy_2 - electronic_energy_0) * hartK;
   }
 
-  auto density_cluster = read_histogram(file_density_cluster);
-  auto rate_const = read_histogram(file_rate_const);
+  auto density_cluster = scaled_density(read_histogram(file_density_cluster));
+  auto rate_const = scaled_rate_const(read_histogram(file_rate_const));
 
   SkimmerData skimmer;
   double mesh_skimmer;
