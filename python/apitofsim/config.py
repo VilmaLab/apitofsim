@@ -315,7 +315,7 @@ def parse_config_with_particles(fn):
 
 
 def cluster_from_particle_config(
-    particle_config, asa="measurement", ureg=get_application_registry()
+    particle_config, asa="measurement", ureg=get_application_registry(), charge=0
 ):
     vibrational_temperatures = particle_config["vibrational_temperatures"]
     if vibrational_temperatures is None:
@@ -335,6 +335,7 @@ def cluster_from_particle_config(
         electronic_energy,
         particle_config["rotational_temperatures"],
         vibrational_temperatures,
+        charge,
     )
 
 
