@@ -27,7 +27,7 @@ jobs:
       - name: Setup virtualenv
         run: |
           uv venv fullinstallenv
-          VIRTUAL_ENV=fullinstallenv uv run --active pip install .[plot]
+          VIRTUAL_ENV=fullinstallenv uv run --active pip install .[plot,notebooks]
 
       - name: Run basedpyright
         run: |
