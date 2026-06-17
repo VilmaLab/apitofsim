@@ -1367,7 +1367,7 @@ def pathways(
                         f"Could not find charge in ORCA output {file}. You can use --ignore-charge to ignore this error and proceed without charge information, but this will overgenerate."
                     )
         elif format == "gaussian":
-            from apitofsim.ingest.orca import parse_gaussian
+            from apitofsim.ingest.gaussian import parse_gaussian
 
             atoms = ase_read(file, format="gaussian-out")
             if not ignore_charge:
