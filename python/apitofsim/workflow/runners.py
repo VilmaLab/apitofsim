@@ -12,6 +12,9 @@ from apitofsim.api import (
     MassSpecSubstanceTreeInput,
     MassSpectrometer,
     MeshMode,
+    MSSubstanceTreeCluster,
+    MSSubstanceTreeNode,
+    MSSubstanceTreePathway,
     SampleMode,
     scaled_density,
     scaled_rate_const,
@@ -987,9 +990,18 @@ class ExperimentRunner:
         k_rates,
         cluster_dos,
     ):
+        productive_cluster_ids = set()
+        charge = None
+        for _, (cluster_id, _, _) in pathway_lookup.items():
+            cluster = cluster_indexed[cluster_id]
+            if cluster.charge != 0:
+                if charge is not None and cluster.charge != charge:
+                    raise ValueError("Charge of all charged clusters must be the same")
+                charge = cluster.charge
+                productive_cluster_ids.add(cluster_id)
 
         cluster_lookup = {}
-        for cluster_id, cluster in cluster_indexed.items():
+        for cluster_id in productive_cluster_ids:
             density_cluster = cluster_dos[cluster_id]
             density_hist = scaled_density(
                 Histogram.from_mesh(
@@ -1000,7 +1012,7 @@ class ExperimentRunner:
             )
             cluster_lookup[cluster_id] = {
                 "pathways": [],
-                "cluster": cluster,
+                "cluster": cluster_indexed[cluster_id],
                 "cluster_id": cluster_id,
                 "cluster_label": name_lookup[cluster_id],
                 "density_hist": density_hist,
@@ -1009,13 +1021,17 @@ class ExperimentRunner:
                 "pathway_ids": [],
             }
 
+        pathway_input_lookup = {}
+
         for pathway_id, (
             cluster_id,
             product1_id,
             product2_id,
         ) in pathway_lookup.items():
-            rate_const = k_rates[pathway_id]
             cluster = cluster_indexed[cluster_id]
+            if cluster.charge == 0:
+                continue
+            rate_const = k_rates[pathway_id]
             cur_cluster_dict = cluster_lookup[cluster_id]
             product1 = cluster_indexed[product1_id]
             product2 = cluster_indexed[product2_id]
@@ -1026,17 +1042,21 @@ class ExperimentRunner:
                     rate_const,
                 )
             )
-            cur_cluster_dict["pathways"].append(
-                MassSpecInputFragmentationPathway(
-                    cluster, product1, product2, rate_hist
-                )
-            )
-            cur_cluster_dict["product_labels"].append(
-                f"{name_lookup[product1_id]} + {name_lookup[product2_id]}"
-            )
-            cur_cluster_dict["pathway_products"].append((product1_id, product2_id))
+            productive_product = None
+            if product1.charge != 0:
+                productive_product = product1_id
+            if product2.charge != 0:
+                if productive_product is not None:
+                    raise ValueError(
+                        f"Multiple productive products found for pathway {pathway_id}"
+                    )
+                productive_product = product2_id
+            cur_cluster_dict["pathway_products"].append(productive_product)
             cur_cluster_dict["pathway_ids"].append(pathway_id)
-        return cluster_lookup
+            pathway_input_lookup[pathway_id] = MassSpecInputFragmentationPathway(
+                cluster, product1, product2, rate_hist
+            )
+        return cluster_lookup, pathway_input_lookup
 
     def _prepare_cluster_tree(
         self,
@@ -1047,7 +1067,7 @@ class ExperimentRunner:
         k_rates,
         cluster_dos,
     ):
-        cluster_lookup = self._prepare_cluster_tree_lookup(
+        cluster_lookup, pathway_input_lookup = self._prepare_cluster_tree_lookup(
             config,
             cluster_indexed,
             name_lookup,
@@ -1056,52 +1076,61 @@ class ExperimentRunner:
             cluster_dos,
         )
 
-        viable_roots = [
-            cluster
-            for cluster in cluster_lookup.values()
-            if cluster["pathway_products"]
-        ]
+        for root in cluster_lookup.values():
+            cluster_payload_lookup = {}
+            pathway_payload_lookup = {}
+            cluster_payloads = []
+            pathway_payloads = []
+            tree_nodes = []
+            tree_pathways = []
 
-        def build_tree(root, parents=()):
-            cluster_id = root["cluster_id"]
-            if cluster_id in parents:
-                raise ValueError(
-                    f"Cycle detected in cluster tree with parents {parents} and current cluster {cluster_id}"
-                )
-            children = []
-            new_parents = (*parents, cluster_id)
-            for pathway, products in zip(root["pathways"], root["pathway_products"]):
-                children.append(
-                    (
-                        pathway,
-                        build_tree(cluster_lookup[products[0]], parents=new_parents),
-                        build_tree(cluster_lookup[products[1]], parents=new_parents),
+            def walk(root, parents=()):
+                cluster_id = root["cluster_id"]
+                new_parents = (*parents, cluster_id)
+                if cluster_id not in cluster_payload_lookup:
+                    cluster_payload_lookup[cluster_id] = len(cluster_payloads)
+                    cluster_payloads.append(
+                        MSSubstanceTreeCluster(
+                            root["cluster"],
+                            root["density_hist"],
+                        )
                     )
-                )
-            return (root["cluster"], root["density_hist"], children)
-
-        for root in viable_roots:
-            pathway_ids = []
-            product_ids = []
-
-            def mk_pathway_ids(root, parents=()):
-                new_parents = (*parents, root["cluster_id"])
-                for (product1_id, product2_id), pathway_id in zip(
+                cluster_payload_idx = cluster_payload_lookup[cluster_id]
+                pathway_indices = []
+                for product_id, pathway_id in zip(
                     root["pathway_products"], root["pathway_ids"]
                 ):
-                    pathway_ids.append(pathway_id)
-                    for product_id in (product1_id, product2_id):
-                        if product_id in parents:
-                            raise ValueError(
-                                f"Cycle detected in cluster tree with parents {parents} and current product {product_id}"
-                            )
-                        product_ids.append(product_id)
-                        mk_pathway_ids(cluster_lookup[product_id], new_parents)
+                    if pathway_id not in pathway_payload_lookup:
+                        pathway_payload_lookup[pathway_id] = len(pathway_payloads)
+                        pathway_payloads.append(pathway_input_lookup[pathway_id])
+                    pathway_payload_idx = pathway_payload_lookup[pathway_id]
+                    pathway_indices.append(pathway_payload_idx)
+                    product_idx = None
+                    if product_id in parents:
+                        raise ValueError(
+                            f"Cycle detected in cluster tree with parents {parents} and current product {product_id}"
+                        )
+                    if product_id in cluster_lookup:
+                        product_idx = walk(cluster_lookup[product_id], new_parents)
+                    tree_pathways.append(
+                        MSSubstanceTreePathway(pathway_payload_idx, product_idx)
+                    )
+                tree_nodes.append(
+                    MSSubstanceTreeNode(cluster_payload_idx, pathway_indices)
+                )
+                return cluster_payload_idx
 
-            mk_pathway_ids(root)
-            tree = build_tree(root)
+            walk(root)
+            tree_input = MassSpecSubstanceTreeInput(
+                root["cluster"].charge,
+                config["gas"],
+                cluster_payloads,
+                pathway_payloads,
+                tree_nodes,
+                tree_pathways,
+            )
 
-            yield (pathway_ids, product_ids, tree, root)
+            yield (cluster_payload_lookup, pathway_payload_lookup, tree_input, root)
 
     def _run_cluster_tree(
         self,
@@ -1155,14 +1184,14 @@ class ExperimentRunner:
             position=2,
         )
 
-        for pathway_ids, product_ids, tree, root in outer_pbar:
+        for cluster_payload_lookup, pathway_payload_lookup, subs, root in outer_pbar:
             mass_spec_table["Cluster"] = root["cluster_label"]
-            mass_spec_table["Paths"] = str(len(root["pathways"]))
+            mass_spec_table["Paths"] = str(len(pathway_payload_lookup))
             start = timer()
             realizations = (
                 int(environ["N_OVERRIDE"]) if "N_OVERRIDE" in environ else config["N"]
             )
-            subs = MassSpecSubstanceTreeInput(config["gas"], tree)
+
             inner_pbar = mass_spec_table(
                 realizations, position=1, description="Realization"
             )
@@ -1170,12 +1199,16 @@ class ExperimentRunner:
             update_from_counters = self._mk_update_from_counters(
                 mass_spec_table, inner_pbar
             )
+            inv_pathway_lookup = {v: k for k, v in pathway_payload_lookup.items()}
             counters = self.run_mass_spec(
                 mass_spec,
                 subs,
                 realizations,
                 cluster_id=root["cluster_id"],
-                pathway_ids=pathway_ids,
+                pathway_ids=[
+                    inv_pathway_lookup[pathway.payload_idx]
+                    for pathway in subs.tree_pathways
+                ],
                 sample_mode=SampleMode.rejection,
                 loglevel=1 if verbose else 0,
                 strict="STRICT" in environ,

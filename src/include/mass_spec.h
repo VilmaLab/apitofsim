@@ -99,42 +99,55 @@ struct MassSpecSubstanceSingleInput
     int cluster_charge_sign);
 };
 
-struct MSSubstanceTreeNode
+struct MSSubstanceTreeCluster
 {
-  int index;
-  int cluster_charge_sign;
   double m_ion;
   double R_cluster;
   const Histogram density_cluster;
-  const std::vector<MassSpecInputFragmentationPathway> pathways;
-  const std::vector<std::tuple<MSSubstanceTreeNode, MSSubstanceTreeNode, int>> pathway_products;
 
-  MSSubstanceTreeNode(
-    int index,
-    int cluster_charge_sign,
+  MSSubstanceTreeCluster(
     double m_ion,
     double R_cluster,
-    const Histogram density_cluster,
-    const std::vector<MassSpecInputFragmentationPathway> pathways,
-    const std::vector<std::tuple<MSSubstanceTreeNode, MSSubstanceTreeNode, int>> pathway_products
+    const Histogram density_cluster
   );
 
-  MSSubstanceTreeNode(
-    int index,
+  MSSubstanceTreeCluster(
     const ClusterData &cluster_0,
-    const std::vector<MassSpecInputFragmentationPathway> pathways,
-    const std::vector<std::tuple<MSSubstanceTreeNode, MSSubstanceTreeNode, int>> pathway_products,
-    const Histogram &density_cluster);
+    const Histogram density_cluster);
+};
+
+struct MSSubstanceTreeNode
+{
+    size_t payload_idx;
+    std::vector<size_t> pathway_indices;
+};
+
+struct MSSubstanceTreePathway
+{
+    size_t payload_idx;
+    std::optional<size_t> product_idx;
 };
 
 struct MassSpecSubstanceTreeInput
 {
+  int cluster_charge_sign;
   const Gas gas;
-  MSSubstanceTreeNode root;
-  int count;
-  int pathway_count;
 
-  MassSpecSubstanceTreeInput(Gas gas, MSSubstanceTreeNode root, int count, int pathway_count);
+  // Payloads are stored exactly once
+  std::vector<MSSubstanceTreeCluster> cluster_payloads;
+  std::vector<MassSpecInputFragmentationPathway> pathway_payloads;
+  // The tree duplicates any DAG structures found
+  std::vector<MSSubstanceTreeNode> tree_nodes;
+  std::vector<MSSubstanceTreePathway> tree_pathways;
+
+  MassSpecSubstanceTreeInput(
+    int cluster_charge_sign,
+    Gas gas,
+    std::vector<MSSubstanceTreeCluster> cluster_payloads,
+    std::vector<MassSpecInputFragmentationPathway> pathway_payloads,
+    std::vector<MSSubstanceTreeNode> tree_nodes,
+    std::vector<MSSubstanceTreePathway> tree_pathways
+  );
 };
 
 struct Pressures
@@ -197,7 +210,8 @@ struct SubstanceQuantities
     const MassSpectrometer &ms,
     const ChamberQuantities &chamber,
     const Gas &gas,
-    const MSSubstanceTreeNode &node
+    const int cluster_charge_sign,
+    const MSSubstanceTreeCluster &cluster
   );
 
   SubstanceQuantities(

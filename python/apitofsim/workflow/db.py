@@ -609,25 +609,16 @@ class ExperimentDatabase(SuperClusterDatabase):
             ).fetchone()
             assert pathway_ids is not None
             assert id is not None
-            if pathway_ids is not None:
-                counter = Counter()
-                for pathway_id, cnt in zip(
-                    pathway_ids, counters.n_fragmented_total, strict=True
-                ):
-                    counter[pathway_id] += cnt
-                for pathway_id, cnt in counter.items():
-                    self.db.execute(
-                        "insert into pathway_fragmentation values (default, ?, ?, ?)",
-                        (id[0], pathway_id, int(cnt)),
-                    )
-            else:
-                for pathway_id, fragmented in zip(
-                    pathway_ids, counters.n_fragmented_total, strict=True
-                ):
-                    self.db.execute(
-                        "insert into pathway_fragmentation values (default, ?, ?, ?)",
-                        (id[0], pathway_id, int(fragmented)),
-                    )
+            counter = Counter()
+            for pathway_id, cnt in zip(
+                pathway_ids, counters.n_fragmented_total, strict=True
+            ):
+                counter[pathway_id] += cnt
+            for pathway_id, cnt in counter.items():
+                self.db.execute(
+                    "insert into pathway_fragmentation values (default, ?, ?, ?)",
+                    (id[0], pathway_id, int(cnt)),
+                )
         assert id is not None
         return id[0]
 

@@ -145,48 +145,37 @@ MassSpecSubstanceSingleInput::MassSpecSubstanceSingleInput(
   compute_mass_and_radius(compute_inertia(cluster_0.rotations), cluster_0.atomic_mass, this->m_ion, this->R_cluster);
 }
 
-MSSubstanceTreeNode::MSSubstanceTreeNode(
-  int index,
-  int cluster_charge_sign,
+MSSubstanceTreeCluster::MSSubstanceTreeCluster(
   double m_ion,
   double R_cluster,
-  const Histogram density_cluster,
-  const std::vector<MassSpecInputFragmentationPathway> pathways,
-  const std::vector<std::tuple<MSSubstanceTreeNode, MSSubstanceTreeNode, int>> pathway_products
-) : index(index),
-      cluster_charge_sign(cluster_charge_sign),
-      m_ion(m_ion),
-      R_cluster(R_cluster),
-      density_cluster(density_cluster),
-      pathways(pathways),
-      pathway_products(pathway_products)
+  const Histogram density_cluster
+) : m_ion(m_ion),
+    R_cluster(R_cluster),
+    density_cluster(density_cluster)
 {
 }
 
-MSSubstanceTreeNode::MSSubstanceTreeNode(
-  int index,
+MSSubstanceTreeCluster::MSSubstanceTreeCluster(
   const ClusterData &cluster_0,
-  const std::vector<MassSpecInputFragmentationPathway> pathways,
-  const std::vector<std::tuple<MSSubstanceTreeNode, MSSubstanceTreeNode, int>> pathway_products,
-  const Histogram &density_cluster
-) : index(index),
-    cluster_charge_sign(cluster_0.charge),
-    density_cluster(density_cluster),
-    pathways(pathways),
-    pathway_products(pathway_products)
+  const Histogram density_cluster
+) : density_cluster(density_cluster)
 {
   compute_mass_and_radius(compute_inertia(cluster_0.rotations), cluster_0.atomic_mass, this->m_ion, this->R_cluster);
 }
 
 MassSpecSubstanceTreeInput::MassSpecSubstanceTreeInput(
+  int cluster_charge_sign,
   Gas gas,
-  MSSubstanceTreeNode root,
-  int count,
-  int pathway_count
-) : gas(gas),
-    root(root),
-    count(count),
-    pathway_count(pathway_count)
+  std::vector<MSSubstanceTreeCluster> cluster_payloads,
+  std::vector<MassSpecInputFragmentationPathway> pathway_payloads,
+  std::vector<MSSubstanceTreeNode> tree_nodes,
+  std::vector<MSSubstanceTreePathway> tree_pathways
+) : cluster_charge_sign(cluster_charge_sign),
+    gas(gas),
+    cluster_payloads(cluster_payloads),
+    pathway_payloads(pathway_payloads),
+    tree_nodes(tree_nodes),
+    tree_pathways(tree_pathways)
 {
 }
 
@@ -209,7 +198,7 @@ double evaluate_rotational_energy(Eigen::Vector3d omega, double inertia);
 double evaluate_internal_energy(double vib_energy, double rot_energy);
 double evaluate_rate_const(const Histogram &rate_const, double energy);
 template <typename GenT>
-TimeNextCollOutcome time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &unif, Eigen::Vector3d &v_cluster, double &v_cluster_norm, ChamberQuantities &chamber, double R, Eigen::Array2d dts, double &z, double &x, double &y, double &t_fragmentation, Eigen::Array4d &acc, double &t, double m_gas, const SkimmerData &skimmer, double mesh_skimmer, std::optional<Quadrupole> quadrupole);
+TimeNextCollOutcome time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &unif, Eigen::Vector3d &v_cluster, double &v_cluster_norm, ChamberQuantities &chamber, double R, Eigen::Array2d dts, double &z, double &x, double &y, double &t_fragmentation, const Eigen::Array4d &acc, double &t, double m_gas, const SkimmerData &skimmer, double mesh_skimmer, const std::optional<Quadrupole> quadrupole);
 std::tuple<double, Eigen::Vector3d, double, double, double> get_quantities_for_collision(double z, ChamberQuantities &chamber, double m_gas, const Eigen::Vector3d &v_cluster, double v_gas, double pressure, double temperature);
 void update_physical_quantities(double z, const SkimmerData skimmer, double mesh_skimmer, double &v_gas, double &temperature, double &pressure, double &density, ChamberQuantities &chamber, double T);
 // void evaluate_relative_velocity(double z, double *v_cluster, double &v_rel_norm, double v_gas, double *v_rel, double first_chamber_end, double sk_end);
@@ -376,7 +365,7 @@ template SimulationResult apitof_mass_spec<MassSpecSubstanceTreeInput>(
 
 template <typename GenT>
 std::tuple<double, std::optional<ApiTofRateConstantOverflow>> next_fragmentation_time(
-  GenT &gen, uniform_real_distribution<double> &unif, MassSpecInputFragmentationPathway &pathway, double internal_energy, bool strict = true)
+  GenT &gen, uniform_real_distribution<double> &unif, const MassSpecInputFragmentationPathway &pathway, double internal_energy, bool strict = true)
 {
   using consts::boltzmann;
 
@@ -421,24 +410,26 @@ std::tuple<double, std::optional<ApiTofRateConstantOverflow>> next_fragmentation
   return std::make_tuple(t_fragmentation, exception);
 }
 
-template <typename GenT>
+template <typename GenT, typename PathwaysT>
 std::tuple<int, double, std::optional<ApiTofRateConstantOverflow>> next_fragmentation_time_multi(
-  GenT &gen, uniform_real_distribution<double> &unif, std::vector<MassSpecInputFragmentationPathway> pathways, double internal_energy, bool strict = true)
+  GenT &gen, uniform_real_distribution<double> &unif, PathwaysT pathways, double internal_energy, bool strict = true)
 {
   int effective_pathway_index = 0;
   double t_next_fragmentation = std::numeric_limits<double>::infinity();
   std::optional<ApiTofRateConstantOverflow> effective_exception = std::nullopt;
-  for (size_t i = 0; i < pathways.size(); i++)
+  int pathway_index = 0;
+  for (const MassSpecInputFragmentationPathway &pathway : pathways)
   {
     double t_fragmentation;
     std::optional<ApiTofRateConstantOverflow> exception = std::nullopt;
-    std::tie(t_fragmentation, exception) = next_fragmentation_time<GenT>(gen, unif, pathways[i], internal_energy, strict);
+    std::tie(t_fragmentation, exception) = next_fragmentation_time<GenT>(gen, unif, pathway, internal_energy, strict);
     if (t_fragmentation < t_next_fragmentation)
     {
-      effective_pathway_index = static_cast<int>(i);
+      effective_pathway_index = pathway_index;
       t_next_fragmentation = t_fragmentation;
       effective_exception = exception;
     }
+    pathway_index++;
   }
   return std::make_tuple(effective_pathway_index, t_next_fragmentation, effective_exception);
 }
@@ -510,14 +501,15 @@ SubstanceQuantities::SubstanceQuantities(
   const MassSpectrometer &ms,
   const ChamberQuantities &chamber,
   const Gas &gas,
-  const MSSubstanceTreeNode &node
+  const int cluster_charge_sign,
+  const MSSubstanceTreeCluster &cluster
 ) : SubstanceQuantities(
     ms,
     chamber,
     gas,
-    node.cluster_charge_sign,
-    node.m_ion,
-    node.R_cluster
+    cluster_charge_sign,
+    cluster.m_ion,
+    cluster.R_cluster
   )
 {}
 
@@ -820,19 +812,17 @@ void print_initial_trace(
   });
 }
 
-void fill_substance_quantities(
-  const MassSpectrometer &ms,
-  const ChamberQuantities &chamber,
-  const Gas &gas,
-  const MSSubstanceTreeNode &subs,
-  std::vector<SubstanceQuantities> &all_subs
+void prepare_pathways_from_tree(
+  std::vector<std::reference_wrapper<const MassSpecInputFragmentationPathway>> &pathways,
+  const MassSpecSubstanceTreeInput &subs,
+  int subnode_index
 )
 {
-  assert(subs.index == (int)all_subs.size());
-  all_subs.push_back(SubstanceQuantities(ms, chamber, gas, subs));
-  for (auto [product_1, product_2, _] : subs.pathway_products) {
-    fill_substance_quantities(ms, chamber, gas, product_1, all_subs);
-    fill_substance_quantities(ms, chamber, gas, product_2, all_subs);
+  pathways.clear();
+  for (auto pathway_index : subs.tree_nodes[subnode_index].pathway_indices) {
+    pathways.push_back(std::cref(
+      subs.pathway_payloads[subs.tree_pathways[pathway_index].payload_idx]
+    ));
   }
 }
 
@@ -851,8 +841,11 @@ SimulationResult apitof_mass_spec(
 {
   ChamberQuantities chamber(ms, subs.gas);
   std::vector<SubstanceQuantities> all_subquants;
-  all_subquants.reserve(subs.count);
-  fill_substance_quantities(ms, chamber, subs.gas, subs.root, all_subquants);
+  all_subquants.reserve(subs.cluster_payloads.size());
+  for (auto cluster : subs.cluster_payloads)
+  {
+    all_subquants.push_back(SubstanceQuantities(ms, chamber, subs.gas, subs.cluster_charge_sign, cluster));
+  }
 
   LogHelper initial_trace = LogHelper{result_queue, LogMessage::initial_trace};
   if (logconf.level >= LOGLEVEL_MIN)
@@ -861,7 +854,7 @@ SimulationResult apitof_mass_spec(
   }
 
   auto start = std::chrono::high_resolution_clock::now();
-  Eigen::ArrayXi counters = Eigen::ArrayXi::Zero(n_counters - 1 + subs.pathway_count);
+  Eigen::ArrayXi counters = Eigen::ArrayXi::Zero(n_counters - 1 + subs.tree_pathways.size());
 
   // All firstprivate variables *should* be constant within the loop
   // Truly private variables are declared in the loop
@@ -879,10 +872,11 @@ firstprivate( \
     using consts::pi, consts::boltzmann;
     exception_helper.guard([&]
     {
-      int cur_particle_index = 0;
-      const MSSubstanceTreeNode *subnode_ptr = &subs.root;
-      const MSSubstanceTreeNode &subnode = *subnode_ptr;
-      SubstanceQuantities subquants = all_subquants[0];
+      int subnode_index = 0;
+      int subpayload_index = 0;
+      const MSSubstanceTreeCluster &subpayload = subs.cluster_payloads[subpayload_index];
+      std::vector<std::reference_wrapper<const MassSpecInputFragmentationPathway>> pathways;
+      prepare_pathways_from_tree(pathways, subs, subnode_index);
 
       WarningHelper warn{counters, result_queue};
       LogHelper fragments{result_queue, LogMessage::fragments};
@@ -901,15 +895,17 @@ firstprivate( \
       double coll_z = 0.0;
 
       // Draw initial random velocity from Maxwell-Boltzmann distribution
-      Eigen::Vector3d v_cluster = init_vel(gen, gauss, subnode.m_ion, chamber.kT);
-      Eigen::Vector3d omega = init_ang_vel(gen, gauss, subnode.m_ion, chamber.kT, subnode.R_cluster);
-      double vib_energy = init_vib_energy(gen, unif, chamber.kT, subnode.density_cluster);
-      auto vib_energy_sampler = std::unique_ptr<VibEnergySamplerT>(new VibEnergySamplerT(subnode.density_cluster));
+      Eigen::Vector3d v_cluster = init_vel(gen, gauss, subpayload.m_ion, chamber.kT);
+      Eigen::Vector3d omega = init_ang_vel(gen, gauss, subpayload.m_ion, chamber.kT, subpayload.R_cluster);
+      double vib_energy = init_vib_energy(gen, unif, chamber.kT, subpayload.density_cluster);
+      auto vib_energy_sampler = std::unique_ptr<VibEnergySamplerT>(new VibEnergySamplerT(subpayload.density_cluster));
       int last_pathway_index = -1;
 
       while (z < chamber.clens.total_length) // single realization // TO BE CHANGED IN SECOND CHAMBER!!!!!!!!!!!
       {
-        const MSSubstanceTreeNode &subnode = *subnode_ptr;
+        const MSSubstanceTreeCluster &subpayload = subs.cluster_payloads[subpayload_index];
+        const SubstanceQuantities &subquants = all_subquants[subpayload_index];
+
         double v_cluster_norm = v_cluster.norm();
         double rot_energy = evaluate_rotational_energy(omega, subquants.inertia);
         double internal_energy = evaluate_internal_energy(vib_energy, rot_energy);
@@ -917,10 +913,10 @@ firstprivate( \
         int effective_pathway_index;
         double t_fragmentation;
         std::optional<ApiTofRateConstantOverflow> overflow_exception = std::nullopt;
-        std::tie(effective_pathway_index, t_fragmentation, overflow_exception) = next_fragmentation_time_multi(gen, unif, subnode.pathways, internal_energy, strict);
+        std::tie(effective_pathway_index, t_fragmentation, overflow_exception) = next_fragmentation_time_multi(gen, unif, pathways, internal_energy, strict);
 
         double old_t = t;
-        TimeNextCollOutcome outcome = time_next_coll_quadrupole(gen, unif, v_cluster, v_cluster_norm, chamber, subs.gas.radius + subnode.R_cluster, subquants.dts, z, x, y, t_fragmentation, subquants.acc, t, subs.gas.mass, ms.skimmer, ms.mesh_skimmer, ms.quadrupole);
+        TimeNextCollOutcome outcome = time_next_coll_quadrupole(gen, unif, v_cluster, v_cluster_norm, chamber, subs.gas.radius + subpayload.R_cluster, subquants.dts, z, x, y, t_fragmentation, subquants.acc, t, subs.gas.mass, ms.skimmer, ms.mesh_skimmer, ms.quadrupole);
 
         if (logconf.level >= LOGLEVEL_NORMAL)
         {
@@ -936,18 +932,9 @@ firstprivate( \
 
         if (outcome == TimeNextCollOutcome::fragmentation)
         {
-          MSSubstanceTreeNode *next_node = nullptr;
-          auto [product_1, product_2, global_pathway_idx] = subnode.pathway_products[effective_pathway_index];
-          last_pathway_index = global_pathway_idx;
-          if (product_1.pathways.size() > 0) {
-            next_node = &product_1;
-          }
-          if (product_2.pathways.size() > 0) {
-            if (next_node) {
-              throw ApiTofBadTree();
-            }
-            next_node = &product_2;
-          }
+          size_t tree_pathway_idx = subs.tree_nodes[subnode_index].pathway_indices[effective_pathway_index];
+          std::optional<size_t> product_idx = subs.tree_pathways[tree_pathway_idx].product_idx;
+          last_pathway_index = tree_pathway_idx;
           if (logconf.level >= LOGLEVEL_NORMAL)
           {
             fragments([&](auto &fragments)
@@ -957,19 +944,19 @@ firstprivate( \
           }
           if (logconf.log_events)
           {
-            int next_particle_index = next_node ? next_node->index : -1;
-            result_queue.enqueue(FragmentationEvent{ParticleStateMsg{j, {x, y, z, t}, v_cluster, omega, rot_energy, vib_energy, cur_particle_index}, effective_pathway_index, next_particle_index});
+            int next_particle_index = product_idx ? *product_idx : -1;
+            result_queue.enqueue(FragmentationEvent{ParticleStateMsg{j, {x, y, z, t}, v_cluster, omega, rot_energy, vib_energy, subnode_index}, next_particle_index, next_particle_index});
           }
-          if (next_node) {
-            subnode_ptr = next_node;
-            subquants = all_subquants[subnode_ptr->index];
-            cur_particle_index = subnode_ptr->index;
+          if (product_idx) {
+            subnode_index = *product_idx;
+            subpayload_index = subs.tree_nodes[subnode_index].payload_idx;
+            prepare_pathways_from_tree(pathways, subs, subnode_index);
 
             // Assumption: All energy was used up in the fragmentation so we zero everything out.
             v_cluster = Eigen::Vector3d::Zero();
             omega = Eigen::Vector3d::Zero();
             vib_energy = 0;
-            vib_energy_sampler = std::unique_ptr<VibEnergySamplerT>(new VibEnergySamplerT(subnode_ptr->density_cluster));
+            vib_energy_sampler = std::unique_ptr<VibEnergySamplerT>(new VibEnergySamplerT(subs.cluster_payloads[subpayload_index].density_cluster));
           } else {
             break;
           }
@@ -1004,16 +991,16 @@ firstprivate( \
             std::tie(effective_n, v_rel, v_rel_norm, effective_mobility_gas, effective_mobility_gas_inv) = get_quantities_for_collision(z, chamber, subs.gas.mass, v_cluster, v_gas, pressure, temperature);
             double theta;
             double u_norm; // normal velocity of colliding gas molecule
-            std::tie(theta, u_norm) = gas_coll_sampler.sample(gen, effective_n, v_rel_norm, effective_mobility_gas, effective_mobility_gas_inv, subnode.R_cluster + subs.gas.radius, warn);
+            std::tie(theta, u_norm) = gas_coll_sampler.sample(gen, effective_n, v_rel_norm, effective_mobility_gas, effective_mobility_gas_inv, subpayload.R_cluster + subs.gas.radius, warn);
 
             // Evaluate the dissipated energy in the collision (energy that goes to vibrational modes)
             double vib_energy_new = vib_energy_sampler->sample(gen, boundary_vib_energy(vib_energy, subquants.reduced_mass, u_norm, v_rel_norm, theta));
 
-            bool collision_accepted = eval_collision(gen, unif, chamber.gas_mean_free_paths[1], x, y, z, chamber.clens.total_length, ms.radius_pinhole, chamber.clens.quadrupole_end, v_rel, omega, u_norm, theta, subnode.R_cluster, vib_energy_new, vib_energy, subnode.m_ion, subs.gas.mass, temperature, LogHelper{result_queue, LogMessage::pinhole}, logconf.level);
+            bool collision_accepted = eval_collision(gen, unif, chamber.gas_mean_free_paths[1], x, y, z, chamber.clens.total_length, ms.radius_pinhole, chamber.clens.quadrupole_end, v_rel, omega, u_norm, theta, subpayload.R_cluster, vib_energy_new, vib_energy, subpayload.m_ion, subs.gas.mass, temperature, LogHelper{result_queue, LogMessage::pinhole}, logconf.level);
 
             if (logconf.log_events)
             {
-              result_queue.enqueue(CollisionEvent{ParticleStateMsg{j, {x, y, z, t}, v_cluster, omega, rot_energy, vib_energy, cur_particle_index}, theta, u_norm, collision_accepted});
+              result_queue.enqueue(CollisionEvent{ParticleStateMsg{j, {x, y, z, t}, v_cluster, omega, rot_energy, vib_energy, subnode_index}, theta, u_norm, collision_accepted});
             }
 
             if (collision_accepted)
@@ -1043,7 +1030,7 @@ firstprivate( \
             }
             if (logconf.log_events)
             {
-              result_queue.enqueue(EscapeEvent{ParticleStateMsg{j, {x, y, z, t}, v_cluster, omega, rot_energy, vib_energy, cur_particle_index}});
+              result_queue.enqueue(EscapeEvent{ParticleStateMsg{j, {x, y, z, t}, v_cluster, omega, rot_energy, vib_energy, subnode_index}});
             }
           }
         }
@@ -1291,7 +1278,7 @@ double init_vib_energy(GenT &gen, uniform_real_distribution<double> &unif, doubl
 
 // Evaluate time to next collision
 template <typename GenT>
-TimeNextCollOutcome time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &unif, Eigen::Vector3d &v_cluster, double &v_cluster_norm, ChamberQuantities &chamber, double R, Eigen::Array2d dts, double &z, double &x, double &y, double &t_fragmentation, Eigen::Array4d &acc, double &t, double m_gas, const SkimmerData &skimmer, double mesh_skimmer, std::optional<Quadrupole> quadrupole)
+TimeNextCollOutcome time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &unif, Eigen::Vector3d &v_cluster, double &v_cluster_norm, ChamberQuantities &chamber, double R, Eigen::Array2d dts, double &z, double &x, double &y, double &t_fragmentation, const Eigen::Array4d &acc, double &t, double m_gas, const SkimmerData &skimmer, double mesh_skimmer, const std::optional<Quadrupole> quadrupole)
 {
   using namespace consts;
   double integral = 0.0;

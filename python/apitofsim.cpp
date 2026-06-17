@@ -152,7 +152,7 @@ PartialCounters mk_partial_counters(const MassSpecSubstanceSingleInput &subs)
 
 PartialCounters mk_partial_counters(const MassSpecSubstanceTreeInput &subs)
 {
-  int total_counters = n_counters - 1 + subs.pathway_count;
+  int total_counters = n_counters - 1 + subs.tree_pathways.size();
   return Eigen::Array<int, Eigen::Dynamic, Eigen::Dynamic>::Zero(omp_get_max_threads(), total_counters);
 }
 
@@ -593,39 +593,46 @@ NB_MODULE(apitofsimraw, m)
     .def_ro("pathways", &MassSpecSubstanceSingleInput::pathways)
     .def_ro("gas", &MassSpecSubstanceSingleInput::gas);
 
+  nb::class_<MSSubstanceTreeCluster>(m, "MSSubstanceTreeCluster")
+    .def(nb::init<double, double, const Histogram>(),
+         "m_ion"_a,
+         "R_cluster"_a,
+         "density_cluster"_a)
+    .def(nb::init<const ClusterData&, const Histogram>(),
+         "cluster_0"_a,
+         "density_cluster"_a)
+    .def_ro("m_ion", &MSSubstanceTreeCluster::m_ion)
+    .def_ro("R_cluster", &MSSubstanceTreeCluster::R_cluster)
+    .def_ro("density_cluster", &MSSubstanceTreeCluster::density_cluster);
+
   nb::class_<MSSubstanceTreeNode>(m, "MSSubstanceTreeNode")
-    .def(nb::init<int, int, double, double, Histogram, const std::vector<MassSpecInputFragmentationPathway>, const std::vector<std::tuple<MSSubstanceTreeNode, MSSubstanceTreeNode, int>>>(),
-        "index"_a,
-        "cluster_charge_sign"_a,
-        "m_ion"_a,
-        "R_cluster"_a,
-        "density_cluster"_a,
-        "pathways"_a,
-        "pathway_products"_a)
-    .def(nb::init<int, ClusterData&, const std::vector<MassSpecInputFragmentationPathway>, const std::vector<std::tuple<MSSubstanceTreeNode, MSSubstanceTreeNode, int>>, Histogram>(),
-        "index"_a,
-        "cluster_0"_a,
-        "pathways"_a,
-        "pathway_products"_a,
-        "density_cluster"_a)
-    .def_ro("index", &MSSubstanceTreeNode::index)
-    .def_ro("cluster_charge_sign", &MSSubstanceTreeNode::cluster_charge_sign)
-    .def_ro("m_ion", &MSSubstanceTreeNode::m_ion)
-    .def_ro("R_cluster", &MSSubstanceTreeNode::R_cluster)
-    .def_ro("density_cluster", &MSSubstanceTreeNode::density_cluster)
-    .def_ro("pathways", &MSSubstanceTreeNode::pathways)
-    .def_ro("pathway_products", &MSSubstanceTreeNode::pathway_products);
+    .def(nb::init<size_t, std::vector<size_t>>(),
+        "payload_idx"_a,
+        "pathway_indices"_a)
+    .def_ro("payload_idx", &MSSubstanceTreeNode::payload_idx)
+    .def_ro("pathway_indices", &MSSubstanceTreeNode::pathway_indices);
+
+  nb::class_<MSSubstanceTreePathway>(m, "MSSubstanceTreePathway")
+    .def(nb::init<size_t, std::optional<size_t>>(),
+        "payload_idx"_a,
+        "product_idx"_a = nb::none())
+    .def_ro("payload_idx", &MSSubstanceTreePathway::payload_idx)
+    .def_ro("product_idx", &MSSubstanceTreePathway::product_idx);
 
   nb::class_<MassSpecSubstanceTreeInput>(m, "MassSpecSubstanceTreeInput")
-    .def(nb::init<Gas, MSSubstanceTreeNode, int, int>(),
+    .def(nb::init<int, Gas, std::vector<MSSubstanceTreeCluster>, std::vector<MassSpecInputFragmentationPathway>, std::vector<MSSubstanceTreeNode>, std::vector<MSSubstanceTreePathway>>(),
+        "cluster_charge_sign"_a,
         "gas"_a,
-        "root"_a,
-        "count"_a,
-        "pathway_count"_a)
+        "cluster_payloads"_a,
+        "pathway_payloads"_a,
+        "tree_nodes"_a,
+        "tree_pathways"_a)
+    .def_ro("cluster_charge_sign", &MassSpecSubstanceTreeInput::cluster_charge_sign)
     .def_ro("gas", &MassSpecSubstanceTreeInput::gas)
-    .def_ro("root", &MassSpecSubstanceTreeInput::root)
-    .def_ro("count", &MassSpecSubstanceTreeInput::count)
-    .def_ro("pathway_count", &MassSpecSubstanceTreeInput::pathway_count);
+    .def_ro("cluster_payloads", &MassSpecSubstanceTreeInput::cluster_payloads)
+    .def_ro("pathway_payloads", &MassSpecSubstanceTreeInput::pathway_payloads)
+    .def_ro("tree_nodes", &MassSpecSubstanceTreeInput::tree_nodes)
+    .def_ro("tree_pathways", &MassSpecSubstanceTreeInput::tree_pathways);
 
   m.def("validate_max_energies", static_cast<void (*)(double, double, double, double)>(validate_max_energies),
         "fragmentation_energy"_a,

@@ -99,7 +99,6 @@ def test_cli_functional():
 def test_tree_building():
     from tempfile import TemporaryDirectory
 
-    from apitofsim.api import MassSpecSubstanceTreeInput
     from apitofsim.cli import prepare
 
     runner = CliRunner(catch_exceptions=False)
@@ -124,17 +123,45 @@ def test_tree_building():
         roots = runner._prepare_cluster_tree(
             config, cluster_indexed, name_lookup, pathway_lookup, k_rates, cluster_dos
         )
-        for pathway_ids, product_ids, tree, root in roots:
-            subs = MassSpecSubstanceTreeInput(config["gas"], tree)
-            indices = []
+        for cluster_payload_lookup, pathway_payload_lookup, subs, root in roots:
+            visited_cluster_payloads = set()
+            visited_pathway_payloads = set()
+            visited_cluster_indices = []
+            visited_pathway_indices = []
 
-            def visit(node):
-                indices.append(node.index)
-                for left, right, _ in node.pathway_products:
-                    visit(left)
-                    visit(right)
+            def visit(node_index):
+                visited_cluster_indices.append(node_index)
+                node = subs.tree_nodes[node_index]
+                visited_cluster_payloads.add(node.payload_idx)
+                for pathway_idx in node.pathway_indices:
+                    visited_pathway_indices.append(pathway_idx)
+                    pathway = subs.tree_pathways[pathway_idx]
+                    visited_pathway_payloads.add(pathway.payload_idx)
+                    if pathway.product_idx is not None:
+                        visit(pathway.product_idx)
 
-            visit(subs.root)
-            assert sorted(indices) == list(range(len(indices))), (
-                "Expected all tree nodes to be visited exactly once"
+            visit(0)
+
+            assert sorted(visited_cluster_indices) == list(
+                range(len(subs.cluster_payloads))
+            ), "Expected all tree nodes to be visited exactly once"
+
+            assert sorted(visited_pathway_indices) == list(
+                range(len(subs.pathway_payloads))
+            ), "Expected all tree pathways to be visited exactly once"
+
+            assert len(visited_cluster_payloads) == len(subs.cluster_payloads), (
+                "Expected all cluster payloads to be visited"
+            )
+
+            assert len(visited_cluster_payloads) == len(cluster_payload_lookup), (
+                "Expected all cluster payloads to be visited"
+            )
+
+            assert len(visited_pathway_payloads) == len(subs.pathway_payloads), (
+                "Expected all pathway payloads to be visited"
+            )
+
+            assert len(visited_pathway_payloads) == len(pathway_payload_lookup), (
+                "Expected all pathway payloads to be visited"
             )
