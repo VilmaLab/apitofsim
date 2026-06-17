@@ -671,12 +671,10 @@ def spectrogram_many(
         ]
     ),
     default="experiment",
-    help="The type of database to create: this will determine which tables are created",
+    help="The plot type",
 )
 @click.option(
-    "-r",
-    "--rescale",
-    type=click.Choice(["none", "equal", "schematic"]),
+    "-r", "--rescale", type=click.Choice(["none", "equal", "schematic"]), default="none"
 )
 def plot_events(database, dirout, plot_type, rescale):
     """
