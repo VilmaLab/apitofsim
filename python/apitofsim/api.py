@@ -1,17 +1,18 @@
 from abc import ABC, abstractmethod
 from collections import namedtuple
 from dataclasses import KW_ONLY, MISSING, dataclass
-from typing import Callable, List, Optional, cast
+from typing import Callable, List, Optional, Tuple, cast
 
 import numpy
 from pandas import DataFrame
 from pint import Quantity, get_application_registry
 from pint._typing import Magnitude
 
+from . import apitofsimraw
 from .apitofsimraw import (
+    DEFAULT_LOGLEVEL,
     ApiTofArgumentError,
     ApiTofDosOverflow,
-    # Exceptions
     ApiTofError,
     ApiTofMaxCollisions,
     ApiTofOverflowError,
@@ -22,14 +23,11 @@ from .apitofsimraw import (
     FragmentationEvent,
     FragmentationPathway,
     KTotalInput,
-    MassSpecLogConf,
-    # Enums
     MeshMode,
-    # EventMessage
+    MSSubstanceTreeNode,
+    MSSubstanceTreePathway,
     ParticleState,
     SampleMode,
-    # Defaults
-    defaults,
 )
 from .apitofsimraw import (
     ClusterData as _ClusterData,
@@ -50,10 +48,14 @@ from .apitofsimraw import (
     MassSpecIterator as _MassSpecIterator,
 )
 from .apitofsimraw import (
-    MassSpecSubstanceInput as _MassSpecSubstanceInput,
+    MassSpecSubstanceSingleInput as _MassSpecSubstanceSingleInput,
 )
+from .apitofsimraw import MassSpecSubstanceTreeInput as _MassSpecSubstanceTreeInput
 from .apitofsimraw import (
     MassSpectrometer as _MassSpectrometer,
+)
+from .apitofsimraw import (
+    MSSubstanceTreeCluster as _MSSubstanceTreeCluster,
 )
 from .apitofsimraw import (
     Quadrupole as _Quadrupole,
@@ -80,6 +82,9 @@ from .apitofsimraw import (
     validate_max_energies as _validate_max_energies,
 )
 
+consts = apitofsimraw.consts
+defaults = apitofsimraw.defaults
+
 __all__ = [
     "ClusterLike",
     "ClusterData",
@@ -94,9 +99,11 @@ __all__ = [
     "compute_k_total_batch",
     "KTotalInput",
     "MassSpecInputFragmentationPathway",
-    "MassSpecSubstanceInput",
+    "MassSpecSubstanceSingleInput",
+    "MSSubstanceTreeCluster",
+    "MSSubstanceTreeNode",
+    "MSSubstanceTreePathway",
     "FragmentationPathway",
-    "MassSpecLogConf",
     # Exceptions
     "ApiTofError",
     "ApiTofArgumentError",
@@ -153,6 +160,8 @@ class ClusterData(ClusterLike):
     """From quantum chemistry calcuations, the rotational temperatures in Kelvin for the cluster. This is a 3 element array."""
     frequencies: numpy.ndarray
     """From quantum chemistry calcuations, the vibrational temperatures in Kelvin for the cluster."""
+    charge: int
+    """The cluster's charge"""
 
     def into_cpp(self) -> _ClusterData:
         frequencies = self.get_frequencies()
@@ -163,6 +172,7 @@ class ClusterData(ClusterLike):
             self.electronic_energy.to("hartree").magnitude,
             self.rotations,
             frequencies,
+            self.charge,
         )
 
     def get_frequencies(self) -> Optional[numpy.ndarray]:
@@ -252,11 +262,33 @@ class Histogram:
         return cls.from_cpp(_Histogram(bin_width_mag, m_max, y))
 
     @classmethod
-    def from_cpp(cls, histogram: _Histogram):
-        return cls(Q_(histogram.x, "kelvin"), histogram.y)
+    def from_cpp(cls, histogram: _Histogram, mass_spec_stage=False):
+        units = "J" if mass_spec_stage else "kelvin"
+        return cls(Q_(histogram.x, units), histogram.y)
 
-    def into_cpp(self) -> _Histogram:
-        return _Histogram(self.x.to("kelvin").magnitude, self.y)
+    def into_cpp(self, mass_spec_stage=False) -> _Histogram:
+        units = str(self.x.units)
+        if not mass_spec_stage and units != "kelvin":
+            raise ValueError(
+                f"Unit of xs must be Kelvin for stages other than mass spec, got: {units}"
+            )
+        if mass_spec_stage and units != "joule":
+            raise ValueError(
+                f"Unit of xs must be Joules for mass spec stage, got: {units}"
+            )
+        return _Histogram(self.x.magnitude, self.y)
+
+
+def scaled_density(density_cluster: Histogram):
+    with ureg.context("boltzmann", "spectroscopy"):
+        x = density_cluster.x.to("J")
+    return Histogram(x, density_cluster.y / consts.boltzmann)
+
+
+def scaled_rate_const(rate_const):
+    with ureg.context("boltzmann", "spectroscopy"):
+        x = rate_const.x.to("J")
+    return Histogram(x, rate_const.y)
 
 
 @dataclass
@@ -358,8 +390,8 @@ class MassSpectrometer:
             self.voltages.to("volts").magnitude,
             self.T.to("K").magnitude,
             self.pressures.to("pascals").magnitude,
-            self.quadrupole and self.quadrupole.into_cpp(),
-            self.radius_pinhole and self.radius_pinhole.to("m").magnitude,
+            self.quadrupole.into_cpp() if self.quadrupole else None,
+            self.radius_pinhole.to("m").magnitude if self.radius_pinhole else None,
         )
 
 
@@ -513,53 +545,95 @@ def MassSpecInputFragmentationPathway(*args, **kwargs):
             cluster_0=get("cluster_0", 0).into_cpp(),
             cluster_1=get("cluster_1", 1).into_cpp(),
             cluster_2=get("cluster_2", 2).into_cpp(),
-            rate_const=get("rate_const", 3).into_cpp(),
+            rate_const=get("rate_const", 3).into_cpp(mass_spec_stage=True),
             bonding_energy=proc_bonding_energy(get("bonding_energy", 4, None)),
         )
     else:
         return _MassSpecInputFragmentationPathway(
-            rate_const=get("rate_const", 0).into_cpp(),
+            rate_const=get("rate_const", 0).into_cpp(mass_spec_stage=True),
             bonding_energy=proc_bonding_energy(get("bonding_energy", 1, None)),
         )
 
 
-def MassSpecSubstanceInput(*args, **kwargs):
+def MassSpecSubstanceSingleInput(*args, **kwargs):
     """
-    Construct a MassSpecSubstanceInput
+    Construct a MassSpecSubstanceSingleInput
     """
     get = ArgGetter(args, kwargs)
     if len(args) >= 1 and isinstance(args[0], ClusterLike) or "cluster_0" in kwargs:
         if len(args) >= 2 and isinstance(args[1], ClusterLike) or "cluster_1" in kwargs:
-            return _MassSpecSubstanceInput(
+            return _MassSpecSubstanceSingleInput(
                 cluster_0=get("cluster_0", 0).into_cpp(),
                 cluster_1=get("cluster_1", 1).into_cpp(),
                 cluster_2=get("cluster_2", 2).into_cpp(),
                 gas=get("gas", 3).into_cpp(),
-                density_cluster=get("density_cluster", 4).into_cpp(),
-                rate_const=get("rate_const", 5).into_cpp(),
+                density_cluster=get("density_cluster", 4).into_cpp(
+                    mass_spec_stage=True
+                ),
+                rate_const=get("rate_const", 5).into_cpp(mass_spec_stage=True),
                 fragmentation_energy=get("fragmentation_energy", 6, None),
                 cluster_charge_sign=get(
                     "cluster_charge_sign", 7, defaults.cluster_charge_sign
                 ),
             )
         else:
-            return _MassSpecSubstanceInput(
+            return _MassSpecSubstanceSingleInput(
                 cluster_0=get("cluster_0", 0).into_cpp(),
                 pathways=get("pathways", 1),
                 gas=get("gas", 2).into_cpp(),
-                density_cluster=get("density_cluster", 3).into_cpp(),
+                density_cluster=get("density_cluster", 3).into_cpp(
+                    mass_spec_stage=True
+                ),
                 cluster_charge_sign=get(
                     "cluster_charge_sign", 4, defaults.cluster_charge_sign
                 ),
             )
     else:
-        return _MassSpecSubstanceInput(
+        return _MassSpecSubstanceSingleInput(  # pyright: ignore [reportCallIssue]
             cluster_charge_sign=get("cluster_charge_sign", 0),
             m_ion=get("m_ion", 1),
             R_cluster=get("R_cluster", 2),
-            density_cluster=get("density_cluster", 3).into_cpp(),
+            density_cluster=get("density_cluster", 3).into_cpp(mass_spec_stage=True),
             pathway=get("pathway", 4),
             gas=get("gas", 5).into_cpp(),
+        )
+
+
+def MassSpecSubstanceTreeInput(*args, **kwargs):
+    get = ArgGetter(args, kwargs)
+    cluster_charge_sign = get("cluster_charge_sign", 0)
+    gas = get("gas", 1)
+    cluster_payloads = get("cluster_payloads", 2)
+    pathway_payloads = get("pathway_payloads", 3)
+    tree_nodes = get("tree_nodes", 4)
+    tree_pathways = get("tree_pathways", 5)
+    return _MassSpecSubstanceTreeInput(
+        cluster_charge_sign,
+        gas.into_cpp(),
+        cluster_payloads,
+        pathway_payloads,
+        tree_nodes,
+        tree_pathways,
+    )
+
+
+def MSSubstanceTreeCluster(*args, **kwargs):
+    get = ArgGetter(args, kwargs)
+    if isinstance(get("cluster_0", 0, None), ClusterData):
+        cluster_0 = get("cluster_0", 0)
+        density_cluster = get("density_cluster", 1)
+        return _MSSubstanceTreeCluster(
+            cluster_0.into_cpp(),
+            density_cluster.into_cpp(mass_spec_stage=True),
+        )
+    else:
+        m_ion = get("m_ion", 0)
+        R_cluster = get("R_cluster", 1)
+        density_cluster = get("density_cluster", 2)
+        return _MSSubstanceTreeCluster(
+            m_ion,
+            R_cluster,
+            density_cluster.into_cpp(mass_spec_stage=True),
         )
 
 
@@ -609,12 +683,12 @@ def counters_named_tuple(counters):
 
 def mass_spec(
     mass_spec: MassSpectrometer,
-    subs: _MassSpecSubstanceInput,
+    subs: _MassSpecSubstanceSingleInput,
     N: int,
     *,
     sample_mode: SampleMode = SampleMode.rejection,
     strict=True,
-    logconf: MassSpecLogConf = MassSpecLogConf(),
+    logconf: Tuple[int, bool] = (DEFAULT_LOGLEVEL, False),
     seed: int = 42,
     log_callback: Callable[[str, str], None] | None = None,
     result_callback: Callable[[numpy.ndarray], None] | None = None,
@@ -688,7 +762,16 @@ class MassSpecIterator(_MassSpecIterator):
     def __iter__(self):
         return self
 
-    def __next__(self):
+    def __next__(  # pyright: ignore [reportIncompatibleMethodOverride]
+        self,
+    ) -> (
+        MassSpecLogItem
+        | MassSpecFinalResult
+        | MassSpecIntermediateCounter
+        | CollisionEvent
+        | FragmentationEvent
+        | EscapeEvent
+    ):
         val = super().__next__()
         if isinstance(val, tuple):
             if len(val) == 2:
@@ -697,6 +780,8 @@ class MassSpecIterator(_MassSpecIterator):
                 return MassSpecFinalResult(
                     counters=counters_named_tuple(val[0]), timings=Timings(*val[1:])
                 )
+            else:
+                raise ValueError(f"Unexpected tuple value from MassSpecIterator: {val}")
         elif isinstance(val, numpy.ndarray):
             return MassSpecIntermediateCounter(counters_named_tuple(val))
         else:
@@ -711,12 +796,12 @@ class MassSpecIterator(_MassSpecIterator):
 
 def mass_spec_iter(
     mass_spec: MassSpectrometer,
-    subs: _MassSpecSubstanceInput,
+    subs: _MassSpecSubstanceSingleInput,
     N: int,
     *,
     sample_mode: SampleMode = SampleMode.rejection,
     strict=True,
-    loglevel: int = 0,
+    logconf: Tuple[int, bool] = (DEFAULT_LOGLEVEL, False),
     seed: int = 42,
 ):
     return MassSpecIterator(
@@ -725,7 +810,7 @@ def mass_spec_iter(
         N,
         sample_mode=sample_mode,
         strict=strict,
-        loglevel=loglevel,
+        logconf=logconf,
         seed=seed,
     )
 

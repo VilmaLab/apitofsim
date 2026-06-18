@@ -2,6 +2,7 @@ create sequence experiment_config_sequence start 1;
 create sequence experiment_run_sequence start 1;
 create sequence experiment_result_sequence start 1;
 create sequence pathway_fragmentation_sequence start 1;
+create sequence fragmentation_product_sequence start 1;
 
 create table experiment_config (
     id integer default nextval('experiment_config_sequence') primary key,
@@ -12,7 +13,7 @@ create table experiment_config (
 create table experiment_run (
     id integer default nextval('experiment_run_sequence') primary key,
     experiment_config_id integer not null,
-    pathway_at_a_time bool default false,
+    run_config json,
     foreign key (experiment_config_id) references experiment_config (id),
     start_time timestamp
 );
@@ -35,8 +36,8 @@ create table single_pathway_experiment_result (
 create table multi_pathway_experiment_result (
     id integer default nextval('experiment_result_sequence') primary key,
     experiment_run_id integer not null,
-    cluster_id integer not null,
     foreign key (experiment_run_id) references experiment_run (id),
+    cluster_id integer not null,
     foreign key (cluster_id) references cluster (id),
     loop_us uint64,
     total_us uint64,
@@ -52,6 +53,15 @@ create table pathway_fragmentation (
     foreign key (experiment_result_id) references multi_pathway_experiment_result (id),
     pathway_id integer not null,
     foreign key (pathway_id) references pathway (id),
+    count uint64
+);
+
+create table fragmentation_product (
+    id integer default nextval('fragmentation_product_sequence') primary key,
+    experiment_result_id integer not null,
+    foreign key (experiment_result_id) references multi_pathway_experiment_result (id),
+    cluster_id integer not null,
+    foreign key (cluster_id) references cluster (id),
     count uint64
 );
 

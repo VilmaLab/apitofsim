@@ -71,6 +71,14 @@ public:
   }
 };
 
+class ApiTofBadTree : public ApiTofError
+{
+public:
+  ApiTofBadTree() : ApiTofError("Malformed substance tree. At most one out of the two products in each pathway can be non-terminal.")
+  {
+  }
+};
+
 class ApiTofUnexpectedNumericalError : public ApiTofError
 {
   using ApiTofError::ApiTofError;

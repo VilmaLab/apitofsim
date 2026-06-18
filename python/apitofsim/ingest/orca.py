@@ -39,6 +39,22 @@ def parse_orca(fd):
                 out_chunk["final_single_point_energy"] = ureg.Quantity(
                     float(line[len(fspe_marker) :].strip()), "hartree"
                 )
+            elif line.startswith("TOTAL SCF ENERGY"):
+                next(lines_iter)  # Skip ---
+                while 1:
+                    line = next(lines_iter).rstrip()
+                    if line.startswith("---"):
+                        break
+                    bits = line.split(":")
+                    if len(bits) == 2:
+                        key = "scf_" + bits[0].strip().lower().replace(" ", "_")
+                        val_bits = bits[1].strip().split()
+                        if len(val_bits) == 1:
+                            out_chunk[key] = float(val_bits[0])
+                        elif len(val_bits) >= 2 and val_bits[1].strip() == "Eh":
+                            out_chunk[key] = ureg.Quantity(
+                                float(val_bits[0]), "hartree"
+                            )
             elif "Zero point energy" in line:
                 energy = float(line.split("...")[-1].strip().split()[0])
                 out_chunk["zero_point_energy"] = ureg.Quantity(energy, "hartree")

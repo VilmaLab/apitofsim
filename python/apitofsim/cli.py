@@ -1,12 +1,11 @@
 import pathlib
-from collections import Counter
-from itertools import combinations
-from typing import List, Tuple
+from typing import List
 
 import click
 import pandas
 from ase import Atoms
 
+from apitofsim.workflow import SimulationMode
 from apitofsim.workflow.db import connection_scope, guess_ase_db_filename
 
 
@@ -186,7 +185,7 @@ def prepare(mode, config, database, db_type, ase, warm):
 
     from tomlkit_extras import TOMLDocumentDescriptor, load_toml_file
 
-    from apitofsim.config import import_raw_config
+    from apitofsim.config import check_for_deprecated_keys, import_raw_config
     from apitofsim.ingest.common import CombineError
     from apitofsim.workflow import (
         ClusterDatabase,
@@ -197,9 +196,9 @@ def prepare(mode, config, database, db_type, ase, warm):
         ingest_tree,
     )
 
-    def iter_raw_configs(config):
-        for config in config.get("configs", []):
-            yield config["name"], {**config.get("default_config", {}), **config}
+    def iter_raw_configs(config_root):
+        for config in config_root.get("configs", []):
+            yield config["name"], {**config_root.get("default_config", {}), **config}
 
     if ase:
         ase_path = guess_ase_db_filename(database)
@@ -273,26 +272,36 @@ def prepare(mode, config, database, db_type, ase, warm):
             for config_dict in source["densityandrate_configs"].unwrap():
                 print("Warming up density and rate for config:")
                 pprint(config_dict)
-                cluster_indexed, _, pathway_lookup = db.get_all_lookups()
+                cluster_indexed, name_lookup, pathway_lookup = db.get_all_lookups()
                 preparer.run_densityandrate(
-                    import_raw_config(config_dict), cluster_indexed, pathway_lookup
+                    import_raw_config(config_dict),
+                    cluster_indexed,
+                    pathway_lookup,
+                    name_lookup=name_lookup,
                 )
 
         if db_type in ("experiment", "realization"):
             assert isinstance(db, ExperimentDatabase)
             for name, config_dict in iter_raw_configs(source.unwrap()):
+                check_for_deprecated_keys(config_dict)
                 db.insert_config(name, config_dict)
                 if warm:
                     print("Warming up density and rate for config:", name)
                     pprint(config_dict)
                     preparer = DerivedDataPreparer(db)
-                    cluster_indexed, _, pathway_lookup = db.get_all_lookups()
+                    cluster_indexed, name_lookup, pathway_lookup = db.get_all_lookups()
                     preparer.run_densityandrate(
-                        import_raw_config(config_dict), cluster_indexed, pathway_lookup
+                        import_raw_config(config_dict),
+                        cluster_indexed,
+                        pathway_lookup,
+                        name_lookup=name_lookup,
                     )
 
 
-@db.command(short_help="Run the simulations according to the prepared database")
+@db.command(
+    short_help="Run the simulations according to the prepared database",
+    context_settings={"token_normalize_func": lambda x: x.replace("_", "-").lower()},
+)
 @click.argument("database", required=True, type=click.Path(exists=True, dir_okay=False))
 @click.option(
     "--strict-dos/--no-strict-dos",
@@ -317,7 +326,10 @@ def prepare(mode, config, database, db_type, ase, warm):
     help="Only run the experiment using the parameters in the named configuration",
 )
 @click.option(
-    "--pathway-at-a-time", default=False, is_flag=True, help="Run one pathway at a time"
+    "--simulation-mode",
+    default=SimulationMode.SINGLE_CLUSTER,
+    type=click.Choice(SimulationMode, case_sensitive=False),
+    help="Simulation mode",
 )
 @click.option("--verbose", default=False, is_flag=True)
 def run(
@@ -326,7 +338,7 @@ def run(
     filter_parent,
     filter_pathway,
     filter_config,
-    pathway_at_a_time,
+    simulation_mode,
     verbose,
 ):
     """
@@ -356,7 +368,7 @@ def run(
         runner.run_prepared_config(
             name=filter_config or None,
             strict_dos=strict_dos,
-            pathway_at_a_time=pathway_at_a_time,
+            mode=simulation_mode,
             parent=filter_parent,
             pathways=(pathway.split(",") for pathway in filter_pathway)
             if filter_pathway
@@ -418,7 +430,6 @@ def select_cluster_result(db, filter_parent=None, filter_config=None):
             f"No cluster results found in the database with parent cluster name matching glob '{filter_parent}'"
         )
     if filter_config:
-        print("filter_config", filter_config)
         tbl = tbl.filter(f"(config_name ~~~ '{filter_config}')")
     matches = tbl.count("*").fetchone()[0]
     if matches == 0:
@@ -660,12 +671,10 @@ def spectrogram_many(
         ]
     ),
     default="experiment",
-    help="The type of database to create: this will determine which tables are created",
+    help="The plot type",
 )
 @click.option(
-    "-r",
-    "--rescale",
-    type=click.Choice(["none", "equal", "schematic"]),
+    "-r", "--rescale", type=click.Choice(["none", "equal", "schematic"]), default="none"
 )
 def plot_events(database, dirout, plot_type, rescale):
     """
@@ -968,6 +977,276 @@ def inspect():
     pass
 
 
+def is_array(val):
+    import numpy as np
+    from pint import Quantity
+
+    return (
+        isinstance(val, np.ndarray)
+        or isinstance(val, Quantity)
+        and isinstance(val.magnitude, np.ndarray)
+    )
+
+
+def is_energy(val):
+    from pint import Quantity
+
+    if not isinstance(val, Quantity):
+        return False
+    if val.dimensionality == {"[energy]": 1}:
+        return True
+    return val.units == "hartree" or val.units == "eV"
+
+
+def get_pathways_iter(config):
+    from tomlkit_extras import load_toml_file
+
+    from apitofsim.ingest.csv import parse_csv_tree
+    from apitofsim.ingest.legacy import parse_legacy_tree
+
+    source = load_toml_file(config).unwrap()
+    path_base = pathlib.Path(config).parent
+    pathways = source["pathways"]
+    if isinstance(pathways, list):
+        pathways = pathways[0]
+    if pathways["type"] == "legacy_glob":
+        return parse_legacy_tree(pathways["path"], pathways["clusters"], path_base)
+    elif pathways["type"] == "csv":
+        clusters_path = path_base / pathways["clusters_path"]
+        current_path_base = clusters_path.parent
+
+        return parse_csv_tree(
+            path_base / pathways["pathways_path"],
+            clusters_path,
+            pathways["clusters"],
+            current_path_base,
+        )
+    else:
+        raise click.ClickException(f"Unknown pathway type {pathways['type']}")
+
+
+@inspect.command(
+    short_help="Inspect the quantities that can be ingested from the chemistry data files"
+)
+@click.argument("config", required=True, type=click.Path(exists=True, dir_okay=False))
+@click.argument("outf", required=True, type=click.File("w"))
+@click.option("--skip-metadata", is_flag=True)
+@click.option("--skip-arrays", is_flag=True)
+@click.option("--focus-energies", is_flag=True)
+def ingest(config, outf, skip_metadata, skip_arrays, focus_energies):
+    from pint import Quantity
+
+    pathways_iter = get_pathways_iter(config)
+
+    header_printed = False
+    header_names = []
+    units = []
+
+    def dotted_items(tpl):
+        result = {}
+        for particle_role, particle in zip(("parent", "prod1", "prod2"), tpl):
+            result[f"{particle_role}.name"] = particle["name"]
+            for attribute, val in particle["particle"].items():
+                if skip_arrays and is_array(val):
+                    continue
+                if focus_energies and not is_energy(val):
+                    continue
+                result[f"{particle_role}.particle.{attribute}"] = val
+            for source, source_dict in particle["sources"].items():
+                for attribute, val in source_dict.items():
+                    if skip_arrays and is_array(val):
+                        continue
+                    if focus_energies and not is_energy(val):
+                        continue
+                    if skip_metadata and attribute in {
+                        "input",
+                        "software_version",
+                        "citation",
+                        "version_and_date",
+                    }:
+                        continue
+                    result[f"{particle_role}.{source}.{attribute}"] = val
+        return result
+
+    for tpl in pathways_iter:
+        pathway_dict = dotted_items(tpl)
+        if not header_printed:
+            for name, val in pathway_dict.items():
+                header_names.append(name)
+                if isinstance(val, Quantity):
+                    print(f"{name} ({val.units})", end=",", file=outf)
+                    units.append(val.units)
+                else:
+                    print(name, end=",", file=outf)
+                    units.append(None)
+            print(file=outf)
+        header_printed = True
+        for name, unit in zip(header_names, units):
+            val = pathway_dict.get(name, "MISSING")
+            if isinstance(val, Quantity):
+                val = val.to(unit).magnitude
+            print(str(val).replace(",", ";").replace("\n", " / "), end=",", file=outf)
+        print(file=outf)
+
+
+@inspect.command(short_help="")
+@click.argument("config", required=True, type=click.Path(exists=True, dir_okay=False))
+@click.argument(
+    "outdir",
+    required=True,
+    type=click.Path(dir_okay=True, file_okay=False, path_type=pathlib.Path),
+)
+def ingest_tree(config, outdir):
+    import graphviz
+
+    graph_builder = graphviz.Digraph(
+        "ingestrecords",
+        filename="ingestrecords.gv",
+        node_attr={"shape": "record"},
+        graph_attr={"rankdir": "LR"},
+    )
+    added_nodes = set()
+
+    def add_node(builder, node, identifier=None):
+        name = node["name"]
+        if identifier is None:
+            identifier = name
+        number_of_atoms = node["particle"]["number_of_atoms"]
+        energy = node["particle"]["electronic_energy"]
+        builder.node(
+            identifier, label=f"{name}|{number_of_atoms} atoms|{energy:.2f~#P}"
+        )
+
+    def add_pathway(
+        builder,
+        pathway_name,
+        parent,
+        prod1,
+        prod2,
+        parent_id=None,
+        prod1_id=None,
+        prod2_id=None,
+    ):
+        if parent_id is None:
+            parent_id = parent["name"]
+        if prod1_id is None:
+            prod1_id = prod1["name"]
+        if prod2_id is None:
+            prod2_id = prod2["name"]
+        fragmentation_energy = (
+            parent["particle"]["electronic_energy"]
+            - prod1["particle"]["electronic_energy"]
+            - prod2["particle"]["electronic_energy"]
+        )
+        builder.node(
+            pathway_name, label=f"{fragmentation_energy:.2f~#P}", shape="diamond"
+        )
+        builder.edge(parent_id, pathway_name)
+        builder.edge(pathway_name, prod1_id)
+        builder.edge(pathway_name, prod2_id)
+
+    def ensure_node(node):
+        name = node["name"]
+        if name in added_nodes:
+            return
+        add_node(graph_builder, node)
+        added_nodes.add(name)
+
+    lookup = {}
+    pathway_idx = 0
+    pathways_iter = get_pathways_iter(config)
+    for parent, prod1, prod2 in pathways_iter:
+        ensure_node(parent)
+        ensure_node(prod1)
+        ensure_node(prod2)
+        pathway_name = f"pathway{pathway_idx}"
+        pathway_idx += 1
+        if parent["name"] not in lookup:
+            lookup[parent["name"]] = (parent, [])
+        add_pathway(graph_builder, pathway_name, parent, prod1, prod2)
+        lookup[parent["name"]][1].append((prod1, prod2))
+
+    print("Writing graph")
+    outdir.mkdir(exist_ok=True, parents=True)
+    with (outdir / "graph.svg").open("wb") as outf:
+        outf.write(graph_builder.pipe(format="svg"))
+    print("Done writing graph")
+
+    pathway_idx = 0
+
+    def walk(builder, node, path=""):
+        nonlocal pathway_idx
+        name = node["name"]
+        next_path = path + "_" + name
+        add_node(builder, node, identifier=next_path)
+        if name in lookup:
+            node, pathways = lookup[name]
+            for prod1, prod2 in pathways:
+                pathway_name = f"pathway{pathway_idx}"
+                pathway_idx += 1
+                add_pathway(
+                    builder,
+                    pathway_name,
+                    node,
+                    prod1,
+                    prod2,
+                    next_path,
+                    next_path + "_" + prod1["name"],
+                    next_path + "_" + prod2["name"],
+                )
+                walk(builder, prod1, path=next_path)
+                walk(builder, prod2, path=next_path)
+
+    for root in lookup:
+        print("Writing tree for root", root)
+        tree_name = f"tree_{root}"
+        tree_builder = graphviz.Digraph(
+            tree_name,
+            filename=f"{tree_name}.gv",
+            node_attr={"shape": "record"},
+            graph_attr={"rankdir": "LR"},
+        )
+        pathway_idx = 0
+        walk(tree_builder, lookup[root][0])
+        with (outdir / f"{tree_name}.dot").open("w") as outf:
+            print(tree_builder.source, file=outf)
+        with (outdir / f"{tree_name}.svg").open("wb") as outf:
+            outf.write(tree_builder.pipe(format="svg"))
+        print("Done writing tree for root", root)
+
+
+@inspect.command(short_help="")
+@click.argument("database", required=True, type=click.Path(exists=True, dir_okay=False))
+@click.argument(
+    "outdir",
+    required=True,
+    type=click.Path(dir_okay=True, file_okay=False, path_type=pathlib.Path),
+)
+def db_tree(database, outdir):
+    from apitofsim.api import MassSpecSubstanceTreeInput
+    from apitofsim.plotting import mk_tree_input_graph
+    from apitofsim.workflow.db import ExperimentDatabase
+    from apitofsim.workflow.runners import ExperimentRunner
+
+    db = ExperimentDatabase(database)
+    runner = ExperimentRunner(db)
+    configs = list(db.iter_configs())
+    config = configs[0][2]
+    (mass_spec, cluster_indexed, name_lookup, pathway_lookup, k_rates, cluster_dos) = (
+        runner._prepare_from_config(config)
+    )
+    roots = runner._prepare_cluster_tree(
+        config, cluster_indexed, name_lookup, pathway_lookup, k_rates, cluster_dos
+    )
+    outdir.mkdir(exist_ok=True, parents=True)
+    for pathway_ids, product_ids, tree, root in roots:
+        label = root["cluster_label"]
+        subs = MassSpecSubstanceTreeInput(config["gas"], tree)
+        builder = mk_tree_input_graph(subs)
+        with (outdir / f"{label}.svg").open("wb") as outf:
+            outf.write(builder.pipe(format="svg"))
+
+
 @inspect.command(
     short_help="Inspect a log file from a QC processing program such as Gaussian or ORCA"
 )
@@ -994,77 +1273,29 @@ def qc_log(format, log_in):
             pprint(gaussian_result)
 
 
-def atoms_to_counter(atoms: Atoms) -> Counter[str]:
-    """Convert an Atoms object to a Counter of element symbols."""
-    return Counter(atoms.get_chemical_symbols())
-
-
-def find_combination_triples(
-    counters: List[Counter[str]],
-) -> List[Tuple[int, int, int]]:
-    """
-    Given a list of Atoms objects, find all triples (i, j, k) of indices such
-    that atoms_list[i] + atoms_list[j] has exactly the same atoms as
-    atoms_list[k] (i.e. i and j are reactants that combine to form product k).
-
-    Returns a list of (reactant_a_index, reactant_b_index, product_index)
-    tuples. Each unordered pair {i, j} appears at most once per product k,
-    with i < j.
-    """
-    # Build a lookup from a frozen counter (i.e. a composition signature)
-    # to the list of indices that share that composition.
-    # This lets us do O(1) product lookups instead of scanning the whole list.
-    from collections import defaultdict
-
-    composition_to_indices: dict[frozenset[tuple[str, int]], list[int]] = defaultdict(
-        list
-    )
-    for idx, c in enumerate(counters):
-        key = frozenset(c.items())
-        composition_to_indices[key].append(idx)
-
-    results: List[Tuple[int, int, int]] = []
-
-    # Enumerate all pairs of potential reactants
-    for i, j in combinations(range(len(counters)), 2):
-        # The combined composition is the element-wise sum of both counters
-        combined = counters[i] + counters[j]
-        combined_key = frozenset(combined.items())
-
-        # Check whether any Atoms object in our list matches the combined
-        # composition (those would be the products)
-        for k in composition_to_indices.get(combined_key, []):
-            results.append((i, j, k))
-
-    return results
-
-
-def generate_common_names(paths):
-    result = []
-    level = 0
-    while 1:
-        for path in paths:
-            name = path.stem
-            for i in range(level):
-                try:
-                    name += "_" + path.parents[i].stem
-                except IndexError:
-                    raise ValueError(
-                        f"Failed to generate unique common name for {path}, ran out of disambiguating parent directories"
-                    )
-            if name in result:
-                result.clear()
-                level += 1
-                break
-            result.append(name)
-        else:
-            break
-    return result
-
-
 @cli.group(short_help="Commands to inspect different files")
 def generate():
     pass
+
+
+def filter_blacklist(common_names, files, all_atoms, charges, blacklist_file):
+    import fnmatch
+    import re
+
+    regex_bits = []
+    for line in blacklist_file:
+        line = line.strip()
+        if line and not line.startswith("#"):
+            regex = fnmatch.translate(line)
+            regex_bits.append(f"({regex})")
+    regex = re.compile("|".join(regex_bits))
+    keep_indices = [i for i, name in enumerate(common_names) if not regex.match(name)]
+    common_names = [common_names[i] for i in keep_indices]
+    files = [files[i] for i in keep_indices]
+    all_atoms = [all_atoms[i] for i in keep_indices]
+    if charges is not None:
+        charges = [charges[i] for i in keep_indices]
+    return common_names, files, all_atoms, charges
 
 
 @generate.command(short_help="")
@@ -1089,31 +1320,100 @@ def generate():
     nargs=-1,
     type=click.Path(dir_okay=False, path_type=pathlib.Path),
 )
+@click.option("--blacklist", type=click.File("r"), help="")
 @click.option("-g", "--guess-prefix", is_flag=True, help="")
-def pathways(format, pathways_out, clusters_out, files, guess_prefix):
+@click.option(
+    "--ignore-charge",
+    is_flag=True,
+    help="Ignore charge information, overgenerating pathways. Implies --allow-neutral-parents.",
+)
+@click.option(
+    "--allow-neutral-parents",
+    is_flag=True,
+    help="Generate pathways with a neutral parent. These will be useless for simulation, so only generate these for insepcting your data.",
+)
+def pathways(
+    format,
+    pathways_out,
+    clusters_out,
+    files,
+    blacklist,
+    guess_prefix,
+    ignore_charge,
+    allow_neutral_parents,
+):
     from ase.io import read as ase_read
 
-    counters = []
+    from apitofsim.generate import generate_common_names, viable_fragmentations
+
+    all_atoms = []
+    if ignore_charge:
+        charges = None
+    else:
+        charges = []
     for file in files:
         if format == "orca":
+            from apitofsim.ingest.orca import parse_orca
+
             atoms = ase_read(file, format="orca-output")
+            if not ignore_charge:
+                assert charges is not None
+                info = parse_orca(file.open())
+                if len(info) >= 1 and "charge" in info[0]:
+                    charge = info[0]["charge"]
+                    charges.append(charge)
+                else:
+                    raise ValueError(
+                        f"Could not find charge in ORCA output {file}. You can use --ignore-charge to ignore this error and proceed without charge information, but this will overgenerate."
+                    )
         elif format == "gaussian":
+            from apitofsim.ingest.gaussian import parse_gaussian
+
             atoms = ase_read(file, format="gaussian-out")
+            if not ignore_charge:
+                assert charges is not None
+                info = parse_gaussian(file.open())
+                if "charge" in info:
+                    charge = info["charge"]
+                    charges.append(charge)
+                else:
+                    raise ValueError(
+                        f"Could not find charge in Gaussian output {file}. You can use --ignore-charge to ignore this error and proceed without charge information, but this will overgenerate."
+                    )
         else:
             assert format == "xyz"
             atoms = ase_read(file, format="xyz")
+            if not ignore_charge:
+                assert charges is not None
+                charge = {"positive": 1, "neutral": 0, "negative": -1}.get(
+                    file.parent.name.lower()
+                )
+                if charge is not None:
+                    charges.append(charge)
+                else:
+                    raise ValueError(
+                        f"Could not infer charge from parent directory name {file.parent.name} (should be positive, neutral or negative) for xyz file {file}. You can use --ignore-charge to ignore this error and proceed without charge information, but this will overgenerate."
+                    )
         if isinstance(atoms, list):
             atoms = atoms[-1]
         assert isinstance(atoms, Atoms)
-        counters.append(atoms_to_counter(atoms))
+        all_atoms.append(atoms)
     common_names = generate_common_names(files)
+    files = list(common_names.values())
+    common_names = list(common_names.keys())
+    if blacklist:
+        common_names, files, all_atoms, charges = filter_blacklist(
+            common_names, files, all_atoms, charges, blacklist
+        )
+    triples = viable_fragmentations(
+        all_atoms, charges, allow_neutral_parents=allow_neutral_parents
+    )
     output_paths = []
     for file in files:
         output_path = file.relative_to(clusters_out.parent)
         if guess_prefix:
             output_path = output_path.parent / output_path.stem
         output_paths.append(str(output_path))
-    triples = find_combination_triples(counters)
     with open(pathways_out, "w") as out:
         out.write("parent,product1,product2\n")
         for i, j, k in triples:

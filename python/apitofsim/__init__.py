@@ -1,3 +1,4 @@
+from . import apitofsimraw
 from .api import (
     ClusterData,
     FragmentationPathway,
@@ -5,7 +6,7 @@ from .api import (
     Histogram,
     KTotalInput,
     MassSpecInputFragmentationPathway,
-    MassSpecSubstanceInput,
+    MassSpecSubstanceSingleInput,
     MassSpectrometer,
     ProductsCluster,
     Quadrupole,
@@ -27,6 +28,9 @@ from .config import (
     read_skimmer,
 )
 
+defaults = apitofsimraw.defaults
+consts = apitofsimraw.consts
+
 __all__ = [
     # API
     "ClusterData",
@@ -36,7 +40,7 @@ __all__ = [
     "Histogram",
     "MassSpectrometer",
     "MassSpecInputFragmentationPathway",
-    "MassSpecSubstanceInput",
+    "MassSpecSubstanceSingleInput",
     "densityandrate",
     "mass_spec",
     "skimmer",
@@ -54,4 +58,6 @@ __all__ = [
     "get_clusters",
     "get_gas",
     "debug_info",
+    "defaults",
+    "consts",
 ]

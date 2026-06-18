@@ -3,6 +3,8 @@ apitofsim_python_py_src = [
 'api.py',
 'cli.py',
 'config.py',
+'generate.py',
+'marimo.py',
 'plotting.py',
 'transmission.py',
 '__init__.py',
@@ -26,6 +28,7 @@ python.install_sources([
 ], subdir: 'apitofsim/ingest', pure : false)
 python.install_sources([
 'workflow/__init__.py',
+'workflow/base.py',
 'workflow/db.py',
 'workflow/db_utils.py',
 'workflow/ingest.py',

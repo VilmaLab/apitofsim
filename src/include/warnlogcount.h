@@ -21,9 +21,10 @@ namespace Counter
 enum Counter
 {
   nwarnings,
-  n_escaped_total,
   ncoll_total,
   counter_collision_rejections,
+  n_realizations,
+  n_escaped_total,
   n_fragmented_total
 };
 };
@@ -51,6 +52,7 @@ struct ParticleStateMsg
   Eigen::Array3d omega;
   double rot_energy;
   double internal_energy;
+  int particle_index = 0;
 };
 
 struct CollisionEvent
@@ -65,6 +67,7 @@ struct FragmentationEvent
 {
   ParticleStateMsg state;
   int pathway_index;
+  int next_particle_index = -1;
 };
 
 struct EscapeEvent

@@ -190,6 +190,7 @@ def parse_config(fn):
             else:
                 value = float(value)
         config[name] = value
+    check_for_deprecated_keys(config)
     return config
 
 
@@ -241,7 +242,7 @@ class ConfigFile:
             )
         if quantity == "mass_spec":
             cls = MassSpectrometer if asa == "measurement" else _MassSpectrometer
-            return lambda skimmer, mesh_skimmer=None: cls(
+            return lambda skimmer, mesh_skimmer: cls(
                 skimmer,
                 lengths=self.get("lengths", by="short_name", asa=asa),
                 voltages=self.get("voltages", by="short_name", asa=asa),
@@ -314,7 +315,7 @@ def parse_config_with_particles(fn):
 
 
 def cluster_from_particle_config(
-    particle_config, asa="measurement", ureg=get_application_registry()
+    particle_config, asa="measurement", ureg=get_application_registry(), charge=0
 ):
     vibrational_temperatures = particle_config["vibrational_temperatures"]
     if vibrational_temperatures is None:
@@ -334,6 +335,7 @@ def cluster_from_particle_config(
         electronic_energy,
         particle_config["rotational_temperatures"],
         vibrational_temperatures,
+        charge,
     )
 
 
@@ -425,4 +427,16 @@ def import_raw_config(config):
             )
         elif k in TOPLEVEL + ["voltages", "lengths", "pressures"]:
             config[k] = into_quantity_obj(config, k)
+    check_for_deprecated_keys(config)
     return config
+
+
+def check_for_deprecated_keys(config):
+    import warnings
+
+    for k in config:
+        if k == "cluster_charge_sign":
+            warnings.warn(
+                "'cluster_charge_sign' is deprecated, add cluster charges during data import instead",
+                DeprecationWarning,
+            )

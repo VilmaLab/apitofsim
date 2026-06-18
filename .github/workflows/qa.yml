@@ -27,7 +27,7 @@ jobs:
       - name: Setup virtualenv
         run: |
           uv venv fullinstallenv
-          VIRTUAL_ENV=fullinstallenv uv run --active pip install .[plot]
+          VIRTUAL_ENV=fullinstallenv uv run --active pip install .[plot,notebooks]
 
       - name: Run basedpyright
         run: |
@@ -75,6 +75,7 @@ jobs:
 
       - name: Install dependencies
         run: |
+          sudo apt-get update
           sudo apt-get install -y clang-tidy-20 clang-format-20 clang-20 lld-20 libomp5-20 libomp-20-dev
           sudo ln -sf /usr/bin/clang-tidy-20 /usr/bin/clang-tidy
           sudo ln -sf /usr/bin/clang-format-20 /usr/bin/clang-format

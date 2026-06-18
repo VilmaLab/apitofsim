@@ -172,10 +172,10 @@ def insert_via_arrow_limitoffset(conn, table, *, chunk_size=None, **kwargs):
 def insert_via_arrow_recordbatches(conn, table, *, chunk_size=None, **kwargs):
     import pyarrow as pa
 
-    tables = [pa.table(dict(kwargs))]
+    arrow_tables = [pa.table(dict(kwargs))]
 
-    while len(tables) > 0:
-        current_table = tables[0]
+    while len(arrow_tables) > 0:
+        current_table = arrow_tables[0]
         conn.register("arrow_table", current_table)
         try:
             conn.execute(f"insert into {table} by name select * from arrow_table")
@@ -187,13 +187,13 @@ def insert_via_arrow_recordbatches(conn, table, *, chunk_size=None, **kwargs):
                 raise
             print(f"Out of memory, reducing chunk size to {chunk_size}")
             conn.unregister("arrow_table")
-            new_tables = []
-            for table in tables:
-                for chunk in table.to_batches(chunk_size):
-                    new_tables.append(pa.Table.from_batches([chunk]))
-            tables = new_tables
+            new_arrow_tables = []
+            for arrow_table in arrow_tables:
+                for chunk in arrow_table.to_batches(chunk_size):
+                    new_arrow_tables.append(pa.Table.from_batches([chunk]))
+            arrow_tables = new_arrow_tables
         else:
-            tables.pop(0)
+            arrow_tables.pop(0)
         finally:
             conn.unregister("arrow_table")
 

@@ -240,6 +240,7 @@ struct VibEnergyNormSampler : VibEnergySamplerBase
 {
   using VibEnergySamplerBase::VibEnergySamplerBase;
 
+
   template <typename GenT>
   double sample(GenT &gen, double E)
   {

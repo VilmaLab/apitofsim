@@ -105,6 +105,7 @@ struct ClusterData
   double electronic_energy;
   Eigen::Vector3d rotations;
   Eigen::ArrayXd frequencies;
+  int charge;
 
   // Computed members
   double inertia_moment;
@@ -112,7 +113,7 @@ struct ClusterData
   double mass;
 
   ClusterData();
-  ClusterData(int atomic_mass, double electronic_energy, Eigen::Vector3d rotations, Eigen::ArrayXd frequencies);
+  ClusterData(int atomic_mass, double electronic_energy, Eigen::Vector3d rotations, Eigen::ArrayXd frequencies, int charge);
   void validate();
   int num_oscillators();
   bool is_atom_like_product();

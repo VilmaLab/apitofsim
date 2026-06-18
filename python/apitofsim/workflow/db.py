@@ -1,6 +1,6 @@
 # pyright: reportAttributeAccessIssue=false
 
-from collections import namedtuple
+from collections import Counter, namedtuple
 from contextlib import contextmanager
 from datetime import timedelta
 
@@ -14,7 +14,8 @@ from pint import get_application_registry
 import apitofsim.workflow.sql_files as sql_files
 from apitofsim import ClusterData
 
-from .db_utils import duckdb_connect_roview_cow
+from .base import SimulationMode
+from .db_utils import duckdb_connect_roview_cow, get_through_join_else
 
 ureg = get_application_registry()
 Q_ = ureg.Quantity
@@ -71,11 +72,11 @@ class ClusterDatabase:
     TABLES = [sql_files.pathway]
 
     def __init__(self, filename, *, readonly=False, ase_filename=None):
+        self.closed = False
         if isinstance(filename, tuple):
             self.db, self.cleanup = filename
         else:
             self.db, self.cleanup = connect_duckdb_cleanup(filename, readonly=readonly)
-        self.closed = False
         if ase_filename is not None:
             # TODO: These ClusterDatabase, etc. objects should probably be context managers too
             if readonly:
@@ -92,6 +93,7 @@ class ClusterDatabase:
     def _setup_db(self):
         import os
 
+        self.db.execute("SET threads=1")
         self.db.execute("SET preserve_insertion_order=false")
         if "DUCKDB_MEMORY_LIMIT" in os.environ:
             memory_limit = os.environ["DUCKDB_MEMORY_LIMIT"]
@@ -101,10 +103,11 @@ class ClusterDatabase:
         if self.closed:
             return
         self.closed = True
-        if self.cleanup is not None:
+        if hasattr(self, "cleanup") and self.cleanup is not None:
             self.cleanup()
-        self.db.close()
-        if self.ase_db is not None:
+        if hasattr(self, "db"):
+            self.db.close()
+        if hasattr(self, "ase_db") and self.ase_db is not None:
             self.ase_db.__exit__(None, None, None)
 
     def __del__(self):
@@ -170,6 +173,7 @@ class ClusterDatabase:
             Q_(cluster.electronic_energy, "hartree"),
             cluster.rotational_temperatures,
             cluster.vibrational_temperatures,
+            cluster.charge,
         )
 
     def iter_clusters_objects(self, *args, **kwargs):
@@ -337,7 +341,7 @@ class ClusterDatabase:
 
     def get_all_lookups(self, parent=None, pathways=None):
         if isinstance(parent, str):
-            parent = self.db.db.execute(
+            parent = self.db.execute(
                 """
                 select id
                 from cluster
@@ -360,7 +364,7 @@ class ClusterDatabase:
                 wanted_tbl = pa.table(
                     list(zip(*pathways)), names=["pathway", "product1", "product2"]
                 )
-                pathway_common_names = self.db.db.sql(
+                pathway_common_names = self.db.sql(
                     """
                     select
                         p.id as pathway_id,
@@ -376,7 +380,7 @@ class ClusterDatabase:
                 )
                 pathways = (
                     pathway_common_names.join(
-                        self.db.db.from_arrow(wanted_tbl).set_alias("wanted"),
+                        self.db.from_arrow(wanted_tbl).set_alias("wanted"),
                         condition=(
                             "wanted.pathway = cluster_common_name "
                             "and ((wanted.product1 = product1_common_name and wanted.product2 = product2_common_name) "
@@ -441,6 +445,65 @@ class SuperClusterDatabase(ClusterDatabase):
         bin_width, x_max = row
         return Q_(bin_width, "K"), Q_(x_max, "K")
 
+    def get_cluster_dos_through_join_else(
+        self, cluster_indexed, histogram_id, cluster_dos_dict
+    ):
+        wanted_cluster_ids = numpy.array(list(cluster_indexed.keys()))
+        for miss_info in get_through_join_else(
+            self.db,
+            self.db.table("cluster_dos"),
+            "data",
+            cluster_dos_dict,
+            cluster_id=wanted_cluster_ids,
+            histogram_params_id=histogram_id,
+        ):
+            cluster_id = miss_info["cluster_id"]
+            cluster = cluster_indexed[cluster_id]
+            if cluster.is_atom_like_product():
+                cluster_dos_dict[cluster_id] = None
+            else:
+                yield cluster_id, cluster
+
+    def get_product_dos_through_join_else(
+        self, cluster_indexed, histogram_id, cluster_dos_dict, pathway_lookup
+    ):
+        from apitofsim.api import ProductsCluster
+
+        wanted_p1 = []
+        wanted_p2 = []
+        for _, product1_id, product2_id in pathway_lookup.values():
+            product1_id, product2_id = sorted((product1_id, product2_id))
+            wanted_p1.append(product1_id)
+            wanted_p2.append(product2_id)
+
+        for miss_info in get_through_join_else(
+            self.db,
+            self.db.table("products_dos"),
+            "data",
+            cluster_dos_dict,
+            cluster1_id=wanted_p1,
+            cluster2_id=wanted_p2,
+            histogram_params_id=histogram_id,
+        ):
+            p1 = miss_info["cluster1_id"]
+            p2 = miss_info["cluster2_id"]
+            yield ProductsCluster(cluster_indexed[p1], cluster_indexed[p2])
+
+    def get_k_rate_through_join_else(self, histogram_id, k_total_dict, pathway_lookup):
+        for miss_info in get_through_join_else(
+            self.db,
+            self.db.table("k_rate").filter(
+                duckdb.ColumnExpression("histogram_params_id")
+                == duckdb.ConstantExpression(histogram_id)
+            ),
+            "data",
+            k_total_dict,
+            pathway_id=pathway_lookup.keys(),
+        ):
+            pathway_id = miss_info["pathway_id"]
+            cluster_id, product1_id, product2_id = pathway_lookup[pathway_id]
+            yield pathway_id, cluster_id, product1_id, product2_id
+
 
 ConfigRow = namedtuple("ConfigRow", ["id", "name", "config"])
 
@@ -460,10 +523,12 @@ class ExperimentDatabase(SuperClusterDatabase):
     def refresh_views(self):
         super().refresh_views()
 
-    def insert_run(self, config_id=None, pathway_at_a_time=False):
+    def insert_run(self, config_id=None, simulation_mode=SimulationMode.SINGLE_CLUSTER):
+        import orjson
+
         id = self.db.execute(
             "insert into experiment_run values (default, ?, ?, current_timestamp) returning id",
-            (config_id, pathway_at_a_time),
+            (config_id, orjson.dumps({"simulation_mode": simulation_mode.name})),
         ).fetchone()
         assert id is not None
         return id[0]
@@ -544,12 +609,15 @@ class ExperimentDatabase(SuperClusterDatabase):
             ).fetchone()
             assert pathway_ids is not None
             assert id is not None
-            for pathway_id, fragmented in zip(
+            counter = Counter()
+            for pathway_id, cnt in zip(
                 pathway_ids, counters.n_fragmented_total, strict=True
             ):
+                counter[pathway_id] += cnt
+            for pathway_id, cnt in counter.items():
                 self.db.execute(
                     "insert into pathway_fragmentation values (default, ?, ?, ?)",
-                    (id[0], pathway_id, int(fragmented)),
+                    (id[0], pathway_id, int(cnt)),
                 )
         assert id is not None
         return id[0]
