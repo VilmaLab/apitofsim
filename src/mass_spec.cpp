@@ -148,17 +148,15 @@ MassSpecSubstanceSingleInput::MassSpecSubstanceSingleInput(
 MSSubstanceTreeCluster::MSSubstanceTreeCluster(
   double m_ion,
   double R_cluster,
-  const Histogram density_cluster
-) : m_ion(m_ion),
-    R_cluster(R_cluster),
-    density_cluster(density_cluster)
+  const Histogram density_cluster) : m_ion(m_ion),
+                                     R_cluster(R_cluster),
+                                     density_cluster(density_cluster)
 {
 }
 
 MSSubstanceTreeCluster::MSSubstanceTreeCluster(
   const ClusterData &cluster_0,
-  const Histogram density_cluster
-) : density_cluster(density_cluster)
+  const Histogram density_cluster) : density_cluster(density_cluster)
 {
   compute_mass_and_radius(compute_inertia(cluster_0.rotations), cluster_0.atomic_mass, this->m_ion, this->R_cluster);
 }
@@ -169,13 +167,12 @@ MassSpecSubstanceTreeInput::MassSpecSubstanceTreeInput(
   std::vector<MSSubstanceTreeCluster> cluster_payloads,
   std::vector<MassSpecInputFragmentationPathway> pathway_payloads,
   std::vector<MSSubstanceTreeNode> tree_nodes,
-  std::vector<MSSubstanceTreePathway> tree_pathways
-) : cluster_charge_sign(cluster_charge_sign),
-    gas(gas),
-    cluster_payloads(cluster_payloads),
-    pathway_payloads(pathway_payloads),
-    tree_nodes(tree_nodes),
-    tree_pathways(tree_pathways)
+  std::vector<MSSubstanceTreePathway> tree_pathways) : cluster_charge_sign(cluster_charge_sign),
+                                                       gas(gas),
+                                                       cluster_payloads(cluster_payloads),
+                                                       pathway_payloads(pathway_payloads),
+                                                       tree_nodes(tree_nodes),
+                                                       tree_pathways(tree_pathways)
 {
 }
 
@@ -225,7 +222,7 @@ SimulationResult apitof_mass_spec(
   unsigned long long root_seed,
   StreamingResultQueue &result_queue,
   GasCollSamplerT gas_coll_sampler,
-  //VibEnergySamplerT vib_energy_sampler,
+  // VibEnergySamplerT vib_energy_sampler,
   bool strict = true,
   MassSpecLogConf logconf = DEFAULT_LOGCONF,
   bool on_main_thread = false);
@@ -238,7 +235,7 @@ SimulationResult apitof_mass_spec(
   unsigned long long root_seed,
   StreamingResultQueue &result_queue,
   GasCollSamplerT gas_coll_sampler,
-  //VibEnergySamplerT vib_energy_sampler,
+  // VibEnergySamplerT vib_energy_sampler,
   bool strict = true,
   MassSpecLogConf logconf = DEFAULT_LOGCONF,
   bool on_main_thread = false);
@@ -271,7 +268,7 @@ SimulationResult apitof_mass_spec(
       root_seed,
       result_queue,
       GasCollCondNormHistDSSSampler(dtheta, du, boundary_u),
-      //VibEnergyNormSampler(subs.density_cluster),
+      // VibEnergyNormSampler(subs.density_cluster),
       strict,
       logconf,
       on_main_thread);
@@ -285,7 +282,7 @@ SimulationResult apitof_mass_spec(
       root_seed,
       result_queue,
       GasCollCondUnnormHistDSSSampler(dtheta, du, boundary_u),
-      //VibEnergyUnnormSampler(subs.density_cluster),
+      // VibEnergyUnnormSampler(subs.density_cluster),
       strict,
       logconf,
       on_main_thread);
@@ -299,7 +296,7 @@ SimulationResult apitof_mass_spec(
       root_seed,
       result_queue,
       GasCollRejectionSampler(boundary_u),
-      //VibEnergyNormSampler(subs.density_cluster),
+      // VibEnergyNormSampler(subs.density_cluster),
       strict,
       logconf,
       on_main_thread);
@@ -434,13 +431,13 @@ std::tuple<int, double, std::optional<ApiTofRateConstantOverflow>> next_fragment
   return std::make_tuple(effective_pathway_index, t_next_fragmentation, effective_exception);
 }
 
-Pressures::Pressures(const InstrumentPressures &pressures, double kT) :
-    P(pressures),
-    n(particle_density(pressures[0], kT), particle_density(pressures[1], kT))
+Pressures::Pressures(const InstrumentPressures &pressures, double kT) : P(pressures),
+                                                                        n(particle_density(pressures[0], kT), particle_density(pressures[1], kT))
 {
 }
 
-Eigen::Array2d Pressures::histogram_dts(double R_tot, double mobility_gas, double mobility_gas_inv, double multiplier, std::optional<Quadrupole> quadrupole) const {
+Eigen::Array2d Pressures::histogram_dts(double R_tot, double mobility_gas, double mobility_gas_inv, double multiplier, std::optional<Quadrupole> quadrupole) const
+{
   double dt1 = multiplier / coll_freq(this->n[0], mobility_gas, mobility_gas_inv, R_tot, 0.0);
   double dt2 = multiplier / coll_freq(this->n[1], mobility_gas, mobility_gas_inv, R_tot, 0.0);
   if (quadrupole && dt2 > 1.0 / quadrupole->radiofrequency / 1000.0)
@@ -470,48 +467,44 @@ void CumulativeLengths::info(std::ostream &out) const
   out << "L5: " << second_chamber_end << " m" << endl;
 }
 
-ChamberQuantities::ChamberQuantities(const MassSpectrometer &ms, const Gas &gas) :
-  kT(boltzmann * ms.T),
-  pressures(ms.pressures, kT),
-  gas_mean_free_paths(ms.pressures.unaryExpr([&](double P){return mean_free_path(gas.radius, kT, P);})),
-  mobility_gas(kT / gas.mass), // thermal agitation
-  mobility_gas_inv(gas.mass / kT),
-  clens(ms.lengths),
-  E(-(
-    (ms.voltages(Eigen::seq(1, 4)) - ms.voltages(Eigen::seq(0, 3))) /
-    ms.lengths(Eigen::seq(0, 3))
-  ))
-{}
+ChamberQuantities::ChamberQuantities(const MassSpectrometer &ms, const Gas &gas) : kT(boltzmann * ms.T),
+                                                                                   pressures(ms.pressures, kT),
+                                                                                   gas_mean_free_paths(ms.pressures.unaryExpr([&](double P)
+{ return mean_free_path(gas.radius, kT, P); })),
+                                                                                   mobility_gas(kT / gas.mass), // thermal agitation
+                                                                                   mobility_gas_inv(gas.mass / kT),
+                                                                                   clens(ms.lengths),
+                                                                                   E(-(
+                                                                                     (ms.voltages(Eigen::seq(1, 4)) - ms.voltages(Eigen::seq(0, 3))) /
+                                                                                     ms.lengths(Eigen::seq(0, 3))))
+{
+}
 
 SubstanceQuantities::SubstanceQuantities(
-    const MassSpectrometer &ms,
-    const ChamberQuantities &chamber,
-    const MassSpecSubstanceSingleInput &subs
-) : SubstanceQuantities(
-    ms,
-    chamber,
-    subs.gas,
-    subs.cluster_charge_sign,
-    subs.m_ion,
-    subs.R_cluster
-  )
-{}
+  const MassSpectrometer &ms,
+  const ChamberQuantities &chamber,
+  const MassSpecSubstanceSingleInput &subs) : SubstanceQuantities(ms,
+                                                                  chamber,
+                                                                  subs.gas,
+                                                                  subs.cluster_charge_sign,
+                                                                  subs.m_ion,
+                                                                  subs.R_cluster)
+{
+}
 
 SubstanceQuantities::SubstanceQuantities(
   const MassSpectrometer &ms,
   const ChamberQuantities &chamber,
   const Gas &gas,
   const int cluster_charge_sign,
-  const MSSubstanceTreeCluster &cluster
-) : SubstanceQuantities(
-    ms,
-    chamber,
-    gas,
-    cluster_charge_sign,
-    cluster.m_ion,
-    cluster.R_cluster
-  )
-{}
+  const MSSubstanceTreeCluster &cluster) : SubstanceQuantities(ms,
+                                                               chamber,
+                                                               gas,
+                                                               cluster_charge_sign,
+                                                               cluster.m_ion,
+                                                               cluster.R_cluster)
+{
+}
 
 SubstanceQuantities::SubstanceQuantities(
   const MassSpectrometer &ms,
@@ -519,12 +512,10 @@ SubstanceQuantities::SubstanceQuantities(
   const Gas &gas,
   const int cluster_charge_sign,
   const double m_ion,
-  const double R_cluster
-) :
-  reduced_mass(1. / (1. / m_ion + 1. / gas.mass)),
-  inertia(0.4 * m_ion * R_cluster * R_cluster),
-  acc(chamber.E * consts::eV * cluster_charge_sign / m_ion),
-  dts(chamber.pressures.histogram_dts(R_cluster + gas.radius, chamber.mobility_gas, chamber.mobility_gas_inv, DT_MULTIPLIER, ms.quadrupole))
+  const double R_cluster) : reduced_mass(1. / (1. / m_ion + 1. / gas.mass)),
+                            inertia(0.4 * m_ion * R_cluster * R_cluster),
+                            acc(chamber.E * consts::eV * cluster_charge_sign / m_ion),
+                            dts(chamber.pressures.histogram_dts(R_cluster + gas.radius, chamber.mobility_gas, chamber.mobility_gas_inv, DT_MULTIPLIER, ms.quadrupole))
 {
   if (ms.quadrupole)
   {
@@ -532,7 +523,8 @@ SubstanceQuantities::SubstanceQuantities(
   }
 }
 
-void print_substance(LogHelper initial_trace, const MassSpecSubstanceSingleInput &subs, const SubstanceQuantities &subquants) {
+void print_substance(LogHelper initial_trace, const MassSpecSubstanceSingleInput &subs, const SubstanceQuantities &subquants)
+{
   initial_trace([&](auto &initial_trace)
   {
     initial_trace << "Cluster charge sign: " << subs.cluster_charge_sign << endl;
@@ -552,8 +544,7 @@ void print_initial_trace(
   const MassSpectrometer &ms,
   const MassSpecSubstanceSingleInput &subs,
   const ChamberQuantities &chamber,
-  const SubstanceQuantities &subquants
-)
+  const SubstanceQuantities &subquants)
 {
   using namespace consts;
 
@@ -794,8 +785,7 @@ void print_initial_trace(
   const MassSpectrometer &ms,
   const MassSpecSubstanceTreeInput &subs,
   const ChamberQuantities &chamber,
-  const std::vector<SubstanceQuantities> &all_subquants
-)
+  const std::vector<SubstanceQuantities> &all_subquants)
 {
   using namespace consts;
 
@@ -815,14 +805,13 @@ void print_initial_trace(
 void prepare_pathways_from_tree(
   std::vector<std::reference_wrapper<const MassSpecInputFragmentationPathway>> &pathways,
   const MassSpecSubstanceTreeInput &subs,
-  int subnode_index
-)
+  int subnode_index)
 {
   pathways.clear();
-  for (auto pathway_index : subs.tree_nodes[subnode_index].pathway_indices) {
+  for (auto pathway_index : subs.tree_nodes[subnode_index].pathway_indices)
+  {
     pathways.push_back(std::cref(
-      subs.pathway_payloads[subs.tree_pathways[pathway_index].payload_idx]
-    ));
+      subs.pathway_payloads[subs.tree_pathways[pathway_index].payload_idx]));
   }
 }
 
@@ -834,7 +823,7 @@ SimulationResult apitof_mass_spec(
   unsigned long long root_seed,
   StreamingResultQueue &result_queue,
   GasCollSamplerT gas_coll_sampler,
-  //VibEnergySamplerT vib_energy_sampler,
+  // VibEnergySamplerT vib_energy_sampler,
   bool strict,
   MassSpecLogConf logconf,
   bool on_main_thread)
@@ -947,7 +936,8 @@ firstprivate( \
             int next_particle_index = product_idx ? *product_idx : -1;
             result_queue.enqueue(FragmentationEvent{ParticleStateMsg{j, {x, y, z, t}, v_cluster, omega, rot_energy, vib_energy, subnode_index}, next_particle_index, next_particle_index});
           }
-          if (product_idx) {
+          if (product_idx)
+          {
             subnode_index = *product_idx;
             subpayload_index = subs.tree_nodes[subnode_index].payload_idx;
             prepare_pathways_from_tree(pathways, subs, subnode_index);
@@ -957,7 +947,9 @@ firstprivate( \
             omega = Eigen::Vector3d::Zero();
             vib_energy = 0;
             vib_energy_sampler = std::unique_ptr<VibEnergySamplerT>(new VibEnergySamplerT(subs.cluster_payloads[subpayload_index].density_cluster));
-          } else {
+          }
+          else
+          {
             break;
           }
         }

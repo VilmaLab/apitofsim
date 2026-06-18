@@ -183,8 +183,7 @@ std::thread run_mass_spec_in_thread(
         result_queue,
         sample_mode,
         strict,
-        MassSpecLogConf(std::get<0>(logconf), std::get<1>(logconf))
-      );
+        MassSpecLogConf(std::get<0>(logconf), std::get<1>(logconf)));
     });
     result_queue.enqueue(std::monostate{});
   });
@@ -329,10 +328,10 @@ struct MassSpecIterator
     SampleMode sample_mode = SampleMode::rejection,
     bool strict = true,
     std::tuple<int, bool> logconf = DEFAULT_LOGCONF_TUPLE) : result_queue(),
-                                                   partial_counters(mk_partial_counters(subs)),
-                                                   exception_helper(),
-                                                   execution_thread(run_mass_spec_in_thread<MassSpecSubstanceT>(final_result, exception_helper, ms, subs, N, seed, result_queue, sample_mode, strict, logconf)),
-                                                   finished(false)
+                                                             partial_counters(mk_partial_counters(subs)),
+                                                             exception_helper(),
+                                                             execution_thread(run_mass_spec_in_thread<MassSpecSubstanceT>(final_result, exception_helper, ms, subs, N, seed, result_queue, sample_mode, strict, logconf)),
+                                                             finished(false)
   {
   }
 
@@ -598,7 +597,7 @@ NB_MODULE(apitofsimraw, m)
          "m_ion"_a,
          "R_cluster"_a,
          "density_cluster"_a)
-    .def(nb::init<const ClusterData&, const Histogram>(),
+    .def(nb::init<const ClusterData &, const Histogram>(),
          "cluster_0"_a,
          "density_cluster"_a)
     .def_ro("m_ion", &MSSubstanceTreeCluster::m_ion)
@@ -607,26 +606,26 @@ NB_MODULE(apitofsimraw, m)
 
   nb::class_<MSSubstanceTreeNode>(m, "MSSubstanceTreeNode")
     .def(nb::init<size_t, std::vector<size_t>>(),
-        "payload_idx"_a,
-        "pathway_indices"_a)
+         "payload_idx"_a,
+         "pathway_indices"_a)
     .def_ro("payload_idx", &MSSubstanceTreeNode::payload_idx)
     .def_ro("pathway_indices", &MSSubstanceTreeNode::pathway_indices);
 
   nb::class_<MSSubstanceTreePathway>(m, "MSSubstanceTreePathway")
     .def(nb::init<size_t, std::optional<size_t>>(),
-        "payload_idx"_a,
-        "product_idx"_a = nb::none())
+         "payload_idx"_a,
+         "product_idx"_a = nb::none())
     .def_ro("payload_idx", &MSSubstanceTreePathway::payload_idx)
     .def_ro("product_idx", &MSSubstanceTreePathway::product_idx);
 
   nb::class_<MassSpecSubstanceTreeInput>(m, "MassSpecSubstanceTreeInput")
     .def(nb::init<int, Gas, std::vector<MSSubstanceTreeCluster>, std::vector<MassSpecInputFragmentationPathway>, std::vector<MSSubstanceTreeNode>, std::vector<MSSubstanceTreePathway>>(),
-        "cluster_charge_sign"_a,
-        "gas"_a,
-        "cluster_payloads"_a,
-        "pathway_payloads"_a,
-        "tree_nodes"_a,
-        "tree_pathways"_a)
+         "cluster_charge_sign"_a,
+         "gas"_a,
+         "cluster_payloads"_a,
+         "pathway_payloads"_a,
+         "tree_nodes"_a,
+         "tree_pathways"_a)
     .def_ro("cluster_charge_sign", &MassSpecSubstanceTreeInput::cluster_charge_sign)
     .def_ro("gas", &MassSpecSubstanceTreeInput::gas)
     .def_ro("cluster_payloads", &MassSpecSubstanceTreeInput::cluster_payloads)

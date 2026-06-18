@@ -108,8 +108,7 @@ struct MSSubstanceTreeCluster
   MSSubstanceTreeCluster(
     double m_ion,
     double R_cluster,
-    const Histogram density_cluster
-  );
+    const Histogram density_cluster);
 
   MSSubstanceTreeCluster(
     const ClusterData &cluster_0,
@@ -118,14 +117,14 @@ struct MSSubstanceTreeCluster
 
 struct MSSubstanceTreeNode
 {
-    size_t payload_idx;
-    std::vector<size_t> pathway_indices;
+  size_t payload_idx;
+  std::vector<size_t> pathway_indices;
 };
 
 struct MSSubstanceTreePathway
 {
-    size_t payload_idx;
-    std::optional<size_t> product_idx;
+  size_t payload_idx;
+  std::optional<size_t> product_idx;
 };
 
 struct MassSpecSubstanceTreeInput
@@ -146,8 +145,7 @@ struct MassSpecSubstanceTreeInput
     std::vector<MSSubstanceTreeCluster> cluster_payloads,
     std::vector<MassSpecInputFragmentationPathway> pathway_payloads,
     std::vector<MSSubstanceTreeNode> tree_nodes,
-    std::vector<MSSubstanceTreePathway> tree_pathways
-  );
+    std::vector<MSSubstanceTreePathway> tree_pathways);
 };
 
 struct Pressures
@@ -203,16 +201,14 @@ struct SubstanceQuantities
   SubstanceQuantities(
     const MassSpectrometer &ms,
     const ChamberQuantities &chamber,
-    const MassSpecSubstanceSingleInput &subs
-  );
+    const MassSpecSubstanceSingleInput &subs);
 
   SubstanceQuantities(
     const MassSpectrometer &ms,
     const ChamberQuantities &chamber,
     const Gas &gas,
     const int cluster_charge_sign,
-    const MSSubstanceTreeCluster &cluster
-  );
+    const MSSubstanceTreeCluster &cluster);
 
   SubstanceQuantities(
     const MassSpectrometer &ms,
@@ -220,8 +216,7 @@ struct SubstanceQuantities
     const Gas &gas,
     const int cluster_charge_sign,
     const double m_ion,
-    const double R_cluster
-  );
+    const double R_cluster);
 };
 
 enum struct SampleMode
@@ -236,10 +231,13 @@ struct MassSpecLogConf
   int level = DEFAULT_LOGLEVEL;
   bool log_events = false;
 
-  MassSpecLogConf(int level = DEFAULT_LOGLEVEL, bool log_events = false) : level(level), log_events(log_events) {}
+  MassSpecLogConf(int level = DEFAULT_LOGLEVEL, bool log_events = false) : level(level), log_events(log_events)
+  {
+  }
 
-  MassSpecLogConf(std::tuple<int, bool> tpl) :
-      MassSpecLogConf(std::get<0>(tpl), std::get<1>(tpl)) {}
+  MassSpecLogConf(std::tuple<int, bool> tpl) : MassSpecLogConf(std::get<0>(tpl), std::get<1>(tpl))
+  {
+  }
 };
 
 const MassSpecLogConf DEFAULT_LOGCONF = MassSpecLogConf{};
