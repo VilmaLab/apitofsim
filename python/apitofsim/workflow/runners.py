@@ -561,7 +561,7 @@ class ExperimentRunner:
                 raise
             overflow_requested = None
             if isinstance(e, ApiTofOverflowError):
-                overflow_requested = e.current
+                overflow_requested = e.current  # pyright: ignore [reportAttributeAccessIssue]
             experiment_result_id = self.db.record_failure(
                 self.current_run_id,
                 type(e).__name__,

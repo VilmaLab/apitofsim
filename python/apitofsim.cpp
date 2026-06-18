@@ -542,7 +542,7 @@ NB_MODULE(apitofsimraw, m)
          "T"_a,
          "pressures"_a,
          "quadrupole"_a = std::nullopt,
-         "radius_pinhole"_a = 0.001)
+         "radius_pinhole"_a.none() = 0.001)
     .def_ro("skimmer", &MassSpectrometer::skimmer)
     .def_ro("mesh_skimmer", &MassSpectrometer::mesh_skimmer)
     .def_ro("lengths", &MassSpectrometer::lengths)
@@ -559,7 +559,7 @@ NB_MODULE(apitofsimraw, m)
          "cluster_2"_a,
          "rate_const"_a,
          "bonding_energy"_a = std::nullopt)
-    .def(nb::init<Histogram, double>(), "rate_const"_a, "bonding_energy"_a)
+    .def(nb::init<Histogram, double>(), "rate_const"_a, "bonding_energy"_a = std::nullopt)
     .def_ro("rate_const", &MassSpecInputFragmentationPathway::rate_const)
     .def_ro("bonding_energy", &MassSpecInputFragmentationPathway::bonding_energy);
 

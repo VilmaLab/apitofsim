@@ -1,3 +1,4 @@
+from . import apitofsimraw
 from .api import (
     ClusterData,
     FragmentationPathway,
@@ -16,7 +17,7 @@ from .api import (
     precompute_mesh,
     skimmer,
 )
-from .apitofsimraw import consts, debug_info, defaults
+from .apitofsimraw import debug_info
 from .config import (
     config_to_shortnames,
     get_clusters,
@@ -26,6 +27,9 @@ from .config import (
     read_histogram,
     read_skimmer,
 )
+
+defaults = apitofsimraw.defaults
+consts = apitofsimraw.consts
 
 __all__ = [
     # API

@@ -8,6 +8,7 @@ from pandas import DataFrame
 from pint import Quantity, get_application_registry
 from pint._typing import Magnitude
 
+from . import apitofsimraw
 from .apitofsimraw import (
     DEFAULT_LOGLEVEL,
     ApiTofArgumentError,
@@ -27,7 +28,6 @@ from .apitofsimraw import (
     MSSubstanceTreePathway,
     ParticleState,
     SampleMode,
-    defaults,
 )
 from .apitofsimraw import (
     ClusterData as _ClusterData,
@@ -82,6 +82,9 @@ from .apitofsimraw import (
     validate_max_energies as _validate_max_energies,
 )
 
+consts = apitofsimraw.consts
+defaults = apitofsimraw.defaults
+
 __all__ = [
     "ClusterLike",
     "ClusterData",
@@ -127,6 +130,7 @@ ureg.define(
     "halfturn = π * radian = _ = halfrevolution = halfcycle = halfcircle = multiple_of_PI"
 )
 Q_ = ureg.Quantity
+EventMessage = CollisionEvent | FragmentationEvent | EscapeEvent
 
 
 class ClusterLike(ABC):
@@ -277,8 +281,6 @@ class Histogram:
 
 
 def scaled_density(density_cluster: Histogram):
-    from .apitofsimraw import consts
-
     with ureg.context("boltzmann", "spectroscopy"):
         x = density_cluster.x.to("J")
     return Histogram(x, density_cluster.y / consts.boltzmann)
@@ -389,8 +391,8 @@ class MassSpectrometer:
             self.voltages.to("volts").magnitude,
             self.T.to("K").magnitude,
             self.pressures.to("pascals").magnitude,
-            self.quadrupole and self.quadrupole.into_cpp(),
-            self.radius_pinhole and self.radius_pinhole.to("m").magnitude,
+            self.quadrupole.into_cpp() if self.quadrupole else None,
+            self.radius_pinhole.to("m").magnitude if self.radius_pinhole else None,
         )
 
 
@@ -588,7 +590,7 @@ def MassSpecSubstanceSingleInput(*args, **kwargs):
                 ),
             )
     else:
-        return _MassSpecSubstanceSingleInput(
+        return _MassSpecSubstanceSingleInput(  # pyright: ignore [reportCallIssue]
             cluster_charge_sign=get("cluster_charge_sign", 0),
             m_ion=get("m_ion", 1),
             R_cluster=get("R_cluster", 2),
@@ -761,7 +763,14 @@ class MassSpecIterator(_MassSpecIterator):
     def __iter__(self):
         return self
 
-    def __next__(self):
+    def __next__(
+        self,
+    ) -> (
+        MassSpecLogItem
+        | MassSpecFinalResult
+        | MassSpecIntermediateCounter
+        | EventMessage
+    ):  # pyright: ignore [reportIncompatibleMethodOverride]
         val = super().__next__()
         if isinstance(val, tuple):
             if len(val) == 2:
@@ -770,6 +779,8 @@ class MassSpecIterator(_MassSpecIterator):
                 return MassSpecFinalResult(
                     counters=counters_named_tuple(val[0]), timings=Timings(*val[1:])
                 )
+            else:
+                raise ValueError(f"Unexpected tuple value from MassSpecIterator: {val}")
         elif isinstance(val, numpy.ndarray):
             return MassSpecIntermediateCounter(counters_named_tuple(val))
         else:

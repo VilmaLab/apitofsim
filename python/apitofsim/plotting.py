@@ -312,8 +312,8 @@ def draw_boxes(boxes_np, lines_np, outfn):
     for line in lines_np:
         ax.plot(line[[0, 2]], line[[1, 3]], color="red", lw=1)
 
-    plt.xlim([xmin, xmax])
-    plt.ylim([ymin, ymax])
+    plt.xlim((xmin, xmax))
+    plt.ylim((ymin, ymax))
     plt.xlabel("x - axis")
     plt.ylabel("y - axis")
 

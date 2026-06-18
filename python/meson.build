@@ -17,13 +17,13 @@ subdir('apitofsim')
 if stubgen_feat.enabled()
   stubgen = nanobind.get_variable('stubgen')
   custom_target(
-    output: ['__init__.pyi', 'defaults.pyi'],
+    output: ['__init__.pyi', 'defaults.pyi', 'consts.pyi'],
     build_subdir: 'apitofsimraw',
     depends: apitofsim_python,
     env: {'PYTHONPATH': fs.parent(apitofsim_python.full_path())},
     command: [python, stubgen, '-r', '-m', 'apitofsimraw'],
     install: true,
-    install_dir: python.get_install_dir(pure : false) / 'apitofsim',
+    install_dir: python.get_install_dir(pure : false) / 'apitofsim' / 'apitofsimraw',
     build_by_default: true
   )
 endif
