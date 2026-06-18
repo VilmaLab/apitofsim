@@ -130,7 +130,6 @@ ureg.define(
     "halfturn = π * radian = _ = halfrevolution = halfcycle = halfcircle = multiple_of_PI"
 )
 Q_ = ureg.Quantity
-EventMessage = CollisionEvent | FragmentationEvent | EscapeEvent
 
 
 class ClusterLike(ABC):
@@ -763,14 +762,16 @@ class MassSpecIterator(_MassSpecIterator):
     def __iter__(self):
         return self
 
-    def __next__(
+    def __next__(  # pyright: ignore [reportIncompatibleMethodOverride]
         self,
     ) -> (
         MassSpecLogItem
         | MassSpecFinalResult
         | MassSpecIntermediateCounter
-        | EventMessage
-    ):  # pyright: ignore [reportIncompatibleMethodOverride]
+        | CollisionEvent
+        | FragmentationEvent
+        | EscapeEvent
+    ):
         val = super().__next__()
         if isinstance(val, tuple):
             if len(val) == 2:
