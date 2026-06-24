@@ -569,11 +569,17 @@ class ExperimentDatabase(SuperClusterDatabase):
         self,
         run_id,
         counters,
-        timings,
+        timings=None,
         pathway_id=None,
         cluster_id=None,
         pathway_ids=None,
     ):
+        if timings is not None:
+            loop_usecs = int(timings.loop / timedelta(microseconds=1))
+            total_usecs = int(timings.total / timedelta(microseconds=1))
+        else:
+            loop_usecs = 0
+            total_usecs = 0
         if pathway_id is None and (cluster_id is None or pathway_ids is None):
             raise ValueError(
                 "Either pathway_id or cluster_id and pathway_ids must be provided"
@@ -584,8 +590,8 @@ class ExperimentDatabase(SuperClusterDatabase):
                 (
                     run_id,
                     pathway_id,
-                    int(timings.loop / timedelta(microseconds=1)),
-                    int(timings.total / timedelta(microseconds=1)),
+                    loop_usecs,
+                    total_usecs,
                     int(counters.nwarnings),
                     int(counters.n_fragmented_total[0]),
                     int(counters.n_escaped_total),
@@ -599,8 +605,8 @@ class ExperimentDatabase(SuperClusterDatabase):
                 (
                     run_id,
                     cluster_id,
-                    int(timings.loop / timedelta(microseconds=1)),
-                    int(timings.total / timedelta(microseconds=1)),
+                    loop_usecs,
+                    total_usecs,
                     int(counters.nwarnings),
                     int(counters.n_escaped_total),
                     int(counters.ncoll_total),
