@@ -9,6 +9,7 @@
 #include <nanobind/nanobind.h>
 #include <nanobind/eigen/dense.h>
 #include <nanobind/stl/function.h>
+#include <nanobind/stl/shared_ptr.h>
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/string_view.h>
 #include <nanobind/stl/optional.h>
@@ -320,6 +321,8 @@ struct MassSpecIterator
 {
   StreamingResultQueue result_queue;
   PartialCounters partial_counters;
+  std::shared_ptr<const MassSpectrometer> ms;
+  std::shared_ptr<const void> subs;
   OMPExceptionHelper exception_helper;
   MassSpecCleanup execution_thread;
   SimulationResult final_result{};
@@ -327,16 +330,18 @@ struct MassSpecIterator
 
   template <typename MassSpecSubstanceT>
   MassSpecIterator(
-    const MassSpectrometer &ms,
-    const MassSpecSubstanceT &subs,
+    std::shared_ptr<const MassSpectrometer> ms,
+    std::shared_ptr<const MassSpecSubstanceT> subs,
     int N,
     unsigned long long seed = DEFAULT_SEED,
     SampleMode sample_mode = SampleMode::rejection,
     bool strict = true,
     std::tuple<int, bool> logconf = DEFAULT_LOGCONF_TUPLE) : result_queue(),
-                                                             partial_counters(mk_partial_counters(subs)),
+                                                             partial_counters(mk_partial_counters(*subs)),
+                                                             ms(ms),
+                                                             subs(std::shared_ptr<const void>(subs)),
                                                              exception_helper(),
-                                                             execution_thread(MassSpecCleanup{run_mass_spec_in_thread<MassSpecSubstanceT>(final_result, exception_helper, ms, subs, N, seed, result_queue, sample_mode, strict, logconf)}),
+                                                             execution_thread(MassSpecCleanup{run_mass_spec_in_thread<MassSpecSubstanceT>(final_result, exception_helper, *ms, *subs, N, seed, result_queue, sample_mode, strict, logconf)}),
                                                              finished(false)
   {
   }
@@ -762,7 +767,7 @@ NB_MODULE(apitofsimraw, m)
     .def_ro("state", &EscapeEvent::state);
 
   nb::class_<MassSpecIterator>(m, "MassSpecIterator")
-    .def(nb::init<const MassSpectrometer &, const MassSpecSubstanceSingleInput &, int, unsigned long long, SampleMode, bool, std::tuple<int, bool>>(),
+    .def(nb::init<std::shared_ptr<const MassSpectrometer>, std::shared_ptr<const MassSpecSubstanceSingleInput>, int, unsigned long long, SampleMode, bool, std::tuple<int, bool>>(),
          nb::call_guard<nb::gil_scoped_release>(),
          "ms"_a,
          "subs"_a,
@@ -771,7 +776,7 @@ NB_MODULE(apitofsimraw, m)
          "sample_mode"_a = SampleMode::rejection,
          "strict"_a = true,
          "logconf"_a = DEFAULT_LOGCONF_TUPLE)
-    .def(nb::init<const MassSpectrometer &, const MassSpecSubstanceTreeInput &, int, unsigned long long, SampleMode, bool, std::tuple<int, bool>>(),
+    .def(nb::init<std::shared_ptr<const MassSpectrometer>, std::shared_ptr<const MassSpecSubstanceTreeInput>, int, unsigned long long, SampleMode, bool, std::tuple<int, bool>>(),
          nb::call_guard<nb::gil_scoped_release>(),
          "ms"_a,
          "subs"_a,
