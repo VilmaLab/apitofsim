@@ -295,10 +295,13 @@ mass_spec(
         (*event_callback)(std::get<EventMessage>(result));
       }
     }
+    else if (std::holds_alternative<std::monostate>(result))
+    {
+      break;
+    }
     else
     {
-      assert(std::holds_alternative<std::monostate>(result));
-      break;
+      throw ApiTofError("Unknown variant from mass spec output queue");
     }
   }
   exception_helper.rethrow();
@@ -351,10 +354,13 @@ struct MassSpecIterator
     {
       return std::get<EventMessage>(result);
     }
+    else if (std::holds_alternative<std::tuple<const std::string, const std::string>>(result))
+    {
+      return std::get<std::tuple<const std::string, const std::string>>(result);
+    }
     else
     {
-      assert((std::holds_alternative<std::tuple<const std::string, const std::string>>(result)));
-      return std::get<std::tuple<const std::string, const std::string>>(result);
+      throw ApiTofError("Unknown variant from mass spec output queue");
     }
   }
 
