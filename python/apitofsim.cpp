@@ -229,11 +229,6 @@ std::variant<std::tuple<const std::string, const std::string>, Eigen::ArrayXi, E
     {
       return std::get<EventMessage>(result);
     }
-    else if (std::holds_alternative<std::exception>(result))
-    {
-      const std::exception &exc = std::get<std::exception>(result);
-      throw exc;
-    }
   }
   catch (...)
   {
