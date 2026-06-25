@@ -132,7 +132,15 @@ struct MassSpecCleanup
 
   ~MassSpecCleanup()
   {
-    execution_thread.join();
+    join_if_joinable();
+  }
+
+  void join_if_joinable()
+  {
+    if (execution_thread.joinable())
+    {
+      execution_thread.join();
+    }
   }
 };
 
@@ -313,7 +321,7 @@ struct MassSpecIterator
   StreamingResultQueue result_queue;
   PartialCounters partial_counters;
   OMPExceptionHelper exception_helper;
-  std::thread execution_thread;
+  MassSpecCleanup execution_thread;
   SimulationResult final_result{};
   bool finished;
 
@@ -328,7 +336,7 @@ struct MassSpecIterator
     std::tuple<int, bool> logconf = DEFAULT_LOGCONF_TUPLE) : result_queue(),
                                                              partial_counters(mk_partial_counters(subs)),
                                                              exception_helper(),
-                                                             execution_thread(run_mass_spec_in_thread<MassSpecSubstanceT>(final_result, exception_helper, ms, subs, N, seed, result_queue, sample_mode, strict, logconf)),
+                                                             execution_thread(MassSpecCleanup{run_mass_spec_in_thread<MassSpecSubstanceT>(final_result, exception_helper, ms, subs, N, seed, result_queue, sample_mode, strict, logconf)}),
                                                              finished(false)
   {
   }
@@ -343,7 +351,7 @@ struct MassSpecIterator
     if (std::holds_alternative<std::monostate>(result))
     {
       finished = true;
-      execution_thread.join();
+      join_if_joinable();
       return final_result;
     }
     else if (std::holds_alternative<Eigen::ArrayXi>(result))
@@ -366,10 +374,7 @@ struct MassSpecIterator
 
   void join_if_joinable()
   {
-    if (execution_thread.joinable())
-    {
-      execution_thread.join();
-    }
+    execution_thread.join_if_joinable();
   }
 };
 
