@@ -104,7 +104,7 @@ struct LogMessage
   }
 };
 
-using StreamingResultElement = std::variant<std::monostate, LogMessage, EventMessage, PartialResult, std::exception>;
+using StreamingResultElement = std::variant<std::monostate, LogMessage, EventMessage, PartialResult>;
 using StreamingResultQueue = BlockingConcurrentQueue<StreamingResultElement>;
 
 struct WarningHelper

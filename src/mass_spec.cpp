@@ -191,13 +191,13 @@ template <typename GenT>
 Eigen::Vector3d init_ang_vel(GenT &gen, normal_distribution<double> &gauss, double m, double kT, double R);
 template <typename GenT>
 double init_vib_energy(GenT &gen, uniform_real_distribution<double> &unif, double kT, const Histogram &density_cluster);
-double evaluate_rotational_energy(Eigen::Vector3d omega, double inertia);
+double evaluate_rotational_energy(const Eigen::Vector3d &omega, double inertia);
 double evaluate_internal_energy(double vib_energy, double rot_energy);
 double evaluate_rate_const(const Histogram &rate_const, double energy);
 template <typename GenT>
-TimeNextCollOutcome time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &unif, Eigen::Vector3d &v_cluster, double &v_cluster_norm, ChamberQuantities &chamber, double R, Eigen::Array2d dts, double &z, double &x, double &y, double &t_fragmentation, const Eigen::Array4d &acc, double &t, double m_gas, const SkimmerData &skimmer, double mesh_skimmer, const std::optional<Quadrupole> quadrupole);
-std::tuple<double, Eigen::Vector3d, double, double, double> get_quantities_for_collision(double z, ChamberQuantities &chamber, double m_gas, const Eigen::Vector3d &v_cluster, double v_gas, double pressure, double temperature);
-void update_physical_quantities(double z, const SkimmerData skimmer, double mesh_skimmer, double &v_gas, double &temperature, double &pressure, double &density, ChamberQuantities &chamber, double T);
+TimeNextCollOutcome time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &unif, Eigen::Vector3d &v_cluster, double &v_cluster_norm, const ChamberQuantities &chamber, double R, Eigen::Array2d dts, double &z, double &x, double &y, double &t_fragmentation, const Eigen::Array4d &acc, double &t, double m_gas, const SkimmerData &skimmer, double mesh_skimmer, const std::optional<Quadrupole> quadrupole);
+std::tuple<double, Eigen::Vector3d, double, double, double> get_quantities_for_collision(double z, const ChamberQuantities &chamber, double m_gas, const Eigen::Vector3d &v_cluster, double v_gas, double pressure, double temperature);
+void update_physical_quantities(double z, const SkimmerData &skimmer, double mesh_skimmer, double &v_gas, double &temperature, double &pressure, double &density, const ChamberQuantities &chamber, double T);
 // void evaluate_relative_velocity(double z, double *v_cluster, double &v_rel_norm, double v_gas, double *v_rel, double first_chamber_end, double sk_end);
 void update_velocities(Eigen::Vector3d &v_cluster, double &v_cluster_norm, const Eigen::Vector3d &v_rel, double v_gas);
 void update_rot_vel(Eigen::Vector3d &omega, double rot_energy_old, double rot_energy);
@@ -212,44 +212,43 @@ template <typename GenT>
 double onedimMaxwell(GenT &gen, normal_distribution<double> &gauss, double m, double kT);
 double mean_free_path(double R, double kT, double pressure);
 double eval_solid_angle_stokes(double R, double L, double xx, double yy, double zz);
-int zone(double z, CumulativeLengths &clens);
+int zone(double z, const CumulativeLengths &clens);
 
 template <typename GasCollSamplerT, typename VibEnergySamplerT>
 SimulationResult apitof_mass_spec(
-  const MassSpectrometer &mass_spec,
+  const MassSpectrometer &ms,
   const MassSpecSubstanceSingleInput &subs,
-  int N,
-  unsigned long long root_seed,
+  const int N,
+  const unsigned long long root_seed,
   StreamingResultQueue &result_queue,
   GasCollSamplerT gas_coll_sampler,
-  // VibEnergySamplerT vib_energy_sampler,
-  bool strict = true,
-  MassSpecLogConf logconf = DEFAULT_LOGCONF,
+  const bool strict,
+  const MassSpecLogConf logconf = DEFAULT_LOGCONF,
   bool on_main_thread = false);
 
 template <typename GasCollSamplerT, typename VibEnergySamplerT>
 SimulationResult apitof_mass_spec(
   const MassSpectrometer &ms,
   const MassSpecSubstanceTreeInput &subs,
-  int N,
-  unsigned long long root_seed,
+  const int N,
+  const unsigned long long root_seed,
   StreamingResultQueue &result_queue,
   GasCollSamplerT gas_coll_sampler,
   // VibEnergySamplerT vib_energy_sampler,
-  bool strict = true,
-  MassSpecLogConf logconf = DEFAULT_LOGCONF,
+  const bool strict = true,
+  const MassSpecLogConf logconf = DEFAULT_LOGCONF,
   bool on_main_thread = false);
 
 template <typename MassSpecSubstanceT>
 SimulationResult apitof_mass_spec(
   const MassSpectrometer &mass_spec,
   const MassSpecSubstanceT &subs,
-  int N,
-  unsigned long long root_seed,
+  const int N,
+  const unsigned long long root_seed,
   StreamingResultQueue &result_queue,
   SampleMode sample_mode,
-  bool strict,
-  MassSpecLogConf logconf,
+  const bool strict,
+  const MassSpecLogConf logconf,
   bool on_main_thread)
 {
   using consts::boltzmann;
@@ -313,12 +312,12 @@ SimulationResult apitof_mass_spec(
 SimulationResult apitof_mass_spec(
   const MassSpectrometer &mass_spec,
   const MassSpecSubstanceSingleInput &subs,
-  int N,
-  unsigned long long root_seed,
+  const int N,
+  const unsigned long long root_seed,
   StreamingResultQueue &result_queue,
   SampleMode sample_mode,
-  bool strict,
-  MassSpecLogConf logconf,
+  const bool strict,
+  const MassSpecLogConf logconf,
   bool on_main_thread)
 {
   return apitof_mass_spec<MassSpecSubstanceSingleInput>(mass_spec, subs, N, root_seed, result_queue, sample_mode, strict, logconf, on_main_thread);
@@ -327,12 +326,12 @@ SimulationResult apitof_mass_spec(
 SimulationResult apitof_mass_spec(
   const MassSpectrometer &mass_spec,
   const MassSpecSubstanceTreeInput &subs,
-  int N,
-  unsigned long long root_seed,
+  const int N,
+  const unsigned long long root_seed,
   StreamingResultQueue &result_queue,
   SampleMode sample_mode,
-  bool strict,
-  MassSpecLogConf logconf,
+  const bool strict,
+  const MassSpecLogConf logconf,
   bool on_main_thread)
 {
   return apitof_mass_spec<MassSpecSubstanceTreeInput>(mass_spec, subs, N, root_seed, result_queue, sample_mode, strict, logconf, on_main_thread);
@@ -345,8 +344,8 @@ template SimulationResult apitof_mass_spec<MassSpecSubstanceSingleInput>(
   unsigned long long root_seed,
   StreamingResultQueue &result_queue,
   SampleMode sample_mode,
-  bool strict,
-  MassSpecLogConf logconf,
+  const bool strict,
+  const MassSpecLogConf logconf,
   bool on_main_thread);
 
 template SimulationResult apitof_mass_spec<MassSpecSubstanceTreeInput>(
@@ -356,8 +355,8 @@ template SimulationResult apitof_mass_spec<MassSpecSubstanceTreeInput>(
   unsigned long long root_seed,
   StreamingResultQueue &result_queue,
   SampleMode sample_mode,
-  bool strict,
-  MassSpecLogConf logconf,
+  const bool strict,
+  const MassSpecLogConf logconf,
   bool on_main_thread);
 
 template <typename GenT>
@@ -585,17 +584,17 @@ template <typename GasCollSamplerT, typename VibEnergySamplerT>
 SimulationResult apitof_mass_spec(
   const MassSpectrometer &ms,
   const MassSpecSubstanceSingleInput &subs,
-  int N,
-  unsigned long long root_seed,
+  const int N,
+  const unsigned long long root_seed,
   StreamingResultQueue &result_queue,
   GasCollSamplerT gas_coll_sampler,
-  bool strict,
-  MassSpecLogConf logconf,
+  const bool strict,
+  const MassSpecLogConf logconf,
   bool on_main_thread)
 {
   VibEnergySamplerT vib_energy_sampler = VibEnergySamplerT(subs.density_cluster);
-  ChamberQuantities chamber(ms, subs.gas);
-  SubstanceQuantities subquants(ms, chamber, subs);
+  const ChamberQuantities chamber(ms, subs.gas);
+  const SubstanceQuantities subquants(ms, chamber, subs);
 
   LogHelper initial_trace = LogHelper{result_queue, LogMessage::initial_trace};
   if (logconf.level >= LOGLEVEL_MIN)
@@ -612,10 +611,11 @@ SimulationResult apitof_mass_spec(
   auto loop_start = std::chrono::high_resolution_clock::now();
   OMPExceptionHelper exception_helper;
 #pragma omp parallel for OMP_VISIBILITY_NONE \
-firstprivate( \
-    N, subs, chamber, subquants, ms, root_seed, \
-      vib_energy_sampler, gas_coll_sampler, logconf, strict) \
-  shared(exception_helper, result_queue) \
+firstprivate(vib_energy_sampler, gas_coll_sampler) \
+  shared( \
+      /* read-only */ N, subs, chamber, subquants, ms, root_seed, \
+        /* read-only */ logconf, strict, \
+        /*   mutable */ exception_helper, result_queue) \
   reduction(+ : counters) \
   schedule(guided)
   for (int j = 0; j < N; j++)
@@ -819,19 +819,19 @@ template <typename GasCollSamplerT, typename VibEnergySamplerT>
 SimulationResult apitof_mass_spec(
   const MassSpectrometer &ms,
   const MassSpecSubstanceTreeInput &subs,
-  int N,
-  unsigned long long root_seed,
+  const int N,
+  const unsigned long long root_seed,
   StreamingResultQueue &result_queue,
   GasCollSamplerT gas_coll_sampler,
   // VibEnergySamplerT vib_energy_sampler,
-  bool strict,
-  MassSpecLogConf logconf,
+  const bool strict,
+  const MassSpecLogConf logconf,
   bool on_main_thread)
 {
-  ChamberQuantities chamber(ms, subs.gas);
+  const ChamberQuantities chamber(ms, subs.gas);
   std::vector<SubstanceQuantities> all_subquants;
   all_subquants.reserve(subs.cluster_payloads.size());
-  for (auto cluster : subs.cluster_payloads)
+  for (const auto &cluster : subs.cluster_payloads)
   {
     all_subquants.push_back(SubstanceQuantities(ms, chamber, subs.gas, subs.cluster_charge_sign, cluster));
   }
@@ -850,10 +850,11 @@ SimulationResult apitof_mass_spec(
   auto loop_start = std::chrono::high_resolution_clock::now();
   OMPExceptionHelper exception_helper;
 #pragma omp parallel for OMP_VISIBILITY_NONE \
-firstprivate( \
-    N, subs, chamber, all_subquants, ms, root_seed, \
-      gas_coll_sampler, logconf, strict) \
-  shared(exception_helper, result_queue) \
+firstprivate(gas_coll_sampler) \
+  shared( \
+      /* read-only */ N, subs, chamber, all_subquants, ms, root_seed, \
+        /* read-only */ logconf, strict, \
+        /*   mutable */ exception_helper, result_queue) \
   reduction(+ : counters) \
   schedule(guided)
   for (int j = 0; j < N; j++)
@@ -1174,7 +1175,7 @@ void update_skimmer_quantities(const SkimmerData &skimmer, double z, double firs
   // density=coeff2*density_skimmer[m]+coeff1*density_skimmer[m+1];
 }
 
-std::tuple<double, Eigen::Vector3d, double, double, double> get_quantities_for_collision(double z, ChamberQuantities &chamber, double m_gas, const Eigen::Vector3d &v_cluster, double v_gas, double pressure, double temperature)
+std::tuple<double, Eigen::Vector3d, double, double, double> get_quantities_for_collision(double z, const ChamberQuantities &chamber, double m_gas, const Eigen::Vector3d &v_cluster, double v_gas, double pressure, double temperature)
 {
   using consts::boltzmann;
   double n;
@@ -1202,7 +1203,7 @@ std::tuple<double, Eigen::Vector3d, double, double, double> get_quantities_for_c
   return std::make_tuple(n, v_rel, v_rel_norm, mobility_gas, mobility_gas_inv);
 }
 
-void update_physical_quantities(double z, const SkimmerData skimmer, double mesh_skimmer, double &v_gas, double &temperature, double &pressure, double &density, ChamberQuantities &chamber, double T)
+void update_physical_quantities(double z, const SkimmerData &skimmer, double mesh_skimmer, double &v_gas, double &temperature, double &pressure, double &density, const ChamberQuantities &chamber, double T)
 {
   int m;
   double coeff1;
@@ -1270,7 +1271,7 @@ double init_vib_energy(GenT &gen, uniform_real_distribution<double> &unif, doubl
 
 // Evaluate time to next collision
 template <typename GenT>
-TimeNextCollOutcome time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &unif, Eigen::Vector3d &v_cluster, double &v_cluster_norm, ChamberQuantities &chamber, double R, Eigen::Array2d dts, double &z, double &x, double &y, double &t_fragmentation, const Eigen::Array4d &acc, double &t, double m_gas, const SkimmerData &skimmer, double mesh_skimmer, const std::optional<Quadrupole> quadrupole)
+TimeNextCollOutcome time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &unif, Eigen::Vector3d &v_cluster, double &v_cluster_norm, const ChamberQuantities &chamber, double R, Eigen::Array2d dts, double &z, double &x, double &y, double &t_fragmentation, const Eigen::Array4d &acc, double &t, double m_gas, const SkimmerData &skimmer, double mesh_skimmer, const std::optional<Quadrupole> quadrupole)
 {
   using namespace consts;
   double integral = 0.0;
@@ -1472,7 +1473,7 @@ double evaluate_internal_energy(double vib_energy, double rot_energy)
 }
 
 // Evaluate rotational energy
-double evaluate_rotational_energy(Eigen::Vector3d omega, double inertia)
+double evaluate_rotational_energy(const Eigen::Vector3d &omega, double inertia)
 {
   return 0.5 * inertia * omega.squaredNorm();
 }
@@ -1790,7 +1791,7 @@ bool eval_collision(GenT &gen, uniform_real_distribution<double> &unif, double g
   return collision_accepted;
 }
 
-int zone(double z, CumulativeLengths &clens)
+int zone(double z, const CumulativeLengths &clens)
 {
   if (z < clens.first_chamber_end)
     return 1;
