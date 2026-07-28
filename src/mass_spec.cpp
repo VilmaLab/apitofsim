@@ -611,12 +611,11 @@ SimulationResult apitof_mass_spec(
   auto loop_start = std::chrono::high_resolution_clock::now();
   OMPExceptionHelper exception_helper;
 #pragma omp parallel for OMP_VISIBILITY_NONE \
-  firstprivate(vib_energy_sampler, gas_coll_sampler) \
+firstprivate(vib_energy_sampler, gas_coll_sampler) \
   shared( \
-    /* read-only */ N, subs, chamber, subquants, ms, root_seed, \
-    /* read-only */ logconf, strict, \
-    /*   mutable */ exception_helper, result_queue \
-  ) \
+      /* read-only */ N, subs, chamber, subquants, ms, root_seed, \
+        /* read-only */ logconf, strict, \
+        /*   mutable */ exception_helper, result_queue) \
   reduction(+ : counters) \
   schedule(guided)
   for (int j = 0; j < N; j++)
@@ -851,12 +850,11 @@ SimulationResult apitof_mass_spec(
   auto loop_start = std::chrono::high_resolution_clock::now();
   OMPExceptionHelper exception_helper;
 #pragma omp parallel for OMP_VISIBILITY_NONE \
-  firstprivate(gas_coll_sampler) \
+firstprivate(gas_coll_sampler) \
   shared( \
-    /* read-only */ N, subs, chamber, all_subquants, ms, root_seed, \
-    /* read-only */ logconf, strict, \
-    /*   mutable */ exception_helper, result_queue \
-  ) \
+      /* read-only */ N, subs, chamber, all_subquants, ms, root_seed, \
+        /* read-only */ logconf, strict, \
+        /*   mutable */ exception_helper, result_queue) \
   reduction(+ : counters) \
   schedule(guided)
   for (int j = 0; j < N; j++)
