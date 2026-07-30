@@ -70,7 +70,7 @@ requirements:
     - pint >= 0.25.1
     - duckdb >= 1.4.2
     - matplotlib >=3.10.7
-    - graphviz >=0.21
+    - python-graphviz >=0.21
     - holoviews >= 1.21.0
     - orjson >= 3.11.4
     - progress-table >= 3.2.2
