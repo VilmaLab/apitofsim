@@ -1,3 +1,5 @@
+#include <Python.h>
+
 #include <cassert>
 #include <iostream>
 #include <optional>
@@ -5,7 +7,6 @@
 #include <random>
 
 #include <Eigen/Dense>
-#include <Python.h>
 #include <nanobind/nanobind.h>
 #include <nanobind/eigen/dense.h>
 #include <nanobind/stl/function.h>
