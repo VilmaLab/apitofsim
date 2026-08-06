@@ -1259,8 +1259,17 @@ double init_vib_energy(GenT &gen, uniform_real_distribution<double> &unif, doubl
     sum1 += density_cluster.y[m] * exp(-density_cluster.x[m] / kT);
   }
 
+  if (sum1 <= 0.0)
+  {
+    throw ApiTofUnexpectedNumericalError([&kT](auto &msg)
+    {
+      msg << "Boltzmann weights of the cluster density of states sum to zero for kT = " << kT
+          << " J. Are the histogram energies scaled to Joules?" << endl;
+    });
+  }
+
   m = 0;
-  while (sum2 < r)
+  while (sum2 < r && m < density_cluster.length())
   {
     sum2 += density_cluster.y[m] * exp(-density_cluster.x[m] / kT) / sum1;
     m++;
