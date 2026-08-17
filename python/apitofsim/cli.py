@@ -1,8 +1,6 @@
 import pathlib
-from typing import List
 
 import click
-import pandas
 from ase import Atoms
 
 from apitofsim.workflow import SimulationMode
@@ -884,40 +882,15 @@ def report(report_type, database, csvout):
     * The experiment-summary contains one row per experiment run, and summarizes the outcomes across all pathways for that run.
     * The spectrogram report contains the same data used to plot spectograms.
     """
+    from apitofsim.plotting import UnknownReportTypeError, get_report
     from apitofsim.workflow import auto_db_type
 
     with connection_scope(auto_db_type, database, readonly=True) as db:
-        if not db.is_realization_db() and report_type in {"event-report"}:
-            raise click.ClickException(
-                f"Report type {report_type} is only available for realization databases"
-            )
-
-        if not db.is_experiment_db() and report_type in {
-            "experiment-pathway-report",
-            "experiment-cluster-report",
-            "experiment-summary",
-            "spectrogram",
-        }:
-            raise click.ClickException(
-                f"Report type {report_type} is only available for experiment databases"
-            )
-
-        if report_type == "spectrogram":
-            from apitofsim.plotting import get_intensities
-
-            dataframes: List[pandas.DataFrame] = []
-            for row in db.report_df("experiment_summary").itertuples():
-                dataframes.append(
-                    get_intensities(
-                        db,
-                        experiment_id=row.experiment_run_id,
-                        is_single_pathway=row.is_single_pathway,
-                    )
-                )
-            df = pandas.concat(dataframes)
-            df.to_csv(csvout)
-        else:
-            db.db.table(report_type.replace("-", "_")).to_csv(csvout)
+        try:
+            df = get_report(db, report_type)
+        except UnknownReportTypeError as e:
+            raise click.ClickException(e.message)
+        df.to_csv(csvout)
 
 
 @db.command(help="Refresh views in the database at path DATABASE (please ignore)")

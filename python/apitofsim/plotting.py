@@ -464,15 +464,8 @@ def relayout_labels(spectrogram, labels, fig_inches, aspect):
     return apply_moved_labels
 
 
-def plot_spectrogram(
-    df, *, scale=None, max_x=None, label=False, label_threshold=0.1, fig_inches, aspect
-):
-    try:
-        import holoviews  # pyright: ignore[reportMissingImports]
-
-        holoviews.extension("matplotlib")
-    except ImportError:
-        raise ImportError("Plotting requires holoviews and matplotlib; please install")
+def basic_spectrogram(df, scale=None, max_x=None):
+    import holoviews
 
     if scale == "max":
         df["intensity"] /= df["intensity"].max()
@@ -489,11 +482,24 @@ def plot_spectrogram(
             "m/z", soft_range=(0, df["atomic_mass"].max() * 1.1)
         )
     y_dim = holoviews.Dimension("Intensity", soft_range=(0, 1.05))
-    spectrogram = holoviews.Spikes(
+    return holoviews.Spikes(
         (df["atomic_mass"], df["intensity"]),
         x_dim,
         y_dim,
     )
+
+
+def plot_spectrogram(
+    df, *, scale=None, max_x=None, label=False, label_threshold=0.1, fig_inches, aspect
+):
+    try:
+        import holoviews  # pyright: ignore[reportMissingImports]
+
+        holoviews.extension("matplotlib")
+    except ImportError:
+        raise ImportError("Plotting requires holoviews and matplotlib; please install")
+
+    spectrogram = basic_spectrogram(df, scale=scale, max_x=max_x)
 
     def render():
         return holoviews.render(spectrogram.opts(fig_inches=fig_inches, aspect=aspect))
@@ -595,3 +601,45 @@ def mk_tree_input_graph(root):
     draw_graph_node(builder, root.root, "treeinput")
 
     return builder
+
+
+class UnknownReportTypeError(ValueError):
+    pass
+
+
+def get_report(db, report_type):
+    from typing import List
+
+    import pandas
+
+    if not db.is_realization_db() and report_type in {"event-report"}:
+        raise UnknownReportTypeError(
+            f"Report type {report_type} is only available for realization databases"
+        )
+
+    if not db.is_experiment_db() and report_type in {
+        "experiment-pathway-report",
+        "experiment-cluster-report",
+        "experiment-summary",
+        "spectrogram",
+    }:
+        raise UnknownReportTypeError(
+            f"Report type {report_type} is only available for experiment databases"
+        )
+
+    if report_type == "spectrogram":
+        from apitofsim.plotting import get_intensities
+
+        dataframes: List[pandas.DataFrame] = []
+        for row in db.report_df("experiment_summary").itertuples():
+            dataframes.append(
+                get_intensities(
+                    db,
+                    experiment_id=row.experiment_run_id,
+                    is_single_pathway=row.is_single_pathway,
+                )
+            )
+        df = pandas.concat(dataframes)
+        return df
+    else:
+        return db.db.table(report_type.replace("-", "_")).df()
