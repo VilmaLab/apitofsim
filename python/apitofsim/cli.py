@@ -889,7 +889,7 @@ def report(report_type, database, csvout):
         try:
             df = get_report(db, report_type)
         except UnknownReportTypeError as e:
-            raise click.ClickException(e.message)
+            raise click.ClickException(e.args[0])
         df.to_csv(csvout)
 
 
