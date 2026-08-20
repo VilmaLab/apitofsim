@@ -475,16 +475,14 @@ def survival(database, pngout):
     """
     Output to PNGOUT a bar chart of the survival rate for each cluster in the database at path DATABASE.
     """
-    from pprint import pprint
-
     from apitofsim.plotting import get_joint_survivals, make_survival_plot
     from apitofsim.workflow import ExperimentDatabase
 
     with connection_scope(ExperimentDatabase, database, readonly=True) as db:
         experiment_id, _ = select_experiment(db)
         joint_survivals = get_joint_survivals(db, experiment_id)
-    pprint(joint_survivals)
-    make_survival_plot(pngout, joint_survivals.keys(), joint_survivals.values())
+    fig = make_survival_plot(joint_survivals.keys(), joint_survivals.values())
+    fig.savefig(pngout, dpi=150, bbox_inches="tight")
 
 
 def transform_intensity(df, model_transmission):

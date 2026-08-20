@@ -15,7 +15,7 @@ def get_joint_survivals(db, er_id):
     )
 
 
-def make_survival_plot(outf, cluster_names, values):
+def make_survival_plot(cluster_names, values):
     try:
         import matplotlib.pyplot as plt  # pyright: ignore[reportMissingImports]
     except ImportError:
@@ -57,9 +57,8 @@ def make_survival_plot(outf, cluster_names, values):
 
     # Legend in upper right
     fig.legend(loc="upper right", frameon=True, facecolor="white", edgecolor="gray")
-
-    plt.tight_layout()
-    plt.savefig(outf, dpi=150, facecolor=fig.get_facecolor(), bbox_inches="tight")
+    fig.tight_layout()
+    return fig
 
 
 def _get_intensities_helper(db, sql, er_id, cluster_id=None, qual=""):
