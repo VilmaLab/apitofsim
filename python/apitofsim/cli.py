@@ -475,7 +475,7 @@ def survival(database, pngout):
     """
     Output to PNGOUT a bar chart of the survival rate for each cluster in the database at path DATABASE.
     """
-    from apitofsim.plotting import get_joint_survivals, make_survival_plot
+    from apitofsim.plotting.survivals import get_joint_survivals, make_survival_plot
     from apitofsim.workflow import ExperimentDatabase
 
     with connection_scope(ExperimentDatabase, database, readonly=True) as db:
@@ -551,7 +551,7 @@ def spectrogram(
     """
     Output to PNGOUT a spectrogram of the results for single cluster / experiment using the database at path DATABASE.
     """
-    from apitofsim.plotting import (
+    from apitofsim.plotting.spectrogram import (
         get_intensities,
         plot_spectrogram_to_file,
     )
@@ -613,7 +613,7 @@ def spectrogram_many(
     """
     Output to DIROUT a spectrogram per cluster using the results from single experiments using the database at path DATABASE.
     """
-    from apitofsim.plotting import (
+    from apitofsim.plotting.spectrogram import (
         get_intensities,
         plot_spectrogram_to_file,
     )
@@ -880,7 +880,7 @@ def report(report_type, database, csvout):
     * The experiment-summary contains one row per experiment run, and summarizes the outcomes across all pathways for that run.
     * The spectrogram report contains the same data used to plot spectograms.
     """
-    from apitofsim.plotting import UnknownReportTypeError, get_report
+    from apitofsim.plotting.report import UnknownReportTypeError, get_report
     from apitofsim.workflow import auto_db_type
 
     with connection_scope(auto_db_type, database, readonly=True) as db:
@@ -1195,7 +1195,7 @@ def ingest_tree(config, outdir):
 )
 def db_tree(database, outdir):
     from apitofsim.api import MassSpecSubstanceTreeInput
-    from apitofsim.plotting import mk_tree_input_graph
+    from apitofsim.plotting.input import mk_tree_input_graph
     from apitofsim.workflow.db import ExperimentDatabase
     from apitofsim.workflow.runners import ExperimentRunner
 

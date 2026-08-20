@@ -5,7 +5,6 @@ apitofsim_python_py_src = [
 'config.py',
 'generate.py',
 'marimo.py',
-'plotting.py',
 'transmission.py',
 '__init__.py',
 '__main__.py',
@@ -35,6 +34,14 @@ python.install_sources([
 'workflow/runners.py',
 'workflow/sql_files.py',
 ], subdir: 'apitofsim/workflow', pure : false)
+
+python.install_sources([
+'plotting/__init__.py',
+'plotting/input.py',
+'plotting/report.py',
+'plotting/survivals.py',
+'plotting/spectrogram.py',
+], subdir: 'apitofsim/plotting', pure : false)
 
 python.install_sources([
 'workflow/sql/experiment.sql',
