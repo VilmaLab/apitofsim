@@ -8,7 +8,7 @@ This section describes how to build the sources from scratch.
 
 ### Using Meson to compile the package
 
-**Note: You need Meson 1.10 or later to build the package. You can install this with `uv tool install meson`.**
+**Note: You need Meson 1.10 or later and oneTBB 2023.0 or later to build the package. You can install Meson with `uv tool install meson`; install the oneTBB development package supplied by your platform.**
 
 You can build with slightly older versions of Meson by disabling typestub generation by passing `-Dstubgen=disabled` to `meson setup` or adding it to your `setup-args` in `uv.toml` (see below).
 
@@ -59,9 +59,15 @@ ln -sf build/compile_commands.json compile_commands.json
 
 Meson can be configured through so-called ["native build configuration" native files](https://mesonbuild.com/Native-environments.html).
 A number of these are provided, with many based on Clang and tested on Linux, with `/meson/test` containing configurations for automated tests and `/meson/pkg` having configurations for building packages, both of which are run in continuous integration with GitHub Actions.
-On Linux, you may need to install `libc++` (from LLVM rather than GNU) e.g. `apt install 'libc++1' 'libc++-dev'`.
+Use the platform-default C++ standard library so it matches the installed oneTBB package: normally libstdc++ on Linux and libc++ on macOS.
 
 The directory `/meson/dev` contains a number of configurations including `clangrelease.ini` which builds the fastest configuration for running locally, `clangprofile.ini`, which includes minimal debugging symbols and no asserts for profiling, `clangdebug.ini` an optimized debug with asserts build for debugging with `gdb` or `lldb`, `clangsingle.ini` a fast single-threaded build which can be run deterministically, and `clangslow.ini`, which is a single threaded unoptimized build, providing the most deterministic and debug-friendly build.
+
+Parallel work is scheduled by oneTBB. Applications that need a scoped limit should use `oneapi::tbb::global_control` or `oneapi::tbb::task_arena`; the single-threaded native files use the same `global_control` mechanism internally. `OMP_NUM_THREADS` is no longer read, and the removed `openmp` Meson option has no replacement.
+
+OpenMP is not a runtime dependency. The remaining `#pragma omp simd` directives are compiler vectorization hints only; Meson enables them with the compiler-checked `-fopenmp-simd` flag where supported.
+
+Long-running simulations cooperatively cancel on `SIGINT` and `SIGTERM`, restore the previous signal handler, and then re-raise the signal on the calling thread. `SIGABRT` is intentionally not intercepted and remains immediately fatal.
 
 ### Configuring meson-python for development
 
@@ -126,3 +132,10 @@ uv run meson test --print-errorlogs -C uvbuild
 ```
 
 This should run the C++ tests and Python tests as two separate test items.
+
+The C++ suite runs once with a one-thread limit and once at oneTBB's default concurrency. Benchmarks cover both modes:
+
+```bash
+uv run meson test --print-errorlogs -C build
+uv run meson test --benchmark --num-processes 1 -C build
+```

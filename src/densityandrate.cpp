@@ -150,23 +150,23 @@ Eigen::ArrayXd compute_mesh_tbb(double bin_width, int m_max_rate, OperationConte
     oneapi::tbb::blocked_range<int>(0, m_max_rate),
     identity,
     [=, &operation](const oneapi::tbb::blocked_range<int> &range, Eigen::ArrayXd mesh)
+  {
+    for (int i = range.begin(); i != range.end() && operation.checkpoint(); ++i)
     {
-      for (int i = range.begin(); i != range.end() && operation.checkpoint(); ++i)
-      {
-        double rotational_energy_sqrt = sqrt(bin_width * (i + 0.5));
+      double rotational_energy_sqrt = sqrt(bin_width * (i + 0.5));
 #pragma omp simd
-        for (int j = 0; j < m_max_rate - i; j++)
-        {
-          double translational_energy = bin_width * (j + 0.5);
-          mesh[i + j] += translational_energy * rotational_energy_sqrt;
-        }
+      for (int j = 0; j < m_max_rate - i; j++)
+      {
+        double translational_energy = bin_width * (j + 0.5);
+        mesh[i + j] += translational_energy * rotational_energy_sqrt;
       }
-      return mesh;
-    },
+    }
+    return mesh;
+  },
     [](Eigen::ArrayXd left, const Eigen::ArrayXd &right)
-    {
-      return (left + right).eval();
-    },
+  {
+    return (left + right).eval();
+  },
     operation.tbb_context());
 }
 
@@ -176,32 +176,32 @@ Eigen::ArrayXd compute_mesh_rearranged_presqrt_tbb(double bin_width, int m_max_r
   oneapi::tbb::parallel_for(
     oneapi::tbb::blocked_range<int>(0, m_max_rate),
     [=, &rot_energy_sqrts, &operation](const oneapi::tbb::blocked_range<int> &range)
+  {
+    for (int i = range.begin(); i != range.end() && operation.checkpoint(); ++i)
     {
-      for (int i = range.begin(); i != range.end() && operation.checkpoint(); ++i)
-      {
-        rot_energy_sqrts[i] = sqrt(bin_width * (i + 0.5));
-      }
-    },
+      rot_energy_sqrts[i] = sqrt(bin_width * (i + 0.5));
+    }
+  },
     operation.tbb_context());
   Eigen::ArrayXd mesh = Eigen::ArrayXd(m_max_rate);
   oneapi::tbb::parallel_for(
     oneapi::tbb::blocked_range<int>(0, m_max_rate),
     [=, &mesh, &rot_energy_sqrts, &operation](const oneapi::tbb::blocked_range<int> &range)
+  {
+    for (int i_p_j = range.begin(); i_p_j != range.end() && operation.checkpoint(); ++i_p_j)
     {
-      for (int i_p_j = range.begin(); i_p_j != range.end() && operation.checkpoint(); ++i_p_j)
-      {
-        double mesh_i_p_j = 0;
+      double mesh_i_p_j = 0;
 #pragma omp simd reduction(+ : mesh_i_p_j)
-        for (int j = 0; j < i_p_j; j++)
-        {
-          int i = i_p_j - j;
-          double rotational_energy_sqrt = rot_energy_sqrts[i];
-          double translational_energy = bin_width * (j + 0.5);
-          mesh_i_p_j += translational_energy * rotational_energy_sqrt;
-        }
-        mesh[i_p_j] = mesh_i_p_j;
+      for (int j = 0; j < i_p_j; j++)
+      {
+        int i = i_p_j - j;
+        double rotational_energy_sqrt = rot_energy_sqrts[i];
+        double translational_energy = bin_width * (j + 0.5);
+        mesh_i_p_j += translational_energy * rotational_energy_sqrt;
       }
-    },
+      mesh[i_p_j] = mesh_i_p_j;
+    }
+  },
     operation.tbb_context());
   return mesh;
 }
@@ -392,32 +392,34 @@ DensityResult compute_density_of_states_all(ClusterData &cluster_0, ClusterData 
   DensityResult rhos(m_max, 4);
   cout << endl
        << "Computing density of states of cluster, products and combined products..." << endl;
-  oneapi::tbb::parallel_invoke(
-    [&]
+  operation.run([&]
+  {
+    oneapi::tbb::parallel_invoke(
+      [&]
     {
       cluster_0.compute_derived();
       auto rhos0 = rhos.col(C0_ROW);
       compute_density_of_states(cluster_0.frequencies, rhos0, energy_max, bin_width);
     },
-    [&]
+      [&]
     {
       cluster_1.compute_derived();
       auto rhos1 = rhos.col(C1_ROW);
       compute_density_of_states(cluster_1.frequencies, rhos1, energy_max, bin_width);
     },
-    [&]
+      [&]
     {
       cluster_2.compute_derived();
       auto rhos2 = rhos.col(C2_ROW);
       compute_density_of_states(cluster_2.frequencies, rhos2, energy_max, bin_width);
     },
-    [&]
+      [&]
     {
       auto rhos_comb = rhos.col(COMB_ROW);
       compute_combined_density_of_states(rhos_comb, cluster_1.frequencies, cluster_2.frequencies, energy_max, bin_width);
     },
-    operation.tbb_context());
-  operation.rethrow_pending_signal();
+      operation.tbb_context());
+  });
   cout << endl
        << "Done" << endl;
   return rhos;
@@ -429,9 +431,11 @@ Eigen::ArrayXXd compute_density_of_states_batch(std::vector<Eigen::ArrayXd> batc
   int m_max = int(energy_max / bin_width);
   // Possibly a tiny bit of false sharing here
   Eigen::ArrayXXd result(m_max, batch_frequencies.size());
-  oneapi::tbb::parallel_for(
-    oneapi::tbb::blocked_range<size_t>(0, batch_frequencies.size()),
-    [&](const oneapi::tbb::blocked_range<size_t> &range)
+  operation.run([&]
+  {
+    oneapi::tbb::parallel_for(
+      oneapi::tbb::blocked_range<size_t>(0, batch_frequencies.size()),
+      [&](const oneapi::tbb::blocked_range<size_t> &range)
     {
       for (size_t i = range.begin(); i != range.end() && operation.checkpoint(); ++i)
       {
@@ -445,8 +449,8 @@ Eigen::ArrayXXd compute_density_of_states_batch(std::vector<Eigen::ArrayXd> batc
         }
       }
     },
-    operation.tbb_context());
-  operation.rethrow_pending_signal();
+      operation.tbb_context());
+  });
   return result;
 }
 
@@ -527,9 +531,10 @@ Eigen::ArrayXd precompute_mesh_impl(double energy_max_rate, double bin_width, Me
 Eigen::ArrayXd precompute_mesh(double energy_max_rate, double bin_width, MeshMode mesh_mode)
 {
   OperationContext operation;
-  auto mesh = precompute_mesh_impl(energy_max_rate, bin_width, mesh_mode, operation);
-  operation.rethrow_pending_signal();
-  return mesh;
+  return operation.run([&]
+  {
+    return precompute_mesh_impl(energy_max_rate, bin_width, mesh_mode, operation);
+  });
 }
 
 Eigen::ArrayXXd compute_k_total_batch(std::vector<KTotalInput> batch_input, double energy_max_rate, double bin_width, std::optional<const Eigen::ArrayXd> mesh, std::optional<std::function<void(size_t)>> progress_callback)
@@ -539,9 +544,11 @@ Eigen::ArrayXXd compute_k_total_batch(std::vector<KTotalInput> batch_input, doub
   Eigen::ArrayXXd k_rate = Eigen::ArrayXXd(m_max_rate, batch_input.size());
   size_t completed = 0;
   std::mutex progress_mutex;
-  oneapi::tbb::parallel_for(
-    oneapi::tbb::blocked_range<size_t>(0, batch_input.size()),
-    [&](const oneapi::tbb::blocked_range<size_t> &range)
+  operation.run([&]
+  {
+    oneapi::tbb::parallel_for(
+      oneapi::tbb::blocked_range<size_t>(0, batch_input.size()),
+      [&](const oneapi::tbb::blocked_range<size_t> &range)
     {
       Eigen::ArrayXd k0 = Eigen::ArrayXd(m_max_rate);
       for (size_t i = range.begin(); i != range.end() && operation.checkpoint(); ++i)
@@ -565,8 +572,8 @@ Eigen::ArrayXXd compute_k_total_batch(std::vector<KTotalInput> batch_input, doub
         }
       }
     },
-    operation.tbb_context());
-  operation.rethrow_pending_signal();
+      operation.tbb_context());
+  });
   return k_rate;
 }
 

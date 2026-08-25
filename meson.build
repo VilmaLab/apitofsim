@@ -27,22 +27,9 @@ endif
 python_feat = get_option('python')
 stubgen_feat = get_option('stubgen')
 ittnotify_feat = get_option('ittnotify')
-openmp_option = get_option('openmp')
-
 if ittnotify_feat.enabled()
   ittnotify = dependency('ittnotify', include_type : 'system')
   add_project_dependencies(ittnotify, language: 'cpp')
-endif
-if openmp_option == 'intel'
-  openmp = declare_dependency(
-    compile_args : ['-fiopenmp'],
-    link_args : ['-fiopenmp'],
-  )
-elif openmp_option == 'default'
-  openmp = dependency('openmp', include_type : 'system')
-else
-  # disabled
-  openmp = declare_dependency()
 endif
 eigen3 = dependency('eigen3', include_type : 'system', version : '>= 3.4')
 tbb = dependency('tbb', include_type : 'system', version : '>= 2023.0')

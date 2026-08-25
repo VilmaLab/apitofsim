@@ -39,10 +39,18 @@ void restore_handlers()
   }
   handlers_installed = false;
 }
-}
+} // namespace
 
 OperationContext::OperationContext()
-    : context(oneapi::tbb::task_group_context::isolated)
+    : concurrency_limit(
+#ifdef APITOFSIM_MAX_PARALLELISM
+        std::make_unique<oneapi::tbb::global_control>(
+          oneapi::tbb::global_control::max_allowed_parallelism,
+          APITOFSIM_MAX_PARALLELISM)),
+#else
+        nullptr),
+#endif
+      context(oneapi::tbb::task_group_context::isolated)
 {
   const std::lock_guard<std::mutex> lock(handler_mutex);
   if (active_contexts++ == 0)

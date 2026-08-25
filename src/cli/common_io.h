@@ -219,17 +219,6 @@ const char *const FINAL_POSITION = "work/log/final_position.dat";
 const char *const PINHOLE = "work/log/pinhole.dat";
 } // namespace Filenames
 
-template <typename CallbackT>
-void warn_omp(int &nwarnings, CallbackT callback)
-{
-#pragma omp atomic
-  nwarnings++;
-#pragma omp critical
-  {
-    callback();
-  }
-}
-
 Eigen::Array3d read_rotations(char *filename)
 {
   Eigen::Array3d rotations;

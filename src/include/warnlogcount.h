@@ -1,7 +1,7 @@
 #pragma once
 
 #include "messages.h"
-#include "openmp_helper.h"
+#include "operation_context.h"
 
 #include <fstream>
 #include <iostream>
@@ -30,16 +30,12 @@ enum Counter
 };
 constexpr auto n_counters = enum_count<Counter::Counter>();
 
-#pragma omp declare reduction(+ : Eigen::ArrayXi : omp_out = omp_out + omp_in) \
-  initializer(omp_priv = Eigen::ArrayXi::Zero(omp_orig.size()))
-
 struct PartialResult
 {
-  int thread_id;
   Eigen::ArrayXi counters;
 
   PartialResult(Eigen::ArrayXi counters)
-      : thread_id(omp_get_thread_num()), counters(counters)
+      : counters(std::move(counters))
   {
   }
 };
@@ -111,10 +107,15 @@ struct WarningHelper
 {
   Eigen::ArrayXi &counters;
   StreamingResultQueue &result_queue;
+  OperationContext *operation = nullptr;
 
   template <typename T>
   void operator()(T msg)
   {
+    if (operation != nullptr && !operation->should_continue())
+    {
+      return;
+    }
     counters[Counter::nwarnings] += 1;
     result_queue.enqueue(LogMessage(LogMessage::warnings, msg));
   }
@@ -124,10 +125,15 @@ struct LogHelper
 {
   StreamingResultQueue &result_queue;
   LogMessage::LogType type;
+  OperationContext *operation = nullptr;
 
   template <typename T>
   void operator()(T msg)
   {
+    if (operation != nullptr && !operation->should_continue())
+    {
+      return;
+    }
     result_queue.enqueue(LogMessage(type, msg));
   }
 };

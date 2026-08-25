@@ -72,12 +72,14 @@ manylinux-x86_64-image = "quay.io/pypa/manylinux_2_34_x86_64:latest"
 build = "cp313-*"
 skip = "*-manylinux_i686 cp3??t-* *-musllinux_*"
 archs = ["auto64"]
+test-command = "python -c \"import apitofsim; assert apitofsim.precompute_mesh(100.0, 1.0, quantities_strict=False).size == 100\""
 
 [tool.cibuildwheel.linux]
 before-build = "bash ci/setup_linux.sh"
 config-settings = { setup-args = "--native-file=../meson/pkg/clangwheel.ini" }
 repair-wheel-command = [
   "auditwheel repair --disable-isa-ext-check -w {dest_dir} {wheel}",
+  "auditwheel show {dest_dir}/*.whl",
   "pipx run abi3audit --strict --report {wheel} --assume-minimum-abi3 3.12",
 ]
 

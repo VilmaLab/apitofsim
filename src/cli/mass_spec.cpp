@@ -22,6 +22,7 @@
 #include <string>
 #include "mass_spec_io.h"
 #include "common_io.h"
+#include "operation_context.h"
 
 struct LogFileWriter
 {
@@ -211,11 +212,12 @@ void mass_spec_config_in()
   Eigen::ArrayXi counters;
   RuntimeDuration loop_time;
   RuntimeDuration total_time;
-  OMPExceptionHelper exception_helper;
+  OperationContext operation;
+  ExceptionTransport exception_transport;
   std::thread execution_thread = std::thread([&]
   {
     // TODO: Probably want to switch to jthread when possible
-    exception_helper.guard([&]
+    exception_transport.guard([&]
     {
       InstrumentDims lengths(5);
       lengths << L0, L1, L2, L3, Lsk;
@@ -268,12 +270,14 @@ void mass_spec_config_in()
         root_seed,
         result_queue,
         sample_mode,
-        false);
+        false,
+        DEFAULT_LOGCONF,
+        operation);
     });
     result_queue.enqueue(std::monostate{});
   });
 
-  Eigen::Array<int, Eigen::Dynamic, n_counters> partial_counters = Eigen::Array<int, Eigen::Dynamic, n_counters>::Zero(omp_get_max_threads(), n_counters);
+  Eigen::Array<int, n_counters, 1> partial_counters = Eigen::Array<int, n_counters, 1>::Zero();
   bool exiting = false;
   int fragmented_prev = 0;
   int escaped_prev = 0;
@@ -302,8 +306,8 @@ void mass_spec_config_in()
       if (loglevel >= LOGLEVEL_NORMAL)
       {
         const PartialResult &partial_result = std::get<PartialResult>(result);
-        partial_counters.row(partial_result.thread_id) = partial_result.counters.transpose();
-        Eigen::ArrayXi cur_counters = partial_counters.colwise().sum();
+        partial_counters += partial_result.counters;
+        const Eigen::ArrayXi &cur_counters = partial_counters;
         auto cur_iters = cur_counters[Counter::n_fragmented_total] + cur_counters[Counter::n_escaped_total];
         const int progress = 10; // Show progress of simulation every *progress* realizations
         if (cur_iters > 0 && cur_iters % progress == 0 and cur_iters > 0)
@@ -343,7 +347,8 @@ void mass_spec_config_in()
     }
   }
   execution_thread.join();
-  exception_helper.rethrow();
+  operation.rethrow_pending_signal();
+  exception_transport.rethrow();
 
   std::cout << setprecision(3);
 

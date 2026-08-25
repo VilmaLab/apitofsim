@@ -44,7 +44,6 @@ requirements:
   build:
     - ${{ compiler('c') }}
     - ${{ compiler('cxx') }}
-    - llvm-openmp
     - if: microarch_level|int > 0
       then: x86_64-microarch-level ==${{ microarch_level }}
     - if: linux and x86_64
@@ -55,11 +54,11 @@ requirements:
     - python-abi3 ${{ python_min }}.*
     - pip
     - python-build
-    - llvm-openmp
     - meson-python
     - ninja
     - nanobind
     - eigen
+    - tbb-devel >=2023.0
     - if: linux and x86_64
       then:
         - libstdcxx-devel_linux-64 15.2.0.*
@@ -81,6 +80,7 @@ requirements:
     - tomlkit >= 0.14.0
     - tomlkit-extras >= 0.2.0
     - textalloc >= 1.2.3
+    - tbb >=2023.0
 
 tests:
   - python:
@@ -91,6 +91,7 @@ tests:
 
   - script:
       - DATA_DIR=$(pwd)/test/data pytest ./test
+      - python -c "import apitofsim; assert apitofsim.precompute_mesh(100.0, 1.0, quantities_strict=False).size == 100"
     requirements:
       run:
         - pytest

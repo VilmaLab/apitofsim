@@ -1,10 +1,12 @@
 fs = import('fs')
 
 python = import('python').find_installation()
+python_cpp = meson.get_compiler('cpp')
 apitofsim_python = python.extension_module(
   'apitofsimraw',
   sources: ['apitofsim.cpp'],
-  dependencies: [nanobind, eigen3, tbb, openmp, concurrentqueue, magic_enum],
+  dependencies: [nanobind, eigen3, tbb, concurrentqueue, magic_enum],
+  cpp_args: python_cpp.get_supported_arguments('-Wno-maybe-uninitialized'),
   link_with: libapitofsim,
   include_directories: [include_dir],
   subdir: 'apitofsim',
