@@ -34,6 +34,14 @@ endif
 eigen3 = dependency('eigen3', include_type : 'system', version : '>= 3.4')
 tbb = dependency('tbb', include_type : 'system', version : '>= 2023.0')
 nanobind = dependency('nanobind', required : python_feat, include_type : 'system')
+if host_machine.system() == 'windows'
+  # Let python.extension_module() provide the stable-ABI Python link dependency.
+  nanobind = nanobind.partial_dependency(
+    compile_args: true,
+    includes: true,
+    sources: true,
+  )
+endif
 concurrentqueue = dependency('concurrentqueue', include_type : 'system')
 magic_enum = dependency(
   'magic_enum',
