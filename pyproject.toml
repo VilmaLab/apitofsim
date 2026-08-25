@@ -91,8 +91,8 @@ environment = { CMAKE_PREFIX_PATH = "/tmp/apitofsim-oneapi-tbb" }
 before-all = 'pwsh -NoProfile -File "{package}\ci\setup_windows.ps1"'
 before-build = "pip install delvewheel"
 config-settings = { setup-args = "--native-file=..\\meson\\pkg\\windowswheel.ini" }
-environment = { CMAKE_PREFIX_PATH = 'C:\apitofsim-oneapi-tbb\oneapi-tbb-2023.1.0' }
-repair-wheel-command = 'delvewheel repair --add-path C:\apitofsim-oneapi-tbb\oneapi-tbb-2023.1.0\redist\intel64\vc14 -w {dest_dir} {wheel}'
+environment = { CMAKE_PREFIX_PATH = "C:/apitofsim-oneapi-tbb/oneapi-tbb-2023.1.0" }
+repair-wheel-command = "delvewheel repair --add-path C:/apitofsim-oneapi-tbb/oneapi-tbb-2023.1.0/redist/intel64/vc14 -w {dest_dir} {wheel}"
 
 [[tool.cibuildwheel.overrides]]
 select = "*-x86_64"
