@@ -2,11 +2,17 @@ fs = import('fs')
 
 python = import('python').find_installation()
 python_cpp = meson.get_compiler('cpp')
+python_link_args = []
+if python_cpp.get_id() == 'clang-cl'
+  # Meson only suppresses CPython's version-specific auto-link pragma for MSVC.
+  python_link_args += '/NODEFAULTLIB:python312.lib'
+endif
 apitofsim_python = python.extension_module(
   'apitofsimraw',
   sources: ['apitofsim.cpp'],
   dependencies: [nanobind, eigen3, tbb, concurrentqueue, magic_enum],
   cpp_args: python_cpp.get_supported_arguments('-Wno-maybe-uninitialized'),
+  link_args: python_link_args,
   link_with: libapitofsim,
   include_directories: [include_dir],
   subdir: 'apitofsim',
