@@ -7,6 +7,8 @@
 
 #include <Eigen/Dense>
 
+class OperationContext;
+
 typedef Eigen::Array<double, Eigen::Dynamic, 3> SkimmerData;
 const int VEL_SKIMMER = 0;
 const int TEMP_SKIMMER = 1;
@@ -258,6 +260,17 @@ SimulationResult apitof_mass_spec(
 
 SimulationResult apitof_mass_spec(
   const MassSpectrometer &mass_spec,
+  const MassSpecSubstanceSingleInput &subs,
+  int N,
+  unsigned long long root_seed,
+  StreamingResultQueue &result_queue,
+  SampleMode sample_mode,
+  bool strict,
+  MassSpecLogConf logconf,
+  OperationContext &operation);
+
+SimulationResult apitof_mass_spec(
+  const MassSpectrometer &mass_spec,
   const MassSpecSubstanceTreeInput &subs,
   int N,
   unsigned long long root_seed,
@@ -266,6 +279,17 @@ SimulationResult apitof_mass_spec(
   bool strict = true,
   MassSpecLogConf logconf = DEFAULT_LOGCONF,
   bool on_main_thread = false);
+
+SimulationResult apitof_mass_spec(
+  const MassSpectrometer &mass_spec,
+  const MassSpecSubstanceTreeInput &subs,
+  int N,
+  unsigned long long root_seed,
+  StreamingResultQueue &result_queue,
+  SampleMode sample_mode,
+  bool strict,
+  MassSpecLogConf logconf,
+  OperationContext &operation);
 
 double particle_density(double pressure, double kT);
 double evaluate_error(int n, int k);

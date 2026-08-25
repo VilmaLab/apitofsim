@@ -24,7 +24,7 @@
 #include "mass_spec.h"
 #include "consts.h"
 #include "warnlogcount.h"
-#include "openmp_helper.h"
+#include "operation_context.h"
 
 using namespace std;
 
@@ -152,25 +152,24 @@ unsigned long long root_seed(unsigned long long seed)
   return root_gen();
 }
 
-typedef Eigen::Array<int, Eigen::Dynamic, Eigen::Dynamic> PartialCounters;
-
-PartialCounters mk_partial_counters(const MassSpecSubstanceSingleInput &subs)
+Eigen::ArrayXi mk_partial_counters(const MassSpecSubstanceSingleInput &subs)
 {
   int total_counters = n_counters - 1 + subs.pathways.size();
-  return Eigen::Array<int, Eigen::Dynamic, Eigen::Dynamic>::Zero(omp_get_max_threads(), total_counters);
+  return Eigen::ArrayXi::Zero(total_counters);
 }
 
-PartialCounters mk_partial_counters(const MassSpecSubstanceTreeInput &subs)
+Eigen::ArrayXi mk_partial_counters(const MassSpecSubstanceTreeInput &subs)
 {
   int total_counters = n_counters - 1 + subs.tree_pathways.size();
-  return Eigen::Array<int, Eigen::Dynamic, Eigen::Dynamic>::Zero(omp_get_max_threads(), total_counters);
+  return Eigen::ArrayXi::Zero(total_counters);
 }
 
 /* Caller must ensure that all parameters passed as reference outlive thread */
 template <typename MassSpecSubstanceT>
 std::thread run_mass_spec_in_thread(
   SimulationResult &result,
-  OMPExceptionHelper &exception_helper,
+  OperationContext &operation,
+  ExceptionTransport &exception_transport,
   const MassSpectrometer &ms,
   const MassSpecSubstanceT &subs,
   int N,
@@ -183,7 +182,7 @@ std::thread run_mass_spec_in_thread(
   return std::thread([&, N, seed, sample_mode, strict, logconf]
   {
     // TODO: Probably want to switch to jthread when possible
-    exception_helper.guard([&, N, seed, sample_mode, strict, logconf]
+    exception_transport.guard([&, N, seed, sample_mode, strict, logconf]
     {
       result = apitof_mass_spec(
         ms,
@@ -193,7 +192,8 @@ std::thread run_mass_spec_in_thread(
         result_queue,
         sample_mode,
         strict,
-        MassSpecLogConf(std::get<0>(logconf), std::get<1>(logconf)));
+        MassSpecLogConf(std::get<0>(logconf), std::get<1>(logconf)),
+        operation);
     });
     result_queue.enqueue(std::monostate{});
   });
@@ -201,62 +201,39 @@ std::thread run_mass_spec_in_thread(
 
 std::variant<std::tuple<const std::string, const std::string>, Eigen::ArrayXi, EventMessage, std::monostate> pump_mass_spec_queue(
   StreamingResultQueue &result_queue,
-  PartialCounters &partial_counters,
-  OMPExceptionHelper &exception_helper)
+  Eigen::ArrayXi &partial_counters)
 {
   using magic_enum::enum_name;
 
-  try
+  StreamingResultElement result;
+  result_queue.wait_dequeue(result);
+  if (std::holds_alternative<std::monostate>(result))
   {
-    StreamingResultElement result;
-    result_queue.wait_dequeue(result);
-    if (std::holds_alternative<std::monostate>(result))
+    // Still need to pump out any pending messages
+    while (true)
     {
-      // Still need to pump out any pending messages
-      while (true)
+      bool got = result_queue.try_dequeue(result);
+      if (!got)
       {
-        bool got = result_queue.try_dequeue(result);
-        if (!got)
-        {
-          break;
-        }
+        break;
       }
     }
-    else if (std::holds_alternative<PartialResult>(result))
-    {
-      const PartialResult &partial_result = std::get<PartialResult>(result);
-      partial_counters.row(partial_result.thread_id) = partial_result.counters.transpose();
-      Eigen::ArrayXi cur_counters = partial_counters.colwise().sum();
-      return cur_counters;
-    }
-    else if (std::holds_alternative<LogMessage>(result))
-    {
-      const LogMessage &msg = std::get<LogMessage>(result);
-      const std::string name = std::string(enum_name(msg.type));
-      return std::tuple<const std::string, const std::string>(name, msg.message);
-    }
-    else if (std::holds_alternative<EventMessage>(result))
-    {
-      return std::get<EventMessage>(result);
-    }
   }
-  catch (...)
+  else if (std::holds_alternative<PartialResult>(result))
   {
-    try
-    {
-      exception_helper.rethrow(true);
-    }
-    catch (const std::exception &exc)
-    {
-      std::cerr << "\nGot multiple exceptions! I had to ignore the following while propagating the another: " << exc.what() << "\n\n"
-                << std::flush;
-    }
-    catch (...)
-    {
-      std::cerr << "\nGot multiple exceptions! I had to ignore one while propagating the another, but it is not a std::exception!\n\n"
-                << std::flush;
-    }
-    throw;
+    const PartialResult &partial_result = std::get<PartialResult>(result);
+    partial_counters += partial_result.counters;
+    return partial_counters;
+  }
+  else if (std::holds_alternative<LogMessage>(result))
+  {
+    const LogMessage &msg = std::get<LogMessage>(result);
+    const std::string name = std::string(enum_name(msg.type));
+    return std::tuple<const std::string, const std::string>(name, msg.message);
+  }
+  else if (std::holds_alternative<EventMessage>(result))
+  {
+    return std::get<EventMessage>(result);
   }
   return std::monostate{};
 }
@@ -276,13 +253,14 @@ mass_spec(
   std::tuple<int, bool> logconf = DEFAULT_LOGCONF_TUPLE)
 {
   StreamingResultQueue result_queue;
-  OMPExceptionHelper exception_helper;
+  OperationContext operation;
+  ExceptionTransport exception_transport;
   SimulationResult result;
-  PartialCounters partial_counters = mk_partial_counters(subs);
-  auto cleanup = MassSpecCleanup{run_mass_spec_in_thread<MassSpecSubstanceT>(result, exception_helper, ms, subs, N, seed, result_queue, sample_mode, strict, logconf)};
+  Eigen::ArrayXi partial_counters = mk_partial_counters(subs);
+  auto cleanup = MassSpecCleanup{run_mass_spec_in_thread<MassSpecSubstanceT>(result, operation, exception_transport, ms, subs, N, seed, result_queue, sample_mode, strict, logconf)};
   while (true)
   {
-    auto result = pump_mass_spec_queue(result_queue, partial_counters, exception_helper);
+    auto result = pump_mass_spec_queue(result_queue, partial_counters);
     if (std::holds_alternative<std::tuple<const std::string, const std::string>>(result))
     {
       auto tpl = std::get<std::tuple<const std::string, const std::string>>(result);
@@ -314,17 +292,19 @@ mass_spec(
       throw ApiTofError("Unknown variant from mass spec output queue");
     }
   }
-  exception_helper.rethrow();
+  operation.rethrow_pending_signal();
+  exception_transport.rethrow();
   return result;
 }
 
 struct MassSpecIterator
 {
   StreamingResultQueue result_queue;
-  PartialCounters partial_counters;
+  Eigen::ArrayXi partial_counters;
   std::shared_ptr<const MassSpectrometer> ms;
   std::shared_ptr<const void> subs;
-  OMPExceptionHelper exception_helper;
+  OperationContext operation;
+  ExceptionTransport exception_transport;
   MassSpecCleanup execution_thread;
   SimulationResult final_result{};
   bool finished;
@@ -341,8 +321,9 @@ struct MassSpecIterator
                                                              partial_counters(mk_partial_counters(*subs)),
                                                              ms(ms),
                                                              subs(std::shared_ptr<const void>(subs)),
-                                                             exception_helper(),
-                                                             execution_thread(MassSpecCleanup{run_mass_spec_in_thread<MassSpecSubstanceT>(final_result, exception_helper, *ms, *subs, N, seed, result_queue, sample_mode, strict, logconf)}),
+                                                             operation(),
+                                                             exception_transport(),
+                                                             execution_thread(MassSpecCleanup{run_mass_spec_in_thread<MassSpecSubstanceT>(final_result, operation, exception_transport, *ms, *subs, N, seed, result_queue, sample_mode, strict, logconf)}),
                                                              finished(false)
   {
   }
@@ -353,11 +334,13 @@ struct MassSpecIterator
     {
       throw nb::stop_iteration();
     }
-    auto result = pump_mass_spec_queue(result_queue, partial_counters, exception_helper);
+    auto result = pump_mass_spec_queue(result_queue, partial_counters);
     if (std::holds_alternative<std::monostate>(result))
     {
       finished = true;
       join_if_joinable();
+      operation.rethrow_pending_signal();
+      exception_transport.rethrow();
       return final_result;
     }
     else if (std::holds_alternative<Eigen::ArrayXi>(result))
