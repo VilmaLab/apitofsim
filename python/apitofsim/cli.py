@@ -676,7 +676,8 @@ def plot_events(database, dirout, plot_type, rescale):
     """
     Output to DIROUT a diagram of events (collisions/fragmentations/escapes) for a whole run using the database at path DATABASE.
     """
-    from apitofsim.plotting.events import RealizationDatabase, plot_events_experiment
+    from apitofsim.plotting.events import plot_events_experiment
+    from apitofsim.workflow.db import RealizationDatabase
 
     with connection_scope(RealizationDatabase, database, readonly=True) as db:
         experiment_id, is_single_pathway = select_experiment(db)
