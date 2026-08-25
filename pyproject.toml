@@ -88,7 +88,7 @@ before-all = "bash {package}/ci/setup_macos.sh"
 environment = { CMAKE_PREFIX_PATH = "/tmp/apitofsim-oneapi-tbb" }
 
 [tool.cibuildwheel.windows]
-before-all = 'powershell -NoProfile -ExecutionPolicy Bypass -File "{package}\ci\setup_windows.ps1"'
+before-all = 'pwsh -NoProfile -File "{package}\ci\setup_windows.ps1"'
 before-build = "pip install delvewheel"
 config-settings = { setup-args = "--native-file=..\\meson\\pkg\\windowswheel.ini" }
 environment = { CMAKE_PREFIX_PATH = 'C:\apitofsim-oneapi-tbb\oneapi-tbb-2023.1.0' }
