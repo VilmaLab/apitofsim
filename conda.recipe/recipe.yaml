@@ -90,7 +90,10 @@ tests:
       python_version: ["${{ python_min ~ '.*' }}"]
 
   - script:
-      - DATA_DIR=$(pwd)/test/data pytest ./test
+      - if: unix
+        then: DATA_DIR=$(pwd)/test/data pytest ./test
+      - if: win
+        then: set "DATA_DIR=%CD%/test/data" && pytest ./test
       - python -c "import apitofsim; assert apitofsim.precompute_mesh(100.0, 1.0, quantities_strict=False).size == 100"
     requirements:
       run:
