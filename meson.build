@@ -12,8 +12,10 @@ if meson.get_compiler('cpp').get_argument_syntax() == 'msvc'
   # Equivalent to no-unknown-pragmas
   add_project_arguments('/wd4068', language : 'cpp')
 else
+  cpp = meson.get_compiler('cpp')
   # Turn off errno which inhibits SIMD of math.h
   add_project_arguments('-fno-math-errno', language : 'cpp')
+  add_project_arguments(cpp.get_supported_arguments('-fopenmp-simd'), language : 'cpp')
   # Silence these warnings in order to prevent them from becoming errors
   # Sometimes OpenMP pragmas are not found or requested transforms can't be applied
   # It would be better to use -Wno-error=unknown-pragmas -Wno-error=pass-failed
@@ -43,6 +45,7 @@ else
   openmp = declare_dependency()
 endif
 eigen3 = dependency('eigen3', include_type : 'system', version : '>= 3.4')
+tbb = dependency('tbb', include_type : 'system', version : '>= 2023.0')
 nanobind = dependency('nanobind', required : python_feat, include_type : 'system')
 concurrentqueue = dependency('concurrentqueue', include_type : 'system')
 magic_enum = dependency(

@@ -5,7 +5,7 @@ gen_compute_k_total_bin = executable(
    'gen_compute_k_total_bin',
    'gen/compute_k_total.cpp',
    dependencies : [eigen3],
-   link_with: libapitofsim_no_omp,
+   link_with: libapitofsim,
    include_directories: [include_dir],
 )
 
@@ -19,7 +19,7 @@ doctest_dep = dependency('doctest')
 tests = executable('apitofsim-tests',
                    ['main.cpp', gen_compute_k_total],
                    dependencies : [doctest_dep, eigen3, concurrentqueue, magic_enum],
-                   link_with: libapitofsim_no_omp,
+                   link_with: libapitofsim,
                    include_directories: [inc_src, include_dir],
                    install : false)
 
@@ -29,7 +29,9 @@ timeout = 900
 test(
    'apitofsim-tests',
    tests,
-   env : 'DATA_DIR=' + fs.parent(fs.parent(ready_test_data_files[0].full_path())),
+   env : {
+      'DATA_DIR': fs.parent(fs.parent(ready_test_data_files[0].full_path())),
+   },
    depends: ready_test_data_files,
    timeout : timeout
 )

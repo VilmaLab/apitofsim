@@ -1,9 +1,87 @@
-#define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
+#define DOCTEST_CONFIG_IMPLEMENT
 #include <doctest.h>
+
+#include <oneapi/tbb/global_control.h>
 
 #include "skimmer.h"
 #include "densityandrate_smoke.h"
 #include "cli/mass_spec_io.h"
+#include "operation_context.h"
+
+#include <chrono>
+#include <mutex>
+#include <thread>
+
+int main(int argc, char **argv)
+{
+  oneapi::tbb::global_control concurrency_limit(
+    oneapi::tbb::global_control::max_allowed_parallelism,
+    1);
+  doctest::Context context(argc, argv);
+  return context.run();
+}
+
+namespace
+{
+void test_signal_handler(int)
+{
+}
+}
+
+TEST_CASE("operation context restores handlers across nested scopes")
+{
+  const auto previous_int = std::signal(SIGINT, test_signal_handler);
+  const auto previous_term = std::signal(SIGTERM, test_signal_handler);
+  const auto previous_abrt = std::signal(SIGABRT, test_signal_handler);
+  {
+    OperationContext outer;
+    {
+      OperationContext inner;
+    }
+  }
+
+  CHECK(std::signal(SIGINT, previous_int) == test_signal_handler);
+  CHECK(std::signal(SIGTERM, previous_term) == test_signal_handler);
+  CHECK(std::signal(SIGABRT, previous_abrt) == test_signal_handler);
+}
+
+TEST_CASE("operation context cancels on the first cooperative signal")
+{
+  OperationContext operation;
+  std::raise(SIGTERM);
+  std::raise(SIGINT);
+
+  CHECK_FALSE(operation.checkpoint());
+  CHECK(operation.tbb_context().is_group_execution_cancelled());
+  CHECK_THROWS_WITH_AS(
+    operation.rethrow_pending_signal(true),
+    "Signal-as-exception",
+    SignalError);
+  try
+  {
+    operation.rethrow_pending_signal(true);
+  }
+  catch (const SignalError &error)
+  {
+    CHECK(error.signum == SIGTERM);
+  }
+}
+
+TEST_CASE("exception transport rethrows a background exception")
+{
+  ExceptionTransport transport;
+  std::thread worker([&]
+  {
+    transport.guard([]
+    {
+      throw std::runtime_error("background failure");
+    });
+  });
+  worker.join();
+
+  CHECK_FALSE(transport.should_continue());
+  CHECK_THROWS_WITH_AS(transport.rethrow(), "background failure", std::runtime_error);
+}
 
 TEST_CASE("skimmer smoke tests")
 {
@@ -84,6 +162,94 @@ TEST_CASE("k total smoke tests")
   auto [k_rate, k0] = k_total_smoke();
   CHECK(is_increasing(k_rate));
   CHECK(is_increasing(k0));
+}
+
+TEST_CASE("parallel mesh implementations match serial implementations")
+{
+  constexpr double energy_max_rate = 64.0;
+  constexpr double bin_width = 0.5;
+
+  const auto serial = precompute_mesh(
+    energy_max_rate,
+    bin_width,
+    MeshMode::compute_mesh_single_threaded);
+  const auto parallel = precompute_mesh(
+    energy_max_rate,
+    bin_width,
+    MeshMode::compute_mesh_multithreaded);
+  const auto diagonal_serial = precompute_mesh(
+    energy_max_rate,
+    bin_width,
+    MeshMode::compute_mesh_diagonal_single_threaded);
+  const auto diagonal_parallel = precompute_mesh(
+    energy_max_rate,
+    bin_width,
+    MeshMode::compute_mesh_diagonal_multithreaded);
+
+  CHECK(parallel.isApprox(serial, 1.0e-12));
+  CHECK(diagonal_parallel.isApprox(diagonal_serial, 1.0e-12));
+}
+
+TEST_CASE("density batch handles empty and single-item inputs")
+{
+  const auto empty = compute_density_of_states_batch({}, 16.0, 1.0);
+  CHECK(empty.rows() == 16);
+  CHECK(empty.cols() == 0);
+
+  std::vector<Eigen::ArrayXd> batch{Eigen::ArrayXd(2)};
+  batch[0] << 2.0, 3.0;
+  Eigen::ArrayXd expected(16);
+  compute_density_of_states(batch[0], expected, 16.0, 1.0);
+
+  const auto actual = compute_density_of_states_batch(batch, 16.0, 1.0);
+  REQUIRE(actual.cols() == 1);
+  CHECK(actual.col(0).isApprox(expected, 1.0e-12));
+}
+
+TEST_CASE("k total batch reports every completed item in order")
+{
+  constexpr size_t batch_size = 32;
+  Eigen::ArrayXd rho_parent = Eigen::ArrayXd::Ones(32);
+  Eigen::ArrayXd rho_comb = Eigen::ArrayXd::Ones(32);
+  Eigen::Vector3d rotations = Eigen::Vector3d::Ones();
+  Eigen::ArrayXd frequencies(1);
+  frequencies << 1.0;
+  ClusterData product_1(1, 0.0, rotations, frequencies, 0);
+  ClusterData product_2(1, 0.0, rotations, frequencies, 0);
+  std::vector<KTotalInput> batch;
+  batch.reserve(batch_size);
+  for (size_t i = 0; i < batch_size; ++i)
+  {
+    batch.push_back(KTotalInput{
+      product_1,
+      product_2,
+      1.0,
+      rho_parent,
+      rho_comb,
+    });
+  }
+
+  std::mutex callback_mutex;
+  std::vector<size_t> completed;
+  const auto result = compute_k_total_batch(
+    batch,
+    8.0,
+    1.0,
+    MeshMode::compute_mesh_diagonal_multithreaded,
+    [&](size_t count)
+    {
+      const std::lock_guard<std::mutex> lock(callback_mutex);
+      completed.push_back(count);
+      std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    });
+
+  CHECK(result.rows() == 8);
+  CHECK(result.cols() == batch_size);
+  REQUIRE(completed.size() == batch_size);
+  for (size_t i = 0; i < completed.size(); ++i)
+  {
+    CHECK(completed[i] == i + 1);
+  }
 }
 
 TEST_CASE("apitof pinhole smoke tests")

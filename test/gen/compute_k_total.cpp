@@ -2,6 +2,7 @@
 #include "consts.h"
 
 #include <fstream>
+#include <oneapi/tbb/global_control.h>
 
 double energy_max = 4.0e4;
 double energy_max_rate = 4.0e3;
@@ -77,6 +78,9 @@ Eigen::ArrayXd freq_comb = (Eigen::ArrayXd(27) << 134.114,
 
 int main(int argc, char **argv)
 {
+  oneapi::tbb::global_control concurrency_limit(
+    oneapi::tbb::global_control::max_allowed_parallelism,
+    1);
   if (argc < 2)
   {
     return -1;

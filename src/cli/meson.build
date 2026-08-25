@@ -1,7 +1,7 @@
 executable(
   'apitofsim-skimmer',
   'skimmer.cpp',
-  dependencies : [eigen3, openmp],
+  dependencies : [eigen3, tbb, openmp],
   link_with: [libapitofsim],
   include_directories: [include_dir],
   install : true
@@ -9,7 +9,7 @@ executable(
 executable(
   'apitofsim-densityandrate',
   'densityandrate.cpp',
-  dependencies: [eigen3, openmp],
+  dependencies: [eigen3, tbb, openmp],
   link_with: [libapitofsim],
   include_directories: [include_dir],
   install : true
@@ -17,7 +17,7 @@ executable(
 executable(
   'apitofsim-mass-spec',
   'mass_spec.cpp',
-  dependencies: [eigen3, openmp, concurrentqueue, magic_enum],
+  dependencies: [eigen3, tbb, openmp, concurrentqueue, magic_enum],
   link_with: [libapitofsim],
   include_directories: [include_dir],
   install : true
