@@ -27,10 +27,11 @@ Build and packaging scope includes Meson options/targets, developer native files
 - With a fixed seed, preserve per-realization outcomes and final integer counters. Log/event arrival order is already scheduler-dependent and remains unspecified.
 - Preserve numerical equivalence to the serial implementations within explicit floating-point tolerances. Do not promise bitwise equality for floating-point reductions.
 - A task-body exception cancels pending work and is rethrown on the thread that invoked the top-level API. Exceptions crossing the existing background `std::thread` boundary are still transported to its caller.
-- `SIGINT`, `SIGTERM`, and initially `SIGABRT` retain the current precedence over an application exception. Restore the previous handler before re-raising a signal on the owning/calling thread.
+- `SIGINT` and `SIGTERM` retain precedence over an application exception. Restore the previous handler before re-raising a signal on the owning/calling thread.
+- Do not install a `SIGABRT` handler. Abort remains an immediate fatal condition under the process's existing/default handling rather than entering cooperative cancellation.
 - Once cancellation is observed, do not emit new progress callbacks or partial-result messages. Already-running work exits at explicit checkpoints rather than waiting for an entire large batch.
 - Replace worker-indexed cumulative partial counters with scheduler-independent progress data. Consumers must not allocate arrays from a maximum worker count.
-- Replace OpenMP thread-count control with a documented TBB mechanism. The proposed compatibility path is `APITOFSIM_NUM_THREADS`, with a temporary warning-backed fallback for `OMP_NUM_THREADS` if users rely on it.
+- Do not read or emulate `OMP_NUM_THREADS`, and do not add a replacement environment variable. Use oneTBB's default scheduler; tests and explicitly constrained callers use scoped `task_arena`/`global_control` APIs.
 
 ## Target design
 
@@ -52,7 +53,7 @@ Split the current `OMPExceptionHelper` responsibilities:
 
 Checkpoints belong before expensive iterations, inside the long mass-spec trajectory loop, and before callbacks/queue writes. The signal handler itself only records state; it must not call TBB or other non-signal-safe code.
 
-The first implementation should preserve signal precedence. A follow-up decision may stop intercepting `SIGABRT`, since abort normally indicates an unrecoverable process failure and delayed cooperative handling can hide that intent.
+Only `SIGINT` and `SIGTERM` participate in this mechanism. `SIGABRT` is deliberately excluded from handler installation and cooperative cancellation.
 
 ### Progress and counters
 
@@ -67,17 +68,17 @@ Serialize the `compute_k_total_batch` callback and pass strictly increasing comp
 
 ### Build and distribution
 
-- Detect oneTBB through Meson's normal dependency mechanisms, validating pkg-config on Unix and the exported `TBB::tbb` CMake target where needed. Establish a tested minimum oneTBB version during the build spike.
+- Require oneTBB `>=2023.0` through Meson's normal dependency mechanisms, validating pkg-config on Unix and the exported `TBB::tbb` CMake target where needed.
 - Make the SIMD flag compiler-checked. Unsupported compilers may ignore the pragmas; they must not acquire an OpenMP runtime dependency.
-- Remove `openmp`, the Intel-specific OpenMP branch, `libapitofsim_no_omp`, and LLVM OpenMP packages after the last runtime pragma is gone.
-- Constrain concurrency in tests with a TBB arena/global control instead of compiling a second copy of the library.
+- Remove `libapitofsim_no_omp` as soon as oneTBB build plumbing is available. Link generators and tests to the normal library and constrain them with a TBB arena/global control.
+- Remove `openmp`, the Intel-specific OpenMP branch, and LLVM OpenMP packages immediately after the last runtime pragma is ported; there is no dual-runtime bake period.
 - Add oneTBB development/runtime packages to CI, wheel, and Conda builds, and verify that produced wheels contain or declare the required TBB runtime correctly.
 
 ## Task list
 
 ### Phase 1: Foundation
 
-- Tasks 1-3: characterize behavior, prove the build integration, and establish operation-scoped cancellation.
+- Tasks 1-3: characterize behavior, establish oneTBB `2023.0` build integration, remove the duplicate serial library, and establish operation-scoped cancellation.
 
 ### Phase 2: Runtime cutover
 
@@ -87,8 +88,8 @@ Serialize the `compute_k_total_batch` callback and pass strictly increasing comp
 
 ### Phase 3: Removal and distribution
 
-- Tasks 7-8: remove source/build-time OpenMP runtime support.
-- Tasks 9-10: update artifacts, benchmark, document, and audit.
+- Tasks 7-9: remove source/build-time OpenMP runtime support and stale developer/CI configuration.
+- Tasks 10-11: update distribution artifacts, benchmark, document, and audit.
 
 ## Dependency order
 
@@ -96,7 +97,7 @@ Serialize the `compute_k_total_batch` callback and pass strictly increasing comp
 Characterization tests
         |
         v
-TBB/SIMD build spike ---> operation cancellation context
+TBB/SIMD build + remove duplicate library ---> operation cancellation context
         |                         |
         +------------+------------+
                      v
@@ -116,7 +117,7 @@ The density/rate and mass-spec ports can proceed independently after the operati
 ### Foundation
 
 - Existing OpenMP behavior is characterized, including subprocess signal tests.
-- oneTBB is discoverable on supported toolchains and SIMD compiles without an OpenMP runtime.
+- oneTBB `>=2023.0` is discoverable on supported toolchains, the duplicate serial library is gone, and SIMD compiles without an OpenMP runtime.
 - The operation cancellation/exception contract is covered by focused tests.
 
 ### Runtime cutover
@@ -142,14 +143,21 @@ The density/rate and mass-spec ports can proceed independently after the operati
 | Different scheduling changes stream order | Medium | Test message contents/counts, not ordering that was never guaranteed |
 | TBB shared scheduling changes nested/concurrent performance | Medium | Use automatic partitioning first; benchmark concurrent Python calls and avoid unnecessary isolated arenas |
 | TBB runtime is missing from wheels/Conda artifacts | High | Inspect repaired artifacts and import/run them in clean environments |
-| Removing `openmp=disabled` breaks an undocumented downstream build | Medium | Search known consumers; either announce removal or retain a separately justified serial backend |
+| oneTBB 2023.0 is unavailable in a supported build environment | High | Fail configuration clearly and verify every CI/package platform during the foundation task |
 
-## Open decisions
+## Decisions fixed for implementation
 
-1. **Runtime-free serial build:** repository usage suggests `libapitofsim_no_omp` exists for deterministic tests/generation, which TBB concurrency controls can replace. Unless a downstream consumer is identified, remove the duplicate build rather than maintain two parallel backends.
-2. **`SIGABRT`:** preserve it for the initial parity cutover, then decide separately whether it should return to immediate default handling.
-3. **Thread-limit compatibility:** confirm whether `OMP_NUM_THREADS` is user-facing. If it is, support it for one transition release with a deprecation warning before relying only on `APITOFSIM_NUM_THREADS`/an explicit API.
-4. **Minimum oneTBB version:** select the oldest version that passes Linux, Windows, wheel, and Conda discovery tests; do not infer this solely from the newest development environment.
+1. **Minimum version:** require oneTBB `2023.0` or newer.
+2. **Single implementation:** remove `libapitofsim_no_omp`; there is no downstream consumer and no alternate serial backend.
+3. **Thread limits:** drop `OMP_NUM_THREADS` behavior without a compatibility shim. oneTBB owns default scheduling, with standard oneTBB controls available to constrained callers/tests.
+4. **Fatal abort:** never intercept `SIGABRT`; leave immediate abort handling to the process/runtime.
+
+## Teardown order
+
+1. Remove `libapitofsim_no_omp` when the oneTBB dependency and one-thread test control land.
+2. Replace `openmp_helper` and `OMPExceptionHelper` when the generic operation context lands; retain only the minimum temporary exception guard needed by unported OpenMP loops.
+3. Delete each runtime pragma/reduction as its owning algorithm moves to TBB.
+4. Remove the OpenMP dependency, option, profiles, and packages in the immediately following cleanup sequence, with no dual-runtime release or bake period.
 
 ## Authoritative references
 

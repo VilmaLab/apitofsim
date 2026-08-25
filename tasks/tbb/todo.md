@@ -7,7 +7,7 @@
 **Acceptance criteria:**
 
 - [ ] Fixed-seed and serial/parallel numerical expectations are recorded with explicit tolerances.
-- [ ] Exceptions and `SIGINT`/`SIGTERM`/`SIGABRT` behavior are tested without terminating the test runner.
+- [ ] Existing `SIGINT`/`SIGTERM` forwarding and `SIGABRT` behavior are safely characterized in subprocesses.
 - [ ] Progress and partial-counter tests capture monotonicity, final totals, and cancellation side-effect boundaries.
 
 **Verification:**
@@ -21,15 +21,15 @@
 
 **Estimated scope:** Medium
 
-## Task 2: Prove oneTBB and SIMD-only build plumbing
+## Task 2: Establish oneTBB and remove the duplicate serial library
 
-**Description:** Add oneTBB discovery alongside the existing runtime temporarily, compile a minimal TBB target on supported toolchains, and add compiler-checked `-fopenmp-simd` without relying on the OpenMP runtime for SIMD-only translation units.
+**Description:** Require oneTBB 2023.0 alongside the existing runtime temporarily, prove compiler/package discovery, add compiler-checked `-fopenmp-simd`, and immediately remove `libapitofsim_no_omp` in favor of the normal library under scoped oneTBB concurrency control.
 
 **Acceptance criteria:**
 
-- [ ] Meson discovers oneTBB through tested pkg-config/CMake paths and records a justified minimum version.
+- [ ] Meson requires oneTBB `>=2023.0` through tested pkg-config/CMake paths and fails clearly for an older version.
 - [ ] GCC and Clang compile/link a TBB smoke target; a SIMD-only target has no OpenMP runtime linkage.
-- [ ] Linux, wheel, Windows, and Conda dependency names/availability are documented for later packaging work.
+- [ ] `libapitofsim_no_omp` is removed; generators/tests link the normal library and obtain deterministic one-thread execution through oneTBB controls.
 
 **Verification:**
 
@@ -38,24 +38,24 @@
 
 **Dependencies:** Task 1
 
-**Files likely touched:** `meson.build`, `meson_options.txt`, `test/meson.build`, optional `subprojects/` wrap metadata
+**Files likely touched:** `meson.build`, `src/meson.build`, `test/meson.build`, optional `subprojects/` wrap metadata
 
 **Estimated scope:** Medium
 
 ## Task 3: Introduce operation-scoped cancellation and exception transport
 
-**Description:** Replace the mixed responsibilities of `OMPExceptionHelper` with generic operation cancellation/signal handling and a separate cross-`std::thread` exception transport. Keep the OpenMP call sites working until their own cutover.
+**Description:** Delete the OpenMP-specific helper interface and replace its mixed responsibilities with generic operation cancellation/signal handling plus a separate cross-`std::thread` exception transport. Keep only the minimum generic exception guard needed by OpenMP loops awaiting their own cutover.
 
 **Acceptance criteria:**
 
-- [ ] A top-level RAII scope restores prior handlers on success, exception, and cancellation; nested use does not overwrite saved handlers.
+- [ ] A top-level RAII scope handles only `SIGINT`/`SIGTERM` and restores prior handlers on success, exception, and cancellation; nested use does not overwrite saved handlers.
 - [ ] A shared `task_group_context` can be cancelled at a safe checkpoint, with first-signal precedence preserved.
-- [ ] Background mass-spec exceptions/signals still arrive at the invoking CLI/Python thread, and no exception can be silently destroyed.
+- [ ] `SIGABRT` is never installed or converted, while background mass-spec exceptions and cooperative signals still arrive at the invoking CLI/Python thread.
 
 **Verification:**
 
 - [ ] Focused C++ cancellation/exception tests pass under normal and sanitizer builds.
-- [ ] Python subprocess tests deliver signals during active work and terminate within the stated bound.
+- [ ] Python subprocess tests deliver `SIGINT`/`SIGTERM` during active work within the stated bound and verify immediate fatal `SIGABRT` behavior.
 
 **Dependencies:** Task 2
 
@@ -66,7 +66,7 @@
 ## Checkpoint: Foundation
 
 - [ ] Tasks 1-3 pass with the old runtime paths still available.
-- [ ] The cancellation and thread-limit compatibility contracts have review approval.
+- [ ] The cancellation contract and deliberate removal of `OMP_NUM_THREADS` behavior have review approval.
 
 ## Task 4: Port density and rate parallelism
 
@@ -160,12 +160,12 @@
 
 ## Task 8: Remove OpenMP build configuration
 
-**Description:** Make oneTBB the sole parallel runtime in Meson, remove the OpenMP option/duplicate library, and use TBB concurrency control for deterministic single-thread tests.
+**Description:** Make oneTBB the sole parallel runtime in Meson and remove the OpenMP option and target dependencies. Deterministic tests already use the normal library under oneTBB concurrency control from Task 2.
 
 **Acceptance criteria:**
 
 - [ ] Meson targets link oneTBB and never link an OpenMP runtime; SIMD flags are compiler-checked and compile-only.
-- [ ] `openmp`/Intel profile branches and `libapitofsim_no_omp` are removed or replaced according to the approved runtime-free-build decision.
+- [ ] `openmp` and Intel-specific OpenMP profile branches are removed; no alternate serial backend or compatibility option remains.
 - [ ] Existing test generation and single-thread checks use the normal library under a one-thread TBB limit.
 
 **Verification:**
@@ -175,39 +175,60 @@
 
 **Dependencies:** Task 7
 
-**Files likely touched:** `meson.build`, `meson_options.txt`, `src/meson.build`, `src/cli/meson.build`, `python/meson.build`, `test/meson.build`, `meson/dev/*.ini`
-
-**Estimated scope:** Medium; land target cleanup before developer-profile cleanup
-
-## Task 9: Update CI and distribution packaging
-
-**Description:** Replace LLVM OpenMP packages with oneTBB development/runtime dependencies and verify repaired wheels and Conda artifacts in clean environments.
-
-**Acceptance criteria:**
-
-- [ ] Test/QA workflows install oneTBB and run the same compiler, sanitizer, and Valgrind coverage as before.
-- [ ] Wheel builds bundle or correctly depend on TBB and pass a clean-environment import plus parallel smoke test.
-- [ ] The Conda recipe uses `tbb-devel`/`tbb` as appropriate and no longer includes `llvm-openmp`.
-
-**Verification:**
-
-- [ ] GitHub Actions test, QA, wheel, and Conda jobs pass.
-- [ ] Artifact inspection and clean-environment smoke tests are recorded in the PR.
-
-**Dependencies:** Task 8
-
-**Files likely touched:** `.github/workflows/test.yml`, `.github/workflows/qa.yml`, `.github/workflows/wheels.yml`, `ci/setup_linux.sh`, `conda.recipe/recipe.yaml`
+**Files likely touched:** `meson.build`, `meson_options.txt`, `src/meson.build`, `src/cli/meson.build`, `python/meson.build`
 
 **Estimated scope:** Medium
 
-## Task 10: Benchmark, document, and perform the removal audit
+## Task 9: Remove stale developer and CI OpenMP setup
 
-**Description:** Compare serial/default-concurrency performance, document runtime/thread-control changes, resolve the `SIGABRT` follow-up decision, and prove that the OpenMP runtime is fully removed.
+**Description:** Update developer profiles and core test/QA workflows immediately after the Meson cutover so they install and exercise oneTBB 2023.0 without OpenMP-specific modes or packages.
+
+**Acceptance criteria:**
+
+- [ ] Single-thread/slow/profile native files use oneTBB controls and contain no OpenMP project option.
+- [ ] Test and QA workflows install oneTBB `>=2023.0`, omit LLVM OpenMP packages, and retain compiler/sanitizer/Valgrind coverage.
+- [ ] Clean GCC and Clang CI builds exercise default and constrained concurrency.
+
+**Verification:**
+
+- [ ] GitHub Actions test and QA jobs pass.
+- [ ] `rg -n 'openmp|libomp|llvm-openmp' meson/dev .github/workflows/test.yml .github/workflows/qa.yml` finds no runtime setup.
+
+**Dependencies:** Task 8
+
+**Files likely touched:** `meson/dev/icxprofile.ini`, `meson/dev/clangsingle.ini`, `meson/dev/clangslow.ini`, `.github/workflows/test.yml`, `.github/workflows/qa.yml`
+
+**Estimated scope:** Medium
+
+## Task 10: Update wheel and Conda packaging
+
+**Description:** Replace OpenMP distribution dependencies with oneTBB 2023.0 and verify repaired wheels and Conda artifacts in clean environments.
+
+**Acceptance criteria:**
+
+- [ ] Wheel builds bundle or correctly depend on a compatible TBB runtime and pass a clean-environment import plus parallel smoke test.
+- [ ] The Conda recipe uses `tbb-devel`/`tbb` with a `>=2023.0` constraint as appropriate and contains no `llvm-openmp`.
+- [ ] Artifact dependency inspection finds TBB and no OpenMP runtime.
+
+**Verification:**
+
+- [ ] GitHub Actions wheel and Conda jobs pass.
+- [ ] Artifact inspection and clean-environment smoke tests are recorded in the PR.
+
+**Dependencies:** Task 9
+
+**Files likely touched:** `.github/workflows/wheels.yml`, `.github/workflows/conda.yml`, `ci/setup_linux.sh`, `conda.recipe/recipe.yaml`, `pyproject.toml`
+
+**Estimated scope:** Medium
+
+## Task 11: Benchmark, document, and perform the removal audit
+
+**Description:** Compare one-thread/default-concurrency performance, document runtime/thread-control changes and immediate `SIGABRT` handling, and prove that the OpenMP runtime is fully removed.
 
 **Acceptance criteria:**
 
 - [ ] Benchmarks cover density/rate and mass-spec workloads at one and default concurrency with any material regression explained.
-- [ ] User/developer documentation covers the TBB dependency, thread limit, SIMD-only OpenMP pragmas, signal semantics, and removed build options.
+- [ ] User/developer documentation covers oneTBB `>=2023.0`, standard oneTBB concurrency controls, removal of `OMP_NUM_THREADS` behavior, SIMD-only OpenMP pragmas, `SIGINT`/`SIGTERM` cancellation, immediate `SIGABRT`, and removed build options.
 - [ ] Source, build metadata, lock/package files, binaries, and artifacts contain no unintended OpenMP runtime dependency.
 
 **Verification:**
@@ -215,7 +236,7 @@
 - [ ] `uv run meson test --print-errorlogs -C build` and relevant benchmarks pass on the final tree.
 - [ ] `rg` audit plus platform dynamic-dependency inspection is clean.
 
-**Dependencies:** Task 9
+**Dependencies:** Task 10
 
 **Files likely touched:** `README.md`/developer docs, benchmark notes, package/build metadata
 
