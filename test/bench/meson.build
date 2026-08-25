@@ -6,7 +6,7 @@ incdirs = [
 density_of_states = executable(
    'density_of_states',
    ['density_of_states.cpp', gen_compute_k_total],
-   dependencies : [eigen3],
+   dependencies : [eigen3, tbb],
    link_with: libapitofsim,
    include_directories: incdirs,
 )
@@ -21,7 +21,7 @@ benchmark(
 compute_k_total = executable(
    'compute_k_total',
    ['compute_k_total.cpp', gen_compute_k_total],
-   dependencies : [eigen3],
+   dependencies : [eigen3, tbb],
    link_with: libapitofsim,
    include_directories: incdirs,
 )

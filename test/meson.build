@@ -19,13 +19,14 @@ doctest_dep = dependency('doctest')
 signal_helper = executable(
    'signal-helper',
    'signal_helper.cpp',
+   dependencies: [tbb],
    link_with: libapitofsim,
    include_directories: [include_dir],
 )
 
 tests = executable('apitofsim-tests',
                    ['main.cpp', gen_compute_k_total],
-                   dependencies : [doctest_dep, eigen3, concurrentqueue, magic_enum],
+                   dependencies : [doctest_dep, eigen3, tbb, concurrentqueue, magic_enum],
                    link_with: libapitofsim,
                    include_directories: [inc_src, include_dir],
                    install : false)
