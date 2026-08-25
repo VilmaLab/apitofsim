@@ -41,6 +41,7 @@ python.install_sources([
 'plotting/report.py',
 'plotting/survivals.py',
 'plotting/spectrogram.py',
+'plotting/events.py',
 ], subdir: 'apitofsim/plotting', pure : false)
 
 python.install_sources([

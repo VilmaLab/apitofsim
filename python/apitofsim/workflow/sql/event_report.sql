@@ -14,6 +14,7 @@ with
     )
 select
     pathway_experiment_result.id as experiment_result_id,
+    cluster.id as cluster_id,
     cluster.common_name as parent_name,
     event_type,
     realization_id,
