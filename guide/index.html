@@ -1,0 +1,947 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://vilmalab.github.io/apitofsim/guide/">
+      
+      
+        <link rel="prev" href="../background/">
+      
+      
+        <link rel="next" href="../configuration/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Guide - Documentation for apitofsim</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+    
+      <link rel="stylesheet" href="https://unpkg.com/katex@0/dist/katex.min.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#guide-from-importing-cluster-data-to-spectrogram-plots" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Documentation for apitofsim" class="md-header__button md-logo" aria-label="Documentation for apitofsim" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Documentation for apitofsim
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Guide
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Documentation for apitofsim" class="md-nav__button md-logo" aria-label="Documentation for apitofsim" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Documentation for apitofsim
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../background/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Background
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guide
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guide
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#importing-cluster-data" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Importing cluster data
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#running-the-simulation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Running the simulation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#analysing-the-results" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Analysing the results
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI tools
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../python/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python library
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Notebooks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../development/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Development
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#importing-cluster-data" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Importing cluster data
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#running-the-simulation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Running the simulation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#analysing-the-results" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Analysing the results
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="guide-from-importing-cluster-data-to-spectrogram-plots">Guide: from importing cluster data to spectrogram plots</h1>
+<p>This guide will take you through all the major features of the package by going through the process of importing cluster data, preparing parameters, and running the simulation through to using the simulation data to produce plots such as spectrograms.</p>
+<h2 id="importing-cluster-data">Importing cluster data</h2>
+<p>In the import or ingestion stage, you will prepare a database containing data about the clusters you want to simulate as well as which pathways to simulate.</p>
+<p>Typically, you will start with an XYZ file and run either ORCA or Gaussian to generate the quantum chemistry.</p>
+<p>The exact ORCA and Gaussian settings depend upon the material of the clusters being studied and the desired level of accuracy versus available computation time, and are somewhat beyond the scope of this guide.
+Sometimes multiple analyses are run to estimate different properties of the cluster, for example one which is more accurate for energetics, and one which is more accurate for vibrational and rotational frequencies.
+The following examples given only as an indication of settings which have been used previously:</p>
+<div class="tabbed-set tabbed-alternate" data-tabs="1:2"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">ORCA</label><label for="__tabbed_1_2">Gaussian</label></div>
+<div class="tabbed-content">
+<div class="tabbed-block">
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>! SARC-ZORA-TZVPP ZORA DLPNO-CCSD(T) Def2-TZVPP/C TightSCF TightPNO
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>%pal nprocs 8
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    end
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>%Maxcore 15000.00
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>%basis
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>        NewGTO C "ma-ZORA-def2-TZVPP" end
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>        NewGTO N "ma-ZORA-def2-TZVPP" end
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>        NewGTO S "ma-ZORA-def2-TZVPP" end
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>        NewGTO O "ma-ZORA-def2-TZVPP" end
+</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>        NewGTO H "ma-ZORA-def2-TZVPP" end
+</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>NewGTO Cl "ma-ZORA-def2-TZVPP" end
+</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>NewGTO Br "ma-ZORA-def2-TZVPP" end
+</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>end
+</span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>* xyzfile -1 1 example.xyz
+</span></code></pre></div>
+</div>
+<div class="tabbed-block">
+<div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a># wb97xd 6-31++g** Opt=verytight int=ultrafine freq
+</span></code></pre></div>
+</div>
+</div>
+</div>
+<p>Once you have run your analysis, you should have a directory with files named after the related cluster.
+For example: <a href="" id="directory-listing-1"></a></p>
+<figure>
+<div style="text-align: left;">
+<div class="language-text highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>2A_2SA_negative.out
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>2A_1SA_neutral.out
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>1A_1SA_negative.out
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>1A_1SA_neutral.out
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>1A_2SA_negative.out
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>1SA_negative.out
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>1A_neutral.out
+</span></code></pre></div>
+</div>
+
+<figcaption> <em>Figure 1.</em> A directory listing containing only ORCA files</figcaption>
+</figure>
+<p>It could also be, for example, that you have ORCA <code>.out</code> files, Gaussian <code>.log</code> files and XYZ <code>.xyz</code> like so: <a href="" id="directory-listing-2"></a></p>
+<figure>
+<div style="text-align: left;">
+<div class="language-text highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>2A_2SA_negative.out
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>2A_2SA_negative.log
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>2A_2SA_negative.xyz
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>2A_1SA_neutral.out
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>2A_1SA_neutral.log
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>2A_1SA_neutral.xyz
+</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>1A_1SA_negative.out
+</span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>1A_1SA_negative.log
+</span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a>1A_1SA_negative.xyz
+</span><span id="__span-3-10"><a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a>1A_1SA_neutral.out
+</span><span id="__span-3-11"><a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a>1A_1SA_neutral.log
+</span><span id="__span-3-12"><a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a>1A_1SA_neutral.xyz
+</span><span id="__span-3-13"><a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a>1A_2SA_negative.out
+</span><span id="__span-3-14"><a id="__codelineno-3-14" name="__codelineno-3-14" href="#__codelineno-3-14"></a>1A_2SA_negative.log
+</span><span id="__span-3-15"><a id="__codelineno-3-15" name="__codelineno-3-15" href="#__codelineno-3-15"></a>1A_2SA_negative.xyz
+</span><span id="__span-3-16"><a id="__codelineno-3-16" name="__codelineno-3-16" href="#__codelineno-3-16"></a>1SA_negative.out
+</span><span id="__span-3-17"><a id="__codelineno-3-17" name="__codelineno-3-17" href="#__codelineno-3-17"></a>1SA_negative.log
+</span><span id="__span-3-18"><a id="__codelineno-3-18" name="__codelineno-3-18" href="#__codelineno-3-18"></a>1SA_negative.xyz
+</span><span id="__span-3-19"><a id="__codelineno-3-19" name="__codelineno-3-19" href="#__codelineno-3-19"></a>1A_neutral.out
+</span><span id="__span-3-20"><a id="__codelineno-3-20" name="__codelineno-3-20" href="#__codelineno-3-20"></a>1A_neutral.log
+</span><span id="__span-3-21"><a id="__codelineno-3-21" name="__codelineno-3-21" href="#__codelineno-3-21"></a>1A_neutral.xyz
+</span></code></pre></div>
+</div>
+
+<figcaption><em>Figure 2.</em> A directory listing containing XYZ, ORCA and Gaussian files</figcaption>
+</figure>
+<p>You need to create two CSV files: one to contain information about the clusters, and one to contain information about the pathways.
+In a moment, we'll talk about how to generate an initial version of these, so read this whole section before getting started.
+First however, we'll look at what's in these files.</p>
+<p>The clusters CSV relates the cluster name to its associated files.
+One option if the files are named like <a class="autorefs autorefs-internal" title="Importing cluster data" href="#directory-listing-2">Figure 2</a> is to have a single column <code>name</code> for the cluster name, and another column <code>prefix</code> for the prefix of the file name to identify which files relate to which cluster like so:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>name,prefix
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>2A_2SA_negative,2A_2SA_negative
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>2A_1SA_neutral,2A_1SA_neutral
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>...
+</span></code></pre></div>
+<p>Another option is to have one column per source file type, and have the file name in each column like so:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>name,orca,gaussian
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>2_2SA_negative,gaussian1.out,orca1.log
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>2A_1SA_neutral,gaussian2.out,orca2.log
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>...
+</span></code></pre></div>
+<p>when this is done, you can specify the pathways to consider in the simulation in a pathways CSV file with <code>parent</code>, <code>product1</code> and <code>product2</code> columns like so:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>parent,product1,product2
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>2A_2SA_negative,1A_1SA_negative,1A_1SA_neutral
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>2A_2SA_negative,1A_2SA_negative,1A_neutral
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>2A_2SA_negative,1SA_negative,2A_1SA_neutral
+</span></code></pre></div>
+<p>Rather than manually writing these files, you can use the <a class="autorefs autorefs-internal" href="../cli/#apitofsim-generate-pathways"><code>apitofsim generate pathways</code></a> command to generate an initial version of these files based on the files in your directory.
+With the <code>--guess-prefix</code> option, it will truncate the file extension, assuming your files are laid out as above.
+The command needs only the information from an XYZ file, but can attempt to retrieve this from Gaussian or ORCA files using <a href="https://ase-lib.org/">ASE</a>.</p>
+<p>So for example, if you have a directory like <a class="autorefs autorefs-internal" title="Importing cluster data" href="#directory-listing-2">Figure 2</a> you could run:</p>
+<p><code>
+<a href="../cli/#apitofsim-generate-pathways">apitofsim generate pathways</a> --guess-prefix xyz pathways.csv clusters.csv *.xyz
+</code></p>
+<p>And it would generate a <code>prefix</code>-based clusters CSV and a pathways CSV with all possible pathways based on the atom counts and charges of the clusters/molecules in the XYZ files.</p>
+<p>Alternatively if you had a directory like <a class="autorefs autorefs-internal" title="Importing cluster data" href="#directory-listing-1">Figure 2</a> and wanted a non-prefix based <code>clusters.csv</code>, you could run:</p>
+<p><code>
+<a href="../cli/#apitofsim-generate-pathways">apitofsim generate pathways</a> orca pathways.csv clusters.csv *.out
+</code></p>
+<p>Nested directories are also supported, with the directory name being appended to the name of the cluster in order to prevent ambiguities.
+This combines nicely with double star globbing <code>**</code> (to recursively traverse directory structures).
+In Bash 4+ this can be enabled with <code>shopt -s globstar</code> (it is enabled by default in zsh).
+For example:</p>
+<p><code>
+<a href="../cli/#apitofsim-generate-pathways">apitofsim generate pathways</a> --guess-prefix orca pathways.csv clusters.csv *<em>/</em>.out
+</code></p>
+<p>The next stage is typically to inspect and modify the pathways CSV in case some pathways are not wanted.
+This can be done with a text editor or with spreadsheet software such as Excel or LibreOffice Calc.</p>
+<p>Once the CSV files are ready, you need to create a TOML configuration.
+Assuming you continue working in the same directory, and that you are working with a directory like <a class="autorefs autorefs-internal" title="Importing cluster data" href="#directory-listing-2">Figure 2</a>, and that you went with a prefix-based <code>clusters.csv</code>, your TOML configuration would start with something like this:</p>
+<div class="language-toml highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">[[pathways]]</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="n">type</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"csv"</span>
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="n">pathways_path</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"pathways.csv"</span>
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="n">clusters_path</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"clusters.csv"</span>
+</span></code></pre></div>
+<p>This tells apitofsim you are using CSV ingestion and points to your pathways and clusters CSV files.</p>
+<p>The next section tells which sources to use, how to find the filename from the prefix (if needed), and how to combine the data from different sources to get all the needed attributes of the clusters:</p>
+<div class="language-toml highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">[pathways.clusters]</span>
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="n">default_source</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"gaussian"</span>
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="n">electronic_energy</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"orca.final_single_point_energy + gaussian.zero_point_energy"</span>
+</span></code></pre></div>
+<p>The <code>default_source</code> is specified as <code>"gaussian"</code>, meaning that unless otherwise specified, the attributes of the clusters will be taken from the Gaussian files.
+Each attribute of the following attribute can be specified either as a string specifying a single source to take the attribute from, or as an expression combining attributes from different sources:</p>
+<ul>
+<li><code>rotational_temperatures</code></li>
+<li><code>vibrational_temperatures</code></li>
+<li><code>electronic_energy</code></li>
+<li><code>atomic_mass</code></li>
+<li><code>charge</code></li>
+</ul>
+<p>Finally we specify which source to use as well as the suffix needed to get the full filename from each of the prefixes:</p>
+<div class="language-toml highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">[pathways.clusters.sources.orca]</span>
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="n">append_to_common_prefix</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">".out"</span>
+</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>
+</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="k">[pathways.clusters.sources.gaussian]</span>
+</span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="n">append_to_common_prefix</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">".log"</span>
+</span></code></pre></div>
+<p>In case we were not using a prefix-based <code>clusters.csv</code>, we would instead specify the full filename in the <code>clusters.csv</code> and not need to specify the <code>append_to_common_prefix</code> for each source. However the sources still need to be specified like so:</p>
+<div class="language-toml highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="k">[pathways.clusters.sources.orca]</span>
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>
+</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="k">[pathways.clusters.sources.gaussian]</span>
+</span></code></pre></div>
+<p>Next are the parameters for running the simulation, the full description of which is given in <a class="autorefs autorefs-internal" title="Configuration" href="../configuration/#configuration">the reference documentation for the configuration file</a>.
+However, the example below should be help with getting started:</p>
+<div class="language-toml highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="k">[[configs]]</span>
+</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"myconfig"</span>
+</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="n">N_iter</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1_000</span>
+</span><span id="__span-11-4"><a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="n">M_iter</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1_000</span>
+</span><span id="__span-11-5"><a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="n">tolerance</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">1e-8</span>
+</span><span id="__span-11-6"><a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a><span class="n">resolution</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1_000</span>
+</span><span id="__span-11-7"><a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a><span class="n">N</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1_000</span>
+</span><span id="__span-11-8"><a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a><span class="n">bin_width</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"1.0 kelvin"</span>
+</span><span id="__span-11-9"><a id="__codelineno-11-9" name="__codelineno-11-9" href="#__codelineno-11-9"></a><span class="n">energy_max</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"2.0e5 kelvin"</span>
+</span><span id="__span-11-10"><a id="__codelineno-11-10" name="__codelineno-11-10" href="#__codelineno-11-10"></a><span class="n">energy_max_rate</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"1.0e5 kelvin"</span>
+</span><span id="__span-11-11"><a id="__codelineno-11-11" name="__codelineno-11-11" href="#__codelineno-11-11"></a><span class="n">alpha_factor</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"0.25 halfturn"</span>
+</span><span id="__span-11-12"><a id="__codelineno-11-12" name="__codelineno-11-12" href="#__codelineno-11-12"></a><span class="n">T</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"300.0 kelvin"</span>
+</span><span id="__span-11-13"><a id="__codelineno-11-13" name="__codelineno-11-13" href="#__codelineno-11-13"></a><span class="n">dc</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"0.0005 meter"</span>
+</span><span id="__span-11-14"><a id="__codelineno-11-14" name="__codelineno-11-14" href="#__codelineno-11-14"></a><span class="n">radius_pinhole</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"1 mm"</span>
+</span><span id="__span-11-15"><a id="__codelineno-11-15" name="__codelineno-11-15" href="#__codelineno-11-15"></a><span class="n">lengths</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="mf">0.001</span><span class="p">,</span><span class="w"> </span><span class="mf">0.00244</span><span class="p">,</span><span class="w"> </span><span class="mf">0.101</span><span class="p">,</span><span class="w"> </span><span class="mf">0.00448</span><span class="p">,</span><span class="w"> </span><span class="mf">0.0005</span><span class="w"> </span><span class="p">],</span><span class="w"> </span><span class="s2">"meter"</span><span class="w"> </span><span class="p">]</span>
+</span><span id="__span-11-16"><a id="__codelineno-11-16" name="__codelineno-11-16" href="#__codelineno-11-16"></a><span class="n">pressures</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="mf">194.0</span><span class="p">,</span><span class="w"> </span><span class="mf">3.88</span><span class="w"> </span><span class="p">],</span><span class="w"> </span><span class="s2">"pascal"</span><span class="p">]</span>
+</span><span id="__span-11-17"><a id="__codelineno-11-17" name="__codelineno-11-17" href="#__codelineno-11-17"></a><span class="n">voltages</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="mi">-19</span><span class="p">,</span><span class="w"> </span><span class="mi">-9</span><span class="p">,</span><span class="w"> </span><span class="mi">-7</span><span class="p">,</span><span class="w"> </span><span class="mi">-6</span><span class="p">,</span><span class="w"> </span><span class="mi">11</span><span class="w"> </span><span class="p">],</span><span class="w"> </span><span class="s2">"volt"</span><span class="w"> </span><span class="p">]</span>
+</span><span id="__span-11-18"><a id="__codelineno-11-18" name="__codelineno-11-18" href="#__codelineno-11-18"></a>
+</span><span id="__span-11-19"><a id="__codelineno-11-19" name="__codelineno-11-19" href="#__codelineno-11-19"></a><span class="k">[configs.gas]</span>
+</span><span id="__span-11-20"><a id="__codelineno-11-20" name="__codelineno-11-20" href="#__codelineno-11-20"></a><span class="n">radius</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"1.84e-10 meter"</span>
+</span><span id="__span-11-21"><a id="__codelineno-11-21" name="__codelineno-11-21" href="#__codelineno-11-21"></a><span class="n">mass</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"4.65e-26 kilogram"</span>
+</span><span id="__span-11-22"><a id="__codelineno-11-22" name="__codelineno-11-22" href="#__codelineno-11-22"></a><span class="n">adiabatic_index</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">1.4</span>
+</span><span id="__span-11-23"><a id="__codelineno-11-23" name="__codelineno-11-23" href="#__codelineno-11-23"></a>
+</span><span id="__span-11-24"><a id="__codelineno-11-24" name="__codelineno-11-24" href="#__codelineno-11-24"></a><span class="k">[configs.quadrupole]</span>
+</span><span id="__span-11-25"><a id="__codelineno-11-25" name="__codelineno-11-25" href="#__codelineno-11-25"></a><span class="n">dc_field</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"0.0 volt"</span>
+</span><span id="__span-11-26"><a id="__codelineno-11-26" name="__codelineno-11-26" href="#__codelineno-11-26"></a><span class="n">ac_field</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"200.0 volt"</span>
+</span><span id="__span-11-27"><a id="__codelineno-11-27" name="__codelineno-11-27" href="#__codelineno-11-27"></a><span class="n">radiofrequency</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"1.3e6 Hz"</span>
+</span><span id="__span-11-28"><a id="__codelineno-11-28" name="__codelineno-11-28" href="#__codelineno-11-28"></a><span class="n">r_quadrupole</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"6.0e-3 meter"</span>
+</span></code></pre></div>
+<p>Once these are all prepared you can go ahead and create a database:</p>
+<p><code>
+<a href="../cli/#apitofsim-db-prepare">apitofsim db prepare</a> config.toml database.db
+</code></p>
+<h2 id="running-the-simulation">Running the simulation</h2>
+<p>Depending on your parameters and the number of pathways, the simulation can take from minutes to hours to run.
+The simulation scales well with the number of CPU cores, so you can expect a significant speedup by running on a large node within a computing cluster.
+Everything needed is contained in the database, so if you decide to do this, it's simply a matter of installing <code>apitofsim</code> on the cluster and then copying over the database file.</p>
+<p>Then you are ready to run:</p>
+<p><code>
+<a href="../cli/#apitofsim-db-run">apitofsim db run</a> database.db
+</code></p>
+<p>There are various options to the <a class="autorefs autorefs-internal" href="../cli/#apitofsim-db-run"><code>apitofsim db run</code></a> command to filter what to run, however the most important option at the moment is <code>--pathway-at-a-time</code> which switches between two modes of operation.</p>
+<ul>
+<li><em>The default mode</em> runs the simulation parent cluster at a time. After each simulated gas collision, the possibility of of fragmenting into any pathway is considered.</li>
+<li><em>Per-pathway mode</em> runs each pathway separately. After each simulated collision, only one pathway is considered.</li>
+</ul>
+<h2 id="analysing-the-results">Analysing the results</h2>
+<p>All results are stored in the database.
+You can generate CSV reports from the database file, e.g. for usage in Excel or LibreOffice Calc, with the <code>apitofsim db report</code> command, for example:</p>
+<p><code>
+<a href="../cli/#apitofsim-db-report">apitofsim db report&lt;/a pathway-report database.db pathway_report.csv
+<a href="../cli/#apitofsim-db-report">apitofsim db report&lt;/a experiment-report database.db experiment_report.csv
+<a href="../cli/#apitofsim-db-report">apitofsim db report</a> experiment-summary database.db experiment_summary.csv
+</code></p>
+<p>You can also generate plots directly from the database file.</p>
+<p>As a summary, you can plot a bar char of the survival probability of each cluster:</p>
+<p><code>
+<a href="../cli/#apitofsim-db-plot-survival">apitofsim db plot survival</a> database.db survival.png
+</code></p>
+<p>You can also generate spectrograms.
+For example:</p>
+<p><code>
+<a href="../cli/#apitofsim-db-plot-spectrogram-many">apitofsim db spectrogram-many</a> database.db spectrograms
+</code></p>
+<p>This will create a directory called <code>spectrograms</code> containing a spectrogram for each cluster.</p>
+<p>Note that the fragmentation simulation does not take into account transmission efficiency.
+There are some rudimentary models available which can be applied in order to attempt to model transmission based on mass.
+These are based simple curve fitting based on experimental data.
+They correspond to particular instrument settings, and are expected to be even less accurate when used for other settings.</p>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Charge</th>
+<th>Voltages (V)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>old</code></td>
+<td>negative</td>
+<td><span class="arithmatex">\([-19, -9, -7, -6, 11]\)</span></td>
+</tr>
+<tr>
+<td><code>new_neg</code></td>
+<td>negative</td>
+<td><span class="arithmatex">\([-19, -9, -7, -6, 11]\)</span></td>
+</tr>
+<tr>
+<td><code>new_pos</code></td>
+<td>positive</td>
+<td><span class="arithmatex">\([25, 12, -4, -8, -17]\)</span></td>
+</tr>
+</tbody>
+</table>
+<p>You can use these models for plotting spectrograms like so:</p>
+<p><code>
+<a href="../cli/#apitofsim-db-plot-spectrogram-many">apitofsim db spectrogram-many</a> --model-transmission=new_neg database.db spectrograms
+</code></p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["content.footnote.tooltips"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+        <script src="../js/katex.js"></script>
+      
+        <script src="https://unpkg.com/katex@0/dist/katex.min.js"></script>
+      
+        <script src="https://unpkg.com/katex@0/dist/contrib/auto-render.min.js"></script>
+      
+    
+  </body>
+</html>
