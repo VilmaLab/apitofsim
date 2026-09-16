@@ -1,6 +1,8 @@
 #include "apitofsim.h"
 #include "consts.h"
-#include "openmp_helper.h"
+
+#include <oneapi/tbb/info.h>
+#include <oneapi/tbb/version.h>
 
 #include <iostream>
 
@@ -79,12 +81,8 @@ Eigen::ArrayXd prepare_energies(double bin_width, int m_max)
 
 void debug_info()
 {
-#ifdef _OPENMP
-  std::cout << "OpenMP version: " << _OPENMP << "\n";
-  std::cout << "Num threads: " << omp_get_max_threads() << "\n";
-#else
-  std::cout << "OpenMP not enabled\n";
-#endif
+  std::cout << "oneTBB version: " << TBB_VERSION_MAJOR << '.' << TBB_VERSION_MINOR << '.' << TBB_VERSION_PATCH << '\n';
+  std::cout << "Default concurrency: " << oneapi::tbb::info::default_concurrency() << '\n';
 }
 
 void debug_info_on_env()

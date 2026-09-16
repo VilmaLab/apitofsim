@@ -1,4 +1,3 @@
 option('python', type : 'feature', value : 'enabled')
 option('stubgen', type : 'feature', value : 'enabled')
 option('ittnotify', type : 'feature', value : 'disabled')
-option('openmp', type : 'combo', choices : ['default', 'intel', 'disabled'], value : 'default')

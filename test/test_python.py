@@ -1,9 +1,34 @@
 import os
+import signal
+import subprocess
+import time
 
 import pytest
 from apitofsim.config import ConfigFile
 from apitofsim.workflow import ExperimentDatabase, ExperimentRunner, ingest_legacy_one
 from click.testing import CliRunner
+
+
+@pytest.mark.parametrize("signum", [signal.SIGINT, signal.SIGTERM, signal.SIGABRT])
+def test_native_operation_signal_behavior(signum):
+    signal_helper = os.environ.get("SIGNAL_HELPER")
+    if signal_helper is None:
+        pytest.skip("signal helper is only available in the Meson test suite")
+    child = subprocess.Popen(
+        [signal_helper],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    assert child.stdout is not None
+    assert child.stdout.readline().strip() == "ready"
+
+    started = time.monotonic()
+    child.send_signal(signum)
+    child.communicate(timeout=2)
+
+    assert child.returncode == -signum
+    assert time.monotonic() - started < 2
 
 
 def test_legacy_atom_like_runner_functional():

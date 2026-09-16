@@ -14,7 +14,10 @@
 #include "exceptions.h"
 #include "samplers.h"
 #include "mass_spec.h"
-#include "openmp_helper.h"
+#include "operation_context.h"
+
+#include <oneapi/tbb/blocked_range.h>
+#include <oneapi/tbb/parallel_reduce.h>
 
 using namespace std;
 using magic_enum::enum_count;
@@ -223,8 +226,8 @@ SimulationResult apitof_mass_spec(
   StreamingResultQueue &result_queue,
   GasCollSamplerT gas_coll_sampler,
   const bool strict,
-  const MassSpecLogConf logconf = DEFAULT_LOGCONF,
-  bool on_main_thread = false);
+  const MassSpecLogConf logconf,
+  OperationContext &operation);
 
 template <typename GasCollSamplerT, typename VibEnergySamplerT>
 SimulationResult apitof_mass_spec(
@@ -235,9 +238,9 @@ SimulationResult apitof_mass_spec(
   StreamingResultQueue &result_queue,
   GasCollSamplerT gas_coll_sampler,
   // VibEnergySamplerT vib_energy_sampler,
-  const bool strict = true,
-  const MassSpecLogConf logconf = DEFAULT_LOGCONF,
-  bool on_main_thread = false);
+  const bool strict,
+  const MassSpecLogConf logconf,
+  OperationContext &operation);
 
 template <typename MassSpecSubstanceT>
 SimulationResult apitof_mass_spec(
@@ -249,7 +252,7 @@ SimulationResult apitof_mass_spec(
   SampleMode sample_mode,
   const bool strict,
   const MassSpecLogConf logconf,
-  bool on_main_thread)
+  OperationContext &operation)
 {
   using consts::boltzmann;
   double m_gas = subs.gas.mass;
@@ -270,7 +273,7 @@ SimulationResult apitof_mass_spec(
       // VibEnergyNormSampler(subs.density_cluster),
       strict,
       logconf,
-      on_main_thread);
+      operation);
   }
   else if (sample_mode == SampleMode::dss_unnormalized)
   {
@@ -284,7 +287,7 @@ SimulationResult apitof_mass_spec(
       // VibEnergyUnnormSampler(subs.density_cluster),
       strict,
       logconf,
-      on_main_thread);
+      operation);
   }
   else if (sample_mode == SampleMode::rejection)
   {
@@ -298,7 +301,7 @@ SimulationResult apitof_mass_spec(
       // VibEnergyNormSampler(subs.density_cluster),
       strict,
       logconf,
-      on_main_thread);
+      operation);
   }
   else
   {
@@ -320,7 +323,11 @@ SimulationResult apitof_mass_spec(
   const MassSpecLogConf logconf,
   bool on_main_thread)
 {
-  return apitof_mass_spec<MassSpecSubstanceSingleInput>(mass_spec, subs, N, root_seed, result_queue, sample_mode, strict, logconf, on_main_thread);
+  OperationContext operation;
+  return operation.run([&]
+  {
+    return apitof_mass_spec<MassSpecSubstanceSingleInput>(mass_spec, subs, N, root_seed, result_queue, sample_mode, strict, logconf, operation);
+  }, !on_main_thread);
 }
 
 SimulationResult apitof_mass_spec(
@@ -334,7 +341,39 @@ SimulationResult apitof_mass_spec(
   const MassSpecLogConf logconf,
   bool on_main_thread)
 {
-  return apitof_mass_spec<MassSpecSubstanceTreeInput>(mass_spec, subs, N, root_seed, result_queue, sample_mode, strict, logconf, on_main_thread);
+  OperationContext operation;
+  return operation.run([&]
+  {
+    return apitof_mass_spec<MassSpecSubstanceTreeInput>(mass_spec, subs, N, root_seed, result_queue, sample_mode, strict, logconf, operation);
+  }, !on_main_thread);
+}
+
+SimulationResult apitof_mass_spec(
+  const MassSpectrometer &mass_spec,
+  const MassSpecSubstanceSingleInput &subs,
+  const int N,
+  const unsigned long long root_seed,
+  StreamingResultQueue &result_queue,
+  SampleMode sample_mode,
+  const bool strict,
+  const MassSpecLogConf logconf,
+  OperationContext &operation)
+{
+  return apitof_mass_spec<MassSpecSubstanceSingleInput>(mass_spec, subs, N, root_seed, result_queue, sample_mode, strict, logconf, operation);
+}
+
+SimulationResult apitof_mass_spec(
+  const MassSpectrometer &mass_spec,
+  const MassSpecSubstanceTreeInput &subs,
+  const int N,
+  const unsigned long long root_seed,
+  StreamingResultQueue &result_queue,
+  SampleMode sample_mode,
+  const bool strict,
+  const MassSpecLogConf logconf,
+  OperationContext &operation)
+{
+  return apitof_mass_spec<MassSpecSubstanceTreeInput>(mass_spec, subs, N, root_seed, result_queue, sample_mode, strict, logconf, operation);
 }
 
 template SimulationResult apitof_mass_spec<MassSpecSubstanceSingleInput>(
@@ -346,7 +385,7 @@ template SimulationResult apitof_mass_spec<MassSpecSubstanceSingleInput>(
   SampleMode sample_mode,
   const bool strict,
   const MassSpecLogConf logconf,
-  bool on_main_thread);
+  OperationContext &operation);
 
 template SimulationResult apitof_mass_spec<MassSpecSubstanceTreeInput>(
   const MassSpectrometer &mass_spec,
@@ -357,7 +396,7 @@ template SimulationResult apitof_mass_spec<MassSpecSubstanceTreeInput>(
   SampleMode sample_mode,
   const bool strict,
   const MassSpecLogConf logconf,
-  bool on_main_thread);
+  OperationContext &operation);
 
 template <typename GenT>
 std::tuple<double, std::optional<ApiTofRateConstantOverflow>> next_fragmentation_time(
@@ -590,13 +629,13 @@ SimulationResult apitof_mass_spec(
   GasCollSamplerT gas_coll_sampler,
   const bool strict,
   const MassSpecLogConf logconf,
-  bool on_main_thread)
+  OperationContext &operation)
 {
   VibEnergySamplerT vib_energy_sampler = VibEnergySamplerT(subs.density_cluster);
   const ChamberQuantities chamber(ms, subs.gas);
   const SubstanceQuantities subquants(ms, chamber, subs);
 
-  LogHelper initial_trace = LogHelper{result_queue, LogMessage::initial_trace};
+  LogHelper initial_trace = LogHelper{result_queue, LogMessage::initial_trace, &operation};
   if (logconf.level >= LOGLEVEL_MIN)
   {
     print_initial_trace(result_queue, initial_trace, ms, subs, chamber, subquants);
@@ -604,33 +643,30 @@ SimulationResult apitof_mass_spec(
 
   auto start = std::chrono::high_resolution_clock::now();
 
-  Eigen::ArrayXi counters = Eigen::ArrayXi::Zero(n_counters - 1 + subs.pathways.size());
+  Eigen::ArrayXi identity = Eigen::ArrayXi::Zero(n_counters - 1 + subs.pathways.size());
 
   // All firstprivate variables *should* be constant within the loop
   // Truly private variables are declared in the loop
   auto loop_start = std::chrono::high_resolution_clock::now();
-  OMPExceptionHelper exception_helper;
-#pragma omp parallel for OMP_VISIBILITY_NONE \
-firstprivate(vib_energy_sampler, gas_coll_sampler) \
-  shared( \
-      /* read-only */ N, subs, chamber, subquants, ms, root_seed, \
-        /* read-only */ logconf, strict, \
-        /*   mutable */ exception_helper, result_queue) \
-  reduction(+ : counters) \
-  schedule(guided)
-  for (int j = 0; j < N; j++)
+  Eigen::ArrayXi counters = oneapi::tbb::parallel_reduce(
+    oneapi::tbb::blocked_range<int>(0, N),
+    identity,
+    [&, gas_coll_sampler, vib_energy_sampler](const oneapi::tbb::blocked_range<int> &range, Eigen::ArrayXi counters)
   {
-    using consts::pi, consts::boltzmann;
-    exception_helper.guard([&]
+    auto local_vib_energy_sampler = vib_energy_sampler;
+    auto local_gas_coll_sampler = gas_coll_sampler;
+    for (int j = range.begin(); j != range.end() && operation.checkpoint(); ++j)
     {
-      WarningHelper warn{counters, result_queue};
-      LogHelper fragments{result_queue, LogMessage::fragments};
-      LogHelper final_position{result_queue, LogMessage::final_position};
+      using consts::pi, consts::boltzmann;
+      Eigen::ArrayXi realization_counters = Eigen::ArrayXi::Zero(identity.size());
+      WarningHelper warn{realization_counters, result_queue, &operation};
+      LogHelper fragments{result_queue, LogMessage::fragments, &operation};
+      LogHelper final_position{result_queue, LogMessage::final_position, &operation};
       mt19937 gen = mt19937(root_seed ^ j);
       // Define uniform distribution from 0 to 1
-      static uniform_real_distribution<double> unif = uniform_real_distribution<>(0.0, 1.0);
+      uniform_real_distribution<double> unif = uniform_real_distribution<>(0.0, 1.0);
       // Define normal (gaussian) distribution with 0 mean and 1 standard deviation
-      static normal_distribution<double> gauss = normal_distribution<>(0.0, 1.0);
+      normal_distribution<double> gauss = normal_distribution<>(0.0, 1.0);
 
       double t = 0.0;
       double x = 0.0;
@@ -644,7 +680,7 @@ firstprivate(vib_energy_sampler, gas_coll_sampler) \
       Eigen::Vector3d omega = init_ang_vel(gen, gauss, subs.m_ion, chamber.kT, subs.R_cluster);
       double vib_energy = init_vib_energy(gen, unif, chamber.kT, subs.density_cluster);
 
-      while (z < chamber.clens.total_length) // single realization // TO BE CHANGED IN SECOND CHAMBER!!!!!!!!!!!
+      while (z < chamber.clens.total_length && operation.checkpoint()) // single realization // TO BE CHANGED IN SECOND CHAMBER!!!!!!!!!!!
       {
         double v_cluster_norm = v_cluster.norm();
         double rot_energy = evaluate_rotational_energy(omega, subquants.inertia);
@@ -662,7 +698,7 @@ firstprivate(vib_energy_sampler, gas_coll_sampler) \
         {
           if (z < chamber.clens.first_chamber_end)
           {
-            LogHelper tmp_evolution = LogHelper{result_queue, LogMessage::tmp_evolution};
+            LogHelper tmp_evolution = LogHelper{result_queue, LogMessage::tmp_evolution, &operation};
             tmp_evolution([&](auto &tmp_evolution)
             {
               tmp_evolution << z << " " << t - old_t << " " << v_cluster_norm << " " << endl;
@@ -672,7 +708,7 @@ firstprivate(vib_energy_sampler, gas_coll_sampler) \
 
         if (outcome == TimeNextCollOutcome::fragmentation)
         {
-          counters[Counter::n_fragmented_total + effective_pathway_index]++;
+          realization_counters[Counter::n_fragmented_total + effective_pathway_index]++;
           if (logconf.level >= LOGLEVEL_NORMAL)
           {
             fragments([&](auto &fragments)
@@ -680,7 +716,7 @@ firstprivate(vib_energy_sampler, gas_coll_sampler) \
               fragments << j + 1 << "\t" << t << "\t" << z << "\t" << zone(z, chamber.clens) << "\t" << coll_z << "\t" << zone(coll_z, chamber.clens) << endl;
             });
           }
-          if (logconf.log_events)
+          if (logconf.log_events && operation.should_continue())
           {
             result_queue.enqueue(FragmentationEvent{ParticleStateMsg{j, {x, y, z, t}, v_cluster, omega, rot_energy, vib_energy}, effective_pathway_index});
           }
@@ -716,14 +752,14 @@ firstprivate(vib_energy_sampler, gas_coll_sampler) \
             std::tie(effective_n, v_rel, v_rel_norm, effective_mobility_gas, effective_mobility_gas_inv) = get_quantities_for_collision(z, chamber, subs.gas.mass, v_cluster, v_gas, pressure, temperature);
             double theta;
             double u_norm; // normal velocity of colliding gas molecule
-            std::tie(theta, u_norm) = gas_coll_sampler.sample(gen, effective_n, v_rel_norm, effective_mobility_gas, effective_mobility_gas_inv, subs.R_cluster + subs.gas.radius, warn);
+            std::tie(theta, u_norm) = local_gas_coll_sampler.sample(gen, effective_n, v_rel_norm, effective_mobility_gas, effective_mobility_gas_inv, subs.R_cluster + subs.gas.radius, warn);
 
             // Evaluate the dissipated energy in the collision (energy that goes to vibrational modes)
-            double vib_energy_new = vib_energy_sampler.sample(gen, boundary_vib_energy(vib_energy, subquants.reduced_mass, u_norm, v_rel_norm, theta));
+            double vib_energy_new = local_vib_energy_sampler.sample(gen, boundary_vib_energy(vib_energy, subquants.reduced_mass, u_norm, v_rel_norm, theta));
 
-            bool collision_accepted = eval_collision(gen, unif, chamber.gas_mean_free_paths[1], x, y, z, chamber.clens.total_length, ms.radius_pinhole, chamber.clens.quadrupole_end, v_rel, omega, u_norm, theta, subs.R_cluster, vib_energy_new, vib_energy, subs.m_ion, subs.gas.mass, temperature, LogHelper{result_queue, LogMessage::pinhole}, logconf.level);
+            bool collision_accepted = eval_collision(gen, unif, chamber.gas_mean_free_paths[1], x, y, z, chamber.clens.total_length, ms.radius_pinhole, chamber.clens.quadrupole_end, v_rel, omega, u_norm, theta, subs.R_cluster, vib_energy_new, vib_energy, subs.m_ion, subs.gas.mass, temperature, LogHelper{result_queue, LogMessage::pinhole, &operation}, logconf.level);
 
-            if (logconf.log_events)
+            if (logconf.log_events && operation.should_continue())
             {
               result_queue.enqueue(CollisionEvent{ParticleStateMsg{j, {x, y, z, t}, v_cluster, omega, rot_energy, vib_energy}, theta, u_norm, collision_accepted});
             }
@@ -736,17 +772,17 @@ firstprivate(vib_energy_sampler, gas_coll_sampler) \
 
               rot_energy = evaluate_rotational_energy(omega, subquants.inertia);
               double rot_energy_old = rot_energy;
-              std::tie(vib_energy, rot_energy) = redistribute_internal_energy(gen, vib_energy_sampler, vib_energy, rot_energy);
+              std::tie(vib_energy, rot_energy) = redistribute_internal_energy(gen, local_vib_energy_sampler, vib_energy, rot_energy);
               update_rot_vel(omega, rot_energy_old, rot_energy);
             }
             else
             {
-              counters[Counter::counter_collision_rejections]++;
+              realization_counters[Counter::counter_collision_rejections]++;
             }
           }
           else // outcome == TimeNextCollOutcome::escape
           {
-            counters[Counter::n_escaped_total]++;
+            realization_counters[Counter::n_escaped_total]++;
             if (logconf.level >= LOGLEVEL_NORMAL)
             {
               final_position([&](auto &final_position)
@@ -754,7 +790,7 @@ firstprivate(vib_energy_sampler, gas_coll_sampler) \
                 final_position << x << "\t" << y << endl;
               });
             }
-            if (logconf.log_events)
+            if (logconf.log_events && operation.should_continue())
             {
               result_queue.enqueue(EscapeEvent{ParticleStateMsg{j, {x, y, z, t}, v_cluster, omega, rot_energy, vib_energy}});
             }
@@ -762,13 +798,21 @@ firstprivate(vib_energy_sampler, gas_coll_sampler) \
         }
       }
 
-      counters[Counter::ncoll_total] += ncoll;
-      counters[Counter::n_realizations]++;
-
-      result_queue.enqueue(PartialResult(counters));
-    });
-  }
-  exception_helper.rethrow(!on_main_thread);
+      if (operation.checkpoint())
+      {
+        realization_counters[Counter::ncoll_total] += ncoll;
+        realization_counters[Counter::n_realizations]++;
+        counters += realization_counters;
+        result_queue.enqueue(PartialResult(realization_counters));
+      }
+    }
+    return counters;
+  },
+    [](Eigen::ArrayXi left, const Eigen::ArrayXi &right)
+  {
+    return (left + right).eval();
+  },
+    operation.tbb_context());
   // End of parallel loop
 
   auto end = std::chrono::high_resolution_clock::now();
@@ -826,7 +870,7 @@ SimulationResult apitof_mass_spec(
   // VibEnergySamplerT vib_energy_sampler,
   const bool strict,
   const MassSpecLogConf logconf,
-  bool on_main_thread)
+  OperationContext &operation)
 {
   const ChamberQuantities chamber(ms, subs.gas);
   std::vector<SubstanceQuantities> all_subquants;
@@ -836,46 +880,42 @@ SimulationResult apitof_mass_spec(
     all_subquants.push_back(SubstanceQuantities(ms, chamber, subs.gas, subs.cluster_charge_sign, cluster));
   }
 
-  LogHelper initial_trace = LogHelper{result_queue, LogMessage::initial_trace};
+  LogHelper initial_trace = LogHelper{result_queue, LogMessage::initial_trace, &operation};
   if (logconf.level >= LOGLEVEL_MIN)
   {
     print_initial_trace(result_queue, initial_trace, ms, subs, chamber, all_subquants);
   }
 
   auto start = std::chrono::high_resolution_clock::now();
-  Eigen::ArrayXi counters = Eigen::ArrayXi::Zero(n_counters - 1 + subs.tree_pathways.size());
+  Eigen::ArrayXi identity = Eigen::ArrayXi::Zero(n_counters - 1 + subs.tree_pathways.size());
 
   // All firstprivate variables *should* be constant within the loop
   // Truly private variables are declared in the loop
   auto loop_start = std::chrono::high_resolution_clock::now();
-  OMPExceptionHelper exception_helper;
-#pragma omp parallel for OMP_VISIBILITY_NONE \
-firstprivate(gas_coll_sampler) \
-  shared( \
-      /* read-only */ N, subs, chamber, all_subquants, ms, root_seed, \
-        /* read-only */ logconf, strict, \
-        /*   mutable */ exception_helper, result_queue) \
-  reduction(+ : counters) \
-  schedule(guided)
-  for (int j = 0; j < N; j++)
+  Eigen::ArrayXi counters = oneapi::tbb::parallel_reduce(
+    oneapi::tbb::blocked_range<int>(0, N),
+    identity,
+    [&, gas_coll_sampler](const oneapi::tbb::blocked_range<int> &range, Eigen::ArrayXi counters)
   {
-    using consts::pi, consts::boltzmann;
-    exception_helper.guard([&]
+    auto local_gas_coll_sampler = gas_coll_sampler;
+    for (int j = range.begin(); j != range.end() && operation.checkpoint(); ++j)
     {
+      using consts::pi, consts::boltzmann;
+      Eigen::ArrayXi realization_counters = Eigen::ArrayXi::Zero(identity.size());
       int subnode_index = 0;
       int subpayload_index = 0;
       const MSSubstanceTreeCluster &subpayload = subs.cluster_payloads[subpayload_index];
       std::vector<std::reference_wrapper<const MassSpecInputFragmentationPathway>> pathways;
       prepare_pathways_from_tree(pathways, subs, subnode_index);
 
-      WarningHelper warn{counters, result_queue};
-      LogHelper fragments{result_queue, LogMessage::fragments};
-      LogHelper final_position{result_queue, LogMessage::final_position};
+      WarningHelper warn{realization_counters, result_queue, &operation};
+      LogHelper fragments{result_queue, LogMessage::fragments, &operation};
+      LogHelper final_position{result_queue, LogMessage::final_position, &operation};
       mt19937 gen = mt19937(root_seed ^ j);
       // Define uniform distribution from 0 to 1
-      static uniform_real_distribution<double> unif = uniform_real_distribution<>(0.0, 1.0);
+      uniform_real_distribution<double> unif = uniform_real_distribution<>(0.0, 1.0);
       // Define normal (gaussian) distribution with 0 mean and 1 standard deviation
-      static normal_distribution<double> gauss = normal_distribution<>(0.0, 1.0);
+      normal_distribution<double> gauss = normal_distribution<>(0.0, 1.0);
 
       double t = 0.0;
       double x = 0.0;
@@ -891,7 +931,7 @@ firstprivate(gas_coll_sampler) \
       auto vib_energy_sampler = std::unique_ptr<VibEnergySamplerT>(new VibEnergySamplerT(subpayload.density_cluster));
       int last_pathway_index = -1;
 
-      while (z < chamber.clens.total_length) // single realization // TO BE CHANGED IN SECOND CHAMBER!!!!!!!!!!!
+      while (z < chamber.clens.total_length && operation.checkpoint()) // single realization // TO BE CHANGED IN SECOND CHAMBER!!!!!!!!!!!
       {
         const MSSubstanceTreeCluster &subpayload = subs.cluster_payloads[subpayload_index];
         const SubstanceQuantities &subquants = all_subquants[subpayload_index];
@@ -912,7 +952,7 @@ firstprivate(gas_coll_sampler) \
         {
           if (z < chamber.clens.first_chamber_end)
           {
-            LogHelper tmp_evolution = LogHelper{result_queue, LogMessage::tmp_evolution};
+            LogHelper tmp_evolution = LogHelper{result_queue, LogMessage::tmp_evolution, &operation};
             tmp_evolution([&](auto &tmp_evolution)
             {
               tmp_evolution << z << " " << t - old_t << " " << v_cluster_norm << " " << endl;
@@ -932,7 +972,7 @@ firstprivate(gas_coll_sampler) \
               fragments << j + 1 << "\t" << t << "\t" << z << "\t" << zone(z, chamber.clens) << "\t" << coll_z << "\t" << zone(coll_z, chamber.clens) << endl;
             });
           }
-          if (logconf.log_events)
+          if (logconf.log_events && operation.should_continue())
           {
             int next_particle_index = product_idx ? *product_idx : -1;
             result_queue.enqueue(FragmentationEvent{ParticleStateMsg{j, {x, y, z, t}, v_cluster, omega, rot_energy, vib_energy, subnode_index}, next_particle_index, next_particle_index});
@@ -984,14 +1024,14 @@ firstprivate(gas_coll_sampler) \
             std::tie(effective_n, v_rel, v_rel_norm, effective_mobility_gas, effective_mobility_gas_inv) = get_quantities_for_collision(z, chamber, subs.gas.mass, v_cluster, v_gas, pressure, temperature);
             double theta;
             double u_norm; // normal velocity of colliding gas molecule
-            std::tie(theta, u_norm) = gas_coll_sampler.sample(gen, effective_n, v_rel_norm, effective_mobility_gas, effective_mobility_gas_inv, subpayload.R_cluster + subs.gas.radius, warn);
+            std::tie(theta, u_norm) = local_gas_coll_sampler.sample(gen, effective_n, v_rel_norm, effective_mobility_gas, effective_mobility_gas_inv, subpayload.R_cluster + subs.gas.radius, warn);
 
             // Evaluate the dissipated energy in the collision (energy that goes to vibrational modes)
             double vib_energy_new = vib_energy_sampler->sample(gen, boundary_vib_energy(vib_energy, subquants.reduced_mass, u_norm, v_rel_norm, theta));
 
-            bool collision_accepted = eval_collision(gen, unif, chamber.gas_mean_free_paths[1], x, y, z, chamber.clens.total_length, ms.radius_pinhole, chamber.clens.quadrupole_end, v_rel, omega, u_norm, theta, subpayload.R_cluster, vib_energy_new, vib_energy, subpayload.m_ion, subs.gas.mass, temperature, LogHelper{result_queue, LogMessage::pinhole}, logconf.level);
+            bool collision_accepted = eval_collision(gen, unif, chamber.gas_mean_free_paths[1], x, y, z, chamber.clens.total_length, ms.radius_pinhole, chamber.clens.quadrupole_end, v_rel, omega, u_norm, theta, subpayload.R_cluster, vib_energy_new, vib_energy, subpayload.m_ion, subs.gas.mass, temperature, LogHelper{result_queue, LogMessage::pinhole, &operation}, logconf.level);
 
-            if (logconf.log_events)
+            if (logconf.log_events && operation.should_continue())
             {
               result_queue.enqueue(CollisionEvent{ParticleStateMsg{j, {x, y, z, t}, v_cluster, omega, rot_energy, vib_energy, subnode_index}, theta, u_norm, collision_accepted});
             }
@@ -1009,7 +1049,7 @@ firstprivate(gas_coll_sampler) \
             }
             else
             {
-              counters[Counter::counter_collision_rejections]++;
+              realization_counters[Counter::counter_collision_rejections]++;
             }
           }
           else // outcome == TimeNextCollOutcome::escape
@@ -1021,7 +1061,7 @@ firstprivate(gas_coll_sampler) \
                 final_position << x << "\t" << y << endl;
               });
             }
-            if (logconf.log_events)
+            if (logconf.log_events && operation.should_continue())
             {
               result_queue.enqueue(EscapeEvent{ParticleStateMsg{j, {x, y, z, t}, v_cluster, omega, rot_energy, vib_energy, subnode_index}});
             }
@@ -1029,14 +1069,22 @@ firstprivate(gas_coll_sampler) \
         }
       }
 
-      counters[Counter::ncoll_total] += ncoll;
-      counters[Counter::n_realizations]++;
-      counters[Counter::n_fragmented_total + last_pathway_index]++;
-
-      result_queue.enqueue(PartialResult(counters));
-    });
-  }
-  exception_helper.rethrow(!on_main_thread);
+      if (operation.checkpoint())
+      {
+        realization_counters[Counter::ncoll_total] += ncoll;
+        realization_counters[Counter::n_realizations]++;
+        realization_counters[Counter::n_fragmented_total + last_pathway_index]++;
+        counters += realization_counters;
+        result_queue.enqueue(PartialResult(realization_counters));
+      }
+    }
+    return counters;
+  },
+    [](Eigen::ArrayXi left, const Eigen::ArrayXi &right)
+  {
+    return (left + right).eval();
+  },
+    operation.tbb_context());
   // End of parallel loop
 
   auto end = std::chrono::high_resolution_clock::now();
