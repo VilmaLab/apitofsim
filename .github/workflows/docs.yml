@@ -1,33 +1,22 @@
 name: docs
 
-# The docs import the built extension module, so they deploy only after the Linux
-# wheel build succeeds, using that wheel instead of building from source here.
+# Called after the Linux wheel is uploaded in the same workflow run.
 on:
-  workflow_run:
-    workflows: [Build Python wheels]
-    types: [completed]
-    branches: [main]
+  workflow_call:
 permissions:
   contents: write
-  actions: read
 jobs:
-  deploy:
-    if: github.event.workflow_run.conclusion == 'success'
+  build_and_deploy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.workflow_run.head_sha }}
 
       - uses: astral-sh/setup-uv@v7
 
       - name: Download the Linux wheel
         uses: actions/download-artifact@v4
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          run-id: ${{ github.event.workflow_run.id }}
-          pattern: cibw-wheels-ubuntu-latest-*
-          merge-multiple: true
+          name: cibw-wheels-ubuntu-latest
           path: wheelhouse
 
       - name: Install docs dependencies and the wheel
@@ -35,9 +24,12 @@ jobs:
           uv sync --group docs --no-install-project --python 3.13
           uv pip install --no-deps wheelhouse/*.whl
 
-      - name: Configure Git Credentials
+      - name: Build docs
+        run: uv run --no-sync mkdocs build
+
+      - name: Deploy docs
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         run: |
           git config user.name github-actions[bot]
           git config user.email github-actions[bot]@users.noreply.github.com
-
-      - run: uv run --no-sync mkdocs gh-deploy --force
+          uv run --no-sync mkdocs gh-deploy --force

@@ -1,0 +1,36 @@
+name: Build a Python wheel
+
+on:
+  workflow_call:
+    inputs:
+      os:
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ${{ inputs.os }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Build wheels
+        uses: pypa/cibuildwheel@v4.2.1
+
+      - name: Upload wheels as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cibw-wheels-${{ inputs.os }}
+          path: ./wheelhouse/*.whl
+
+      - name: Upload wheels to release
+        if: github.event_name == 'release'
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: ./wheelhouse/*.whl
+          file_glob: true
+          overwrite: true
+          tag: ${{ github.ref }}
