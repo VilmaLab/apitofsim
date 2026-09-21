@@ -34,4 +34,29 @@ jobs:
   docs:
     name: Docs
     needs: build_linux_wheel
-    uses: ./.github/workflows/docs.yml
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v7
+
+      - name: Download the Linux wheel
+        uses: actions/download-artifact@v4
+        with:
+          name: cibw-wheels-ubuntu-latest
+          path: wheelhouse
+
+      - name: Install docs dependencies and the wheel
+        run: |
+          uv sync --group docs --no-install-project --python 3.13
+          uv pip install --no-deps wheelhouse/*.whl
+
+      - name: Build docs
+        run: uv run --no-sync mkdocs build
+
+      - name: Deploy docs
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email github-actions[bot]@users.noreply.github.com
+          uv run --no-sync mkdocs gh-deploy --force
