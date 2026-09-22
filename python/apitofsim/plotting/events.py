@@ -1,4 +1,4 @@
-def get_geometery(db, experiment_run_id):
+def get_geometry(db, experiment_run_id):
     import orjson
 
     from apitofsim.config import import_raw_config
@@ -161,7 +161,7 @@ def plot_events_from_df(cluster_df, cumulative_lengths, rescale, plot_type):
 
 
 def plot_events_experiment(db, experiment_id, is_single_pathway, rescale, plot_type):
-    cumulative_lengths = lengths_to_cumulative_lengths(get_geometery(db, experiment_id))
+    cumulative_lengths = lengths_to_cumulative_lengths(get_geometry(db, experiment_id))
 
     df = get_events(db, experiment_id, is_single_pathway)
     prepare_df(df, cumulative_lengths, rescale)
@@ -173,7 +173,7 @@ def plot_events_experiment(db, experiment_id, is_single_pathway, rescale, plot_t
 def plot_events_cluster(
     db, experiment_id, is_single_pathway, cluster_id, rescale, plot_type
 ):
-    cumulative_lengths = lengths_to_cumulative_lengths(get_geometery(db, experiment_id))
+    cumulative_lengths = lengths_to_cumulative_lengths(get_geometry(db, experiment_id))
     df = get_events(db, experiment_id, is_single_pathway, cluster_id=cluster_id)
     prepare_df(df, cumulative_lengths, rescale)
     return plot_events_from_df(df, cumulative_lengths, rescale, plot_type)
