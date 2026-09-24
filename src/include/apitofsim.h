@@ -1,14 +1,15 @@
 #pragma once
 
 #include <cassert>
+#include <tuple>
 #include <variant>
 #include <Eigen/Dense>
 
 // Geometrical mean of moment of inertia
 double compute_inertia(const Eigen::Vector3d &rotations);
 
-// Compute radius of cluster
-void compute_mass_and_radius(double inertia, double amu, double &mass, double &radius);
+// Compute mass and radius of cluster
+std::tuple<double, double> compute_mass_and_radius(double inertia, double amu);
 
 Eigen::ArrayXd prepare_energies(double bin_width, int m_max);
 

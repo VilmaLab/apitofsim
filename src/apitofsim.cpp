@@ -47,7 +47,7 @@ void ClusterData::compute_derived()
   else
   {
     inertia_moment = compute_inertia(rotations);
-    compute_mass_and_radius(inertia_moment, atomic_mass, mass, radius);
+    std::tie(mass, radius) = compute_mass_and_radius(inertia_moment, atomic_mass);
   }
 }
 
@@ -62,11 +62,12 @@ double compute_inertia(const Eigen::Vector3d &rotations)
   return 0.5 * hbar * hbar / (boltzmann * pow(rotations[0] * rotations[1] * rotations[2], 1.0 / 3));
 }
 
-void compute_mass_and_radius(double inertia, double amu, double &mass, double &radius)
+std::tuple<double, double> compute_mass_and_radius(double inertia, double amu)
 {
   using consts::pmass;
-  mass = pmass * amu; // proton mass * nucleons
-  radius = sqrt(2.5 * inertia / mass);
+  double mass = pmass * amu; // proton mass * nucleons
+  double radius = sqrt(2.5 * inertia / mass);
+  return std::make_tuple(mass, radius);
 }
 
 Eigen::ArrayXd prepare_energies(double bin_width, int m_max)

@@ -353,7 +353,7 @@ TEST_CASE("apitof pinhole smoke tests")
   auto inertia = compute_inertia(rotations_0);
   double m_ion;
   double R_cluster;
-  compute_mass_and_radius(inertia, 216, m_ion, R_cluster);
+  std::tie(m_ion, R_cluster) = compute_mass_and_radius(inertia, 216);
   MassSpectrometer ms{
     skimmer,
     mesh_skimmer,

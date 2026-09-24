@@ -206,7 +206,7 @@ void mass_spec_config_in()
   auto inertia = compute_inertia(rotations);
   double m_ion;
   double R_cluster;
-  compute_mass_and_radius(inertia, amu, m_ion, R_cluster);
+  std::tie(m_ion, R_cluster) = compute_mass_and_radius(inertia, amu);
 
   StreamingResultQueue result_queue;
   Eigen::ArrayXi counters;

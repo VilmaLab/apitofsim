@@ -117,7 +117,7 @@ MassSpecSubstanceSingleInput::MassSpecSubstanceSingleInput(
                              pathways({MassSpecInputFragmentationPathway(cluster_0, cluster_1, cluster_2, rate_const, fragmentation_energy)}),
                              gas(gas)
 {
-  compute_mass_and_radius(compute_inertia(cluster_0.rotations), cluster_0.atomic_mass, this->m_ion, this->R_cluster);
+  std::tie(this->m_ion, this->R_cluster) = compute_mass_and_radius(compute_inertia(cluster_0.rotations), cluster_0.atomic_mass);
 }
 
 MassSpecSubstanceSingleInput::MassSpecSubstanceSingleInput(
@@ -145,7 +145,7 @@ MassSpecSubstanceSingleInput::MassSpecSubstanceSingleInput(
                              pathways(pathways),
                              gas(gas)
 {
-  compute_mass_and_radius(compute_inertia(cluster_0.rotations), cluster_0.atomic_mass, this->m_ion, this->R_cluster);
+  std::tie(this->m_ion, this->R_cluster) = compute_mass_and_radius(compute_inertia(cluster_0.rotations), cluster_0.atomic_mass);
 }
 
 MSSubstanceTreeCluster::MSSubstanceTreeCluster(
@@ -161,7 +161,7 @@ MSSubstanceTreeCluster::MSSubstanceTreeCluster(
   const ClusterData &cluster_0,
   const Histogram density_cluster) : density_cluster(density_cluster)
 {
-  compute_mass_and_radius(compute_inertia(cluster_0.rotations), cluster_0.atomic_mass, this->m_ion, this->R_cluster);
+  std::tie(this->m_ion, this->R_cluster) = compute_mass_and_radius(compute_inertia(cluster_0.rotations), cluster_0.atomic_mass);
 }
 
 MassSpecSubstanceTreeInput::MassSpecSubstanceTreeInput(
@@ -200,14 +200,14 @@ double evaluate_rate_const(const Histogram &rate_const, double energy);
 template <typename GenT>
 TimeNextCollOutcome time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &unif, Eigen::Vector3d &v_cluster, double &v_cluster_norm, const ChamberQuantities &chamber, double R, Eigen::Array2d dts, double &z, double &x, double &y, double &t_fragmentation, const Eigen::Array4d &acc, double &t, double m_gas, const SkimmerData &skimmer, double mesh_skimmer, const std::optional<Quadrupole> quadrupole);
 std::tuple<double, Eigen::Vector3d, double, double, double> get_quantities_for_collision(double z, const ChamberQuantities &chamber, double m_gas, const Eigen::Vector3d &v_cluster, double v_gas, double pressure, double temperature);
-void update_physical_quantities(double z, const SkimmerData &skimmer, double mesh_skimmer, double &v_gas, double &temperature, double &pressure, double &density, const ChamberQuantities &chamber, double T);
+std::tuple<double, double, double> update_physical_quantities(double z, const SkimmerData &skimmer, double mesh_skimmer, const ChamberQuantities &chamber, double T);
 void update_velocities(Eigen::Vector3d &v_cluster, double &v_cluster_norm, const Eigen::Vector3d &v_rel, double v_gas);
 void update_rot_vel(Eigen::Vector3d &omega, double rot_energy_old, double rot_energy);
 double boundary_vib_energy(double vib_energy_old, double reduced_mass, double u_norm, double v_cluster_norm, double theta);
 template <typename GenT, typename VibEnergySamplerT>
 std::tuple<double, double> redistribute_internal_energy(GenT &gen, VibEnergySamplerT &sampler, double vib_energy, double rot_energy);
-void eval_velocities(Eigen::Vector3d &v, Eigen::Vector3d &omega, const Eigen::Vector2d &u, double vib_energy, double vib_energy_old, double M, double m, double R_cluster);
-void change_coord(const Eigen::Vector3d &v_cluster, double theta, double phi, double alpha, Eigen::Vector3d &x3, Eigen::Vector3d &y3, Eigen::Vector3d &z3);
+std::tuple<Eigen::Vector3d, Eigen::Vector3d> eval_velocities(const Eigen::Vector3d &v, const Eigen::Vector3d &omega, const Eigen::Vector2d &u, double vib_energy, double vib_energy_old, double M, double m, double R_cluster);
+std::tuple<Eigen::Vector3d, Eigen::Vector3d, Eigen::Vector3d> change_coord(const Eigen::Vector3d &v_cluster, double theta, double phi, double alpha);
 template <typename GenT>
 bool eval_collision(GenT &gen, uniform_real_distribution<double> &unif, double gas_mean_free_path, double x, double y, double z, double L, std::optional<double> pinhole, double quadrupole_end, Eigen::Vector3d &v_cluster, Eigen::Vector3d &omega, double u_norm, double theta, double R_cluster, double vib_energy, double vib_energy_old, double m_ion, double m_gas, double temperature, LogHelper pinhole_logger, int loglevel);
 template <typename GenT>
@@ -732,11 +732,7 @@ SimulationResult apitof_mass_spec(
               throw ApiTofMaxCollisions(MAX_COLL, ncoll);
             }
 
-            double v_gas;
-            double temperature;
-            double pressure;
-            double density;
-            update_physical_quantities(z, ms.skimmer, ms.mesh_skimmer, v_gas, temperature, pressure, density, chamber, ms.T);
+            auto [v_gas, temperature, pressure] = update_physical_quantities(z, ms.skimmer, ms.mesh_skimmer, chamber, ms.T);
 
             auto [effective_n, v_rel, v_rel_norm, effective_mobility_gas, effective_mobility_gas_inv] = get_quantities_for_collision(z, chamber, subs.gas.mass, v_cluster, v_gas, pressure, temperature);
             // normal velocity of colliding gas molecule
@@ -995,11 +991,7 @@ SimulationResult apitof_mass_spec(
               throw ApiTofMaxCollisions(MAX_COLL, ncoll);
             }
 
-            double v_gas;
-            double temperature;
-            double pressure;
-            double density;
-            update_physical_quantities(z, ms.skimmer, ms.mesh_skimmer, v_gas, temperature, pressure, density, chamber, ms.T);
+            auto [v_gas, temperature, pressure] = update_physical_quantities(z, ms.skimmer, ms.mesh_skimmer, chamber, ms.T);
 
             auto [effective_n, v_rel, v_rel_norm, effective_mobility_gas, effective_mobility_gas_inv] = get_quantities_for_collision(z, chamber, subs.gas.mass, v_cluster, v_gas, pressure, temperature);
             // normal velocity of colliding gas molecule
@@ -1177,12 +1169,15 @@ double evaluate_rate_const(const Histogram &rate_const, double energy)
 }
 
 
-void update_skimmer_quantities(const SkimmerData &skimmer, double z, double first_chamber_end, double mesh_skimmer, double &v_gas, double &temp, double &pressure)
+std::tuple<double, double, double> update_skimmer_quantities(const SkimmerData &skimmer, double z, double first_chamber_end, double mesh_skimmer)
 {
   int m;
   double coeff1;
   double coeff2;
   double position;
+  double v_gas;
+  double temp;
+  double pressure;
   position = z - first_chamber_end;
   m = int(position / mesh_skimmer);
   if (m == skimmer.rows() - 1)
@@ -1200,6 +1195,7 @@ void update_skimmer_quantities(const SkimmerData &skimmer, double z, double firs
     pressure = coeff2 * skimmer(m, PRESSURE_SKIMMER) + coeff1 * skimmer(m + 1, PRESSURE_SKIMMER);
   }
   // density=coeff2*density_skimmer[m]+coeff1*density_skimmer[m+1];
+  return std::make_tuple(v_gas, temp, pressure);
 }
 
 std::tuple<double, Eigen::Vector3d, double, double, double> get_quantities_for_collision(double z, const ChamberQuantities &chamber, double m_gas, const Eigen::Vector3d &v_cluster, double v_gas, double pressure, double temperature)
@@ -1230,16 +1226,18 @@ std::tuple<double, Eigen::Vector3d, double, double, double> get_quantities_for_c
   return std::make_tuple(n, v_rel, v_rel_norm, mobility_gas, mobility_gas_inv);
 }
 
-void update_physical_quantities(double z, const SkimmerData &skimmer, double mesh_skimmer, double &v_gas, double &temperature, double &pressure, double &density, const ChamberQuantities &chamber, double T)
+std::tuple<double, double, double> update_physical_quantities(double z, const SkimmerData &skimmer, double mesh_skimmer, const ChamberQuantities &chamber, double T)
 {
   int m;
   double coeff1;
   double coeff2;
   double position;
+  double v_gas;
+  double temperature;
+  double pressure;
 
   if (z < chamber.clens.first_chamber_end)
   {
-    density = chamber.pressures.n[0];
     pressure = chamber.pressures.P[0];
     temperature = T;
     v_gas = 0;
@@ -1265,11 +1263,11 @@ void update_physical_quantities(double z, const SkimmerData &skimmer, double mes
   }
   else
   {
-    density = chamber.pressures.n[1];
     pressure = chamber.pressures.P[1];
     temperature = T;
     v_gas = 0;
   }
+  return std::make_tuple(v_gas, temperature, pressure);
 }
 
 // Draw initial vibrational energy
@@ -1342,7 +1340,7 @@ TimeNextCollOutcome time_next_coll_quadrupole(GenT &gen, uniform_real_distributi
   }
   else // In the skimmer
   {
-    update_skimmer_quantities(skimmer, z, chamber.clens.first_chamber_end, mesh_skimmer, v_gas, T_skimmer, P_skimmer);
+    std::tie(v_gas, T_skimmer, P_skimmer) = update_skimmer_quantities(skimmer, z, chamber.clens.first_chamber_end, mesh_skimmer);
     kT_skimmer = boltzmann * T_skimmer;
     mobility_gas_skimmer = boltzmann * T_skimmer / m_gas;
     mobility_gas_inv_skimmer = 1.0 / mobility_gas_skimmer;
@@ -1452,7 +1450,7 @@ TimeNextCollOutcome time_next_coll_quadrupole(GenT &gen, uniform_real_distributi
     else // Dynamics in the skimmer
     {
       double dt;
-      update_skimmer_quantities(skimmer, z, chamber.clens.first_chamber_end, mesh_skimmer, v_gas, T_skimmer, P_skimmer);
+      std::tie(v_gas, T_skimmer, P_skimmer) = update_skimmer_quantities(skimmer, z, chamber.clens.first_chamber_end, mesh_skimmer);
       kT_skimmer = boltzmann * T_skimmer;
       mobility_gas_skimmer = boltzmann * T_skimmer / m_gas;
       mobility_gas_inv_skimmer = 1.0 / mobility_gas_skimmer;
@@ -1532,7 +1530,7 @@ void update_velocities(Eigen::Vector3d &v_cluster, double &v_cluster_norm, const
 
 
 // Evaluate the velocities after collision in the rotated reference system
-void eval_velocities(Eigen::Vector3d &v, Eigen::Vector3d &omega, const Eigen::Vector2d &u, double vib_energy, double vib_energy_old, double M, double m, double R_cluster)
+std::tuple<Eigen::Vector3d, Eigen::Vector3d> eval_velocities(const Eigen::Vector3d &v, const Eigen::Vector3d &omega, const Eigen::Vector2d &u, double vib_energy, double vib_energy_old, double M, double m, double R_cluster)
 {
   double vx;
   double vy;
@@ -1569,18 +1567,20 @@ void eval_velocities(Eigen::Vector3d &v, Eigen::Vector3d &omega, const Eigen::Ve
   omegay = ((2.0 * ratio_masses - 3.0) * omega[1] - 10.0 * (v[0] / R_cluster)) / (7.0 + 2.0 * ratio_masses);
   omegax = ((-3.0 + 2.0 * ratio_masses) * omega[0] + (10.0 * (v[1] - u[1])) / R_cluster) / (7.0 + 2.0 * ratio_masses);
 
-  v[0] = vx;
-  v[1] = vy;
-  v[2] = vz;
-  omega[0] = omegax;
-  omega[1] = omegay;
-  // omega[2]=omegaz;
-  // cout << v[0]<< " " << v[1]<< " " << v[2]<<endl<<endl;
+  Eigen::Vector3d v_new;
+  v_new[0] = vx;
+  v_new[1] = vy;
+  v_new[2] = vz;
+  Eigen::Vector3d omega_new = omega;
+  omega_new[0] = omegax;
+  omega_new[1] = omegay;
+  // omega[2] is intentionally unchanged
+  return std::make_tuple(v_new, omega_new);
 }
 
 
 // Change of coordinates routine
-void change_coord(const Eigen::Vector3d &v_cluster, double theta, double phi, double alpha, Eigen::Vector3d &x3, Eigen::Vector3d &y3, Eigen::Vector3d &z3)
+std::tuple<Eigen::Vector3d, Eigen::Vector3d, Eigen::Vector3d> change_coord(const Eigen::Vector3d &v_cluster, double theta, double phi, double alpha)
 {
   using consts::pi;
   auto x = Eigen::Vector3d(1.0, 0.0, 0.0);
@@ -1649,6 +1649,9 @@ void change_coord(const Eigen::Vector3d &v_cluster, double theta, double phi, do
     });
   }
 
+  Eigen::Vector3d x3;
+  Eigen::Vector3d y3;
+  Eigen::Vector3d z3;
   // find versor of tangential velocity
   for (int i = 0; i < 3; i++)
   {
@@ -1656,6 +1659,7 @@ void change_coord(const Eigen::Vector3d &v_cluster, double theta, double phi, do
     x3[i] = cos(alpha) * x2[i] + sin(alpha) * y2[i];
     y3[i] = -sin(alpha) * x2[i] + cos(alpha) * y2[i];
   }
+  return std::make_tuple(x3, y3, z3);
 }
 
 // Evaluate solid angle using Stokes theorem (1d integral) (REF: Eq 32, Conway, Nuclear Instruments and Methods in Physics Research A 614, 2010)
@@ -1706,9 +1710,6 @@ template <typename GenT>
 bool eval_collision(GenT &gen, uniform_real_distribution<double> &unif, double gas_mean_free_path, double x, double y, double z, double L, std::optional<double> pinhole, double quadrupole_end, Eigen::Vector3d &v_cluster, Eigen::Vector3d &omega, double u_norm, double theta, double R_cluster, double vib_energy, double vib_energy_old, double m_ion, double m_gas, double temperature, LogHelper pinhole_logger, int loglevel)
 {
   using namespace consts;
-  Eigen::Vector3d x3;
-  Eigen::Vector3d y3;
-  Eigen::Vector3d z3;
   Eigen::Vector3d v2;
   Eigen::Vector3d omega2;
   double phi = 2.0 * pi * unif(gen);
@@ -1722,7 +1723,7 @@ bool eval_collision(GenT &gen, uniform_real_distribution<double> &unif, double g
   double distance;
 
   bool collision_accepted = true;
-  change_coord(v_cluster, theta, phi, alpha, x3, y3, z3);
+  auto [x3, y3, z3] = change_coord(v_cluster, theta, phi, alpha);
 
 
   v2[0] = v_cluster.dot(x3);
@@ -1799,7 +1800,7 @@ bool eval_collision(GenT &gen, uniform_real_distribution<double> &unif, double g
 
   if (collision_accepted) // Normal procedure
   {
-    eval_velocities(v2, omega2, u, vib_energy, vib_energy_old, m_ion, m_gas, R_cluster);
+    std::tie(v2, omega2) = eval_velocities(v2, omega2, u, vib_energy, vib_energy_old, m_ion, m_gas, R_cluster);
     // Express new velocities in lab reference system
     for (int i = 0; i < 3; i++)
     {
