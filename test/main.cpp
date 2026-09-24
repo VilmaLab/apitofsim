@@ -347,9 +347,7 @@ TEST_CASE("apitof pinhole smoke tests")
   REQUIRE_MESSAGE(data_dir_env != nullptr, "DATA_DIR environment variable not set");
   auto density_cluster = scaled_density(read_histogram((string(data_dir_env) + "/ready/density_cluster.out").c_str()));
   auto rate_const = scaled_rate_const(read_histogram((string(data_dir_env) + "/ready/rate_constant.out").c_str()));
-  SkimmerData skimmer;
-  double mesh_skimmer;
-  std::tie(skimmer, mesh_skimmer) = read_skimmer((string(data_dir_env) + "/ready/skimmer.dat").c_str());
+  auto [skimmer, mesh_skimmer] = read_skimmer((string(data_dir_env) + "/ready/skimmer.dat").c_str());
   StreamingResultQueue result_queue;
   Eigen::Vector3d rotations_0 = Eigen::Vector3d(0.0197112, 0.0229917, 0.0591769);
   auto inertia = compute_inertia(rotations_0);

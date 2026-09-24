@@ -454,9 +454,7 @@ std::tuple<int, double, std::optional<ApiTofRateConstantOverflow>> next_fragment
   int pathway_index = 0;
   for (const MassSpecInputFragmentationPathway &pathway : pathways)
   {
-    double t_fragmentation;
-    std::optional<ApiTofRateConstantOverflow> exception = std::nullopt;
-    std::tie(t_fragmentation, exception) = next_fragmentation_time<GenT>(gen, unif, pathway, internal_energy, strict);
+    auto [t_fragmentation, exception] = next_fragmentation_time<GenT>(gen, unif, pathway, internal_energy, strict);
     if (t_fragmentation < t_next_fragmentation)
     {
       effective_pathway_index = pathway_index;
@@ -685,10 +683,7 @@ SimulationResult apitof_mass_spec(
         double rot_energy = evaluate_rotational_energy(omega, subquants.inertia);
         double internal_energy = evaluate_internal_energy(vib_energy, rot_energy);
 
-        int effective_pathway_index;
-        double t_fragmentation;
-        std::optional<ApiTofRateConstantOverflow> overflow_exception = std::nullopt;
-        std::tie(effective_pathway_index, t_fragmentation, overflow_exception) = next_fragmentation_time_multi(gen, unif, subs.pathways, internal_energy, strict);
+        auto [effective_pathway_index, t_fragmentation, overflow_exception] = next_fragmentation_time_multi(gen, unif, subs.pathways, internal_energy, strict);
 
         double old_t = t;
         TimeNextCollOutcome outcome = time_next_coll_quadrupole(gen, unif, v_cluster, v_cluster_norm, chamber, subs.gas.radius + subs.R_cluster, subquants.dts, z, x, y, t_fragmentation, subquants.acc, t, subs.gas.mass, ms.skimmer, ms.mesh_skimmer, ms.quadrupole);
@@ -743,15 +738,9 @@ SimulationResult apitof_mass_spec(
             double density;
             update_physical_quantities(z, ms.skimmer, ms.mesh_skimmer, v_gas, temperature, pressure, density, chamber, ms.T);
 
-            double effective_n;
-            Eigen::Vector3d v_rel;
-            double v_rel_norm;
-            double effective_mobility_gas;
-            double effective_mobility_gas_inv;
-            std::tie(effective_n, v_rel, v_rel_norm, effective_mobility_gas, effective_mobility_gas_inv) = get_quantities_for_collision(z, chamber, subs.gas.mass, v_cluster, v_gas, pressure, temperature);
-            double theta;
-            double u_norm; // normal velocity of colliding gas molecule
-            std::tie(theta, u_norm) = local_gas_coll_sampler.sample(gen, effective_n, v_rel_norm, effective_mobility_gas, effective_mobility_gas_inv, subs.R_cluster + subs.gas.radius, warn);
+            auto [effective_n, v_rel, v_rel_norm, effective_mobility_gas, effective_mobility_gas_inv] = get_quantities_for_collision(z, chamber, subs.gas.mass, v_cluster, v_gas, pressure, temperature);
+            // normal velocity of colliding gas molecule
+            auto [theta, u_norm] = local_gas_coll_sampler.sample(gen, effective_n, v_rel_norm, effective_mobility_gas, effective_mobility_gas_inv, subs.R_cluster + subs.gas.radius, warn);
 
             // Evaluate the dissipated energy in the collision (energy that goes to vibrational modes)
             double vib_energy_new = local_vib_energy_sampler.sample(gen, boundary_vib_energy(vib_energy, subquants.reduced_mass, u_norm, v_rel_norm, theta));
@@ -939,10 +928,7 @@ SimulationResult apitof_mass_spec(
         double rot_energy = evaluate_rotational_energy(omega, subquants.inertia);
         double internal_energy = evaluate_internal_energy(vib_energy, rot_energy);
 
-        int effective_pathway_index;
-        double t_fragmentation;
-        std::optional<ApiTofRateConstantOverflow> overflow_exception = std::nullopt;
-        std::tie(effective_pathway_index, t_fragmentation, overflow_exception) = next_fragmentation_time_multi(gen, unif, pathways, internal_energy, strict);
+        auto [effective_pathway_index, t_fragmentation, overflow_exception] = next_fragmentation_time_multi(gen, unif, pathways, internal_energy, strict);
 
         double old_t = t;
         TimeNextCollOutcome outcome = time_next_coll_quadrupole(gen, unif, v_cluster, v_cluster_norm, chamber, subs.gas.radius + subpayload.R_cluster, subquants.dts, z, x, y, t_fragmentation, subquants.acc, t, subs.gas.mass, ms.skimmer, ms.mesh_skimmer, ms.quadrupole);
@@ -1015,15 +1001,9 @@ SimulationResult apitof_mass_spec(
             double density;
             update_physical_quantities(z, ms.skimmer, ms.mesh_skimmer, v_gas, temperature, pressure, density, chamber, ms.T);
 
-            double effective_n;
-            Eigen::Vector3d v_rel;
-            double v_rel_norm;
-            double effective_mobility_gas;
-            double effective_mobility_gas_inv;
-            std::tie(effective_n, v_rel, v_rel_norm, effective_mobility_gas, effective_mobility_gas_inv) = get_quantities_for_collision(z, chamber, subs.gas.mass, v_cluster, v_gas, pressure, temperature);
-            double theta;
-            double u_norm; // normal velocity of colliding gas molecule
-            std::tie(theta, u_norm) = local_gas_coll_sampler.sample(gen, effective_n, v_rel_norm, effective_mobility_gas, effective_mobility_gas_inv, subpayload.R_cluster + subs.gas.radius, warn);
+            auto [effective_n, v_rel, v_rel_norm, effective_mobility_gas, effective_mobility_gas_inv] = get_quantities_for_collision(z, chamber, subs.gas.mass, v_cluster, v_gas, pressure, temperature);
+            // normal velocity of colliding gas molecule
+            auto [theta, u_norm] = local_gas_coll_sampler.sample(gen, effective_n, v_rel_norm, effective_mobility_gas, effective_mobility_gas_inv, subpayload.R_cluster + subs.gas.radius, warn);
 
             // Evaluate the dissipated energy in the collision (energy that goes to vibrational modes)
             double vib_energy_new = vib_energy_sampler->sample(gen, boundary_vib_energy(vib_energy, subquants.reduced_mass, u_norm, v_rel_norm, theta));
