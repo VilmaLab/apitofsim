@@ -201,7 +201,6 @@ template <typename GenT>
 TimeNextCollOutcome time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &unif, Eigen::Vector3d &v_cluster, double &v_cluster_norm, const ChamberQuantities &chamber, double R, Eigen::Array2d dts, double &z, double &x, double &y, double &t_fragmentation, const Eigen::Array4d &acc, double &t, double m_gas, const SkimmerData &skimmer, double mesh_skimmer, const std::optional<Quadrupole> quadrupole);
 std::tuple<double, Eigen::Vector3d, double, double, double> get_quantities_for_collision(double z, const ChamberQuantities &chamber, double m_gas, const Eigen::Vector3d &v_cluster, double v_gas, double pressure, double temperature);
 void update_physical_quantities(double z, const SkimmerData &skimmer, double mesh_skimmer, double &v_gas, double &temperature, double &pressure, double &density, const ChamberQuantities &chamber, double T);
-// void evaluate_relative_velocity(double z, double *v_cluster, double &v_rel_norm, double v_gas, double *v_rel, double first_chamber_end, double sk_end);
 void update_velocities(Eigen::Vector3d &v_cluster, double &v_cluster_norm, const Eigen::Vector3d &v_rel, double v_gas);
 void update_rot_vel(Eigen::Vector3d &omega, double rot_energy_old, double rot_energy);
 double boundary_vib_energy(double vib_energy_old, double reduced_mass, double u_norm, double v_cluster_norm, double theta);
@@ -1542,23 +1541,6 @@ double mean_free_path(double R, double kT, double pressure)
   return kT / (sqrt(2.0) * pi * 4.0 * R * R * pressure);
 }
 
-
-void evaluate_relative_velocity(double z, const Eigen::Vector3d &v_cluster, double &v_rel_norm, double v_gas, Eigen::Vector3d &v_rel, double first_chamber_end, double sk_end)
-{
-  if (z > first_chamber_end and z < sk_end)
-  {
-    v_rel[0] = v_cluster[0];
-    v_rel[1] = v_cluster[1];
-    v_rel[2] = v_cluster[2] - v_gas;
-  }
-  else
-  {
-    v_rel[0] = v_cluster[0];
-    v_rel[1] = v_cluster[1];
-    v_rel[2] = v_cluster[2];
-  }
-  v_rel_norm = v_rel.norm();
-}
 
 void update_velocities(Eigen::Vector3d &v_cluster, double &v_cluster_norm, const Eigen::Vector3d &v_rel, double v_gas)
 {
