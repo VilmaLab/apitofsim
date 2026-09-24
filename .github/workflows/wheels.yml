@@ -15,32 +15,48 @@ permissions:
   contents: write
 
 jobs:
+  build_linux_wheel:
+    name: Build wheels on Linux
+    uses: ./.github/workflows/build-wheel.yml
+    with:
+      os: ubuntu-latest
+
   build_wheels:
     name: Build wheels on ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-15]
+        os: [windows-latest, macos-15]
+    uses: ./.github/workflows/build-wheel.yml
+    with:
+      os: ${{ matrix.os }}
 
+  docs:
+    name: Docs
+    needs: build_linux_wheel
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v4
 
-      - name: Build wheels
-        uses: pypa/cibuildwheel@v4.2.1
+      - uses: astral-sh/setup-uv@v7
 
-      - name: Upload wheels as workflow artifact
-        uses: actions/upload-artifact@v4
+      - name: Download the Linux wheel
+        uses: actions/download-artifact@v4
         with:
-          name: cibw-wheels-${{ matrix.os }}-${{ strategy.job-index }}
-          path: ./wheelhouse/*.whl
+          name: cibw-wheels-ubuntu-latest
+          path: wheelhouse
 
-      - name: Upload wheels to release
-        if: github.event_name == 'release'
-        uses: svenstaro/upload-release-action@v2
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: ./wheelhouse/*.whl
-          file_glob: true
-          overwrite: true
-          tag: ${{ github.ref }}
+      - name: Install docs dependencies and the wheel
+        run: |
+          uv sync --group docs --no-install-project --python 3.13
+          uv pip install --no-deps wheelhouse/*.whl
+
+      - name: Build docs
+        run: uv run --no-sync mkdocs build
+
+      - name: Deploy docs
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email github-actions[bot]@users.noreply.github.com
+          uv run --no-sync mkdocs gh-deploy --force
