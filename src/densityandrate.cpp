@@ -66,7 +66,7 @@ void validate_max_energies(double fragmentation_energy, int m_max, int m_max_rat
   }
 }
 
-double get_prefactor_k_total(double inertia_moment_1, double inertia_moment_2, Eigen::Vector3d &rotations_1, Eigen::Vector3d &rotations_2)
+double get_prefactor_k_total(double inertia_moment_1, double inertia_moment_2, const Eigen::Vector3d &rotations_1, const Eigen::Vector3d &rotations_2)
 {
   using consts::pi;
 
@@ -77,7 +77,7 @@ double get_prefactor_k_total(double inertia_moment_1, double inertia_moment_2, E
 }
 
 
-double get_final_rate_k_total(Eigen::ArrayXd &k0, const Eigen::Ref<const Eigen::ArrayXd> rho_0, double bin_width, int m, int n_fragmentation)
+double get_final_rate_k_total(const Eigen::ArrayXd &k0, const Eigen::Ref<const Eigen::ArrayXd> rho_0, double bin_width, int m, int n_fragmentation)
 {
   // Integrate over all rotation energies
   double normalization = 0.0;
@@ -206,7 +206,7 @@ Eigen::ArrayXd compute_mesh_rearranged_presqrt_tbb(double bin_width, int m_max_r
   return mesh;
 }
 
-void compute_k_total_mesh(Eigen::ArrayXd &k0, const Eigen::ArrayXd &mesh, Eigen::Ref<Eigen::ArrayXd> k_rate, double inertia_moment_1, double inertia_moment_2, Eigen::Vector3d &rotations_1, Eigen::Vector3d &rotations_2, const Eigen::Ref<const Eigen::ArrayXd> rho_comb, const Eigen::Ref<const Eigen::ArrayXd> rho_0, double bin_width, int m_max_rate, double fragmentation_energy)
+void compute_k_total_mesh(Eigen::ArrayXd &k0, const Eigen::ArrayXd &mesh, Eigen::Ref<Eigen::ArrayXd> k_rate, double inertia_moment_1, double inertia_moment_2, const Eigen::Vector3d &rotations_1, const Eigen::Vector3d &rotations_2, const Eigen::Ref<const Eigen::ArrayXd> rho_comb, const Eigen::Ref<const Eigen::ArrayXd> rho_0, double bin_width, int m_max_rate, double fragmentation_energy)
 {
   double prefactor = get_prefactor_k_total(inertia_moment_1, inertia_moment_2, rotations_1, rotations_2);
   int n_fragmentation = int(fragmentation_energy / bin_width);
@@ -226,7 +226,7 @@ void compute_k_total_mesh(Eigen::ArrayXd &k0, const Eigen::ArrayXd &mesh, Eigen:
 }
 
 
-void compute_k_total(Eigen::ArrayXd &k0, Eigen::Ref<Eigen::ArrayXd> k_rate, double inertia_moment_1, double inertia_moment_2, Eigen::Vector3d &rotations_1, Eigen::Vector3d &rotations_2, const Eigen::Ref<const Eigen::ArrayXd> rho_comb, const Eigen::Ref<const Eigen::ArrayXd> rho_0, double bin_width, int m_max_rate, double fragmentation_energy)
+void compute_k_total(Eigen::ArrayXd &k0, Eigen::Ref<Eigen::ArrayXd> k_rate, double inertia_moment_1, double inertia_moment_2, const Eigen::Vector3d &rotations_1, const Eigen::Vector3d &rotations_2, const Eigen::Ref<const Eigen::ArrayXd> rho_comb, const Eigen::Ref<const Eigen::ArrayXd> rho_0, double bin_width, int m_max_rate, double fragmentation_energy)
 {
   double prefactor = get_prefactor_k_total(inertia_moment_1, inertia_moment_2, rotations_1, rotations_2);
   int n_fragmentation = int(fragmentation_energy / bin_width);
@@ -275,7 +275,7 @@ void compute_k_total_atom(Eigen::ArrayXd &k0, Eigen::Ref<Eigen::ArrayXd> k_rate,
 
 
 // Compute density of states from vector of frequencies neglecting the zero level energy
-void compute_density_of_states_old(Eigen::ArrayXd &frequencies, Eigen::Ref<Eigen::ArrayXd> rho, double energy_max, double bin_width)
+void compute_density_of_states_old(const Eigen::ArrayXd &frequencies, Eigen::Ref<Eigen::ArrayXd> rho, double energy_max, double bin_width)
 {
   int i = 0;
   int m;
@@ -331,7 +331,7 @@ void compute_density_of_states_old(Eigen::ArrayXd &frequencies, Eigen::Ref<Eigen
   }
 }
 
-void compute_density_of_states(Eigen::ArrayXd &frequencies, Eigen::Ref<Eigen::ArrayXd> rho, double energy_max, double bin_width)
+void compute_density_of_states(const Eigen::ArrayXd &frequencies, Eigen::Ref<Eigen::ArrayXd> rho, double energy_max, double bin_width)
 {
   // This algorithm is Bayer-Swinehartt Algorithm 448
   // `Number of Multiply-Restricted Partitions`
@@ -368,7 +368,7 @@ void compute_density_of_states(Eigen::ArrayXd &frequencies, Eigen::Ref<Eigen::Ar
 }
 
 // Combined frequencies of two products
-Eigen::ArrayXd combine_frequencies(Eigen::ArrayXd &frequencies_1, Eigen::ArrayXd &frequencies_2)
+Eigen::ArrayXd combine_frequencies(const Eigen::ArrayXd &frequencies_1, const Eigen::ArrayXd &frequencies_2)
 {
   int len1 = frequencies_1.rows();
   int len2 = frequencies_2.rows();
@@ -379,7 +379,7 @@ Eigen::ArrayXd combine_frequencies(Eigen::ArrayXd &frequencies_1, Eigen::ArrayXd
   return frequencies_comb;
 }
 
-void compute_combined_density_of_states(Eigen::Ref<Eigen::ArrayXd> rho_comb, Eigen::ArrayXd &frequencies_1, Eigen::ArrayXd &frequencies_2, double energy_max, double bin_width)
+void compute_combined_density_of_states(Eigen::Ref<Eigen::ArrayXd> rho_comb, const Eigen::ArrayXd &frequencies_1, const Eigen::ArrayXd &frequencies_2, double energy_max, double bin_width)
 {
   auto frequencies_comb = combine_frequencies(frequencies_1, frequencies_2);
   compute_density_of_states(frequencies_comb, rho_comb, energy_max, bin_width);

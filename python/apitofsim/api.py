@@ -94,6 +94,7 @@ __all__ = [
     "Histogram",
     "densityandrate",
     "mass_spec",
+    "mass_spec_iter",
     "skimmer",
     "compute_density_of_states_batch",
     "compute_k_total_batch",
