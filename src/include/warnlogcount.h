@@ -103,6 +103,34 @@ struct LogMessage
 using StreamingResultElement = std::variant<std::monostate, LogMessage, EventMessage, PartialResult>;
 using StreamingResultQueue = BlockingConcurrentQueue<StreamingResultElement>;
 
+struct DrainingStreamingResultQueue
+{
+  StreamingResultQueue queue;
+  bool draining = false;
+
+  void draining_dequeue(StreamingResultElement &result)
+  {
+    if (!draining)
+    {
+      queue.wait_dequeue(result);
+      if (std::holds_alternative<std::monostate>(result))
+      {
+        draining = true;
+      }
+      else
+      {
+        return;
+      }
+    }
+
+    bool got = queue.try_dequeue(result);
+    if (!got)
+    {
+      result = std::monostate{};
+    }
+  }
+};
+
 struct WarningHelper
 {
   Eigen::ArrayXi &counters;

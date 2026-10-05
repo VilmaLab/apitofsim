@@ -200,24 +200,16 @@ std::thread run_mass_spec_in_thread(
 }
 
 std::variant<std::tuple<const std::string, const std::string>, Eigen::ArrayXi, EventMessage, std::monostate> pump_mass_spec_queue(
-  StreamingResultQueue &result_queue,
+  DrainingStreamingResultQueue &result_queue,
   Eigen::ArrayXi &partial_counters)
 {
   using magic_enum::enum_name;
 
   StreamingResultElement result;
-  result_queue.wait_dequeue(result);
+  result_queue.draining_dequeue(result);
   if (std::holds_alternative<std::monostate>(result))
   {
-    // Still need to pump out any pending messages
-    while (true)
-    {
-      bool got = result_queue.try_dequeue(result);
-      if (!got)
-      {
-        break;
-      }
-    }
+    return std::monostate{};
   }
   else if (std::holds_alternative<PartialResult>(result))
   {
@@ -235,7 +227,10 @@ std::variant<std::tuple<const std::string, const std::string>, Eigen::ArrayXi, E
   {
     return std::get<EventMessage>(result);
   }
-  return std::monostate{};
+  else
+  {
+    throw ApiTofError("Unknown variant from mass spec output queue");
+  }
 }
 
 template <typename MassSpecSubstanceT>
@@ -252,12 +247,12 @@ mass_spec(
   bool strict = true,
   std::tuple<int, bool> logconf = DEFAULT_LOGCONF_TUPLE)
 {
-  StreamingResultQueue result_queue;
+  DrainingStreamingResultQueue result_queue;
   OperationContext operation;
   ExceptionTransport exception_transport;
   SimulationResult result;
   Eigen::ArrayXi partial_counters = mk_partial_counters(subs);
-  auto cleanup = MassSpecCleanup{run_mass_spec_in_thread<MassSpecSubstanceT>(result, operation, exception_transport, ms, subs, N, seed, result_queue, sample_mode, strict, logconf)};
+  auto cleanup = MassSpecCleanup{run_mass_spec_in_thread<MassSpecSubstanceT>(result, operation, exception_transport, ms, subs, N, seed, result_queue.queue, sample_mode, strict, logconf)};
   while (true)
   {
     auto result = pump_mass_spec_queue(result_queue, partial_counters);
@@ -299,7 +294,7 @@ mass_spec(
 
 struct MassSpecIterator
 {
-  StreamingResultQueue result_queue;
+  DrainingStreamingResultQueue result_queue;
   Eigen::ArrayXi partial_counters;
   std::shared_ptr<const MassSpectrometer> ms;
   std::shared_ptr<const void> subs;
@@ -323,7 +318,7 @@ struct MassSpecIterator
                                                              subs(std::shared_ptr<const void>(subs)),
                                                              operation(),
                                                              exception_transport(),
-                                                             execution_thread(MassSpecCleanup{run_mass_spec_in_thread<MassSpecSubstanceT>(final_result, operation, exception_transport, *ms, *subs, N, seed, result_queue, sample_mode, strict, logconf)}),
+                                                             execution_thread(MassSpecCleanup{run_mass_spec_in_thread<MassSpecSubstanceT>(final_result, operation, exception_transport, *ms, *subs, N, seed, result_queue.queue, sample_mode, strict, logconf)}),
                                                              finished(false)
   {
   }
