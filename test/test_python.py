@@ -190,3 +190,126 @@ def test_tree_building():
             assert len(visited_pathway_payloads) == len(pathway_payload_lookup), (
                 "Expected all pathway payloads to be visited"
             )
+
+
+@pytest.mark.parametrize("mode", ["SINGLE_CLUSTER", "CLUSTER_TREE"])
+def test_init_events_workflow(tmp_path, monkeypatch, mode):
+    import apitofsim.api as api
+    import numpy as np
+    from apitofsim.cli import prepare
+    from apitofsim.workflow.base import SimulationMode
+    from apitofsim.workflow.db import RealizationDatabase, connection_scope
+
+    data_dir = os.environ["DATA_DIR"]
+    filename = str(tmp_path / "realizations.duckdb")
+    result = CliRunner(catch_exceptions=False).invoke(
+        prepare,
+        ["create", data_dir + "/besel/config.toml", filename, "--db-type=realization"],
+    )
+    assert result.exit_code == 0
+    original_mass_spec = api.mass_spec
+    num_runs = 0
+
+    def check_mass_spec(ms, subs, n, **kwargs):
+        nonlocal num_runs
+        recorder = kwargs["event_callback"]
+        initial_states = {}
+        root = (
+            subs
+            if mode == "SINGLE_CLUSTER"
+            else subs.cluster_payloads[subs.tree_nodes[0].payload_idx]
+        )
+
+        def record(event):
+            state = event.state
+            if isinstance(event, api.InitEvent):
+                assert state.realization not in initial_states
+                initial_states[state.realization] = state
+                np.testing.assert_array_equal(state.postime, np.zeros(4))
+                assert np.isfinite(state.velocity).all()
+                assert np.isfinite(state.omega).all()
+                assert np.isfinite(state.rot_energy) and state.rot_energy >= 0
+                assert np.isfinite(state.internal_energy) and state.internal_energy >= 0
+                assert state.particle_index == 0
+                assert state.rot_energy == pytest.approx(
+                    0.2
+                    * root.m_ion
+                    * root.R_cluster**2
+                    * np.dot(state.omega, state.omega),
+                    rel=1e-12,
+                    abs=0,
+                )
+            else:
+                assert state.realization in initial_states
+            recorder(event)
+
+        counters = original_mass_spec(
+            ms, subs, n, **{**kwargs, "event_callback": record}
+        )
+        assert set(initial_states) == set(range(n))
+        for realization, state in initial_states.items():
+            stored = recorder.db.db.execute(
+                "select postime, velocity, omega, rot_energy, internal_energy, particle_index "
+                "from init_event where realization_id = ?",
+                (recorder.realization_ids[realization],),
+            ).fetchall()
+            assert len(stored) == 1
+            postime, velocity, omega, rot, internal, particle = stored[0]
+            np.testing.assert_array_equal(list(postime.values()), state.postime)
+            np.testing.assert_array_equal(list(velocity.values()), state.velocity)
+            np.testing.assert_array_equal(list(omega.values()), state.omega)
+            assert (rot, internal, particle) == (
+                state.rot_energy,
+                state.internal_energy,
+                state.particle_index,
+            )
+
+        events = []
+        unlogged = original_mass_spec(
+            ms,
+            subs,
+            n,
+            **{**kwargs, "logconf": (0, False), "event_callback": events.append},
+        )
+        assert not events
+        np.testing.assert_array_equal(counters[0][:-1], unlogged[0][:-1])
+        np.testing.assert_array_equal(counters[0][-1], unlogged[0][-1])
+        with api.mass_spec_iter(ms, subs, n, logconf=(0, True)) as stream:
+            streamed_states = [
+                event.state for event in stream if isinstance(event, api.InitEvent)
+            ]
+        assert len(streamed_states) == n
+        streamed = {state.realization: state for state in streamed_states}
+        assert set(streamed) == set(initial_states)
+        for realization, state in streamed.items():
+            np.testing.assert_array_equal(
+                state.velocity, initial_states[realization].velocity
+            )
+            np.testing.assert_array_equal(
+                state.omega, initial_states[realization].omega
+            )
+            assert state.rot_energy == initial_states[realization].rot_energy
+            assert state.internal_energy == initial_states[realization].internal_energy
+        num_runs += 1
+        return counters
+
+    monkeypatch.setattr(api, "mass_spec", check_mass_spec)
+    with connection_scope(RealizationDatabase, filename) as db:
+        runner = ExperimentRunner(db)
+        runner.run_prepared_config(mode=SimulationMode[mode])
+        assert num_runs > 0
+        count = db.db.execute("select count(*) from init_event").fetchone()[0]
+        assert count == db.db.execute("select count(*) from realization").fetchone()[0]
+        assert (
+            db.db.execute(
+                "select count(*) from realization where experiment_result_id is null"
+            ).fetchone()[0]
+            == 0
+        )
+        db.refresh_views()
+        assert (
+            db.db.execute(
+                "select count(*) from event_report where event_type = 'init'"
+            ).fetchone()[0]
+            == count
+        )

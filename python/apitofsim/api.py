@@ -22,6 +22,7 @@ from .apitofsimraw import (
     EscapeEvent,
     FragmentationEvent,
     FragmentationPathway,
+    InitEvent,
     KTotalInput,
     MeshMode,
     MSSubstanceTreeNode,
@@ -115,6 +116,7 @@ __all__ = [
     "ApiTofUnexpectedNumericalError",
     # EventMessage
     "ParticleState",
+    "InitEvent",
     "CollisionEvent",
     "FragmentationEvent",
     "EscapeEvent",
@@ -694,7 +696,8 @@ def mass_spec(
     log_callback: Callable[[str, str], None] | None = None,
     result_callback: Callable[[numpy.ndarray], None] | None = None,
     event_callback: Callable[
-        [ParticleState | CollisionEvent | FragmentationEvent | EscapeEvent], None
+        [ParticleState | InitEvent | CollisionEvent | FragmentationEvent | EscapeEvent],
+        None,
     ]
     | None = None,
     named_tuple_counters=False,
@@ -702,6 +705,10 @@ def mass_spec(
 ):
     """
     This function runs the main simulation of the APi-ToF mass spectrometer.
+
+    With event logging enabled, each realization begins with an InitEvent carrying
+    the sampled particle state. Its internal_energy field is vibrational energy,
+    following the convention used by the other events.
     """
 
     def convert_counters(counters):
@@ -769,6 +776,7 @@ class MassSpecIterator(_MassSpecIterator):
         MassSpecLogItem
         | MassSpecFinalResult
         | MassSpecIntermediateCounter
+        | InitEvent
         | CollisionEvent
         | FragmentationEvent
         | EscapeEvent

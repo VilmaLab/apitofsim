@@ -6,6 +6,7 @@ with
         select realization_id, 'fragmentation' as event_type, postime from fragmentation_event
         union
         select realization_id, 'escape' as event_type, postime from escape_event
+        {init_events}
     ),
     pathway_experiment_result as (
         select * from single_pathway_experiment_result

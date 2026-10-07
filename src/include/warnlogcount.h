@@ -51,6 +51,11 @@ struct ParticleStateMsg
   int particle_index = 0;
 };
 
+struct InitEvent
+{
+  ParticleStateMsg state;
+};
+
 struct CollisionEvent
 {
   ParticleStateMsg state;
@@ -71,7 +76,7 @@ struct EscapeEvent
   ParticleStateMsg state;
 };
 
-using EventMessage = std::variant<CollisionEvent, FragmentationEvent, EscapeEvent>;
+using EventMessage = std::variant<InitEvent, CollisionEvent, FragmentationEvent, EscapeEvent>;
 
 struct LogMessage
 {

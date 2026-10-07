@@ -691,15 +691,29 @@ class RealizationDatabase(ExperimentDatabase):
         sql_files.pathway_report,
         sql_files.experiment_report,
         sql_files.realizations,
-        sql_files.event_report,
     ]
 
     def __init__(self, filename, **kwargs):
         super().__init__(filename, **kwargs)
 
+    def create_tables(self):
+        super().create_tables()
+        self._refresh_event_report()
+
+    def _has_init_events(self):
+        return ("init_event",) in self.db.execute("show tables").fetchall()
+
+    def _refresh_event_report(self):
+        init_events = (
+            "union select realization_id, 'init' as event_type, postime from init_event"
+            if self._has_init_events()
+            else ""
+        )
+        self.db.execute(sql_files.event_report.format(init_events=init_events))
+
     def refresh_views(self):
         super().refresh_views()
-        self.db.execute(sql_files.event_report)
+        self._refresh_event_report()
 
     def insert_realization(self, experiment_run_id):
         id = self.db.execute(
@@ -746,19 +760,39 @@ class EventRecorder:
         assert isinstance(db, RealizationDatabase)
         self.realization_ids = {}
         self.event_ids = []
+        self.has_init_events = db._has_init_events()
 
     def __call__(self, event):
         from apitofsim.api import (
             CollisionEvent,
             EscapeEvent,
             FragmentationEvent,
+            InitEvent,
         )
+
+        if isinstance(event, InitEvent) and not self.has_init_events:
+            return
 
         state = event.state
         if state.realization not in self.realization_ids:
             self.realization_ids[state.realization] = self.db.insert_realization(None)
         realization_id = self.realization_ids[state.realization]
-        if isinstance(event, CollisionEvent):
+        if isinstance(event, InitEvent):
+            self.db.db.execute(
+                "insert into init_event values (default, ?, "
+                "{'x': ?, 'y': ?, 'z': ?, 't': ?}, "
+                "{'x': ?, 'y': ?, 'z': ?}, {'x': ?, 'y': ?, 'z': ?}, ?, ?, ?)",
+                (
+                    realization_id,
+                    *state.postime,
+                    *state.velocity,
+                    *state.omega,
+                    state.rot_energy,
+                    state.internal_energy,
+                    state.particle_index,
+                ),
+            )
+        elif isinstance(event, CollisionEvent):
             self.db.db.execute(
                 "insert into collision_event values (default, ?, {'x': ?, 'y': ?, 'z': ?, 't': ?})",
                 (

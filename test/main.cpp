@@ -10,11 +10,13 @@
 #include "cli/mass_spec_io.h"
 #include "operation_context.h"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdlib>
 #include <mutex>
 #include <thread>
+#include <type_traits>
 
 int main(int argc, char **argv)
 {
@@ -387,7 +389,7 @@ TEST_CASE("apitof pinhole smoke tests")
       2.46e-10,
       4.8506e-26,
       1.4});
-  auto counters = std::get<0>(apitof_mass_spec(ms, subs, 5, 42, result_queue, SampleMode::dss_normalized));
+  auto counters = std::get<0>(apitof_mass_spec(ms, subs, 5, 42, result_queue, SampleMode::dss_normalized, true, MassSpecLogConf{DEFAULT_LOGLEVEL, true}));
   result_queue.enqueue(std::monostate{});
   CHECK(counters[Counter::nwarnings] == 0);
   CHECK(counters[Counter::n_fragmented_total] + counters[Counter::n_escaped_total] == 5);
@@ -395,6 +397,7 @@ TEST_CASE("apitof pinhole smoke tests")
   CHECK(counters[Counter::counter_collision_rejections] >= 0);
   bool exiting = false;
   auto num_partial_results = 0;
+  std::vector<bool> initialized(5, false);
   Eigen::ArrayXi streamed_counters = Eigen::ArrayXi::Zero(counters.size());
   while (true)
   {
@@ -425,6 +428,30 @@ TEST_CASE("apitof pinhole smoke tests")
       CHECK((streamed_counters <= counters).all());
       num_partial_results++;
     }
+    else if (std::holds_alternative<EventMessage>(result))
+    {
+      std::visit([&](const auto &event)
+      {
+        const auto &state = event.state;
+        REQUIRE(state.realization >= 0);
+        REQUIRE(state.realization < 5);
+        if constexpr (std::is_same_v<std::decay_t<decltype(event)>, InitEvent>)
+        {
+          CHECK_FALSE(initialized[state.realization]);
+          initialized[state.realization] = true;
+          CHECK(state.postime.isZero());
+          CHECK(state.velocity.isFinite().all());
+          CHECK(state.omega.isFinite().all());
+          CHECK(state.rot_energy >= 0.0);
+          CHECK(state.internal_energy >= 0.0);
+          CHECK(state.particle_index == 0);
+        }
+        else
+        {
+          CHECK(initialized[state.realization]);
+        }
+      }, std::get<EventMessage>(result));
+    }
     else if (std::holds_alternative<LogMessage>(result))
     {
       const LogMessage &msg = std::get<LogMessage>(result);
@@ -442,6 +469,7 @@ TEST_CASE("apitof pinhole smoke tests")
     }
   }
   CHECK(num_partial_results == 5);
+  CHECK(std::all_of(initialized.begin(), initialized.end(), [](bool value) { return value; }));
   CHECK((streamed_counters == counters).all());
   Eigen::ArrayXi expected_counters(6);
   expected_counters << 0, 15, 0, 5, 5, 0;

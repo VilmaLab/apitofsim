@@ -29,3 +29,14 @@ create table escape_event (
     foreign key (realization_id) references realization (id),
     postime position_type not null,
 );
+
+create table init_event (
+    id integer default nextval('realization_event_sequence') primary key,
+    realization_id integer not null references realization (id),
+    postime struct(x double, y double, z double, t double) not null,
+    velocity struct(x double, y double, z double) not null,
+    omega struct(x double, y double, z double) not null,
+    rot_energy double not null,
+    internal_energy double not null,
+    particle_index integer not null
+);
