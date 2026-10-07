@@ -139,3 +139,30 @@ The C++ suite runs once with a one-thread limit and once at oneTBB's default con
 uv run meson test --print-errorlogs -C build
 uv run meson test --benchmark --num-processes 1 -C build
 ```
+
+### Realization event storage
+
+Each recorded event has one `event_info` row containing its realization ID, event type
+(`init`, `collision`, `fragmentation`, or `escape`), position/time, velocity, angular
+velocity, energies, and particle index. State uses double precision; `internal_energy`
+continues to mean vibrational energy. Events retain the snapshots emitted by the simulator.
+
+`collision_event` adds `theta`, `u_norm`, and `accepted`; `fragmentation_event` adds
+`pathway_id`. Their primary keys reference `event_info.id`. Init and escape events
+have no separate tables. The recorder inserts shared state and detail rows atomically.
+
+`event_report` joins these tables with realization and experiment information. It keeps
+`x`, `y`, `z`, and `t` and adds `event_id`, the motion structs, energies, particle index,
+and applicable event details. Inapplicable detail columns are null.
+
+This schema replaces the previous event tables; existing databases require recreation.
+There is no migration or compatibility query layer. Consumers needing updates include:
+
+- `apitofsim-resultviewer`: the event union in `src/apitofresview/plotting/explorer/data.py`
+  should read `event_info` and join fragmentation details; its event fixtures also change.
+- `apitofsim-web`: queries in `src/vms/job_failures.py` should count and select realization
+  IDs from `event_info` by event type. Schema creation in `src/vms/app.py` must account for
+  inline `references` constraints when preparing separate cluster and result databases.
+
+Tree fragmentation's existing pathway-index issue is tracked separately in
+[issue #81](https://github.com/VilmaLab/apitofsim/issues/81).

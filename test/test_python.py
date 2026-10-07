@@ -192,13 +192,54 @@ def test_tree_building():
             )
 
 
+def assert_event_row(connection, event, pathway_id=None):
+    import apitofsim.api as api
+    import numpy as np
+
+    row = connection.execute(
+        "select e.id, e.event_type, e.postime, e.velocity, e.omega, "
+        "e.rot_energy, e.internal_energy, e.particle_index, "
+        "c.id, c.theta, c.u_norm, c.accepted, f.id, f.pathway_id "
+        "from event_info e "
+        "left join collision_event c on c.id = e.id "
+        "left join fragmentation_event f on f.id = e.id "
+        "where e.id = (select max(id) from event_info)"
+    ).fetchone()
+    event_id, event_type, postime, velocity, omega, rot, internal, particle = row[:8]
+    state = event.state
+    assert event_type == type(event).__name__.removesuffix("Event").lower()
+    np.testing.assert_array_equal(list(postime.values()), state.postime)
+    np.testing.assert_array_equal(list(velocity.values()), state.velocity)
+    np.testing.assert_array_equal(list(omega.values()), state.omega)
+    assert (rot, internal, particle) == (
+        state.rot_energy,
+        state.internal_energy,
+        state.particle_index,
+    )
+    if isinstance(event, api.CollisionEvent):
+        assert row[8:12] == (event_id, event.theta, event.u_norm, event.accepted)
+    else:
+        assert row[8:12] == (None,) * 4
+    if isinstance(event, api.FragmentationEvent):
+        assert row[12] == event_id
+        if pathway_id is not None:
+            assert row[13] == pathway_id
+    else:
+        assert row[12:] == (None, None)
+
+
 @pytest.mark.parametrize("mode", ["SINGLE_CLUSTER", "CLUSTER_TREE"])
 def test_init_events_workflow(tmp_path, monkeypatch, mode):
     import apitofsim.api as api
+    import duckdb
     import numpy as np
     from apitofsim.cli import prepare
     from apitofsim.workflow.base import SimulationMode
-    from apitofsim.workflow.db import RealizationDatabase, connection_scope
+    from apitofsim.workflow.db import (
+        EventRecorder,
+        RealizationDatabase,
+        connection_scope,
+    )
 
     data_dir = os.environ["DATA_DIR"]
     filename = str(tmp_path / "realizations.duckdb")
@@ -209,6 +250,8 @@ def test_init_events_workflow(tmp_path, monkeypatch, mode):
     assert result.exit_code == 0
     original_mass_spec = api.mass_spec
     num_runs = 0
+    num_events = 0
+    rollback_checked = False
 
     def check_mass_spec(ms, subs, n, **kwargs):
         nonlocal num_runs
@@ -221,6 +264,7 @@ def test_init_events_workflow(tmp_path, monkeypatch, mode):
         )
 
         def record(event):
+            nonlocal num_events, rollback_checked
             state = event.state
             if isinstance(event, api.InitEvent):
                 assert state.realization not in initial_states
@@ -241,29 +285,39 @@ def test_init_events_workflow(tmp_path, monkeypatch, mode):
                 )
             else:
                 assert state.realization in initial_states
+            if (
+                isinstance(event, api.FragmentationEvent)
+                and mode == "SINGLE_CLUSTER"
+                and not rollback_checked
+            ):
+                invalid_recorder = EventRecorder(
+                    recorder.db, [-1] * len(recorder.pathways)
+                )
+                invalid_recorder.realization_ids = recorder.realization_ids.copy()
+                before = recorder.db.db.execute(
+                    "select count(*) from event_info"
+                ).fetchone()
+                with pytest.raises(duckdb.ConstraintException):
+                    invalid_recorder(event)
+                assert (
+                    recorder.db.db.execute("select count(*) from event_info").fetchone()
+                    == before
+                )
+                rollback_checked = True
             recorder(event)
+            pathway_id = (
+                recorder.pathways[event.pathway_index]
+                if isinstance(event, api.FragmentationEvent)
+                and mode == "SINGLE_CLUSTER"
+                else None
+            )
+            assert_event_row(recorder.db.db, event, pathway_id)
+            num_events += 1
 
         counters = original_mass_spec(
             ms, subs, n, **{**kwargs, "event_callback": record}
         )
         assert set(initial_states) == set(range(n))
-        for realization, state in initial_states.items():
-            stored = recorder.db.db.execute(
-                "select postime, velocity, omega, rot_energy, internal_energy, particle_index "
-                "from init_event where realization_id = ?",
-                (recorder.realization_ids[realization],),
-            ).fetchall()
-            assert len(stored) == 1
-            postime, velocity, omega, rot, internal, particle = stored[0]
-            np.testing.assert_array_equal(list(postime.values()), state.postime)
-            np.testing.assert_array_equal(list(velocity.values()), state.velocity)
-            np.testing.assert_array_equal(list(omega.values()), state.omega)
-            assert (rot, internal, particle) == (
-                state.rot_energy,
-                state.internal_energy,
-                state.particle_index,
-            )
-
         events = []
         unlogged = original_mass_spec(
             ms,
@@ -290,6 +344,36 @@ def test_init_events_workflow(tmp_path, monkeypatch, mode):
             )
             assert state.rot_energy == initial_states[realization].rot_energy
             assert state.internal_energy == initial_states[realization].internal_energy
+        if mode == "SINGLE_CLUSTER" and num_runs == 0:
+            raw = api.apitofsimraw
+            rate = subs.pathways[0].rate_const
+            nonfragmenting = raw.MassSpecSubstanceSingleInput(
+                subs.cluster_charge_sign,
+                subs.m_ion,
+                subs.R_cluster,
+                subs.density_cluster,
+                [
+                    raw.MassSpecInputFragmentationPathway(
+                        raw.Histogram(rate.x, np.zeros_like(rate.y)), 1e9
+                    )
+                ],
+                subs.gas,
+            )
+            with connection_scope(RealizationDatabase, ":memory:") as escape_db:
+                escape_db.create_tables()
+                escape_recorder = EventRecorder(escape_db, [])
+                escapes = 0
+                with api.mass_spec_iter(
+                    ms, nonfragmenting, n, logconf=(0, True), strict=False
+                ) as stream:
+                    for event in stream:
+                        if isinstance(
+                            event, (api.InitEvent, api.CollisionEvent, api.EscapeEvent)
+                        ):
+                            escape_recorder(event)
+                            assert_event_row(escape_db.db, event)
+                            escapes += isinstance(event, api.EscapeEvent)
+                assert escapes == n
         num_runs += 1
         return counters
 
@@ -298,7 +382,11 @@ def test_init_events_workflow(tmp_path, monkeypatch, mode):
         runner = ExperimentRunner(db)
         runner.run_prepared_config(mode=SimulationMode[mode])
         assert num_runs > 0
-        count = db.db.execute("select count(*) from init_event").fetchone()[0]
+        if mode == "SINGLE_CLUSTER":
+            assert rollback_checked
+        count = db.db.execute(
+            "select count(*) from event_info where event_type = 'init'"
+        ).fetchone()[0]
         assert count == db.db.execute("select count(*) from realization").fetchone()[0]
         assert (
             db.db.execute(
@@ -306,10 +394,78 @@ def test_init_events_workflow(tmp_path, monkeypatch, mode):
             ).fetchone()[0]
             == 0
         )
+        assert (
+            db.db.execute("select count(*) from event_info").fetchone()[0] == num_events
+        )
         db.refresh_views()
+        assert (
+            db.db.execute("select count(*) from event_report").fetchone()[0]
+            == num_events
+        )
+        assert (
+            db.db.execute(
+                "select count(*) from event_info e join event_report r on r.event_id = e.id "
+                "left join collision_event c on c.id = e.id "
+                "left join fragmentation_event f on f.id = e.id "
+                "where e.event_type = r.event_type and e.postime.x = r.x "
+                "and e.postime.y = r.y and e.postime.z = r.z and e.postime.t = r.t "
+                "and e.velocity = r.velocity and e.omega = r.omega "
+                "and e.rot_energy = r.rot_energy and e.internal_energy = r.internal_energy "
+                "and e.particle_index = r.particle_index "
+                "and c.theta is not distinct from r.theta "
+                "and c.u_norm is not distinct from r.u_norm "
+                "and c.accepted is not distinct from r.accepted "
+                "and f.pathway_id is not distinct from r.pathway_id"
+            ).fetchone()[0]
+            == num_events
+        )
         assert (
             db.db.execute(
                 "select count(*) from event_report where event_type = 'init'"
             ).fetchone()[0]
             == count
+        )
+
+
+@pytest.mark.parametrize("accepted", [True, False])
+def test_collision_details_and_escape(accepted, monkeypatch):
+    from types import SimpleNamespace
+
+    import apitofsim.api as api
+    import numpy as np
+    from apitofsim.workflow.db import (
+        EventRecorder,
+        RealizationDatabase,
+        connection_scope,
+    )
+
+    # Native events are read-only; use payload fixtures to exercise both acceptance values.
+    CollisionEvent = type("CollisionEvent", (SimpleNamespace,), {})
+    EscapeEvent = type("EscapeEvent", (SimpleNamespace,), {})
+    monkeypatch.setattr(api, "CollisionEvent", CollisionEvent)
+    monkeypatch.setattr(api, "EscapeEvent", EscapeEvent)
+    state = SimpleNamespace(
+        realization=7,
+        postime=np.array([1.123456789, 2.234567891, 3.345678912, 4.456789123]),
+        velocity=np.array([5.567891234, -6.678912345, 7.789123456]),
+        omega=np.array([8.891234567, 9.912345678, -10.123456789]),
+        rot_energy=1.234567891234567e-21,
+        internal_energy=2.345678912345678e-21,
+        particle_index=3,
+    )
+    with connection_scope(RealizationDatabase, ":memory:") as db:
+        db.create_tables()
+        recorder = EventRecorder(db, [])
+        collision = CollisionEvent(
+            state=state, theta=0.123456789, u_norm=123.456789, accepted=accepted
+        )
+        recorder(collision)
+        assert_event_row(db.db, collision)
+        escape = EscapeEvent(state=state)
+        recorder(escape)
+        assert_event_row(db.db, escape)
+        assert db.db.execute("select count(*) from event_info").fetchone()[0] == 2
+        assert db.db.execute("select count(*) from collision_event").fetchone()[0] == 1
+        assert (
+            db.db.execute("select count(*) from fragmentation_event").fetchone()[0] == 0
         )
