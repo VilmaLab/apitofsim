@@ -469,7 +469,8 @@ TEST_CASE("apitof pinhole smoke tests")
     }
   }
   CHECK(num_partial_results == 5);
-  CHECK(std::all_of(initialized.begin(), initialized.end(), [](bool value) { return value; }));
+  CHECK(std::all_of(initialized.begin(), initialized.end(), [](bool value)
+  { return value; }));
   CHECK((streamed_counters == counters).all());
   Eigen::ArrayXi expected_counters(6);
   expected_counters << 0, 15, 0, 5, 5, 0;
