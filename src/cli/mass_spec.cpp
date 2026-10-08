@@ -195,12 +195,12 @@ void mass_spec_config_in()
     bonding_energy = (electronic_energy_1 + electronic_energy_2 - electronic_energy_0) * hartK;
   }
 
-  auto density_cluster = scaled_density(read_histogram(file_density_cluster.data()));
-  auto rate_const = scaled_rate_const(read_histogram(file_rate_const.data()));
+  auto density_cluster = scaled_density(read_histogram(file_density_cluster));
+  auto rate_const = scaled_rate_const(read_histogram(file_rate_const));
 
   SkimmerData skimmer;
   double mesh_skimmer;
-  std::tie(skimmer, mesh_skimmer) = read_skimmer(file_skimmer.data());
+  std::tie(skimmer, mesh_skimmer) = read_skimmer(file_skimmer);
 
   auto rotations = read_rotations(file_rotations.data());
   auto inertia = compute_inertia(rotations);
