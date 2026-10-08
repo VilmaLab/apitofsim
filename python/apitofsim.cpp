@@ -102,7 +102,7 @@ SkimmerResult skimmer(
   return result;
 }
 
-nb::typed<nb::tuple, Histogram, Histogram> densityandrate(
+std::tuple<Histogram, Histogram> densityandrate(
   ClusterData &cluster_0,
   ClusterData &cluster_1,
   ClusterData &cluster_2,
@@ -125,7 +125,7 @@ nb::typed<nb::tuple, Histogram, Histogram> densityandrate(
   int m_max = int(energy_max / bin_width);
   auto energies = prepare_energies(bin_width, m_max);
   auto energies_rate = prepare_energies(bin_width, m_max_rate);
-  return nb::make_tuple(Histogram(energies, rhos.col(COMB_ROW)), Histogram(energies_rate, k_rate));
+  return std::tuple(Histogram(energies, rhos.col(COMB_ROW)), Histogram(energies_rate, k_rate));
 }
 
 struct MassSpecCleanup
