@@ -1,12 +1,61 @@
 import os
 import signal
 import subprocess
+import sys
 import time
 
 import pytest
 from apitofsim.config import ConfigFile
 from apitofsim.workflow import ExperimentDatabase, ExperimentRunner, ingest_legacy_one
 from click.testing import CliRunner
+
+
+@pytest.mark.parametrize("direct_import", [True, False])
+@pytest.mark.parametrize("work", ["none", "mesh", "atexit"])
+def test_native_interpreter_exit(direct_import, work):
+    from apitofsim import apitofsimraw
+
+    if direct_import:
+        native_module = sys.modules[apitofsimraw.precompute_mesh.__module__]
+        import_code = f"""
+import importlib.util
+spec = importlib.util.spec_from_file_location("apitofsimraw", {native_module.__file__!r})
+r = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(r)
+"""
+    else:
+        import_code = "from apitofsim import apitofsimraw as r"
+    code = (
+        import_code
+        + """
+import atexit
+import time
+
+def mesh():
+    assert r.precompute_mesh(1000., 1., r.MeshMode.compute_mesh_diagonal_multithreaded).size == 1000
+    time.sleep(.02)
+    print("mesh done", flush=True)
+"""
+    )
+    if work == "mesh":
+        code += "\nmesh()\n"
+    elif work == "atexit":
+        code += "\natexit.register(mesh)\n"
+    env = dict(os.environ, PYTHONPATH=os.pathsep.join(sys.path), MALLOC_PERTURB_="55")
+    # The unload race needs repeated fresh processes, not repeated work in one pool.
+    repetitions = 25 if direct_import and work != "none" else 1
+    for _ in range(repetitions):
+        child = subprocess.run(
+            [sys.executable, "-X", "dev", "-c", code],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert child.returncode == 0, child.stdout + child.stderr
+        assert "could not finalize oneTBB" not in child.stderr
+        if work != "none":
+            assert child.stdout.strip() == "mesh done"
 
 
 @pytest.mark.parametrize("signum", [signal.SIGINT, signal.SIGTERM, signal.SIGABRT])

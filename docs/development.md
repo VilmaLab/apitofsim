@@ -65,6 +65,8 @@ The directory `/meson/dev` contains a number of configurations including `clangr
 
 Parallel work is scheduled by oneTBB. Applications that need a scoped limit should use `oneapi::tbb::global_control` or `oneapi::tbb::task_arena`; the single-threaded native files use the same `global_control` mechanism internally. `OMP_NUM_THREADS` is no longer read, and the removed `openmp` Meson option has no replacement.
 
+The native Python extension retains a oneTBB scheduler handle and finalizes it through `Py_AtExit`, before native library teardown. This also covers direct extension imports. If other scheduler users prevent finalization, it prints a native diagnostic to stderr. Unfinished simulation work still needs to complete before interpreter shutdown; cooperative application cleanup is tracked in [issue #85](https://github.com/VilmaLab/apitofsim/issues/85).
+
 OpenMP is not a runtime dependency. The remaining `#pragma omp simd` directives are compiler vectorization hints only; Meson enables them with the compiler-checked `-fopenmp-simd` flag where supported.
 
 Long-running simulations cooperatively cancel on `SIGINT` and `SIGTERM`, restore the previous signal handler, and then re-raise the signal on the calling thread. `SIGABRT` is intentionally not intercepted and remains immediately fatal.

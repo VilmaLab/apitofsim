@@ -1,8 +1,11 @@
 #include <Python.h>
 
 #include <cassert>
+#include <cstdio>
 #include <iostream>
+#include <memory>
 #include <optional>
+#include <stdexcept>
 #include <stdlib.h>
 #include <random>
 
@@ -18,6 +21,7 @@
 #include <nanobind/stl/chrono.h>
 #include <nanobind/stl/tuple.h>
 #include <nanobind/stl/variant.h>
+#include <oneapi/tbb/global_control.h>
 
 #include "skimmer.h"
 #include "densityandrate.h"
@@ -30,6 +34,28 @@ using namespace std;
 
 namespace nb = nanobind;
 using namespace nb::literals;
+
+namespace
+{
+// Py_AtExit owns cleanup; a static destructor could run after TBB teardown.
+oneapi::tbb::task_scheduler_handle *tbb_scheduler_handle = nullptr;
+
+void finalize_tbb() noexcept
+{
+  if (tbb_scheduler_handle == nullptr)
+  {
+    return;
+  }
+  const bool finalized = oneapi::tbb::finalize(*tbb_scheduler_handle, std::nothrow);
+  delete tbb_scheduler_handle;
+  tbb_scheduler_handle = nullptr;
+  if (!finalized)
+  {
+    // Python has already finalized, so diagnostics must use native APIs only.
+    std::fputs("apitofsim: could not finalize oneTBB; other scheduler users remain active.\n", stderr);
+  }
+}
+} // namespace
 
 typedef Eigen::Array<double, Eigen::Dynamic, 6> SkimmerResult;
 
@@ -452,6 +478,16 @@ void register_overflow_translator(nb::exception<CppExceptionT> nb_py_exception)
 
 NB_MODULE(apitofsimraw, m)
 {
+  if (tbb_scheduler_handle == nullptr)
+  {
+    auto handle = std::make_unique<oneapi::tbb::task_scheduler_handle>(oneapi::tbb::attach{});
+    if (Py_AtExit(finalize_tbb) != 0)
+    {
+      throw std::runtime_error("Could not register oneTBB interpreter-exit finalization");
+    }
+    tbb_scheduler_handle = handle.release();
+  }
+
   m.doc() = "APi-TOF-MS simulation module";
   m.def("skimmer", &skimmer);
 
