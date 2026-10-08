@@ -214,9 +214,8 @@ void mass_spec_config_in()
   RuntimeDuration total_time;
   OperationContext operation;
   ExceptionTransport exception_transport;
-  std::thread execution_thread = std::thread([&]
+  std::jthread execution_thread = std::jthread([&]
   {
-    // TODO: Probably want to switch to jthread when possible
     exception_transport.guard([&]
     {
       InstrumentDims lengths(5);

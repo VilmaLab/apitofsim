@@ -128,24 +128,6 @@ std::tuple<Histogram, Histogram> densityandrate(
   return std::tuple(Histogram(energies, rhos.col(COMB_ROW)), Histogram(energies_rate, k_rate));
 }
 
-struct MassSpecCleanup
-{
-  std::thread execution_thread;
-
-  ~MassSpecCleanup()
-  {
-    join_if_joinable();
-  }
-
-  void join_if_joinable()
-  {
-    if (execution_thread.joinable())
-    {
-      execution_thread.join();
-    }
-  }
-};
-
 unsigned long long root_seed(unsigned long long seed)
 {
   mt19937 root_gen = mt19937(seed);
@@ -166,7 +148,7 @@ Eigen::ArrayXi mk_partial_counters(const MassSpecSubstanceTreeInput &subs)
 
 /* Caller must ensure that all parameters passed as reference outlive thread */
 template <typename MassSpecSubstanceT>
-std::thread run_mass_spec_in_thread(
+std::jthread run_mass_spec_in_thread(
   SimulationResult &result,
   OperationContext &operation,
   ExceptionTransport &exception_transport,
@@ -179,9 +161,8 @@ std::thread run_mass_spec_in_thread(
   bool strict,
   std::tuple<int, bool> logconf)
 {
-  return std::thread([&, N, seed, sample_mode, strict, logconf]
+  return std::jthread([&, N, seed, sample_mode, strict, logconf]
   {
-    // TODO: Probably want to switch to jthread when possible
     exception_transport.guard([&, N, seed, sample_mode, strict, logconf]
     {
       result = apitof_mass_spec(
@@ -252,7 +233,7 @@ mass_spec(
   ExceptionTransport exception_transport;
   SimulationResult result;
   Eigen::ArrayXi partial_counters = mk_partial_counters(subs);
-  auto cleanup = MassSpecCleanup{run_mass_spec_in_thread<MassSpecSubstanceT>(result, operation, exception_transport, ms, subs, N, seed, result_queue.queue, sample_mode, strict, logconf)};
+  std::jthread thread = run_mass_spec_in_thread<MassSpecSubstanceT>(result, operation, exception_transport, ms, subs, N, seed, result_queue.queue, sample_mode, strict, logconf);
   while (true)
   {
     auto result = pump_mass_spec_queue(result_queue, partial_counters);
@@ -300,7 +281,7 @@ struct MassSpecIterator
   std::shared_ptr<const void> subs;
   OperationContext operation;
   ExceptionTransport exception_transport;
-  MassSpecCleanup execution_thread;
+  std::jthread execution_thread;
   SimulationResult final_result{};
   bool finished;
 
@@ -318,7 +299,7 @@ struct MassSpecIterator
                                                              subs(std::shared_ptr<const void>(subs)),
                                                              operation(),
                                                              exception_transport(),
-                                                             execution_thread(MassSpecCleanup{run_mass_spec_in_thread<MassSpecSubstanceT>(final_result, operation, exception_transport, *ms, *subs, N, seed, result_queue.queue, sample_mode, strict, logconf)}),
+                                                             execution_thread(run_mass_spec_in_thread<MassSpecSubstanceT>(final_result, operation, exception_transport, *ms, *subs, N, seed, result_queue.queue, sample_mode, strict, logconf)),
                                                              finished(false)
   {
   }
@@ -358,7 +339,10 @@ struct MassSpecIterator
 
   void join_if_joinable()
   {
-    execution_thread.join_if_joinable();
+    if (execution_thread.joinable())
+    {
+      execution_thread.join();
+    }
   }
 };
 
