@@ -677,6 +677,11 @@ SimulationResult apitof_mass_spec(
       Eigen::Vector3d omega = init_ang_vel(gen, gauss, subs.m_ion, chamber.kT, subs.R_cluster);
       double vib_energy = init_vib_energy(gen, unif, chamber.kT, subs.density_cluster);
 
+      if (logconf.log_events && operation.should_continue())
+      {
+        result_queue.enqueue(InitEvent{ParticleStateMsg{j, {x, y, z, t}, v_cluster, omega, evaluate_rotational_energy(omega, subquants.inertia), vib_energy}});
+      }
+
       while (z < chamber.clens.total_length && operation.checkpoint()) // single realization // TO BE CHANGED IN SECOND CHAMBER!!!!!!!!!!!
       {
         double v_cluster_norm = v_cluster.norm();
@@ -914,6 +919,11 @@ SimulationResult apitof_mass_spec(
       double vib_energy = init_vib_energy(gen, unif, chamber.kT, subpayload.density_cluster);
       auto vib_energy_sampler = std::unique_ptr<VibEnergySamplerT>(new VibEnergySamplerT(subpayload.density_cluster));
       int last_pathway_index = -1;
+
+      if (logconf.log_events && operation.should_continue())
+      {
+        result_queue.enqueue(InitEvent{ParticleStateMsg{j, {x, y, z, t}, v_cluster, omega, evaluate_rotational_energy(omega, all_subquants[subpayload_index].inertia), vib_energy, subnode_index}});
+      }
 
       while (z < chamber.clens.total_length && operation.checkpoint()) // single realization // TO BE CHANGED IN SECOND CHAMBER!!!!!!!!!!!
       {

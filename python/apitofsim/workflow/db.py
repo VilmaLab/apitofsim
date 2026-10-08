@@ -745,46 +745,61 @@ class EventRecorder:
         self.pathways = pathways
         assert isinstance(db, RealizationDatabase)
         self.realization_ids = {}
-        self.event_ids = []
+
+    def _insert_event_info(self, state, realization_id, event_type):
+        row = self.db.db.execute(
+            "insert into event_info values (default, ?, ?, "
+            "{'x': ?, 'y': ?, 'z': ?, 't': ?}, "
+            "{'x': ?, 'y': ?, 'z': ?}, {'x': ?, 'y': ?, 'z': ?}, ?, ?, ?) returning id",
+            (
+                realization_id,
+                event_type,
+                *state.postime,
+                *state.velocity,
+                *state.omega,
+                state.rot_energy,
+                state.vibrational_energy,
+                state.particle_index,
+            ),
+        ).fetchone()
+        assert row is not None
+        return row[0]
 
     def __call__(self, event):
         from apitofsim.api import (
             CollisionEvent,
             EscapeEvent,
             FragmentationEvent,
+            InitEvent,
         )
 
+        event_type = {
+            InitEvent: "init",
+            CollisionEvent: "collision",
+            FragmentationEvent: "fragmentation",
+            EscapeEvent: "escape",
+        }[type(event)]
         state = event.state
         if state.realization not in self.realization_ids:
             self.realization_ids[state.realization] = self.db.insert_realization(None)
         realization_id = self.realization_ids[state.realization]
-        if isinstance(event, CollisionEvent):
-            self.db.db.execute(
-                "insert into collision_event values (default, ?, {'x': ?, 'y': ?, 'z': ?, 't': ?})",
-                (
-                    realization_id,
-                    *state.postime,
-                ),
-            ).fetchone()
-        elif isinstance(event, FragmentationEvent):
-            pathway_id = self.pathways[event.pathway_index]
-            self.db.db.execute(
-                "insert into fragmentation_event values (default, ?, {'x': ?, 'y': ?, 'z': ?, 't': ?}, ?)",
-                (
-                    realization_id,
-                    *state.postime,
-                    pathway_id,
-                ),
-            ).fetchone()
-        else:
-            assert isinstance(event, EscapeEvent)
-            self.db.db.execute(
-                "insert into escape_event values (default, ?, {'x': ?, 'y': ?, 'z': ?, 't': ?})",
-                (
-                    realization_id,
-                    *state.postime,
-                ),
-            ).fetchone()
+        self.db.db.execute("begin transaction")
+        try:
+            event_id = self._insert_event_info(state, realization_id, event_type)
+            if isinstance(event, CollisionEvent):
+                self.db.db.execute(
+                    "insert into collision_event values (?, ?, ?, ?)",
+                    (event_id, event.theta, event.u_norm, event.accepted),
+                )
+            elif isinstance(event, FragmentationEvent):
+                self.db.db.execute(
+                    "insert into fragmentation_event values (?, ?)",
+                    (event_id, self.pathways[event.pathway_index]),
+                )
+            self.db.db.execute("commit")
+        except Exception:
+            self.db.db.execute("rollback")
+            raise
 
     def relate_realizations(self, experiment_result_id):
         for realization_id in self.realization_ids.values():

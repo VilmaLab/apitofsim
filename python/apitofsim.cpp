@@ -730,7 +730,11 @@ NB_MODULE(apitofsimraw, m)
     .def_ro("velocity", &ParticleStateMsg::velocity)
     .def_ro("omega", &ParticleStateMsg::omega)
     .def_ro("rot_energy", &ParticleStateMsg::rot_energy)
-    .def_ro("internal_energy", &ParticleStateMsg::internal_energy);
+    .def_ro("vibrational_energy", &ParticleStateMsg::vibrational_energy)
+    .def_ro("particle_index", &ParticleStateMsg::particle_index);
+
+  nb::class_<InitEvent>(m, "InitEvent")
+    .def_ro("state", &InitEvent::state);
 
   nb::class_<CollisionEvent>(m, "CollisionEvent")
     .def_ro("state", &CollisionEvent::state)

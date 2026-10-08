@@ -47,8 +47,13 @@ struct ParticleStateMsg
   Eigen::Array3d velocity;
   Eigen::Array3d omega;
   double rot_energy;
-  double internal_energy;
+  double vibrational_energy;
   int particle_index = 0;
+};
+
+struct InitEvent
+{
+  ParticleStateMsg state;
 };
 
 struct CollisionEvent
@@ -71,7 +76,7 @@ struct EscapeEvent
   ParticleStateMsg state;
 };
 
-using EventMessage = std::variant<CollisionEvent, FragmentationEvent, EscapeEvent>;
+using EventMessage = std::variant<InitEvent, CollisionEvent, FragmentationEvent, EscapeEvent>;
 
 struct LogMessage
 {
