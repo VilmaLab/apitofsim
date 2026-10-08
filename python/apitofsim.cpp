@@ -281,9 +281,9 @@ struct MassSpecIterator
   std::shared_ptr<const void> subs;
   OperationContext operation;
   ExceptionTransport exception_transport;
-  std::jthread execution_thread;
   SimulationResult final_result{};
   bool finished;
+  std::jthread execution_thread;
 
   template <typename MassSpecSubstanceT>
   MassSpecIterator(
@@ -299,8 +299,8 @@ struct MassSpecIterator
                                                              subs(std::shared_ptr<const void>(subs)),
                                                              operation(),
                                                              exception_transport(),
-                                                             execution_thread(run_mass_spec_in_thread<MassSpecSubstanceT>(final_result, operation, exception_transport, *ms, *subs, N, seed, result_queue.queue, sample_mode, strict, logconf)),
-                                                             finished(false)
+                                                             finished(false),
+                                                             execution_thread(run_mass_spec_in_thread<MassSpecSubstanceT>(final_result, operation, exception_transport, *ms, *subs, N, seed, result_queue.queue, sample_mode, strict, logconf))
   {
   }
 
