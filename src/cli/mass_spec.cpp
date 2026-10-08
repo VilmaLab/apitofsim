@@ -102,14 +102,14 @@ void mass_spec_config_in()
   int amu;
   int cluster_charge_sign;
 
-  char file_rate_const[150];
-  char file_density_cluster[150];
-  char file_skimmer[150];
-  char file_rotations[150];
-  char file_electronic_energy_0[150];
-  char file_electronic_energy_1[150];
-  char file_electronic_energy_2[150];
-  char file_probabilities[150];
+  std::string file_rate_const;
+  std::string file_density_cluster;
+  std::string file_skimmer;
+  std::string file_rotations;
+  std::string file_electronic_energy_0;
+  std::string file_electronic_energy_1;
+  std::string file_electronic_energy_2;
+  std::string file_probabilities;
 
   debug_info_on_env();
 
@@ -155,22 +155,22 @@ void mass_spec_config_in()
     &ac_field,
     &radiofrequency,
     &r_quadrupole,
-    file_skimmer,
+    &file_skimmer,
     nullptr, // file_frequencies_0
     nullptr, // file_frequencies_1
     nullptr, // file_frequencies_2
-    file_rotations,
+    &file_rotations,
     nullptr, // file_rotations_1
     nullptr, // file_rotations_2
-    file_electronic_energy_0,
-    file_electronic_energy_1,
-    file_electronic_energy_2,
-    file_density_cluster,
+    &file_electronic_energy_0,
+    &file_electronic_energy_1,
+    &file_electronic_energy_2,
+    &file_density_cluster,
     nullptr,
     nullptr,
     nullptr,
-    file_rate_const,
-    file_probabilities,
+    &file_rate_const,
+    &file_probabilities,
     nullptr, // N_iter
     nullptr, // M_iter
     nullptr, // resolution
@@ -181,13 +181,13 @@ void mass_spec_config_in()
   const int loglevel = get_loglevel();
   if (loglevel >= LOGLEVEL_MIN)
   {
-    writer = LogFileWriter(file_probabilities);
+    writer = LogFileWriter(file_probabilities.data());
   }
 
   // Read electronic energies
-  auto electronic_energy_0 = read_electronic_energy(file_electronic_energy_0);
-  auto electronic_energy_1 = read_electronic_energy(file_electronic_energy_1);
-  auto electronic_energy_2 = read_electronic_energy(file_electronic_energy_2);
+  auto electronic_energy_0 = read_electronic_energy(file_electronic_energy_0.data());
+  auto electronic_energy_1 = read_electronic_energy(file_electronic_energy_1.data());
+  auto electronic_energy_2 = read_electronic_energy(file_electronic_energy_2.data());
 
   // Compute fragmentation energy in Kelvin
   if (bonding_energy == 0)
@@ -195,14 +195,14 @@ void mass_spec_config_in()
     bonding_energy = (electronic_energy_1 + electronic_energy_2 - electronic_energy_0) * hartK;
   }
 
-  auto density_cluster = scaled_density(read_histogram(file_density_cluster));
-  auto rate_const = scaled_rate_const(read_histogram(file_rate_const));
+  auto density_cluster = scaled_density(read_histogram(file_density_cluster.data()));
+  auto rate_const = scaled_rate_const(read_histogram(file_rate_const.data()));
 
   SkimmerData skimmer;
   double mesh_skimmer;
-  std::tie(skimmer, mesh_skimmer) = read_skimmer(file_skimmer);
+  std::tie(skimmer, mesh_skimmer) = read_skimmer(file_skimmer.data());
 
-  auto rotations = read_rotations(file_rotations);
+  auto rotations = read_rotations(file_rotations.data());
   auto inertia = compute_inertia(rotations);
   double m_ion;
   double R_cluster;

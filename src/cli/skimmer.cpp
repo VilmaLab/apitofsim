@@ -23,7 +23,7 @@ int main()
   int M; // number of iterations in solve_eqn
   int resolution; // number of solved points
   int nwarnings = 0;
-  char file_output[150];
+  std::string file_output;
 
   ofstream warnings;
   ofstream output;
@@ -66,7 +66,7 @@ int main()
     nullptr,
     nullptr,
     nullptr,
-    file_output,
+    &file_output,
     nullptr,
     nullptr,
     nullptr,

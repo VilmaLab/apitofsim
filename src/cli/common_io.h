@@ -2,14 +2,15 @@
 
 #include <csignal>
 #include <iostream>
-#include <cstring>
+#include <sstream>
+#include <string>
 #include <fstream>
 #include <Eigen/Dense>
 #include "consts.h"
 
-void check_field_name(const char *buffer, const char *expected)
+void check_field_name(const std::string &buffer, const char *expected)
 {
-  if (strcmp(buffer, expected) != 0)
+  if (buffer != expected)
   {
     std::cerr << "Error while reading input configuration: Expected to read field name '" << expected << "' but got field name '" << buffer << "'" << std::endl;
     exit(EXIT_FAILURE);
@@ -17,19 +18,13 @@ void check_field_name(const char *buffer, const char *expected)
 }
 
 template <typename T>
-void read_val(std::istream &config_in, T *variable, char *buffer)
+void read_val(std::istream &config_in, T *variable, std::string &buffer)
 {
   config_in >> *variable >> buffer;
 }
 
-template <>
-void read_val(std::istream &config_in, char *variable, char *buffer)
-{
-  config_in >> variable >> buffer;
-}
-
 template <typename T>
-void read_field(std::istream &config_in, T variable, char *buffer, const char *expected)
+void read_field(std::istream &config_in, T variable, std::string &buffer, const char *expected)
 {
   if (variable)
   {
@@ -42,11 +37,11 @@ void read_field(std::istream &config_in, T variable, char *buffer, const char *e
   check_field_name(buffer, expected);
 }
 
-bool peek_field_name(std::istream &config_in, char *buffer, const char *expected)
+bool peek_field_name(std::istream &config_in, std::string &buffer, const char *expected)
 {
   int pos = config_in.tellg();
   config_in >> buffer >> buffer;
-  bool success = strcmp(buffer, expected) == 0;
+  bool success = buffer == expected;
   config_in.seekg(pos);
   return success;
 }
@@ -54,7 +49,7 @@ bool peek_field_name(std::istream &config_in, char *buffer, const char *expected
 template <typename AmuT, typename FloatT>
 void read_config(
   std::istream &config_stream,
-  char *title,
+  std::string *title,
   int *cluster_charge_sign,
   AmuT *amu_0,
   AmuT *amu_1,
@@ -86,34 +81,34 @@ void read_config(
   double *ac_field,
   double *radiofrequency,
   double *r_quadrupole,
-  char *file_skimmer,
-  char *file_frequencies_0,
-  char *file_frequencies_1,
-  char *file_frequencies_2,
-  char *file_rotations_0,
-  char *file_rotations_1,
-  char *file_rotations_2,
-  char *file_electronic_energy_0,
-  char *file_electronic_energy_1,
-  char *file_electronic_energy_2,
-  char *file_density_0,
-  char *file_density_1,
-  char *file_density_2,
-  char *file_density_comb,
-  char *file_rate_constant,
-  char *file_probabilities,
+  std::string *file_skimmer,
+  std::string *file_frequencies_0,
+  std::string *file_frequencies_1,
+  std::string *file_frequencies_2,
+  std::string *file_rotations_0,
+  std::string *file_rotations_1,
+  std::string *file_rotations_2,
+  std::string *file_electronic_energy_0,
+  std::string *file_electronic_energy_1,
+  std::string *file_electronic_energy_2,
+  std::string *file_density_0,
+  std::string *file_density_1,
+  std::string *file_density_2,
+  std::string *file_density_comb,
+  std::string *file_rate_constant,
+  std::string *file_probabilities,
   int *N_iter,
   int *M_iter,
   int *resolution,
   double *tolerance)
 {
-  char buffer[256];
+  std::string buffer;
   std::stringstream config_in;
   config_in << config_stream.rdbuf();
   config_in.seekg(0);
   if (title)
   {
-    config_in >> title; // Title line
+    config_in >> *title; // Title line
   }
   else
   {
