@@ -1,8 +1,11 @@
 #include <Python.h>
 
 #include <cassert>
+#include <cstdio>
 #include <iostream>
+#include <memory>
 #include <optional>
+#include <stdexcept>
 #include <stdlib.h>
 #include <random>
 
@@ -18,6 +21,7 @@
 #include <nanobind/stl/chrono.h>
 #include <nanobind/stl/tuple.h>
 #include <nanobind/stl/variant.h>
+#include <oneapi/tbb/global_control.h>
 
 #include "skimmer.h"
 #include "densityandrate.h"
@@ -30,6 +34,28 @@ using namespace std;
 
 namespace nb = nanobind;
 using namespace nb::literals;
+
+namespace
+{
+// Py_AtExit owns cleanup; a static destructor could run after TBB teardown.
+oneapi::tbb::task_scheduler_handle *tbb_scheduler_handle = nullptr;
+
+void finalize_tbb() noexcept
+{
+  if (tbb_scheduler_handle == nullptr)
+  {
+    return;
+  }
+  const bool finalized = oneapi::tbb::finalize(*tbb_scheduler_handle, std::nothrow);
+  delete tbb_scheduler_handle;
+  tbb_scheduler_handle = nullptr;
+  if (!finalized)
+  {
+    // Python has already finalized, so diagnostics must use native APIs only.
+    std::fputs("apitofsim: could not finalize oneTBB; other scheduler users remain active.\n", stderr);
+  }
+}
+} // namespace
 
 typedef Eigen::Array<double, Eigen::Dynamic, 6> SkimmerResult;
 
@@ -102,7 +128,7 @@ SkimmerResult skimmer(
   return result;
 }
 
-nb::typed<nb::tuple, Histogram, Histogram> densityandrate(
+std::tuple<Histogram, Histogram> densityandrate(
   ClusterData &cluster_0,
   ClusterData &cluster_1,
   ClusterData &cluster_2,
@@ -125,26 +151,8 @@ nb::typed<nb::tuple, Histogram, Histogram> densityandrate(
   int m_max = int(energy_max / bin_width);
   auto energies = prepare_energies(bin_width, m_max);
   auto energies_rate = prepare_energies(bin_width, m_max_rate);
-  return nb::make_tuple(Histogram(energies, rhos.col(COMB_ROW)), Histogram(energies_rate, k_rate));
+  return std::tuple(Histogram(energies, rhos.col(COMB_ROW)), Histogram(energies_rate, k_rate));
 }
-
-struct MassSpecCleanup
-{
-  std::thread execution_thread;
-
-  ~MassSpecCleanup()
-  {
-    join_if_joinable();
-  }
-
-  void join_if_joinable()
-  {
-    if (execution_thread.joinable())
-    {
-      execution_thread.join();
-    }
-  }
-};
 
 unsigned long long root_seed(unsigned long long seed)
 {
@@ -166,7 +174,7 @@ Eigen::ArrayXi mk_partial_counters(const MassSpecSubstanceTreeInput &subs)
 
 /* Caller must ensure that all parameters passed as reference outlive thread */
 template <typename MassSpecSubstanceT>
-std::thread run_mass_spec_in_thread(
+std::jthread run_mass_spec_in_thread(
   SimulationResult &result,
   OperationContext &operation,
   ExceptionTransport &exception_transport,
@@ -179,9 +187,8 @@ std::thread run_mass_spec_in_thread(
   bool strict,
   std::tuple<int, bool> logconf)
 {
-  return std::thread([&, N, seed, sample_mode, strict, logconf]
+  return std::jthread([&, N, seed, sample_mode, strict, logconf]
   {
-    // TODO: Probably want to switch to jthread when possible
     exception_transport.guard([&, N, seed, sample_mode, strict, logconf]
     {
       result = apitof_mass_spec(
@@ -252,7 +259,7 @@ mass_spec(
   ExceptionTransport exception_transport;
   SimulationResult result;
   Eigen::ArrayXi partial_counters = mk_partial_counters(subs);
-  auto cleanup = MassSpecCleanup{run_mass_spec_in_thread<MassSpecSubstanceT>(result, operation, exception_transport, ms, subs, N, seed, result_queue.queue, sample_mode, strict, logconf)};
+  std::jthread thread = run_mass_spec_in_thread<MassSpecSubstanceT>(result, operation, exception_transport, ms, subs, N, seed, result_queue.queue, sample_mode, strict, logconf);
   while (true)
   {
     auto result = pump_mass_spec_queue(result_queue, partial_counters);
@@ -300,9 +307,9 @@ struct MassSpecIterator
   std::shared_ptr<const void> subs;
   OperationContext operation;
   ExceptionTransport exception_transport;
-  MassSpecCleanup execution_thread;
   SimulationResult final_result{};
   bool finished;
+  std::jthread execution_thread;
 
   template <typename MassSpecSubstanceT>
   MassSpecIterator(
@@ -318,8 +325,8 @@ struct MassSpecIterator
                                                              subs(std::shared_ptr<const void>(subs)),
                                                              operation(),
                                                              exception_transport(),
-                                                             execution_thread(MassSpecCleanup{run_mass_spec_in_thread<MassSpecSubstanceT>(final_result, operation, exception_transport, *ms, *subs, N, seed, result_queue.queue, sample_mode, strict, logconf)}),
-                                                             finished(false)
+                                                             finished(false),
+                                                             execution_thread(run_mass_spec_in_thread<MassSpecSubstanceT>(final_result, operation, exception_transport, *ms, *subs, N, seed, result_queue.queue, sample_mode, strict, logconf))
   {
   }
 
@@ -358,7 +365,10 @@ struct MassSpecIterator
 
   void join_if_joinable()
   {
-    execution_thread.join_if_joinable();
+    if (execution_thread.joinable())
+    {
+      execution_thread.join();
+    }
   }
 };
 
@@ -468,6 +478,16 @@ void register_overflow_translator(nb::exception<CppExceptionT> nb_py_exception)
 
 NB_MODULE(apitofsimraw, m)
 {
+  if (tbb_scheduler_handle == nullptr)
+  {
+    auto handle = std::make_unique<oneapi::tbb::task_scheduler_handle>(oneapi::tbb::attach{});
+    if (Py_AtExit(finalize_tbb) != 0)
+    {
+      throw std::runtime_error("Could not register oneTBB interpreter-exit finalization");
+    }
+    tbb_scheduler_handle = handle.release();
+  }
+
   m.doc() = "APi-TOF-MS simulation module";
   m.def("skimmer", &skimmer);
 

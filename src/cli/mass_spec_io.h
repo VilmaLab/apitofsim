@@ -8,10 +8,10 @@
 
 using namespace std;
 
-Histogram read_histogram(char const *filename)
+Histogram read_histogram(const std::string &filename)
 {
   ifstream file;
-  char garb[150];
+  std::string garb;
   file.open(filename);
 
   int m_max = 0;
@@ -40,13 +40,13 @@ Histogram read_histogram(char const *filename)
   return Histogram(x, y);
 }
 
-std::tuple<SkimmerData, double> read_skimmer(char const *filename)
+std::tuple<SkimmerData, double> read_skimmer(const std::string &filename)
 {
   int m;
   ifstream file;
   double pos0;
   double pos1;
-  char garb[150];
+  std::string garb;
   int m_max;
   file.open(filename);
   file >> garb;

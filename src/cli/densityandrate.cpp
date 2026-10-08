@@ -17,22 +17,22 @@ double read_electronic_energy(char *filename);
 
 struct ClusterInputs
 {
-  char file_frequencies[150];
-  char file_rotations[150];
-  char file_electronic_energy[150];
+  std::string file_frequencies;
+  std::string file_rotations;
+  std::string file_electronic_energy;
 
   // char file_density[150];
   // char file_density_comb[150];
   void read_into(ClusterData &cluster_data)
   {
     // Read frequencies
-    cluster_data.frequencies = read_frequencies(file_frequencies);
+    cluster_data.frequencies = read_frequencies(file_frequencies.data());
 
     // Read rotational constants
-    cluster_data.rotations = read_rotations(file_rotations);
+    cluster_data.rotations = read_rotations(file_rotations.data());
 
     // Read electronic energies
-    cluster_data.electronic_energy = read_electronic_energy(file_electronic_energy);
+    cluster_data.electronic_energy = read_electronic_energy(file_electronic_energy.data());
   }
 };
 
@@ -45,11 +45,11 @@ int main()
   double fragmentation_energy;
   double P1;
   double T;
-  char file_density_0[150];
-  char file_density_1[150];
-  char file_density_2[150];
-  char file_density_comb[150];
-  char file_rate_constant[150];
+  std::string file_density_0;
+  std::string file_density_1;
+  std::string file_density_2;
+  std::string file_density_comb;
+  std::string file_rate_constant;
 
   debug_info_on_env();
 
@@ -96,20 +96,20 @@ int main()
     nullptr, // radiofrequency
     nullptr, // r_quadrupole
     nullptr, // file_skimmer
-    cluster_files_0.file_frequencies,
-    cluster_files_1.file_frequencies,
-    cluster_files_2.file_frequencies,
-    cluster_files_0.file_rotations,
-    cluster_files_1.file_rotations,
-    cluster_files_2.file_rotations,
-    cluster_files_0.file_electronic_energy,
-    cluster_files_1.file_electronic_energy,
-    cluster_files_2.file_electronic_energy,
-    file_density_0,
-    file_density_1,
-    file_density_2,
-    file_density_comb,
-    file_rate_constant,
+    &cluster_files_0.file_frequencies,
+    &cluster_files_1.file_frequencies,
+    &cluster_files_2.file_frequencies,
+    &cluster_files_0.file_rotations,
+    &cluster_files_1.file_rotations,
+    &cluster_files_2.file_rotations,
+    &cluster_files_0.file_electronic_energy,
+    &cluster_files_1.file_electronic_energy,
+    &cluster_files_2.file_electronic_energy,
+    &file_density_0,
+    &file_density_1,
+    &file_density_2,
+    &file_density_comb,
+    &file_rate_constant,
     nullptr, // file_probabilities
     nullptr, // N_iter
     nullptr, // M_iter
@@ -193,11 +193,11 @@ int main()
   // Write density of states on files
   cout << endl;
   cout << "OUTPUTS" << endl;
-  write_on_file(file_density_0, energies, rhos.col(C0_ROW), m_max);
-  write_on_file(file_density_1, energies, rhos.col(C1_ROW), m_max);
-  write_on_file(file_density_2, energies, rhos.col(C2_ROW), m_max);
-  write_on_file(file_density_comb, energies, rhos.col(COMB_ROW), m_max);
-  write_on_file(file_rate_constant, energies_rate, k_rate, m_max_rate);
+  write_on_file(file_density_0.data(), energies, rhos.col(C0_ROW), m_max);
+  write_on_file(file_density_1.data(), energies, rhos.col(C1_ROW), m_max);
+  write_on_file(file_density_2.data(), energies, rhos.col(C2_ROW), m_max);
+  write_on_file(file_density_comb.data(), energies, rhos.col(COMB_ROW), m_max);
+  write_on_file(file_rate_constant.data(), energies_rate, k_rate, m_max_rate);
   cout << "###" << endl;
 
   return 0;

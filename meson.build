@@ -3,10 +3,10 @@ project(
   'cpp',
   license : 'MIT',
   default_options: {
-    'cpp_std': 'c++17',
+    'cpp_std': 'c++20',
     'b_ndebug': 'if-release',
   },
-  meson_version : '>=1.3.0'
+  meson_version : '>=1.10.0'
 )
 if meson.get_compiler('cpp').get_argument_syntax() == 'msvc'
   # Equivalent to no-unknown-pragmas
