@@ -3,7 +3,7 @@ project(
   'cpp',
   license : 'MIT',
   default_options: {
-    'cpp_std': 'c++17',
+    'cpp_std': 'c++20',
     'b_ndebug': 'if-release',
   },
   meson_version : '>=1.3.0'
