@@ -144,8 +144,8 @@ uv run meson test --benchmark --num-processes 1 -C build
 
 Each recorded event has one `event_info` row containing its realization ID, event type
 (`init`, `collision`, `fragmentation`, or `escape`), position/time, velocity, angular
-velocity, energies, and particle index. State uses double precision; `internal_energy`
-continues to mean vibrational energy. Events retain the snapshots emitted by the simulator.
+velocity, energies, and particle index. State uses double precision and records
+`rot_energy` and `vibrational_energy` separately. Events retain the snapshots emitted by the simulator.
 
 `collision_event` adds `theta`, `u_norm`, and `accepted`; `fragmentation_event` adds
 `pathway_id`. Their primary keys reference `event_info.id`. Init and escape events

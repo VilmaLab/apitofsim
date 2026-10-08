@@ -758,7 +758,7 @@ class EventRecorder:
                 *state.velocity,
                 *state.omega,
                 state.rot_energy,
-                state.internal_energy,
+                state.vibrational_energy,
                 state.particle_index,
             ),
         ).fetchone()

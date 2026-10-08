@@ -198,22 +198,22 @@ def assert_event_row(connection, event, pathway_id=None):
 
     row = connection.execute(
         "select e.id, e.event_type, e.postime, e.velocity, e.omega, "
-        "e.rot_energy, e.internal_energy, e.particle_index, "
+        "e.rot_energy, e.vibrational_energy, e.particle_index, "
         "c.id, c.theta, c.u_norm, c.accepted, f.id, f.pathway_id "
         "from event_info e "
         "left join collision_event c on c.id = e.id "
         "left join fragmentation_event f on f.id = e.id "
         "where e.id = (select max(id) from event_info)"
     ).fetchone()
-    event_id, event_type, postime, velocity, omega, rot, internal, particle = row[:8]
+    event_id, event_type, postime, velocity, omega, rot, vibrational, particle = row[:8]
     state = event.state
     assert event_type == type(event).__name__.removesuffix("Event").lower()
     np.testing.assert_array_equal(list(postime.values()), state.postime)
     np.testing.assert_array_equal(list(velocity.values()), state.velocity)
     np.testing.assert_array_equal(list(omega.values()), state.omega)
-    assert (rot, internal, particle) == (
+    assert (rot, vibrational, particle) == (
         state.rot_energy,
-        state.internal_energy,
+        state.vibrational_energy,
         state.particle_index,
     )
     if isinstance(event, api.CollisionEvent):
@@ -273,7 +273,10 @@ def test_init_events_workflow(tmp_path, monkeypatch, mode):
                 assert np.isfinite(state.velocity).all()
                 assert np.isfinite(state.omega).all()
                 assert np.isfinite(state.rot_energy) and state.rot_energy >= 0
-                assert np.isfinite(state.internal_energy) and state.internal_energy >= 0
+                assert (
+                    np.isfinite(state.vibrational_energy)
+                    and state.vibrational_energy >= 0
+                )
                 assert state.particle_index == 0
                 assert state.rot_energy == pytest.approx(
                     0.2
@@ -343,7 +346,10 @@ def test_init_events_workflow(tmp_path, monkeypatch, mode):
                 state.omega, initial_states[realization].omega
             )
             assert state.rot_energy == initial_states[realization].rot_energy
-            assert state.internal_energy == initial_states[realization].internal_energy
+            assert (
+                state.vibrational_energy
+                == initial_states[realization].vibrational_energy
+            )
         if mode == "SINGLE_CLUSTER" and num_runs == 0:
             raw = api.apitofsimraw
             rate = subs.pathways[0].rate_const
@@ -410,7 +416,7 @@ def test_init_events_workflow(tmp_path, monkeypatch, mode):
                 "where e.event_type = r.event_type and e.postime.x = r.x "
                 "and e.postime.y = r.y and e.postime.z = r.z and e.postime.t = r.t "
                 "and e.velocity = r.velocity and e.omega = r.omega "
-                "and e.rot_energy = r.rot_energy and e.internal_energy = r.internal_energy "
+                "and e.rot_energy = r.rot_energy and e.vibrational_energy = r.vibrational_energy "
                 "and e.particle_index = r.particle_index "
                 "and c.theta is not distinct from r.theta "
                 "and c.u_norm is not distinct from r.u_norm "
@@ -450,7 +456,7 @@ def test_collision_details_and_escape(accepted, monkeypatch):
         velocity=np.array([5.567891234, -6.678912345, 7.789123456]),
         omega=np.array([8.891234567, 9.912345678, -10.123456789]),
         rot_energy=1.234567891234567e-21,
-        internal_energy=2.345678912345678e-21,
+        vibrational_energy=2.345678912345678e-21,
         particle_index=3,
     )
     with connection_scope(RealizationDatabase, ":memory:") as db:

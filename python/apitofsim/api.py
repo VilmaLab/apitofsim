@@ -707,8 +707,7 @@ def mass_spec(
     This function runs the main simulation of the APi-ToF mass spectrometer.
 
     With event logging enabled, each realization begins with an InitEvent carrying
-    the sampled particle state. Its internal_energy field is vibrational energy,
-    following the convention used by the other events.
+    the sampled particle state, including its vibrational_energy.
     """
 
     def convert_counters(counters):

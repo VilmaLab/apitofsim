@@ -47,7 +47,7 @@ struct ParticleStateMsg
   Eigen::Array3d velocity;
   Eigen::Array3d omega;
   double rot_energy;
-  double internal_energy;
+  double vibrational_energy;
   int particle_index = 0;
 };
 

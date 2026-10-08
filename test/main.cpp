@@ -443,7 +443,7 @@ TEST_CASE("apitof pinhole smoke tests")
           CHECK(state.velocity.isFinite().all());
           CHECK(state.omega.isFinite().all());
           CHECK(state.rot_energy >= 0.0);
-          CHECK(state.internal_energy >= 0.0);
+          CHECK(state.vibrational_energy >= 0.0);
           CHECK(state.particle_index == 0);
         }
         else

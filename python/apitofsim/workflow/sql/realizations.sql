@@ -18,7 +18,7 @@ create table event_info (
     velocity vector_type not null,
     omega vector_type not null,
     rot_energy double not null,
-    internal_energy double not null,
+    vibrational_energy double not null,
     particle_index integer not null
 );
 

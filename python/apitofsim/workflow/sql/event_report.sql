@@ -16,7 +16,7 @@ select
     event_info.velocity,
     event_info.omega,
     event_info.rot_energy,
-    event_info.internal_energy,
+    event_info.vibrational_energy,
     event_info.particle_index,
     collision_event.theta,
     collision_event.u_norm,
