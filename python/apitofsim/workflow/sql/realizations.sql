@@ -12,7 +12,8 @@ create type vector_type as struct(x double, y double, z double);
 
 create table event_info (
     id integer default nextval('realization_event_sequence') primary key,
-    realization_id integer not null references realization (id),
+    realization_id integer not null,
+    foreign key (realization_id) references realization (id),
     event_type event_type not null,
     postime position_type not null,
     velocity vector_type not null,
@@ -23,13 +24,16 @@ create table event_info (
 );
 
 create table collision_event (
-    id integer primary key references event_info (id),
+    id integer primary key,
+    foreign key (id) references event_info (id),
     theta double not null,
     u_norm double not null,
     accepted boolean not null
 );
 
 create table fragmentation_event (
-    id integer primary key references event_info (id),
-    pathway_id integer null references pathway (id)
+    id integer primary key,
+    foreign key (id) references event_info (id),
+    pathway_id integer null,
+    foreign key (pathway_id) references pathway (id)
 );
