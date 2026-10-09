@@ -59,7 +59,7 @@ void finalize_tbb() noexcept
 
 using SkimmerResult = Eigen::Array<double, Eigen::Dynamic, 6>;
 
-const unsigned long long DEFAULT_SEED = 42ull;
+const unsigned long long DEFAULT_SEED = 42ULL;
 const std::tuple<int, bool> DEFAULT_LOGCONF_TUPLE = std::tuple(DEFAULT_LOGLEVEL, false);
 
 struct PythonWarningHelper
@@ -307,7 +307,7 @@ struct MassSpecIterator
   std::shared_ptr<const void> subs;
   OperationContext operation;
   ExceptionTransport exception_transport;
-  SimulationResult final_result{};
+  SimulationResult final_result;
   bool finished{false};
   std::jthread execution_thread;
 
@@ -323,7 +323,6 @@ struct MassSpecIterator
                                                              partial_counters(mk_partial_counters(*subs)),
                                                              ms(ms),
                                                              subs(std::shared_ptr<const void>(subs)),
-                                                             operation(),
                                                              exception_transport(),
                                                              execution_thread(run_mass_spec_in_thread<MassSpecSubstanceT>(final_result, operation, exception_transport, *ms, *subs, N, seed, result_queue.queue, sample_mode, strict, logconf))
   {
@@ -466,7 +465,7 @@ void register_overflow_translator(nb::exception<CppExceptionT> nb_py_exception)
     }
     catch (const CppExceptionT &err)
     {
-      auto c_py_exc = static_cast<PyObject *>(payload);
+      auto *c_py_exc = static_cast<PyObject *>(payload);
       auto py_exc = nb::borrow(c_py_exc)(err.what());
       py_exc.attr("max") = err.max;
       py_exc.attr("current") = err.current;

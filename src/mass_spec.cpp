@@ -548,7 +548,7 @@ SubstanceQuantities::SubstanceQuantities(
   const Gas &gas,
   const int cluster_charge_sign,
   const double m_ion,
-  const double R_cluster) : reduced_mass(1. / (1. / m_ion + 1. / gas.mass)),
+  const double R_cluster) : reduced_mass(1. / ((1. / m_ion) + (1. / gas.mass))),
                             inertia(0.4 * m_ion * R_cluster * R_cluster),
                             acc(chamber.E * consts::eV * cluster_charge_sign / m_ion),
                             dts(chamber.pressures.histogram_dts(R_cluster + gas.radius, chamber.mobility_gas, chamber.mobility_gas_inv, DT_MULTIPLIER, ms.quadrupole))
@@ -1079,7 +1079,7 @@ SimulationResult apitof_mass_spec(
 
 double evaluate_error(int n, int k)
 {
-  return sqrt((6.0 * k * k - k * (6.0 + k) * n + (2.0 + k) * n * n) / (n * n * (3.0 + n) * (2.0 + n)));
+  return sqrt(((6.0 * k * k) - (k * (6.0 + k) * n) + ((2.0 + k) * n * n)) / (n * n * (3.0 + n) * (2.0 + n)));
 }
 
 // Compute normalized cross product of vectors
@@ -1199,11 +1199,11 @@ std::tuple<double, double, double> update_skimmer_quantities(const SkimmerData &
   }
   else
   {
-    coeff1 = (position - m * mesh_skimmer) / mesh_skimmer;
+    coeff1 = (position - (m * mesh_skimmer)) / mesh_skimmer;
     coeff2 = 1.0 - coeff1;
-    v_gas = coeff2 * skimmer(m, VEL_SKIMMER) + coeff1 * skimmer(m + 1, VEL_SKIMMER);
-    temp = coeff2 * skimmer(m, TEMP_SKIMMER) + coeff1 * skimmer(m + 1, TEMP_SKIMMER);
-    pressure = coeff2 * skimmer(m, PRESSURE_SKIMMER) + coeff1 * skimmer(m + 1, PRESSURE_SKIMMER);
+    v_gas = (coeff2 * skimmer(m, VEL_SKIMMER)) + (coeff1 * skimmer(m + 1, VEL_SKIMMER));
+    temp = (coeff2 * skimmer(m, TEMP_SKIMMER)) + (coeff1 * skimmer(m + 1, TEMP_SKIMMER));
+    pressure = (coeff2 * skimmer(m, PRESSURE_SKIMMER)) + (coeff1 * skimmer(m + 1, PRESSURE_SKIMMER));
   }
   // density=coeff2*density_skimmer[m]+coeff1*density_skimmer[m+1];
   return std::make_tuple(v_gas, temp, pressure);
@@ -1265,11 +1265,11 @@ std::tuple<double, double, double> update_physical_quantities(double z, const Sk
     }
     else
     {
-      coeff1 = (position - m * mesh_skimmer) / mesh_skimmer;
+      coeff1 = (position - (m * mesh_skimmer)) / mesh_skimmer;
       coeff2 = 1.0 - coeff1;
-      v_gas = coeff2 * skimmer(m, VEL_SKIMMER) + coeff1 * skimmer(m + 1, VEL_SKIMMER);
-      temperature = coeff2 * skimmer(m, TEMP_SKIMMER) + coeff1 * skimmer(m + 1, TEMP_SKIMMER);
-      pressure = coeff2 * skimmer(m, PRESSURE_SKIMMER) + coeff1 * skimmer(m + 1, PRESSURE_SKIMMER);
+      v_gas = (coeff2 * skimmer(m, VEL_SKIMMER)) + (coeff1 * skimmer(m + 1, VEL_SKIMMER));
+      temperature = (coeff2 * skimmer(m, TEMP_SKIMMER)) + (coeff1 * skimmer(m + 1, TEMP_SKIMMER));
+      pressure = (coeff2 * skimmer(m, PRESSURE_SKIMMER)) + (coeff1 * skimmer(m + 1, PRESSURE_SKIMMER));
     }
   }
   else
@@ -1324,7 +1324,7 @@ TimeNextCollOutcome time_next_coll_quadrupole(GenT &gen, uniform_real_distributi
   double c1;
   double c2;
   double v1;
-  double v_cluster_norm_xy = v_cluster[0] * v_cluster[0] + v_cluster[1] * v_cluster[1];
+  double v_cluster_norm_xy = (v_cluster[0] * v_cluster[0]) + (v_cluster[1] * v_cluster[1]);
   double r = unif(gen);
   double mobility_gas_skimmer;
   double mobility_gas_inv_skimmer;
@@ -1395,8 +1395,8 @@ TimeNextCollOutcome time_next_coll_quadrupole(GenT &gen, uniform_real_distributi
     {
       if (quadrupole)
       {
-        accx = quadrupole->mathieu_factor * (-quadrupole->dc_field + quadrupole->ac_field * cos(quadrupole->angular_velocity * t)) * (x + v_cluster[0] * dts[1] / 2.0);
-        accy = quadrupole->mathieu_factor * (quadrupole->dc_field - quadrupole->ac_field * cos(quadrupole->angular_velocity * t)) * (y + v_cluster[1] * dts[1] / 2.0);
+        accx = quadrupole->mathieu_factor * (-quadrupole->dc_field + (quadrupole->ac_field * cos(quadrupole->angular_velocity * t))) * (x + (v_cluster[0] * dts[1] / 2.0));
+        accy = quadrupole->mathieu_factor * (quadrupole->dc_field - (quadrupole->ac_field * cos(quadrupole->angular_velocity * t))) * (y + (v_cluster[1] * dts[1] / 2.0));
         v_cluster[0] += accx * dts[1];
         v_cluster[1] += accy * dts[1];
       }
@@ -1487,8 +1487,8 @@ TimeNextCollOutcome time_next_coll_quadrupole(GenT &gen, uniform_real_distributi
 
 double boundary_vib_energy(double vib_energy_old, double reduced_mass, double u_norm, double v_cluster_norm, double theta)
 {
-  double relative_speed = u_norm + v_cluster_norm * cos(theta);
-  return vib_energy_old + reduced_mass * 0.5 * relative_speed * relative_speed;
+  double relative_speed = u_norm + (v_cluster_norm * cos(theta));
+  return vib_energy_old + (reduced_mass * 0.5 * relative_speed * relative_speed);
 }
 
 // Redistribution of internal energy (between vibrational and rotational modes)
@@ -1559,11 +1559,11 @@ std::tuple<Eigen::Vector3d, Eigen::Vector3d> eval_velocities(const Eigen::Vector
 
 
   // cout << v[0]<< " " << v[1]<< " " << v[2]<<endl<<endl;
-  vy = (4.0 * omega[0] * R_cluster + 4.0 * u[1] + (3.0 + 2.0 * ratio_masses) * v[1]) / (7.0 + 2.0 * ratio_masses);
+  vy = ((4.0 * omega[0] * R_cluster) + (4.0 * u[1]) + ((3.0 + (2.0 * ratio_masses)) * v[1])) / (7.0 + (2.0 * ratio_masses));
 
   // cout << u[1]-v[1] << endl<<endl;
   //  In case of anelastic collision, part of the energy (vib_energy) is absorbed by the cluster into vibrational modes, and the y-velocity becomes
-  radicand = m_reduced * m_reduced * pow(u[0] - v[2], 2) - 2.0 * (vib_energy - vib_energy_old) * m_reduced / M;
+  radicand = (m_reduced * m_reduced * pow(u[0] - v[2], 2)) - (2.0 * (vib_energy - vib_energy_old) * m_reduced / M);
   // cout << radicand << endl;
   if (radicand < 0)
   {
@@ -1572,11 +1572,11 @@ std::tuple<Eigen::Vector3d, Eigen::Vector3d> eval_velocities(const Eigen::Vector
       msg << "sqrt of negative number in evaluation of velocities after collision! radicand: " << radicand << endl;
     });
   }
-  vz = m_reduced * u[0] + M_reduced * v[2] - sqrt(radicand);
+  vz = (m_reduced * u[0]) + (M_reduced * v[2]) - sqrt(radicand);
 
-  vx = (-4.0 * omega[1] * R_cluster + (3.0 + 2.0 * ratio_masses) * v[0]) / (7.0 + 2.0 * ratio_masses);
-  omegay = ((2.0 * ratio_masses - 3.0) * omega[1] - 10.0 * (v[0] / R_cluster)) / (7.0 + 2.0 * ratio_masses);
-  omegax = ((-3.0 + 2.0 * ratio_masses) * omega[0] + (10.0 * (v[1] - u[1])) / R_cluster) / (7.0 + 2.0 * ratio_masses);
+  vx = ((-4.0 * omega[1] * R_cluster) + ((3.0 + (2.0 * ratio_masses)) * v[0])) / (7.0 + (2.0 * ratio_masses));
+  omegay = ((((2.0 * ratio_masses) - 3.0) * omega[1]) - (10.0 * (v[0] / R_cluster))) / (7.0 + (2.0 * ratio_masses));
+  omegax = (((-3.0 + (2.0 * ratio_masses)) * omega[0]) + ((10.0 * (v[1] - u[1])) / R_cluster)) / (7.0 + (2.0 * ratio_masses));
 
   Eigen::Vector3d v_new;
   v_new[0] = vx;
@@ -1629,7 +1629,7 @@ std::tuple<Eigen::Vector3d, Eigen::Vector3d, Eigen::Vector3d> change_coord(const
   {
     for (int i = 0; i < 3; i++)
     {
-      z2[i] = sin(theta) * cos(phi) * x1[i] + sin(theta) * sin(phi) * y1[i] + cos(theta) * z1[i];
+      z2[i] = (sin(theta) * cos(phi) * x1[i]) + (sin(theta) * sin(phi) * y1[i]) + (cos(theta) * z1[i]);
     }
     x2 = cross_norm(z2, z1);
     y2 = cross_norm(z2, x2);
@@ -1667,8 +1667,8 @@ std::tuple<Eigen::Vector3d, Eigen::Vector3d, Eigen::Vector3d> change_coord(const
   for (int i = 0; i < 3; i++)
   {
     z3[i] = z2[i];
-    x3[i] = cos(alpha) * x2[i] + sin(alpha) * y2[i];
-    y3[i] = -sin(alpha) * x2[i] + cos(alpha) * y2[i];
+    x3[i] = (cos(alpha) * x2[i]) + (sin(alpha) * y2[i]);
+    y3[i] = (-sin(alpha) * x2[i]) + (cos(alpha) * y2[i]);
   }
   return std::make_tuple(x3, y3, z3);
 }
@@ -1692,8 +1692,8 @@ double eval_solid_angle_stokes(double R, double L, double xx, double yy, double 
   phi = 0.0;
   xphi = R * xx * cos(phi);
   yphi = R * yy * sin(phi);
-  c = R * R + xx * xx + yy * yy - 2.0 * xphi - 2.0 * yphi;
-  integrand = (1.0 - zz / sqrt(c + zz * zz)) * (R * R - xphi - yphi) / c;
+  c = (R * R) + (xx * xx) + (yy * yy) - (2.0 * xphi) - (2.0 * yphi);
+  integrand = (1.0 - (zz / sqrt(c + (zz * zz)))) * ((R * R) - xphi - yphi) / c;
   sum += 0.5 * integrand;
 
   for (int i = 1; i < N; i++)
@@ -1701,16 +1701,16 @@ double eval_solid_angle_stokes(double R, double L, double xx, double yy, double 
     phi = dphi * i;
     xphi = R * xx * cos(phi);
     yphi = R * yy * sin(phi);
-    c = R * R + xx * xx + yy * yy - 2.0 * xphi - 2.0 * yphi;
-    integrand = (1.0 - zz / sqrt(c + zz * zz)) * (R * R - xphi - yphi) / c;
+    c = (R * R) + (xx * xx) + (yy * yy) - (2.0 * xphi) - (2.0 * yphi);
+    integrand = (1.0 - (zz / sqrt(c + (zz * zz)))) * ((R * R) - xphi - yphi) / c;
     sum += integrand;
   }
 
   phi = 2.0 * pi;
   xphi = R * xx * cos(phi);
   yphi = R * yy * sin(phi);
-  c = R * R + xx * xx + yy * yy - 2.0 * xphi - 2.0 * yphi;
-  integrand = (1.0 - zz / sqrt(c + zz * zz)) * (R * R - xphi - yphi) / c;
+  c = (R * R) + (xx * xx) + (yy * yy) - (2.0 * xphi) - (2.0 * yphi);
+  integrand = (1.0 - (zz / sqrt(c + (zz * zz)))) * ((R * R) - xphi - yphi) / c;
   sum += 0.5 * integrand;
 
   return sum * dphi;
@@ -1769,14 +1769,14 @@ bool eval_collision(GenT &gen, uniform_real_distribution<double> &unif, double g
       // Evaluate gas molecule velocity
       for (int i = 0; i < 3; i++)
       {
-        velocity_gas[i] = u[1] * y3[i] + u[0] * z3[i];
+        velocity_gas[i] = (u[1] * y3[i]) + (u[0] * z3[i]);
       }
       // Check if the gas molecule comes from the pinhole
       if (velocity_gas[2] < 0.0)
       {
-        target[0] = velocity_gas[0] * (L - z) / velocity_gas[2] + x;
-        target[1] = velocity_gas[1] * (L - z) / velocity_gas[2] + y;
-        if (target[0] * target[0] + target[1] * target[1] < radius_pinhole * radius_pinhole)
+        target[0] = (velocity_gas[0] * (L - z) / velocity_gas[2]) + x;
+        target[1] = (velocity_gas[1] * (L - z) / velocity_gas[2]) + y;
+        if ((target[0] * target[0]) + (target[1] * target[1]) < radius_pinhole * radius_pinhole)
           inside_target = true;
       }
       else
@@ -1793,9 +1793,9 @@ bool eval_collision(GenT &gen, uniform_real_distribution<double> &unif, double g
       if (inside_target)
       {
         double r = unif(gen);
-        distance = sqrt(x * x + y * y + (L - z) * (L - z));
+        distance = sqrt((x * x) + (y * y) + ((L - z) * (L - z)));
         // Probability to accept the collision prob_coll
-        prob_coll = (1.0 - exp(-distance / gas_mean_free_path)) * (1.0 - eval_solid_angle_stokes(radius_pinhole, L, x, y, z) / (2.0 * pi));
+        prob_coll = (1.0 - exp(-distance / gas_mean_free_path)) * (1.0 - (eval_solid_angle_stokes(radius_pinhole, L, x, y, z) / (2.0 * pi)));
 
         // prob_coll=1.0-eval_solid_angle(radius_pinhole, L, x, y, z)/(2.0*pi);
         // prob_coll=1.0;
@@ -1815,8 +1815,8 @@ bool eval_collision(GenT &gen, uniform_real_distribution<double> &unif, double g
     // Express new velocities in lab reference system
     for (int i = 0; i < 3; i++)
     {
-      v_cluster[i] = v2[0] * x3[i] + v2[1] * y3[i] + v2[2] * z3[i];
-      omega[i] = omega2[0] * x3[i] + omega2[1] * y3[i] + omega2[2] * z3[i];
+      v_cluster[i] = (v2[0] * x3[i]) + (v2[1] * y3[i]) + (v2[2] * z3[i]);
+      omega[i] = (omega2[0] * x3[i]) + (omega2[1] * y3[i]) + (omega2[2] * z3[i]);
     }
   }
   return collision_accepted;

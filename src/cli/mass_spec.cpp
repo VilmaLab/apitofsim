@@ -69,7 +69,7 @@ void mass_spec_config_in()
 {
   using namespace consts;
   // Mersenne-Twister uniform random number generator
-  mt19937 root_gen = mt19937(42ull);
+  mt19937 root_gen = mt19937(42ULL);
   unsigned long long root_seed = root_gen();
 
   double L0;

@@ -12,8 +12,6 @@ using namespace std;
 void write_on_file(char *filename, const Eigen::Ref<const Eigen::ArrayXd> x, const Eigen::Ref<const Eigen::ArrayXd> y, int m_max);
 
 Eigen::ArrayXd read_frequencies(char *filename);
-Eigen::Array3d read_rotations(char *filename);
-double read_electronic_energy(char *filename);
 
 struct ClusterInputs
 {

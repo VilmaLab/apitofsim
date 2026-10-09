@@ -255,7 +255,7 @@ void compute_k_total_atom(Eigen::ArrayXd &k0, Eigen::Ref<Eigen::ArrayXd> k_rate,
 {
   using consts::pi, consts::boltzmann, consts::hbar;
 
-  double prefactor = boltzmann * boltzmann * (inertia_moment_1) / (pi * hbar * hbar * hbar);
+  double prefactor = boltzmann * boltzmann * inertia_moment_1 / (pi * hbar * hbar * hbar);
   int n_fragmentation = static_cast<int>(fragmentation_energy / bin_width);
   for (int m = 0; m < m_max_rate; m++)
   {
@@ -316,7 +316,7 @@ void compute_density_of_states_old(const Eigen::ArrayXd &frequencies, Eigen::Ref
       k_max = static_cast<int>(E_m / frequency);
       for (int k = 0; k < k_max + 1; k++)
       {
-        delta_energy = E_m - frequency * k;
+        delta_energy = E_m - (frequency * k);
         rho_new[m] += rho[static_cast<int>(delta_energy / bin_width)];
       }
     }
@@ -336,7 +336,8 @@ void compute_density_of_states(const Eigen::ArrayXd &frequencies, Eigen::Ref<Eig
   // This algorithm is Bayer-Swinehartt Algorithm 448
   // `Number of Multiply-Restricted Partitions`
   // https://dl.acm.org/doi/pdf/10.1145/362248.362275
-  int i, m;
+  int i;
+  int m;
   int num_oscillators = frequencies.rows();
 
   int m_max = static_cast<int>(energy_max / bin_width);
