@@ -1,7 +1,6 @@
 fs = import('fs')
 
 python = import('python').find_installation()
-python_dep = python.dependency(include_type : 'system')
 python_cpp = meson.get_compiler('cpp')
 python_link_args = []
 if python_cpp.get_id() == 'clang-cl'
