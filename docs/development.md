@@ -168,3 +168,19 @@ There is no migration or compatibility query layer. Consumers needing updates in
 
 Tree fragmentation's existing pathway-index issue is tracked separately in
 [issue #81](https://github.com/VilmaLab/apitofsim/issues/81).
+
+### Bumping the downstream pins
+
+`apitofsim-web` and `apitofsim-resultviewer` pin the wheels and the conda package of one release
+by URL. `bump_downstream.py` reads the assets and their sha256 digests from the release page and
+rewrites the pins in one file, `pyproject.toml` in the current directory by default:
+
+```bash
+cd ../apitofsim-web
+../apitofsim/bump_downstream.py v0.0.18          # pyproject.toml, plus uv.lock
+../apitofsim/bump_downstream.py v0.0.18 env.yaml # conda environment
+```
+
+A `.toml` file counts as a uv project, so the `uv.lock` next to it is rewritten as well and
+`uv lock --check` verifies both. A `.yaml` file is a conda environment. Add `--dry-run` to see
+the changes without writing them.
