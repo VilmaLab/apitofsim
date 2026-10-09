@@ -1,8 +1,54 @@
+# Overrides:
+# 1. First group (starting -modernize-use-auto): "never"
+# 2. Look into these "one day"
+# 3. Look into these "soon"
+# 4. "to triage"
 Checks: >
   clang-diagnostic-*,
   clang-analyzer-*,
-  bugprone,
-  cppcoreguidelines,
-  clang-analyzer,
-  openmp
-WarningsAsErrors: true
+  bugprone-*,
+  cppcoreguidelines-*,
+  openmp-*,
+  modernize-*,
+  performance-*,
+  readability-*,
+
+  -modernize-use-auto,
+  -modernize-use-trailing-return-type,
+  -modernize-use-designated-initializers,
+  -performance-avoid-endl,
+  -readability-braces-around-statements,
+  -readability-static-accessed-through-instance,
+  -readability-magic-numbers,
+  -cppcoreguidelines-avoid-magic-numbers,
+  -readability-identifier-length,
+  -bugprone-unused-raii,
+  -bugprone-throw-keyword-missing,
+  -readability-suspicious-call-argument,
+  -bugprone-suspicious-stringview-data-usage,
+  -bugprone-reserved-identifier,
+  -bugprone-random-generator-seed,
+  -readability-avoid-const-params-in-decls,
+  -readability-else-after-return,
+
+  -performance-enum-size,
+  -performance-unnecessary-value-param,
+  -modernize-pass-by-value,
+
+  -modernize-avoid-c-arrays,
+  -cppcoreguidelines-avoid-c-arrays,
+  -cppcoreguidelines-pro-bounds-pointer-arithmetic,
+  -cppcoreguidelines-pro-bounds-array-to-pointer-decay,
+  -cppcoreguidelines-pro-bounds-avoid-unchecked-container-access,
+  -cppcoreguidelines-prefer-member-initializer,
+  -modernize-use-nodiscard,
+  -cppcoreguidelines-init-variables,
+
+  -bugprone-easily-swappable-parameters,
+  -cppcoreguidelines-non-private-member-variables-in-classes,
+  -cppcoreguidelines-avoid-const-or-ref-data-members,
+  -cppcoreguidelines-avoid-non-const-global-variables,
+  -readability-function-cognitive-complexity,
+  -cppcoreguidelines-use-enum-class,
+  -cppcoreguidelines-pro-bounds-constant-array-index
+WarningsAsErrors: '*'
