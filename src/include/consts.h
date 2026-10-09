@@ -1,8 +1,10 @@
 #pragma once
 
+#include <numbers>
+
 namespace consts
 {
-const double pi = 3.14159265358979323846;
+const double pi = std::numbers::pi;
 const double eV = 1.602176565e-19;
 const double boltzmann = 1.38064852e-23;
 const double pmass = 1.6726219e-27;

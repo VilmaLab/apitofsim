@@ -1,7 +1,7 @@
 #include <iostream>
 #include <iomanip>
-#include <stdlib.h>
-#include <math.h>
+#include <cstdlib>
+#include <cmath>
 #include <Eigen/Dense>
 #include "apitofsim.h"
 #include "densityandrate.h"
@@ -61,7 +61,7 @@ int main()
   ClusterData cluster_2 = ClusterData();
 
   // Use read_config to read all input fields
-  read_config(
+  read_config<int, double>(
     std::cin,
     nullptr, // title
     nullptr, // cluster_charge_sign
@@ -70,9 +70,9 @@ int main()
     &cluster_2.atomic_mass,
     &T,
     &P1,
-    (double *)nullptr, // pressure_second
+    nullptr, // pressure_second
     nullptr, // L0
-    (double *)nullptr, // Lsk
+    nullptr, // Lsk
     nullptr, // L1
     nullptr, // L2
     nullptr, // L3
@@ -183,8 +183,8 @@ int main()
 
   const Eigen::ArrayXd k_rate = compute_k_total_full(cluster_0, cluster_1, cluster_2, rhos, fragmentation_energy, energy_max_rate, bin_width);
 
-  int m_max_rate = int(energy_max_rate / bin_width);
-  int m_max = int(energy_max / bin_width);
+  int m_max_rate = static_cast<int>(energy_max_rate / bin_width);
+  int m_max = static_cast<int>(energy_max / bin_width);
   auto energies = prepare_energies(bin_width, m_max);
   auto energies_rate = prepare_energies(bin_width, m_max_rate);
 
@@ -222,7 +222,7 @@ void write_on_file(char *filename, const Eigen::Ref<const Eigen::ArrayXd> x, con
 Eigen::ArrayXd read_frequencies(char *filename)
 {
   ifstream file;
-  char garb[150];
+  std::string garb;
   file.open(filename);
 
   // Count the number of frequencies

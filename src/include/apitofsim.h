@@ -48,7 +48,7 @@ struct Histogram
   std::variant<double, OutOfBounds> get_lerp(double x) const
   {
     double bin_right = x + 0.5 * bin_width;
-    int m = int(bin_right / bin_width);
+    int m = static_cast<int>(bin_right / bin_width);
     double coeff1 = (x - (m - 0.5) * bin_width) / bin_width;
     double coeff2 = 1.0 - coeff1;
     if (m >= length())

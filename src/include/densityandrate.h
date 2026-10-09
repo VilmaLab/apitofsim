@@ -5,7 +5,7 @@
 #include <Eigen/Dense>
 #include <optional>
 
-typedef Eigen::Array<double, Eigen::Dynamic, 4> DensityResult;
+using DensityResult = Eigen::Array<double, Eigen::Dynamic, 4>;
 const int C0_ROW = 0;
 const int C1_ROW = 1;
 const int C2_ROW = 2;

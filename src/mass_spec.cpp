@@ -2,9 +2,10 @@
 #include <iostream>
 #include <random>
 #include <iomanip>
-#include <stdlib.h>
+#include <cstdlib>
 #include <chrono>
-#include <math.h>
+#include <cmath>
+#include <numbers>
 #include <variant>
 #include <vector>
 #include "apitofsim.h"
@@ -479,7 +480,7 @@ Eigen::Array2d Pressures::histogram_dts(double R_tot, double mobility_gas, doubl
   {
     dt2 = 1.0 / quadrupole->radiofrequency / 1000.0;
   }
-  return Eigen::Array2d(dt1, dt2);
+  return {dt1, dt2};
 }
 
 CumulativeLengths::CumulativeLengths(const InstrumentDims &lengths)
@@ -809,7 +810,7 @@ SimulationResult apitof_mass_spec(
   RuntimeDuration loop_time = end - loop_start;
   RuntimeDuration total_time = end - start;
 
-  return std::tuple(counters, loop_time, total_time);
+  return {counters, loop_time, total_time};
 }
 
 void print_initial_trace(
@@ -866,7 +867,7 @@ SimulationResult apitof_mass_spec(
   all_subquants.reserve(subs.cluster_payloads.size());
   for (const auto &cluster : subs.cluster_payloads)
   {
-    all_subquants.push_back(SubstanceQuantities(ms, chamber, subs.gas, subs.cluster_charge_sign, cluster));
+    all_subquants.emplace_back(ms, chamber, subs.gas, subs.cluster_charge_sign, cluster);
   }
 
   LogHelper initial_trace = LogHelper{result_queue, LogMessage::initial_trace, &operation};
@@ -1073,7 +1074,7 @@ SimulationResult apitof_mass_spec(
   RuntimeDuration loop_time = end - loop_start;
   RuntimeDuration total_time = end - start;
 
-  return std::tuple(counters, loop_time, total_time);
+  return {counters, loop_time, total_time};
 }
 
 double evaluate_error(int n, int k)
@@ -1189,7 +1190,7 @@ std::tuple<double, double, double> update_skimmer_quantities(const SkimmerData &
   double temp;
   double pressure;
   position = z - first_chamber_end;
-  m = int(position / mesh_skimmer);
+  m = static_cast<int>(position / mesh_skimmer);
   if (m == skimmer.rows() - 1)
   {
     v_gas = skimmer(m, VEL_SKIMMER);
@@ -1255,7 +1256,7 @@ std::tuple<double, double, double> update_physical_quantities(double z, const Sk
   else if (z < chamber.clens.sk_end)
   {
     position = z - chamber.clens.first_chamber_end;
-    m = int(position / mesh_skimmer);
+    m = static_cast<int>(position / mesh_skimmer);
     if (m == skimmer.rows() - 1)
     {
       v_gas = skimmer(m, VEL_SKIMMER);
@@ -1526,7 +1527,7 @@ double evaluate_rotational_energy(const Eigen::Vector3d &omega, double inertia)
 double mean_free_path(double R, double kT, double pressure)
 {
   using consts::pi;
-  return kT / (sqrt(2.0) * pi * 4.0 * R * R * pressure);
+  return kT / (std::numbers::sqrt2 * pi * 4.0 * R * R * pressure);
 }
 
 

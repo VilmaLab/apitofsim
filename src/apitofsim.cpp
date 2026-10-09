@@ -6,9 +6,7 @@
 
 #include <iostream>
 
-ClusterData::ClusterData()
-{
-}
+ClusterData::ClusterData() = default;
 
 ClusterData::ClusterData(int atomic_mass, double electronic_energy, Eigen::Vector3d rotations, Eigen::ArrayXd frequencies, int charge)
     : atomic_mass(atomic_mass), electronic_energy(electronic_energy), rotations(rotations), frequencies(frequencies), charge(charge)

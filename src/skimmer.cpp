@@ -2,7 +2,7 @@
 
 #include "consts.h"
 #include <iostream>
-#include <math.h>
+#include <cmath>
 #include <optional>
 
 using namespace std;
