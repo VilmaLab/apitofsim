@@ -82,7 +82,7 @@ double draw_u_norm_skimmer_dss_unnorm(GenT &gen, std::uniform_real_distribution<
   double integral_unnorm = 0.0;
   while (integral_unnorm < r_unnorm)
   {
-    double c = (u_norm + v_rel_norm * costheta) * exp(-0.5 * mobility_gas_inv * u_norm * u_norm);
+    double c = (u_norm + (v_rel_norm * costheta)) * exp(-0.5 * mobility_gas_inv * u_norm * u_norm);
     integral_unnorm += c * du;
     u_norm += du;
   }
@@ -185,7 +185,7 @@ struct GasCollRejectionSampler
   {
 
     // First work out a bound on the maximum probability density
-    double u_for_bound_func_max = (v_norm + sqrt(v_norm * v_norm + 4 * mobility_gas)) / 2;
+    double u_for_bound_func_max = (v_norm + sqrt((v_norm * v_norm) + (4 * mobility_gas))) / 2;
     double u_v_diff = u_for_bound_func_max - v_norm;
     double max_density = u_for_bound_func_max * exp(-mobility_gas_inv * u_v_diff * u_v_diff / 2);
     std::uniform_real_distribution<double> accept_unif = std::uniform_real_distribution<>(0.0, max_density);
@@ -194,7 +194,7 @@ struct GasCollRejectionSampler
     {
       double theta = theta_unif(gen);
       double u = u_unif(gen);
-      double u_norm = u - v_norm * cos(theta);
+      double u_norm = u - (v_norm * cos(theta));
       double density = u * exp(-0.5 * mobility_gas_inv * u_norm * u_norm) * sin(theta);
       if (accept_unif(gen) < density)
       {

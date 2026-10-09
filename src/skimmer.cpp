@@ -2,19 +2,19 @@
 
 #include "consts.h"
 #include <iostream>
-#include <math.h>
+#include <cmath>
 #include <optional>
 
 using namespace std;
 
 double secant_step(double x0, double x1, double f0, double f1)
 {
-  return (x0 * f1 - x1 * f0) / (f1 - f0);
+  return ((x0 * f1) - (x1 * f0)) / (f1 - f0);
 }
 
 double f(double x, double *c)
 {
-  return pow(abs((c[0] / (c[1] - c[2] * x * x))), c[3]) - c[4] * x;
+  return pow(abs((c[0] / (c[1] - (c[2] * x * x)))), c[3]) - (c[4] * x);
 }
 
 // Find lower solution --> a=0 (subsonic flow), find upper solution --> a=1
@@ -35,7 +35,7 @@ double solve_eqn(double c[5], double v0, double v1, double tolerance, int N,
   {
     for (int i = 0; i < N; i++)
     {
-      v = v0 + mesh * i;
+      v = v0 + (mesh * i);
       f0 = f(v, c);
       if (f0 > 0)
       {
@@ -51,7 +51,7 @@ double solve_eqn(double c[5], double v0, double v1, double tolerance, int N,
   {
     for (int i = 0; i < N; i++)
     {
-      v = v0 - mesh * i;
+      v = v0 - (mesh * i);
       f0 = f(v, c);
       if (f0 > 0)
       {
@@ -107,20 +107,20 @@ void Skimmer::next()
     v_alert = sqrt(2.0 * k * ga * T0 / (m * (ga - 1)));
 
     c[1] = ga * k * T0 / m;
-    c[0] = c[1] - 0.5 * (ga - 1.0) * vc * vc;
+    c[0] = c[1] - (0.5 * (ga - 1.0) * vc * vc);
     c[2] = 0.5 * (ga - 1.0);
     c[3] = 1.0 / (ga - 1.0);
 
     r = 1.0e-3;
-    c[4] = pow(dc + r * tan(alpha), 2.0) / (vc * dc * dc);
+    c[4] = pow(dc + (r * tan(alpha)), 2.0) / (vc * dc * dc);
 
     mesh = rmax / resolution;
   }
 
   r = mesh * i;
-  c[4] = pow(dc + r * tan(alpha), 2.0) / (vc * dc * dc);
+  c[4] = pow(dc + (r * tan(alpha)), 2.0) / (vc * dc * dc);
   vel = solve_eqn(c, vc, v_alert, tolerance, N, M, 1, nwarnings, warnings);
-  T = T0 - 0.5 * vel * vel * m / k * (ga - 1.0) / ga;
+  T = T0 - (0.5 * vel * vel * m / k * (ga - 1.0) / ga);
   P = P0 * pow(T / T0, ga / (ga - 1.0));
   rho = rho0 * pow(T / T0, 1 / (ga - 1));
   speed_of_sound = sqrt(ga * k * T / m);

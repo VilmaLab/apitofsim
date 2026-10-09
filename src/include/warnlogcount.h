@@ -7,7 +7,6 @@
 #include <iostream>
 #include <iomanip>
 #include <cstring>
-#include <fstream>
 #include <variant>
 #include <Eigen/Dense>
 #include <magic_enum/magic_enum.hpp>

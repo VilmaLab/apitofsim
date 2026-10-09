@@ -6,7 +6,7 @@
 #include <memory>
 #include <optional>
 #include <stdexcept>
-#include <stdlib.h>
+#include <cstdlib>
 #include <random>
 
 #include <Eigen/Dense>
@@ -57,9 +57,9 @@ void finalize_tbb() noexcept
 }
 } // namespace
 
-typedef Eigen::Array<double, Eigen::Dynamic, 6> SkimmerResult;
+using SkimmerResult = Eigen::Array<double, Eigen::Dynamic, 6>;
 
-const unsigned long long DEFAULT_SEED = 42ull;
+const unsigned long long DEFAULT_SEED = 42ULL;
 const std::tuple<int, bool> DEFAULT_LOGCONF_TUPLE = std::tuple(DEFAULT_LOGLEVEL, false);
 
 struct PythonWarningHelper
@@ -147,11 +147,11 @@ std::tuple<Histogram, Histogram> densityandrate(
     fragmentation_energy,
     energy_max_rate,
     bin_width);
-  int m_max_rate = int(energy_max_rate / bin_width);
-  int m_max = int(energy_max / bin_width);
+  int m_max_rate = static_cast<int>(energy_max_rate / bin_width);
+  int m_max = static_cast<int>(energy_max / bin_width);
   auto energies = prepare_energies(bin_width, m_max);
   auto energies_rate = prepare_energies(bin_width, m_max_rate);
-  return std::tuple(Histogram(energies, rhos.col(COMB_ROW)), Histogram(energies_rate, k_rate));
+  return {Histogram(energies, rhos.col(COMB_ROW)), Histogram(energies_rate, k_rate)};
 }
 
 unsigned long long root_seed(unsigned long long seed)
@@ -307,8 +307,8 @@ struct MassSpecIterator
   std::shared_ptr<const void> subs;
   OperationContext operation;
   ExceptionTransport exception_transport;
-  SimulationResult final_result{};
-  bool finished;
+  SimulationResult final_result;
+  bool finished{false};
   std::jthread execution_thread;
 
   template <typename MassSpecSubstanceT>
@@ -323,9 +323,7 @@ struct MassSpecIterator
                                                              partial_counters(mk_partial_counters(*subs)),
                                                              ms(ms),
                                                              subs(std::shared_ptr<const void>(subs)),
-                                                             operation(),
                                                              exception_transport(),
-                                                             finished(false),
                                                              execution_thread(run_mass_spec_in_thread<MassSpecSubstanceT>(final_result, operation, exception_transport, *ms, *subs, N, seed, result_queue.queue, sample_mode, strict, logconf))
   {
   }
@@ -467,7 +465,7 @@ void register_overflow_translator(nb::exception<CppExceptionT> nb_py_exception)
     }
     catch (const CppExceptionT &err)
     {
-      auto c_py_exc = (PyObject *)payload;
+      auto *c_py_exc = static_cast<PyObject *>(payload);
       auto py_exc = nb::borrow(c_py_exc)(err.what());
       py_exc.attr("max") = err.max;
       py_exc.attr("current") = err.current;

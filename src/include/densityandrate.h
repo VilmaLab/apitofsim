@@ -5,7 +5,7 @@
 #include <Eigen/Dense>
 #include <optional>
 
-typedef Eigen::Array<double, Eigen::Dynamic, 4> DensityResult;
+using DensityResult = Eigen::Array<double, Eigen::Dynamic, 4>;
 const int C0_ROW = 0;
 const int C1_ROW = 1;
 const int C2_ROW = 2;
@@ -36,7 +36,6 @@ void validate_max_energies(double fragmentation_energy, int m_max, int m_max_rat
 void compute_density_of_states(const Eigen::ArrayXd &frequencies, Eigen::Ref<Eigen::ArrayXd> rho, double energy_max, double bin_width);
 void compute_combined_density_of_states(Eigen::Ref<Eigen::ArrayXd> rho_comb, const Eigen::ArrayXd &frequencies_1, const Eigen::ArrayXd &frequencies_2, double energy_max, double bin_width);
 Eigen::ArrayXd combine_frequencies(const Eigen::ArrayXd &frequencies_1, const Eigen::ArrayXd &frequencies_2);
-Eigen::ArrayXd prepare_energies(double bin_width, int m_max);
 void compute_k_total(Eigen::ArrayXd &k0, Eigen::Ref<Eigen::ArrayXd> k_rate, double inertia_moment_1, double inertia_moment_2, const Eigen::Vector3d &rotations_1, const Eigen::Vector3d &rotations_2, const Eigen::Ref<const Eigen::ArrayXd> rho_comb, const Eigen::Ref<const Eigen::ArrayXd> rho_0, double bin_width, int m_max_rate, double fragmentation_energy);
 void compute_k_total_atom(Eigen::ArrayXd &k0, Eigen::Ref<Eigen::ArrayXd> k_rate, double inertia_moment_1, const Eigen::Ref<const Eigen::ArrayXd> rho_comb, const Eigen::Ref<const Eigen::ArrayXd> rho_0, double bin_width, int m_max_rate, double fragmentation_energy);
 Eigen::ArrayXd compute_k_total_full(ClusterData &cluster_0, ClusterData &cluster_1, ClusterData &cluster_2, DensityResult &rhos, double fragmentation_energy, double energy_max_rate, double bin_width);

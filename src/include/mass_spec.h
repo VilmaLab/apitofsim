@@ -9,14 +9,14 @@
 
 class OperationContext;
 
-typedef Eigen::Array<double, Eigen::Dynamic, 3> SkimmerData;
+using SkimmerData = Eigen::Array<double, Eigen::Dynamic, 3>;
 const int VEL_SKIMMER = 0;
 const int TEMP_SKIMMER = 1;
 const int PRESSURE_SKIMMER = 2;
-typedef Eigen::Array<double, 5, 1> InstrumentDims;
+using InstrumentDims = Eigen::Array<double, 5, 1>;
 const int SKIMMER_LENGTH = 4;
-typedef Eigen::Array<double, 5, 1> InstrumentVoltages;
-typedef Eigen::Array<double, 2, 1> InstrumentPressures;
+using InstrumentVoltages = Eigen::Array<double, 5, 1>;
+using InstrumentPressures = Eigen::Array<double, 2, 1>;
 
 struct Quadrupole
 {
@@ -244,8 +244,8 @@ struct MassSpecLogConf
 
 const MassSpecLogConf DEFAULT_LOGCONF = MassSpecLogConf{};
 
-typedef std::chrono::high_resolution_clock::duration RuntimeDuration;
-typedef std::tuple<Eigen::ArrayXi, RuntimeDuration, RuntimeDuration> SimulationResult;
+using RuntimeDuration = std::chrono::high_resolution_clock::duration;
+using SimulationResult = std::tuple<Eigen::ArrayXi, RuntimeDuration, RuntimeDuration>;
 
 SimulationResult apitof_mass_spec(
   const MassSpectrometer &mass_spec,
