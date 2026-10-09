@@ -345,10 +345,15 @@ def relayout_labels(spectrogram, labels, fig_inches, aspect):
         non_overlapping_with_lines,
     )
 
+    step = 5
+    max_box_height = (bounding_boxes_np[:, 3] - bounding_boxes_np[:, 1]).max()
+    spike_span = spikes_np[:, (1, 3)].max() - spikes_np[:, (1, 3)].min()
+    max_incr = spike_span + len(bounding_boxes_np) * (max_box_height + step)
+    incrs = np.arange(0, max_incr, step)[:, np.newaxis]
+
     done = []
     for idx in np.argsort(box_xs):
         new_box = bounding_boxes_np[idx, :]
-        incrs = np.concatenate((np.array([0, 1]), np.arange(5, 1000, 5)))[:, np.newaxis]
         new_box_cands = new_box[np.newaxis, :] + np.hstack([incrs, incrs, incrs, incrs])
         prev_bboxes = bounding_boxes_np[done]
         done.append(idx)
