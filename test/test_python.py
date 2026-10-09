@@ -524,3 +524,27 @@ def test_collision_details_and_escape(accepted, monkeypatch):
         assert (
             db.db.execute("select count(*) from fragmentation_event").fetchone()[0] == 0
         )
+
+
+def test_sql_foreign_keys_declared_on_own_line():
+    from importlib import resources
+
+    import apitofsim.workflow
+    import apitofsim.workflow.sql_files as sql_files
+    import apitofsim.workflow.sql_files_nofk as sql_files_nofk
+
+    sql_dir = resources.files(apitofsim.workflow) / "sql"
+    for path in sorted(sql_dir.iterdir(), key=lambda p: p.name):
+        if path.suffix != ".sql":
+            continue
+        name = path.name.removesuffix(".sql")
+        raw = getattr(sql_files, name)
+        stripped = getattr(sql_files_nofk, name)
+        for line in raw.split("\n"):
+            assert "references" not in line.lower() or "foreign key" in line.lower(), (
+                f"{path.name}: foreign key must be declared on its own line, "
+                f"not inline: {line.strip()!r}"
+            )
+        assert "references" not in stripped.lower(), (
+            f"{path.name}: stripping foreign keys left references behind"
+        )
