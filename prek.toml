@@ -1,3 +1,6 @@
+# Data directories, excluded from every hook.
+exclude = '^(inputs|test/data|examples/legacy_cli/inputs)/'
+
 [[repos]]
 repo = "https://github.com/astral-sh/ruff-pre-commit"
 rev = "v0.15.0" # Ruff version.
