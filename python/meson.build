@@ -1,6 +1,7 @@
 fs = import('fs')
 
 python = import('python').find_installation()
+python_dep = python.dependency(include_type : 'system')
 python_cpp = meson.get_compiler('cpp')
 python_link_args = []
 if python_cpp.get_id() == 'clang-cl'
@@ -10,7 +11,7 @@ endif
 apitofsim_python = python.extension_module(
   'apitofsimraw',
   sources: ['apitofsim.cpp'],
-  dependencies: [nanobind, eigen3, tbb, concurrentqueue, magic_enum],
+  dependencies: [python_dep, nanobind, eigen3, tbb, concurrentqueue, magic_enum],
   cpp_args: python_cpp.get_supported_arguments('-Wno-maybe-uninitialized'),
   link_args: python_link_args,
   link_with: libapitofsim,
