@@ -1,38 +1,43 @@
-create or replace view event_report as
-with
-    pathway_experiment_result as (
-        select * from single_pathway_experiment_result
-        union by name
-        select * from multi_pathway_experiment_result
-    )
+create or replace view event_details as
 select
-    pathway_experiment_result.id as experiment_result_id,
-    cluster.id as cluster_id,
-    cluster.common_name as parent_name,
-    event_info.event_type,
-    event_info.realization_id,
+    event_info.*,
     unnest(event_info.postime),
-    event_info.id as event_id,
-    event_info.velocity,
-    event_info.omega,
-    event_info.rot_energy,
-    event_info.vibrational_energy,
-    event_info.particle_index,
     collision_event.theta,
     collision_event.u_norm,
     collision_event.accepted,
     fragmentation_event.pathway_id
+from event_info
+left join collision_event on collision_event.id = event_info.id
+left join fragmentation_event on fragmentation_event.id = event_info.id;
+
+create or replace view event_report as
+select
+    experiment_result.id as experiment_result_id,
+    cluster.id as cluster_id,
+    cluster.common_name as parent_name,
+    event_details.event_type,
+    event_details.realization_id,
+    event_details.x,
+    event_details.y,
+    event_details.z,
+    event_details.t,
+    event_details.id as event_id,
+    event_details.velocity,
+    event_details.omega,
+    event_details.rot_energy,
+    event_details.vibrational_energy,
+    event_details.particle_index,
+    event_details.theta,
+    event_details.u_norm,
+    event_details.accepted,
+    event_details.pathway_id
 from
-    event_info
+    event_details
 inner join
-    realization on event_info.realization_id = realization.id
+    realization on event_details.realization_id = realization.id
 inner join
-    pathway_experiment_result on pathway_experiment_result.id = realization.experiment_result_id
+    experiment_result on experiment_result.id = realization.experiment_result_id
 inner join
-    cluster on cluster.id = pathway_experiment_result.cluster_id
-left join
-    collision_event on collision_event.id = event_info.id
-left join
-    fragmentation_event on fragmentation_event.id = event_info.id
+    cluster on cluster.id = experiment_result.cluster_id
 order by
     parent_name;
