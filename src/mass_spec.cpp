@@ -43,38 +43,20 @@ double compute_mathieu_factor(double m_ion, double r_quadrupole)
   return consts::eV / (m_ion * r_quadrupole * r_quadrupole);
 }
 
-void rescale_density(Histogram &density)
-{
-  using consts::boltzmann;
-  for (int m = 0; m < density.length(); m++)
-  {
-    density.y[m] = density.y[m] / boltzmann;
-  }
-}
-
-void rescale_energies(Histogram &energies)
-{
-  using consts::boltzmann;
-  for (int m = 0; m < energies.length(); m++)
-  {
-    energies.x[m] = energies.x[m] * boltzmann;
-  }
-  energies.x_max *= boltzmann;
-  energies.bin_width *= boltzmann;
-}
-
 Histogram scaled_density(const Histogram &density_cluster)
 {
+  using consts::boltzmann;
   Histogram my_density_cluster(density_cluster);
-  rescale_density(my_density_cluster);
-  rescale_energies(my_density_cluster);
+  my_density_cluster.rescale_y(boltzmann);
+  my_density_cluster.rescale_x(boltzmann);
   return my_density_cluster;
 }
 
 Histogram scaled_rate_const(const Histogram &rate_const)
 {
+  using consts::boltzmann;
   Histogram my_rate_const(rate_const);
-  rescale_energies(my_rate_const);
+  my_rate_const.rescale_x(boltzmann);
   return my_rate_const;
 }
 
@@ -433,7 +415,7 @@ std::tuple<double, std::optional<ApiTofRateConstantOverflow>> next_fragmentation
 
   if (delta_en > 0.0)
   {
-    auto energy_max_rate = pathway.rate_const.x_max;
+    auto energy_max_rate = pathway.rate_const.x_max();
     if (delta_en > energy_max_rate)
     {
       exception = ApiTofRateConstantOverflow(energy_max_rate / boltzmann, delta_en / boltzmann);
@@ -1197,7 +1179,7 @@ double evaluate_rate_const(const Histogram &rate_const, double energy)
     }
     else
     {
-      throw ApiTofRateConstantOverflow(rate_const.x_max / boltzmann, energy / boltzmann);
+      throw ApiTofRateConstantOverflow(rate_const.x_max() / boltzmann, energy / boltzmann);
     }
   }
 }
@@ -1315,7 +1297,7 @@ double init_vib_energy(GenT &gen, uniform_real_distribution<double> &unif, doubl
 
   for (m = 0; m < density_cluster.length(); m++)
   {
-    sum1 += density_cluster.y[m] * exp(-density_cluster.x[m] / kT);
+    sum1 += density_cluster.y()[m] * exp(-density_cluster.x()[m] / kT);
   }
 
   if (sum1 <= 0.0)
@@ -1330,10 +1312,10 @@ double init_vib_energy(GenT &gen, uniform_real_distribution<double> &unif, doubl
   m = 0;
   while (sum2 < r && m < density_cluster.length())
   {
-    sum2 += density_cluster.y[m] * exp(-density_cluster.x[m] / kT) / sum1;
+    sum2 += density_cluster.y()[m] * exp(-density_cluster.x()[m] / kT) / sum1;
     m++;
   }
-  return density_cluster.x[m - 1];
+  return density_cluster.x()[m - 1];
 }
 
 

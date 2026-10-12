@@ -219,17 +219,17 @@ struct VibEnergySamplerBase
   {
     using consts::boltzmann;
 
-    if (E > density_cluster.x_max)
+    if (E > density_cluster.x_max())
     {
-      throw ApiTofDosOverflow(density_cluster.x_max, E / boltzmann);
+      throw ApiTofDosOverflow(density_cluster.x_max(), E / boltzmann);
     }
 
     // 1st step: I evaluate the integral (normalization)
     double normalization = 0.0;
     int m = 0;
-    while (density_cluster.x[m] < E)
+    while (density_cluster.x()[m] < E)
     {
-      normalization += sqrt(E - density_cluster.x[m]) * density_cluster.y[m];
+      normalization += sqrt(E - density_cluster.x()[m]) * density_cluster.y()[m];
       m++;
     }
     return normalization;
@@ -251,10 +251,10 @@ struct VibEnergyNormSampler : VibEnergySamplerBase
     int m = 0;
     while (integral < r)
     {
-      integral += sqrt(E - density_cluster.x[m]) * density_cluster.y[m] / nc;
+      integral += sqrt(E - density_cluster.x()[m]) * density_cluster.y()[m] / nc;
       m++;
     }
-    return density_cluster.x[m - 1];
+    return density_cluster.x()[m - 1];
   }
 };
 
@@ -272,9 +272,9 @@ struct VibEnergyUnnormSampler : VibEnergySamplerBase
     int m = 0;
     while (integral_unnorm < r_unnorm)
     {
-      integral_unnorm += sqrt(E - density_cluster.x[m]) * density_cluster.y[m];
+      integral_unnorm += sqrt(E - density_cluster.x()[m]) * density_cluster.y()[m];
       m++;
     }
-    return density_cluster.x[m - 1];
+    return density_cluster.x()[m - 1];
   }
 };

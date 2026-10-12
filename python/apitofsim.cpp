@@ -541,10 +541,10 @@ NB_MODULE(apitofsimraw, m)
          nb::arg("bin_width"),
          nb::arg("m_max"),
          nb::arg("y"))
-    .def_ro("x", &Histogram::x)
-    .def_ro("y", &Histogram::y)
-    .def_ro("x_max", &Histogram::x_max)
-    .def_ro("bin_width", &Histogram::bin_width);
+    .def_prop_ro("x", &Histogram::x)
+    .def_prop_ro("y", &Histogram::y)
+    .def_prop_ro("x_max", &Histogram::x_max)
+    .def_prop_ro("bin_width", &Histogram::bin_width);
 
   nb::class_<Quadrupole>(m, "Quadrupole")
     .def(nb::init<double, double, double, double>(),

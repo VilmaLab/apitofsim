@@ -2,8 +2,10 @@
 
 #include <cassert>
 #include <tuple>
+#include <utility>
 #include <variant>
 #include <Eigen/Dense>
+#include "exceptions.h"
 
 // Geometrical mean of moment of inertia
 double compute_inertia(const Eigen::Vector3d &rotations);
@@ -20,13 +22,11 @@ struct Gas
   double adiabatic_index;
 };
 
-struct Histogram
+// A histogrammed quantity: bin energies in x, bin values in y. The bin width and
+// the upper edge are derived from x and cached alongside it.
+class Histogram
 {
-  Eigen::ArrayXd x;
-  Eigen::ArrayXd y;
-  double bin_width;
-  double x_max;
-
+public:
   enum OutOfBounds
   {
     underflow,
@@ -34,42 +34,76 @@ struct Histogram
   };
 
   Histogram(Eigen::ArrayXd x, Eigen::ArrayXd y)
-      : x(x), y(y)
+      : x_(std::move(x)), y_(std::move(y)), derived_(compute_derived(x_))
   {
-    compute_derived();
   }
 
   Histogram(double bin_width, int m_max, Eigen::ArrayXd y)
-      : x(prepare_energies(bin_width, m_max)), y(y)
+      : x_(prepare_energies(bin_width, m_max)), y_(std::move(y)), derived_(compute_derived(x_))
   {
-    compute_derived();
+  }
+
+  Eigen::Map<const Eigen::ArrayXd> x() const
+  {
+    return {x_.data(), x_.size()};
+  }
+
+  Eigen::Map<const Eigen::ArrayXd> y() const
+  {
+    return {y_.data(), y_.size()};
+  }
+
+  double bin_width() const
+  {
+    return derived_.bin_width;
+  }
+
+  double x_max() const
+  {
+    return derived_.x_max;
+  }
+
+  // Scale the bin energies in place, keeping the cached derived quantities in
+  // step with them.
+  void rescale_x(double factor)
+  {
+    x_ *= factor;
+    derived_.bin_width *= factor;
+    derived_.x_max *= factor;
+  }
+
+  // Scale the bin values in place.
+  void rescale_y(double factor)
+  {
+    y_ /= factor;
   }
 
   std::variant<double, OutOfBounds> get_lerp(double x) const
   {
+    const double bin_width = derived_.bin_width;
     double bin_right = x + (0.5 * bin_width);
     int m = static_cast<int>(bin_right / bin_width);
     double coeff1 = (x - ((m - 0.5) * bin_width)) / bin_width;
     double coeff2 = 1.0 - coeff1;
     if (m >= length())
     {
-      if (x > x_max)
+      if (x > derived_.x_max)
       {
         return OutOfBounds::overflow;
       }
       else
       {
-        return y[length() - 1];
+        return y_[length() - 1];
       }
     }
     else if (m > 0)
     {
       assert(coeff1 >= 0.0 && coeff1 <= 1.0);
-      return (coeff2 * y[m - 1]) + (coeff1 * y[m]);
+      return (coeff2 * y_[m - 1]) + (coeff1 * y_[m]);
     }
     else if (m == 0 && x >= 0)
     {
-      return y[0];
+      return y_[0];
     }
     else
     {
@@ -77,26 +111,49 @@ struct Histogram
     }
   }
 
-  void compute_derived()
-  {
-    bin_width = x[1] - x[0];
-    x_max = bin_width * length();
-  }
-
   int length() const
   {
-    return x.rows();
+    return static_cast<int>(x_.rows());
   }
 
   double first_y() const
   {
-    return y[0];
+    return y_[0];
   }
 
   double last_y() const
   {
-    return y[length() - 1];
+    return y_[length() - 1];
   }
+
+private:
+  struct Derived
+  {
+    double bin_width{};
+    double x_max{};
+  };
+
+  // Also rejects a histogram with fewer than two bins, for which x[1] is
+  // undefined.
+  static Derived compute_derived(const Eigen::ArrayXd &x)
+  {
+    if (x.size() < 2)
+    {
+      throw ApiTofArgumentError([&](auto &msg)
+      {
+        msg << "A histogram needs at least two bins, got " << x.size() << ".";
+      });
+    }
+    Derived derived;
+    derived.bin_width = x[1] - x[0];
+    derived.x_max = derived.bin_width * static_cast<double>(x.size());
+    return derived;
+  }
+
+  // Declared in this order: derived_ is computed from x_.
+  Eigen::ArrayXd x_;
+  Eigen::ArrayXd y_;
+  Derived derived_;
 };
 
 // An atom-like product has no rotational or vibrational structure: it is
