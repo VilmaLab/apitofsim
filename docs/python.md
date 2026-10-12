@@ -106,6 +106,59 @@ without fixed attachment aliases.
       heading_level: 3
       filters: public
 
+### Recorded realizations and events
+
+`RealizationDatabase` provides DuckDB relations for querying recorded output.
+`results_query()`, `realizations_query()`, `events_query()` and
+`recorded_output_query()` accept optional `run_id`, `parent` (cluster ID) and
+`result_id` filters. Supplied filters are intersected; omitting all filters selects
+the current database. Both single- and multi-pathway results are supported.
+Database scope includes realizations that have not yet been linked to a result;
+run, parent and result scopes include only linked realizations.
+The queries use the `experiment_result` and `event_details` views. For existing
+files, refresh the views as described above before using these APIs.
+
+```python
+from apitofsim.workflow.db import RealizationDatabase, connection_scope
+
+with connection_scope(RealizationDatabase, "output.duckdb", readonly=True) as db:
+    events = db.events_query(run_id=1, parent=3, sort=True).fetchdf()
+    diagnostics = db.recorded_output_query(run_id=1, parent=3).fetchone()
+```
+
+Relations can also be consumed with `.pl()` (with Polars installed) or
+`.fetchall()`, or further filtered and projected before fetching. Fetch results
+before closing the database. `events_query(sort=True)` orders by realization ID,
+simulation time and event ID, including deterministic ordering for time ties.
+Events retain raw state structs, event and cohort IDs, and optional subtype fields.
+The flattened `x`, `y`, `z` and `t` columns from `event_details` are also available.
+
+Diagnostics return one row, including for empty cohorts (all counts are zero):
+
+| Column | Recorded quantity |
+| --- | --- |
+| `realization_count` | Realization rows, including those with no events |
+| `event_count` | Event-info rows |
+| `escape_count` | Escape event-info rows |
+| `collision_event_count` | Collision event-info rows |
+| `collision_subtype_count` | Joined collision subtype rows |
+| `fragmentation_event_count` | Fragmentation event-info rows |
+| `fragmentation_subtype_count` | Joined fragmentation subtype rows |
+| `terminal_realization_count` | Distinct realizations containing escape or fragmentation event-info rows |
+
+These counts describe recorded output rather than simulation counters. Missing
+subtypes remain visible through separate counts and nullable `collision_event_id`
+and `fragmentation_event_id` columns in the event query. A present fragmentation
+subtype may have a null `pathway_id`, so that field alone cannot detect missing
+subtype records. Terminal realization counts do not require subtype records and
+count a realization with multiple terminal events only once.
+
+::: apitofsim.workflow.RealizationDatabase
+    options:
+      members: true
+      heading_level: 3
+      filters: public
+
 ::: apitofsim.workflow.ingest_tree
     options:
       heading_level: 3

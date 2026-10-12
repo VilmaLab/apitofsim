@@ -2,9 +2,11 @@ create or replace view event_details as
 select
     event_info.*,
     unnest(event_info.postime),
+    collision_event.id as collision_event_id,
     collision_event.theta,
     collision_event.u_norm,
     collision_event.accepted,
+    fragmentation_event.id as fragmentation_event_id,
     fragmentation_event.pathway_id
 from event_info
 left join collision_event on collision_event.id = event_info.id
