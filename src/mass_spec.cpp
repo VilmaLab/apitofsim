@@ -95,12 +95,11 @@ MassSpecSubstanceSingleInput::MassSpecSubstanceSingleInput(
   const Histogram &density_cluster,
   const Histogram &rate_const,
   std::optional<double> fragmentation_energy,
-  int cluster_charge_sign) : MassSpecSubstanceSingleInput(
-                               compute_derived(cluster_0),
-                               cluster_charge_sign,
-                               density_cluster,
-                               {MassSpecInputFragmentationPathway(cluster_0, cluster_1, cluster_2, rate_const, fragmentation_energy)},
-                               gas)
+  int cluster_charge_sign) : MassSpecSubstanceSingleInput(compute_derived(cluster_0),
+                                                          cluster_charge_sign,
+                                                          density_cluster,
+                                                          {MassSpecInputFragmentationPathway(cluster_0, cluster_1, cluster_2, rate_const, fragmentation_energy)},
+                                                          gas)
 {
 }
 
@@ -138,12 +137,11 @@ MassSpecSubstanceSingleInput::MassSpecSubstanceSingleInput(
   const std::vector<MassSpecInputFragmentationPathway> pathways,
   Gas gas,
   const Histogram &density_cluster,
-  int cluster_charge_sign) : MassSpecSubstanceSingleInput(
-                               compute_derived(cluster_0),
-                               cluster_charge_sign,
-                               density_cluster,
-                               pathways,
-                               gas)
+  int cluster_charge_sign) : MassSpecSubstanceSingleInput(compute_derived(cluster_0),
+                                                          cluster_charge_sign,
+                                                          density_cluster,
+                                                          pathways,
+                                                          gas)
 {
 }
 
