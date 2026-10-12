@@ -5,53 +5,101 @@
 #include <oneapi/tbb/version.h>
 
 #include <iostream>
+#include <stdexcept>
 
-ClusterSpec::ClusterSpec(int nucleon_count, double electronic_energy, Eigen::Vector3d rotations, Eigen::ArrayXd frequencies, int charge)
-    : nucleon_count(nucleon_count), electronic_energy(electronic_energy), rotations(rotations), frequencies(frequencies), charge(charge)
+AtomLikeCluster::AtomLikeCluster(int nucleon_count, double electronic_energy, int charge)
+    : nucleon_count(nucleon_count), electronic_energy(electronic_energy), charge(charge)
 {
 }
 
-int ClusterSpec::num_oscillators() const
+MolecularCluster::MolecularCluster(int nucleon_count, double electronic_energy, Eigen::Vector3d rotations, Eigen::ArrayXd frequencies, int charge)
+    : nucleon_count(nucleon_count), electronic_energy(electronic_energy), rotations(rotations), frequencies(frequencies), charge(charge)
+{
+  if (this->frequencies.rows() == 0)
+  {
+    throw std::invalid_argument("A molecular cluster must have at least one vibrational mode");
+  }
+}
+
+int MolecularCluster::num_oscillators() const
 {
   return this->frequencies.rows();
 }
 
-bool ClusterSpec::is_atom_like_product() const
+int num_oscillators(const ClusterSpec &spec)
 {
-  return this->num_oscillators() == 0;
+  if (const auto *molecular = std::get_if<MolecularCluster>(&spec))
+  {
+    return molecular->num_oscillators();
+  }
+  return 0;
 }
 
-std::optional<std::string> ClusterSpec::validation_error() const
+double electronic_energy(const ClusterSpec &spec)
 {
-  if (this->is_atom_like_product() && !this->rotations.isZero(0))
+  return std::visit([](const auto &cluster)
   {
-    return "Atom-like products must have 0 rotations";
-  }
-  return std::nullopt;
+    return cluster.electronic_energy;
+  }, spec);
+}
+
+namespace
+{
+Products make_products(const MolecularCluster &first, const AtomLikeCluster &second)
+{
+  return AtomLikeProducts{first, second};
+}
+
+Products make_products(const MolecularCluster &first, const MolecularCluster &second)
+{
+  return MolecularProducts{first, second};
+}
+
+void fill_derived(const AtomLikeCluster &cluster, ClusterDerived &derived)
+{
+  // Atom-like products have no rotational structure
+  derived.inertia_moment = 0;
+  derived.radius = 0;
+  derived.mass = consts::pmass * cluster.nucleon_count; // proton mass * nucleons
+}
+
+void fill_derived(const MolecularCluster &cluster, ClusterDerived &derived)
+{
+  derived.inertia_moment = compute_inertia(cluster.rotations);
+  std::tie(derived.mass, derived.radius) = compute_mass_and_radius(derived.inertia_moment, cluster.nucleon_count);
+}
+} // namespace
+
+Products make_products(const MolecularCluster &first, const ClusterSpec &second)
+{
+  return std::visit([&first](const auto &cluster)
+  {
+    return make_products(first, cluster);
+  }, second);
 }
 
 ClusterDerived compute_derived(const ClusterSpec &spec)
 {
-  using consts::pmass;
   ClusterDerived derived;
-  if (spec.is_atom_like_product())
+  std::visit([&derived](const auto &cluster)
   {
-    // No rotations, so can't calculate inertia moment/radius
-    derived.inertia_moment = 0;
-    derived.radius = 0;
-    derived.mass = pmass * spec.nucleon_count; // proton mass * nucleons
-  }
-  else
-  {
-    derived.inertia_moment = compute_inertia(spec.rotations);
-    std::tie(derived.mass, derived.radius) = compute_mass_and_radius(derived.inertia_moment, spec.nucleon_count);
-  }
+    fill_derived(cluster, derived);
+  }, spec);
   return derived;
+}
+
+FragmentationPathway::FragmentationPathway(const MolecularCluster &parent, const MolecularCluster &product1, const ClusterSpec &product2)
+    : parent(parent), products(make_products(product1, product2))
+{
 }
 
 double FragmentationPathway::fragmentation_energy_kelvin() const
 {
-  return (this->product1.electronic_energy + this->product2.electronic_energy - this->parent.electronic_energy) * consts::hartK;
+  const double products_energy = std::visit([](const auto &products)
+  {
+    return products.first.electronic_energy + products.second.electronic_energy;
+  }, this->products);
+  return (products_energy - this->parent.electronic_energy) * consts::hartK;
 }
 
 double compute_inertia(const Eigen::Vector3d &rotations)

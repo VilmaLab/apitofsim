@@ -1,8 +1,6 @@
 #pragma once
 
 #include <cassert>
-#include <optional>
-#include <string>
 #include <tuple>
 #include <variant>
 #include <Eigen/Dense>
@@ -101,10 +99,22 @@ struct Histogram
   }
 };
 
-// TODO: Separate struct for atom-like products
-// The inputs describing a cluster. All members are initialised, so a default
-// constructed ClusterSpec is valid (if uninteresting) rather than indeterminate.
-struct ClusterSpec
+// An atom-like product has no rotational or vibrational structure: it is
+// treated as a point particle.
+struct AtomLikeCluster
+{
+  int nucleon_count{};
+  double electronic_energy{};
+  int charge{};
+
+  AtomLikeCluster() = default;
+  AtomLikeCluster(int nucleon_count, double electronic_energy, int charge);
+};
+
+// A cluster with rotational and vibrational structure. The constructor rejects
+// an empty set of vibrational temperatures, so every MolecularCluster has at
+// least one vibrational mode.
+struct MolecularCluster
 {
   int nucleon_count{};
   double electronic_energy{};
@@ -112,14 +122,31 @@ struct ClusterSpec
   Eigen::ArrayXd frequencies;
   int charge{};
 
-  ClusterSpec() = default;
-  ClusterSpec(int nucleon_count, double electronic_energy, Eigen::Vector3d rotations, Eigen::ArrayXd frequencies, int charge);
+  MolecularCluster(int nucleon_count, double electronic_energy, Eigen::Vector3d rotations, Eigen::ArrayXd frequencies, int charge);
 
   int num_oscillators() const;
-  bool is_atom_like_product() const;
-  // Description of the first problem found, or nullopt if the spec is usable.
-  std::optional<std::string> validation_error() const;
 };
+
+using ClusterSpec = std::variant<AtomLikeCluster, MolecularCluster>;
+
+// The products of a fragmentation. Only the second product may be atom-like.
+struct MolecularProducts
+{
+  MolecularCluster first;
+  MolecularCluster second;
+};
+
+struct AtomLikeProducts
+{
+  MolecularCluster first;
+  AtomLikeCluster second;
+};
+
+using Products = std::variant<MolecularProducts, AtomLikeProducts>;
+
+int num_oscillators(const ClusterSpec &spec);
+double electronic_energy(const ClusterSpec &spec);
+Products make_products(const MolecularCluster &first, const ClusterSpec &second);
 
 // Quantities derived from a ClusterSpec. Computed by compute_derived and passed
 // alongside the spec to everything that needs them.
@@ -134,9 +161,10 @@ ClusterDerived compute_derived(const ClusterSpec &spec);
 
 struct FragmentationPathway
 {
-  ClusterSpec parent;
-  ClusterSpec product1;
-  ClusterSpec product2;
+  MolecularCluster parent;
+  Products products;
+
+  FragmentationPathway(const MolecularCluster &parent, const MolecularCluster &product1, const ClusterSpec &product2);
 
   double fragmentation_energy_kelvin() const;
 };

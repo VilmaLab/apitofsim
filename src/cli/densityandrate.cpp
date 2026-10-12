@@ -11,7 +11,7 @@ using namespace std;
 
 void write_on_file(char *filename, const Eigen::Ref<const Eigen::ArrayXd> x, const Eigen::Ref<const Eigen::ArrayXd> y, int m_max);
 
-Eigen::ArrayXd read_frequencies(char *filename);
+Eigen::ArrayXd read_frequencies(const char *filename);
 
 struct ClusterInputs
 {
@@ -21,16 +21,24 @@ struct ClusterInputs
 
   // char file_density[150];
   // char file_density_comb[150];
-  void read_into(ClusterSpec &spec)
+  // An empty frequencies file marks an atom-like product, which by definition
+  // has no rotational structure.
+  ClusterSpec read(int nucleon_count) const
   {
-    // Read frequencies
-    spec.frequencies = read_frequencies(file_frequencies.data());
+    const Eigen::ArrayXd frequencies = read_frequencies(file_frequencies.data());
+    const Eigen::Vector3d rotations = read_rotations(file_rotations.data());
+    const double electronic_energy = read_electronic_energy(file_electronic_energy.data());
 
-    // Read rotational constants
-    spec.rotations = read_rotations(file_rotations.data());
-
-    // Read electronic energies
-    spec.electronic_energy = read_electronic_energy(file_electronic_energy.data());
+    if (frequencies.rows() == 0)
+    {
+      if (!rotations.isZero(0))
+      {
+        cout << "Atom-like products must have 0 rotations" << endl;
+        exit(EXIT_FAILURE);
+      }
+      return AtomLikeCluster(nucleon_count, electronic_energy, 0);
+    }
+    return MolecularCluster(nucleon_count, electronic_energy, rotations, frequencies, 0);
   }
 };
 
@@ -54,18 +62,18 @@ int main()
   ClusterInputs cluster_files_0;
   ClusterInputs cluster_files_1;
   ClusterInputs cluster_files_2;
-  ClusterSpec spec_0;
-  ClusterSpec spec_1;
-  ClusterSpec spec_2;
+  int nucleon_count_0;
+  int nucleon_count_1;
+  int nucleon_count_2;
 
   // Use read_config to read all input fields
   read_config<int, double>(
     std::cin,
     nullptr, // title
     nullptr, // cluster_charge_sign
-    &spec_0.nucleon_count,
-    &spec_1.nucleon_count,
-    &spec_2.nucleon_count,
+    &nucleon_count_0,
+    &nucleon_count_1,
+    &nucleon_count_2,
     &T,
     &P1,
     nullptr, // pressure_second
@@ -122,24 +130,16 @@ int main()
   cout << "Reading inputs..." << endl;
 
   // Read cluster data
-  cluster_files_0.read_into(spec_0);
-  cluster_files_1.read_into(spec_1);
-  cluster_files_2.read_into(spec_2);
-  for (const ClusterSpec *spec : {&spec_0, &spec_1, &spec_2})
-  {
-    if (const auto error = spec->validation_error())
-    {
-      cout << *error << endl;
-      exit(EXIT_FAILURE);
-    }
-  }
+  const ClusterSpec spec_0 = cluster_files_0.read(nucleon_count_0);
+  const ClusterSpec spec_1 = cluster_files_1.read(nucleon_count_1);
+  const ClusterSpec spec_2 = cluster_files_2.read(nucleon_count_2);
 
   // Combine the frequencies of two products
-  int num_oscillators_comb = spec_1.num_oscillators() + spec_2.num_oscillators();
+  const int num_oscillators_comb = num_oscillators(spec_1) + num_oscillators(spec_2);
 
-  if (spec_1.num_oscillators() > 0 && spec_2.num_oscillators() > 0)
+  if (num_oscillators(spec_1) > 0 && num_oscillators(spec_2) > 0)
   {
-    if (spec_0.num_oscillators() - num_oscillators_comb != 6)
+    if (num_oscillators(spec_0) - num_oscillators_comb != 6)
     {
       cout << "Number of frequencies wrong!!!" << endl;
       exit(EXIT_FAILURE);
@@ -147,29 +147,32 @@ int main()
   }
   else
   {
-    if (spec_0.num_oscillators() - num_oscillators_comb != 3)
+    if (num_oscillators(spec_0) - num_oscillators_comb != 3)
     {
       cout << "Number of frequencies wrong!!!" << endl;
       exit(EXIT_FAILURE);
     }
   }
-  if (spec_0.is_atom_like_product() || spec_1.is_atom_like_product())
+  const MolecularCluster *cluster_0 = std::get_if<MolecularCluster>(&spec_0);
+  const MolecularCluster *cluster_1 = std::get_if<MolecularCluster>(&spec_1);
+  if (cluster_0 == nullptr || cluster_1 == nullptr)
   {
     cout << "Only the 2nd product may be atom-like!" << endl;
     exit(EXIT_FAILURE);
   }
+  const Products products = make_products(*cluster_1, spec_2);
 
-  const ClusterDerived derived_0 = compute_derived(spec_0);
-  const ClusterDerived derived_1 = compute_derived(spec_1);
+  const ClusterDerived derived_0 = compute_derived(*cluster_0);
+  const ClusterDerived derived_1 = compute_derived(*cluster_1);
   const ClusterDerived derived_2 = compute_derived(spec_2);
 
-  DensityResult rhos = compute_density_of_states_all(spec_0, spec_1, spec_2, energy_max, bin_width);
+  DensityResult rhos = compute_density_of_states_all(*cluster_0, products, energy_max, bin_width);
 
   cout << endl;
-  cout << "Cluster vibrational modes: " << spec_0.num_oscillators() << endl;
-  cout << "First product vibrational modes: " << spec_1.num_oscillators() << endl;
-  cout << "Second product vibrational modes: " << spec_2.num_oscillators() << endl;
-  cout << "Combined vibrational modes of two products: " << num_oscillators_comb << " (+ " << spec_0.num_oscillators() - num_oscillators_comb << " degrees of freedom, translational and rotational)" << endl;
+  cout << "Cluster vibrational modes: " << num_oscillators(spec_0) << endl;
+  cout << "First product vibrational modes: " << num_oscillators(spec_1) << endl;
+  cout << "Second product vibrational modes: " << num_oscillators(spec_2) << endl;
+  cout << "Combined vibrational modes of two products: " << num_oscillators_comb << " (+ " << num_oscillators(spec_0) - num_oscillators_comb << " degrees of freedom, translational and rotational)" << endl;
   cout << "Energy resolution: " << std::scientific << bin_width << " K" << endl;
 
   cout << "Inertia moment of cluster : " << derived_0.inertia_moment << " Kg m^2" << endl;
@@ -188,7 +191,7 @@ int main()
   cout << endl
        << "Computing total fragmentation rate constant..." << endl;
 
-  const Eigen::ArrayXd k_rate = compute_k_total_full(spec_0, spec_1, derived_1, spec_2, derived_2, rhos, fragmentation_energy, energy_max_rate, bin_width);
+  const Eigen::ArrayXd k_rate = compute_k_total_full(*cluster_0, products, derived_1, derived_2, rhos, fragmentation_energy, energy_max_rate, bin_width);
 
   int m_max_rate = static_cast<int>(energy_max_rate / bin_width);
   int m_max = static_cast<int>(energy_max / bin_width);
@@ -226,7 +229,7 @@ void write_on_file(char *filename, const Eigen::Ref<const Eigen::ArrayXd> x, con
 }
 
 
-Eigen::ArrayXd read_frequencies(char *filename)
+Eigen::ArrayXd read_frequencies(const char *filename)
 {
   ifstream file;
   std::string garb;

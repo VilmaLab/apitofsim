@@ -79,7 +79,7 @@ Histogram scaled_rate_const(const Histogram &rate_const)
 }
 
 MassSpecInputFragmentationPathway::MassSpecInputFragmentationPathway(
-  const ClusterSpec &cluster_0,
+  const MolecularCluster &cluster_0,
   const ClusterSpec &cluster_1,
   const ClusterSpec &cluster_2,
   const Histogram &rate_const,
@@ -90,7 +90,7 @@ MassSpecInputFragmentationPathway::MassSpecInputFragmentationPathway(
   // Compute fragmentation energy in Kelvin
   if (fragmentation_energy == std::nullopt)
   {
-    computed_fragmentation_energy = (cluster_1.electronic_energy + cluster_2.electronic_energy - cluster_0.electronic_energy) * hartK;
+    computed_fragmentation_energy = (electronic_energy(cluster_1) + electronic_energy(cluster_2) - cluster_0.electronic_energy) * hartK;
   }
   else
   {
@@ -106,7 +106,7 @@ MassSpecInputFragmentationPathway::MassSpecInputFragmentationPathway(
 }
 
 MassSpecSubstanceSingleInput::MassSpecSubstanceSingleInput(
-  const ClusterSpec &cluster_0,
+  const MolecularCluster &cluster_0,
   const ClusterSpec &cluster_1,
   const ClusterSpec &cluster_2,
   Gas gas,
@@ -152,7 +152,7 @@ MassSpecSubstanceSingleInput::MassSpecSubstanceSingleInput(
 }
 
 MassSpecSubstanceSingleInput::MassSpecSubstanceSingleInput(
-  const ClusterSpec &cluster_0,
+  const MolecularCluster &cluster_0,
   const std::vector<MassSpecInputFragmentationPathway> pathways,
   Gas gas,
   const Histogram &density_cluster,
@@ -175,7 +175,7 @@ MSSubstanceTreeCluster::MSSubstanceTreeCluster(
 }
 
 MSSubstanceTreeCluster::MSSubstanceTreeCluster(
-  const ClusterSpec &cluster_0,
+  const MolecularCluster &cluster_0,
   const Histogram density_cluster) : MSSubstanceTreeCluster(compute_derived(cluster_0), density_cluster)
 {
 }

@@ -11,9 +11,10 @@ from .api import (
     Histogram,
     MassSpectrometer,
     Quadrupole,
-    _ClusterSpec,
+    _AtomLikeCluster,
     _Gas,
     _MassSpectrometer,
+    _MolecularCluster,
     _Quadrupole,
     ureg,
 )
@@ -321,18 +322,22 @@ def cluster_from_particle_config(
     if vibrational_temperatures is None:
         vibrational_temperatures = numpy.empty(0)
     if asa == "measurement":
-        cls = ClusterData
-        atomic_mass = ureg.Quantity(particle_config["atomic_mass"], "amu")
-        electronic_energy = ureg.Quantity(
-            particle_config["electronic_energy"], "hartree"
+        return ClusterData(
+            ureg.Quantity(particle_config["atomic_mass"], "amu"),
+            ureg.Quantity(particle_config["electronic_energy"], "hartree"),
+            particle_config["rotational_temperatures"],
+            vibrational_temperatures,
+            charge,
         )
-    else:
-        cls = _ClusterSpec
-        atomic_mass = particle_config["atomic_mass"]
-        electronic_energy = particle_config["electronic_energy"]
-    return cls(
-        atomic_mass,
-        electronic_energy,
+    if numpy.size(vibrational_temperatures) == 0:
+        return _AtomLikeCluster(
+            particle_config["atomic_mass"],
+            particle_config["electronic_energy"],
+            charge,
+        )
+    return _MolecularCluster(
+        particle_config["atomic_mass"],
+        particle_config["electronic_energy"],
         particle_config["rotational_temperatures"],
         vibrational_temperatures,
         charge,

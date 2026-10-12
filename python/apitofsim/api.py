@@ -31,7 +31,7 @@ from .apitofsimraw import (
     SampleMode,
 )
 from .apitofsimraw import (
-    ClusterSpec as _ClusterSpec,
+    AtomLikeCluster as _AtomLikeCluster,
 )
 from .apitofsimraw import (
     Counter as Counter,
@@ -54,6 +54,9 @@ from .apitofsimraw import (
 from .apitofsimraw import MassSpecSubstanceTreeInput as _MassSpecSubstanceTreeInput
 from .apitofsimraw import (
     MassSpectrometer as _MassSpectrometer,
+)
+from .apitofsimraw import (
+    MolecularCluster as _MolecularCluster,
 )
 from .apitofsimraw import (
     MSSubstanceTreeCluster as _MSSubstanceTreeCluster,
@@ -166,15 +169,16 @@ class ClusterData(ClusterLike):
     charge: int
     """The cluster's charge"""
 
-    def into_cpp(self) -> _ClusterSpec:
-        frequencies = self.get_frequencies()
-        if frequencies is None:
-            frequencies = numpy.empty(0, dtype=numpy.float64, order="F")
-        return _ClusterSpec(
-            int(self.mass.to("amu").magnitude + 0.5),
-            self.electronic_energy.to("hartree").magnitude,
+    def into_cpp(self) -> _AtomLikeCluster | _MolecularCluster:
+        nucleon_count = int(self.mass.to("amu").magnitude + 0.5)
+        electronic_energy = self.electronic_energy.to("hartree").magnitude
+        if self.is_atom_like_product():
+            return _AtomLikeCluster(nucleon_count, electronic_energy, self.charge)
+        return _MolecularCluster(
+            nucleon_count,
+            electronic_energy,
             self.rotations,
-            frequencies,
+            self.get_frequencies(),
             self.charge,
         )
 
@@ -185,7 +189,9 @@ class ClusterData(ClusterLike):
             return numpy.asfortranarray(self.frequencies, dtype=numpy.float64)
 
     def is_atom_like_product(self) -> bool:
-        return self.frequencies is None
+        if self.frequencies is None:
+            return True
+        return numpy.size(self.frequencies) == 0
 
 
 @dataclass

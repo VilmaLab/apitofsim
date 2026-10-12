@@ -6,6 +6,7 @@
 #include "exceptions.h"
 
 #include <Eigen/Dense>
+#include <optional>
 
 class OperationContext;
 
@@ -55,7 +56,7 @@ struct MassSpecInputFragmentationPathway
   double bonding_energy;
 
   MassSpecInputFragmentationPathway(
-    const ClusterSpec &cluster_0,
+    const MolecularCluster &cluster_0,
     const ClusterSpec &cluster_1,
     const ClusterSpec &cluster_2,
     const Histogram &rate_const,
@@ -76,7 +77,7 @@ struct MassSpecSubstanceSingleInput
   const Gas gas;
 
   MassSpecSubstanceSingleInput(
-    const ClusterSpec &cluster_0,
+    const MolecularCluster &cluster_0,
     const ClusterSpec &cluster_1,
     const ClusterSpec &cluster_2,
     Gas gas,
@@ -94,7 +95,7 @@ struct MassSpecSubstanceSingleInput
     const Gas gas);
 
   MassSpecSubstanceSingleInput(
-    const ClusterSpec &cluster_0,
+    const MolecularCluster &cluster_0,
     const std::vector<MassSpecInputFragmentationPathway> pathways,
     Gas gas,
     const Histogram &density_cluster,
@@ -123,7 +124,7 @@ struct MSSubstanceTreeCluster
     const Histogram density_cluster);
 
   MSSubstanceTreeCluster(
-    const ClusterSpec &cluster_0,
+    const MolecularCluster &cluster_0,
     const Histogram density_cluster);
 
 private:
