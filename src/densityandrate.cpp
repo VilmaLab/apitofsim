@@ -415,12 +415,6 @@ void fill_combined_dos(Eigen::Ref<Eigen::ArrayXd> rho, const AtomLikeProducts &p
 
 DensityResult compute_density_of_states_all(const MolecularCluster &cluster_0, const Products &products, double energy_max, double bin_width)
 {
-  // The first product is molecular whichever way the products are combined
-  const MolecularCluster &product_1 = std::visit([](const auto &products) -> const MolecularCluster &
-  {
-    return products.first;
-  }, products);
-
   OperationContext operation;
   int m_max = static_cast<int>(energy_max / bin_width);
   DensityResult rhos(m_max, 4);
@@ -437,7 +431,10 @@ DensityResult compute_density_of_states_all(const MolecularCluster &cluster_0, c
       [&]
     {
       auto rhos1 = rhos.col(C1_ROW);
-      compute_density_of_states(product_1.frequencies, rhos1, energy_max, bin_width);
+      std::visit([&](const auto &products)
+      {
+        compute_density_of_states(products.first.frequencies, rhos1, energy_max, bin_width);
+      }, products);
     },
       [&]
     {
