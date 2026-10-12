@@ -33,6 +33,13 @@ if ittnotify_feat.enabled()
 endif
 eigen3 = dependency('eigen3', include_type : 'system', version : '>= 3.4')
 tbb = dependency('tbb', include_type : 'system', version : '>= 2023.0')
+if python_feat.enabled()
+  # meson's dependency cache key omits include_type and the first caller wins.
+  # The nanobind subproject calls python.dependency() itself, so Python must be
+  # requested as a system dependency before nanobind is resolved, otherwise its
+  # headers end up on the -I path and clang-tidy lints them.
+  python_dep = import('python').find_installation().dependency(include_type : 'system')
+endif
 nanobind = dependency('nanobind', required : python_feat, include_type : 'system')
 if host_machine.system() == 'windows'
   # Let python.extension_module() provide the stable-ABI Python link dependency.

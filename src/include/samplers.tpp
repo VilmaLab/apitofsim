@@ -82,7 +82,7 @@ double draw_u_norm_skimmer_dss_unnorm(GenT &gen, std::uniform_real_distribution<
   double integral_unnorm = 0.0;
   while (integral_unnorm < r_unnorm)
   {
-    double c = (u_norm + v_rel_norm * costheta) * exp(-0.5 * mobility_gas_inv * u_norm * u_norm);
+    double c = (u_norm + (v_rel_norm * costheta)) * exp(-0.5 * mobility_gas_inv * u_norm * u_norm);
     integral_unnorm += c * du;
     u_norm += du;
   }
@@ -185,7 +185,7 @@ struct GasCollRejectionSampler
   {
 
     // First work out a bound on the maximum probability density
-    double u_for_bound_func_max = (v_norm + sqrt(v_norm * v_norm + 4 * mobility_gas)) / 2;
+    double u_for_bound_func_max = (v_norm + sqrt((v_norm * v_norm) + (4 * mobility_gas))) / 2;
     double u_v_diff = u_for_bound_func_max - v_norm;
     double max_density = u_for_bound_func_max * exp(-mobility_gas_inv * u_v_diff * u_v_diff / 2);
     std::uniform_real_distribution<double> accept_unif = std::uniform_real_distribution<>(0.0, max_density);
@@ -194,7 +194,7 @@ struct GasCollRejectionSampler
     {
       double theta = theta_unif(gen);
       double u = u_unif(gen);
-      double u_norm = u - v_norm * cos(theta);
+      double u_norm = u - (v_norm * cos(theta));
       double density = u * exp(-0.5 * mobility_gas_inv * u_norm * u_norm) * sin(theta);
       if (accept_unif(gen) < density)
       {
@@ -219,17 +219,17 @@ struct VibEnergySamplerBase
   {
     using consts::boltzmann;
 
-    if (E > density_cluster.x_max)
+    if (E > density_cluster.x_max())
     {
-      throw ApiTofDosOverflow(density_cluster.x_max, E / boltzmann);
+      throw ApiTofDosOverflow(density_cluster.x_max(), E / boltzmann);
     }
 
     // 1st step: I evaluate the integral (normalization)
     double normalization = 0.0;
     int m = 0;
-    while (density_cluster.x[m] < E)
+    while (density_cluster.x()[m] < E)
     {
-      normalization += sqrt(E - density_cluster.x[m]) * density_cluster.y[m];
+      normalization += sqrt(E - density_cluster.x()[m]) * density_cluster.y()[m];
       m++;
     }
     return normalization;
@@ -251,10 +251,10 @@ struct VibEnergyNormSampler : VibEnergySamplerBase
     int m = 0;
     while (integral < r)
     {
-      integral += sqrt(E - density_cluster.x[m]) * density_cluster.y[m] / nc;
+      integral += sqrt(E - density_cluster.x()[m]) * density_cluster.y()[m] / nc;
       m++;
     }
-    return density_cluster.x[m - 1];
+    return density_cluster.x()[m - 1];
   }
 };
 
@@ -272,9 +272,9 @@ struct VibEnergyUnnormSampler : VibEnergySamplerBase
     int m = 0;
     while (integral_unnorm < r_unnorm)
     {
-      integral_unnorm += sqrt(E - density_cluster.x[m]) * density_cluster.y[m];
+      integral_unnorm += sqrt(E - density_cluster.x()[m]) * density_cluster.y()[m];
       m++;
     }
-    return density_cluster.x[m - 1];
+    return density_cluster.x()[m - 1];
   }
 };

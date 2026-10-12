@@ -52,7 +52,7 @@ OperationContext::OperationContext()
 #endif
       context(oneapi::tbb::task_group_context::isolated)
 {
-  const std::lock_guard<std::mutex> lock(handler_mutex);
+  std::scoped_lock lock(handler_mutex);
   if (active_contexts++ == 0)
   {
     pending_signal = 0;
@@ -62,7 +62,7 @@ OperationContext::OperationContext()
 
 OperationContext::~OperationContext()
 {
-  const std::lock_guard<std::mutex> lock(handler_mutex);
+  std::scoped_lock lock(handler_mutex);
   if (--active_contexts == 0)
   {
     if (handlers_installed)
@@ -106,7 +106,7 @@ void OperationContext::rethrow_pending_signal(bool signals_as_exceptions)
   }
 
   {
-    const std::lock_guard<std::mutex> lock(handler_mutex);
+    std::scoped_lock lock(handler_mutex);
     if (handlers_installed)
     {
       restore_handlers();
@@ -115,7 +115,7 @@ void OperationContext::rethrow_pending_signal(bool signals_as_exceptions)
   }
   std::raise(signum);
   {
-    const std::lock_guard<std::mutex> lock(handler_mutex);
+    std::scoped_lock lock(handler_mutex);
     if (active_contexts > 0 && !handlers_installed)
     {
       install_handlers();
@@ -125,7 +125,7 @@ void OperationContext::rethrow_pending_signal(bool signals_as_exceptions)
 
 void ExceptionTransport::capture()
 {
-  const std::lock_guard<std::mutex> lock(mutex);
+  std::scoped_lock lock(mutex);
   if (!exception)
   {
     exception = std::current_exception();
@@ -134,7 +134,7 @@ void ExceptionTransport::capture()
 
 bool ExceptionTransport::should_continue() const
 {
-  const std::lock_guard<std::mutex> lock(mutex);
+  std::scoped_lock lock(mutex);
   return !exception;
 }
 
@@ -142,7 +142,7 @@ void ExceptionTransport::rethrow() const
 {
   std::exception_ptr captured;
   {
-    const std::lock_guard<std::mutex> lock(mutex);
+    std::scoped_lock lock(mutex);
     captured = exception;
   }
   if (captured)

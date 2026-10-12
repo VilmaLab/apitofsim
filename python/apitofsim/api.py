@@ -31,7 +31,7 @@ from .apitofsimraw import (
     SampleMode,
 )
 from .apitofsimraw import (
-    ClusterData as _ClusterData,
+    AtomLikeCluster as _AtomLikeCluster,
 )
 from .apitofsimraw import (
     Counter as Counter,
@@ -54,6 +54,9 @@ from .apitofsimraw import (
 from .apitofsimraw import MassSpecSubstanceTreeInput as _MassSpecSubstanceTreeInput
 from .apitofsimraw import (
     MassSpectrometer as _MassSpectrometer,
+)
+from .apitofsimraw import (
+    MolecularCluster as _MolecularCluster,
 )
 from .apitofsimraw import (
     MSSubstanceTreeCluster as _MSSubstanceTreeCluster,
@@ -166,13 +169,15 @@ class ClusterData(ClusterLike):
     charge: int
     """The cluster's charge"""
 
-    def into_cpp(self) -> _ClusterData:
+    def into_cpp(self) -> _AtomLikeCluster | _MolecularCluster:
+        nucleon_count = int(self.mass.to("amu").magnitude + 0.5)
+        electronic_energy = self.electronic_energy.to("hartree").magnitude
         frequencies = self.get_frequencies()
         if frequencies is None:
-            frequencies = numpy.empty(0, dtype=numpy.float64, order="F")
-        return _ClusterData(
-            int(self.mass.to("amu").magnitude + 0.5),
-            self.electronic_energy.to("hartree").magnitude,
+            return _AtomLikeCluster(nucleon_count, electronic_energy, self.charge)
+        return _MolecularCluster(
+            nucleon_count,
+            electronic_energy,
             self.rotations,
             frequencies,
             self.charge,
@@ -185,7 +190,9 @@ class ClusterData(ClusterLike):
             return numpy.asfortranarray(self.frequencies, dtype=numpy.float64)
 
     def is_atom_like_product(self) -> bool:
-        return self.frequencies is None
+        if self.frequencies is None:
+            return True
+        return numpy.size(self.frequencies) == 0
 
 
 @dataclass
@@ -664,9 +671,15 @@ def densityandrate(
         fragmentation_energy = process_arg(
             "fragmentation_energy", fragmentation_energy, "kelvin"
         )
+    cluster_0_cpp = cluster_0.into_cpp()
+    cluster_1_cpp = cluster_1.into_cpp()
+    if isinstance(cluster_0_cpp, _AtomLikeCluster) or isinstance(
+        cluster_1_cpp, _AtomLikeCluster
+    ):
+        raise ValueError("Only the second product may be atom-like")
     density_cluster, rate_const = _densityandrate(
-        cluster_0.into_cpp(),
-        cluster_1.into_cpp(),
+        cluster_0_cpp,
+        cluster_1_cpp,
         cluster_2.into_cpp(),
         energy_max,
         energy_max_rate,

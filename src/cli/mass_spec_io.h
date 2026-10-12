@@ -37,7 +37,7 @@ Histogram read_histogram(const std::string &filename)
   }
   file.close();
 
-  return Histogram(x, y);
+  return {x, y};
 }
 
 std::tuple<SkimmerData, double> read_skimmer(const std::string &filename)

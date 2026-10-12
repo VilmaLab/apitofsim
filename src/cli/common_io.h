@@ -214,7 +214,7 @@ const char *const FINAL_POSITION = "work/log/final_position.dat";
 const char *const PINHOLE = "work/log/pinhole.dat";
 } // namespace Filenames
 
-Eigen::Array3d read_rotations(char *filename)
+Eigen::Array3d read_rotations(const char *filename)
 {
   Eigen::Array3d rotations;
   std::ifstream file;
@@ -231,7 +231,7 @@ Eigen::Array3d read_rotations(char *filename)
 }
 
 // Read electronic energy
-double read_electronic_energy(char *filename)
+double read_electronic_energy(const char *filename)
 {
   std::ifstream file;
   double electronic_energy;

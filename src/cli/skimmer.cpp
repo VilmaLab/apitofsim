@@ -3,9 +3,9 @@
 
 #include <fstream>
 #include <iostream>
-#include <math.h>
+#include <cmath>
 #include <optional>
-#include <stdlib.h>
+#include <cstdlib>
 
 using namespace std;
 
@@ -32,16 +32,16 @@ int main()
   warnings << std::scientific;
 
   // Reading from input
-  read_config(
+  read_config<int, double>(
     std::cin,
     nullptr,
     nullptr,
-    (int *)nullptr,
-    (int *)nullptr,
-    (int *)nullptr,
+    nullptr,
+    nullptr,
+    nullptr,
     &T0,
     &P0,
-    (double *)nullptr,
+    nullptr,
     nullptr,
     &rmax,
     nullptr,

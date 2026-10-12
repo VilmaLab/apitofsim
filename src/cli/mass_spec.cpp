@@ -18,7 +18,7 @@
 #include <iostream>
 #include <iomanip>
 #include <stdexcept>
-#include <stdlib.h>
+#include <cstdlib>
 #include <string>
 #include "mass_spec_io.h"
 #include "common_io.h"
@@ -69,7 +69,7 @@ void mass_spec_config_in()
 {
   using namespace consts;
   // Mersenne-Twister uniform random number generator
-  mt19937 root_gen = mt19937(42ull);
+  mt19937 root_gen = mt19937(42ULL);
   unsigned long long root_seed = root_gen();
 
   double L0;
@@ -121,13 +121,13 @@ void mass_spec_config_in()
             << "Reading input..." << endl
             << endl;
 
-  read_config(
+  read_config<int, double>(
     std::cin,
     nullptr, // title
     &cluster_charge_sign,
     &amu,
-    (int *)nullptr, // amu_1
-    (int *)nullptr, // amu_2
+    nullptr, // amu_1
+    nullptr, // amu_2
     &T,
     &pressure_first,
     &pressure_second,
@@ -313,10 +313,10 @@ void mass_spec_config_in()
         {
           int n_fragmented_total = cur_counters[Counter::n_fragmented_total];
           int n_escaped_total = cur_counters[Counter::n_escaped_total];
-          double survival_ratio_total = (double)n_escaped_total / cur_iters;
+          double survival_ratio_total = static_cast<double>(n_escaped_total) / cur_iters;
           int n_fragmented_batch = n_fragmented_total - fragmented_prev;
           int n_escaped_batch = n_escaped_total - escaped_prev;
-          double survival_ratio = (double)n_escaped_batch / (n_escaped_batch + n_fragmented_batch);
+          double survival_ratio = static_cast<double>(n_escaped_batch) / (n_escaped_batch + n_fragmented_batch);
           std::cout << std::defaultfloat << setw(5) << setfill(' ') << fixed << setprecision(1)
                     << 100.0 * cur_iters / N << "% "
                     << string(n_fragmented_batch, '*')
@@ -385,11 +385,11 @@ void mass_spec_config_in()
     std::cout << "Realizations: " << realizations << endl;
     std::cout << "Fragments: " << counters[Counter::n_fragmented_total] << endl;
     std::cout << "Intacts: " << counters[Counter::n_escaped_total] << endl;
-    double survival_probability = (double)counters[Counter::n_escaped_total] / realizations;
+    double survival_probability = static_cast<double>(counters[Counter::n_escaped_total]) / realizations;
     // error_survival_probability=sqrt(survival_probability*(1.0-survival_probability)/realizations);
     double error_survival_probability = evaluate_error(realizations, counters[Counter::n_escaped_total]);
     int ncoll_total = counters[Counter::ncoll_total];
-    double avg_ncoll = (double)ncoll_total / N;
+    double avg_ncoll = static_cast<double>(ncoll_total) / N;
     std::cout << "Average number of collisions: " << avg_ncoll << endl;
     int counter_collision_rejections = counters[Counter::counter_collision_rejections];
     std::cout << "Number of collision rejections close to the pinhole: " << counter_collision_rejections << endl;
