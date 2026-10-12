@@ -550,6 +550,145 @@ def test_sql_foreign_keys_declared_on_own_line():
         )
 
 
+@pytest.mark.parametrize(
+    "cluster_dos, products_dos, rates",
+    [
+        ([], [], []),
+        ([1], [], [1]),
+        ([], [2, 2], []),
+        ([1, 1, 2], [2, 3], [2, 2, 4]),
+    ],
+)
+def test_available_histogram_queries(cluster_dos, products_dos, rates):
+    import duckdb
+    from apitofsim.workflow.db import SuperClusterDatabase, connection_scope
+
+    with connection_scope(SuperClusterDatabase, ":memory:") as database:
+        database.create_tables()
+        db = database.db
+        db.execute("insert into cluster (id) values (1)")
+        db.execute("insert into pathway values (1, 1, 1, 1)")
+        # Equal widths and differing maxima remain distinct configurations;
+        # unreferenced parameter and mesh rows do not imply availability.
+        db.execute(
+            "insert into histogram_params values "
+            "(1, 10, 100), (2, 1, 100), (3, 1, 200), (4, 5, 100), (5, 20, 100)"
+        )
+        db.execute("insert into k_rate_mesh (histogram_params_id) values (5)")
+        for histogram_id in cluster_dos:
+            db.execute(
+                "insert into cluster_dos (histogram_params_id, cluster_id) values (?, 1)",
+                (histogram_id,),
+            )
+        for histogram_id in products_dos:
+            db.execute(
+                "insert into products_dos (histogram_params_id, cluster1_id, cluster2_id) values (?, 1, 1)",
+                (histogram_id,),
+            )
+        for histogram_id in rates:
+            db.execute(
+                "insert into k_rate (histogram_params_id, pathway_id) values (?, 1)",
+                (histogram_id,),
+            )
+        widths = {1: 10.0, 2: 1.0, 3: 1.0, 4: 5.0}
+        for query, expected_ids in (
+            (
+                database.available_dos_histograms_query(),
+                set(cluster_dos + products_dos),
+            ),
+            (database.available_rate_histograms_query(), set(rates)),
+        ):
+            assert isinstance(query, duckdb.DuckDBPyRelation)
+            assert query.columns == ["histogram_params_id", "bin_width"]
+            assert set(query.fetchall()) == {(id, widths[id]) for id in expected_ids}
+
+
+def test_experiment_metadata_queries():
+    import json
+    from datetime import datetime
+
+    import duckdb
+    from apitofsim.workflow.db import connection_scope
+
+    with connection_scope(ExperimentDatabase, ":memory:") as database:
+        database.create_tables()
+        assert database.experiment_overview_query().fetchall() == []
+        assert database.experiment_clusters_query(1).fetchall() == []
+        db = database.db
+        db.execute(
+            "insert into cluster (id, common_name, atomic_mass) "
+            "values (1, 'parent', 100), (2, 'other', 50)"
+        )
+        db.execute("insert into pathway values (1, 1, 2, 2), (2, 1, 1, 2)")
+        db.execute(
+            "insert into experiment_config values (1, 'raw config', '{\"N\": 42}')"
+        )
+        start_time = datetime(2026, 1, 2, 3, 4, 5)
+        for run_id, mode in (
+            (1, "SINGLE_PATHWAY"),
+            (2, "SINGLE_CLUSTER"),
+            (3, "SINGLE_CLUSTER"),
+        ):
+            db.execute(
+                "insert into experiment_run values (?, 1, ?, ?)",
+                (run_id, json.dumps({"simulation_mode": mode}), start_time),
+            )
+        db.execute(
+            "insert into single_pathway_experiment_result (experiment_run_id, pathway_id) "
+            "values (1, 1), (1, 2)"
+        )
+        result_id = db.execute(
+            "insert into multi_pathway_experiment_result (experiment_run_id, cluster_id) "
+            "values (2, 1) returning id"
+        ).fetchone()[0]
+        db.execute(
+            "insert into pathway_fragmentation (experiment_result_id, pathway_id, count) "
+            "values (?, 1, 1), (?, 2, 2)",
+            (result_id, result_id),
+        )
+        database.record_failure(1, "ValueError", "test failure", pathway_id=1)
+
+        assert database.experiment_overview_query(999).fetchall() == []
+        assert database.experiment_clusters_query(999).fetchall() == []
+        assert database.experiment_clusters_query(1, 999).fetchall() == []
+        assert database.experiment_clusters_query(3).fetchall() == []
+        assert len(database.experiment_overview_query().fetchall()) == 3
+        for run_id, successes, failures, is_single in (
+            (1, 2, 1, True),
+            (2, 1, 0, False),
+            (3, 0, 0, False),
+        ):
+            overview = database.experiment_overview_query(run_id)
+            assert isinstance(overview, duckdb.DuckDBPyRelation)
+            row = dict(zip(overview.columns, overview.fetchone(), strict=True))
+            assert row == {
+                "experiment_run_id": run_id,
+                "config_name": "raw config",
+                "start_time": start_time,
+                "successes": successes,
+                "failures": failures,
+                "is_single_pathway": is_single,
+                "config": '{"N": 42}',
+                "run_config": json.dumps(
+                    {
+                        "simulation_mode": "SINGLE_PATHWAY"
+                        if is_single
+                        else "SINGLE_CLUSTER"
+                    }
+                ),
+            }
+        for run_id, is_single in ((1, True), (2, False)):
+            clusters = database.experiment_clusters_query(run_id)
+            assert isinstance(clusters, duckdb.DuckDBPyRelation)
+            assert clusters.select(
+                "cluster_id, cluster_common_name, cluster_atomic_mass, is_single_pathway"
+            ).fetchall() == [(1, "parent", 100.0, is_single)]
+            assert (
+                database.experiment_clusters_query(run_id, 1).fetchall()
+                == clusters.fetchall()
+            )
+
+
 @pytest.mark.parametrize("attached", [False, True])
 def test_normalized_result_and_event_views(tmp_path, attached):
     import duckdb

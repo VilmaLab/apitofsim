@@ -445,6 +445,33 @@ class SuperClusterDatabase(ClusterDatabase):
         bin_width, x_max = row
         return Q_(bin_width, "K"), Q_(x_max, "K")
 
+    def available_dos_histograms_query(self):
+        """Return distinct DOS configuration IDs and bin widths (kelvin).
+
+        Availability includes cluster and products DOS. No pairing with rate
+        configurations is implied by the rows or their order.
+        """
+        return self.db.sql("""
+            select id as histogram_params_id, bin_width
+            from histogram_params
+            where id in (
+                select histogram_params_id from cluster_dos
+                union
+                select histogram_params_id from products_dos
+            )
+        """)
+
+    def available_rate_histograms_query(self):
+        """Return distinct k_rate configuration IDs and bin widths (kelvin).
+
+        These configurations are independent of the available DOS set.
+        """
+        return self.db.sql("""
+            select id as histogram_params_id, bin_width
+            from histogram_params
+            where id in (select histogram_params_id from k_rate)
+        """)
+
     def get_cluster_dos_through_join_else(
         self, cluster_indexed, histogram_id, cluster_dos_dict
     ):
@@ -646,6 +673,42 @@ class ExperimentDatabase(SuperClusterDatabase):
 
     def report_df(self, tbl_name):
         return self.db.table(tbl_name).fetchdf()
+
+    def experiment_overview_query(self, experiment_run_id=None):
+        """Return run summaries with raw timestamps, config JSON and run_config.
+
+        Omit the ID for all runs; a missing ID returns an empty relation.
+        is_single_pathway follows experiment_summary's result-based semantics.
+        """
+        query = self.db.sql("""
+            select summary.*, config.config, run.run_config
+            from experiment_summary as summary
+            join experiment_run as run on run.id = summary.experiment_run_id
+            join experiment_config as config on config.id = run.experiment_config_id
+        """)
+        if experiment_run_id is not None:
+            query = query.filter(
+                duckdb.ColumnExpression("experiment_run_id")
+                == duckdb.ConstantExpression(experiment_run_id)
+            )
+        return query
+
+    def experiment_clusters_query(self, experiment_run_id, cluster_id=None):
+        """Return cluster report rows for a run, optionally limited to a cluster.
+
+        Includes raw cluster facts and result-mode metadata from
+        experiment_cluster_report. Missing IDs return an empty relation.
+        """
+        query = self.db.table("experiment_cluster_report").filter(
+            duckdb.ColumnExpression("experiment_run_id")
+            == duckdb.ConstantExpression(experiment_run_id)
+        )
+        if cluster_id is not None:
+            query = query.filter(
+                duckdb.ColumnExpression("cluster_id")
+                == duckdb.ConstantExpression(cluster_id)
+            )
+        return query
 
     def forget(self, runs=False, configs=False, derived=False, all=False):
         if all:
