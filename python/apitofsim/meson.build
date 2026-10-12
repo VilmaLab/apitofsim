@@ -33,6 +33,7 @@ python.install_sources([
 'workflow/ingest.py',
 'workflow/runners.py',
 'workflow/sql_files.py',
+'workflow/sql_files_nofk.py',
 ], subdir: 'apitofsim/workflow', pure : false)
 
 python.install_sources([
