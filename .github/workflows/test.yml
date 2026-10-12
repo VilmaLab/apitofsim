@@ -13,7 +13,7 @@ jobs:
   # This checks it's possible to build with the default Ubuntu compiler and run C++ tests
   build_test_gcc:
     name: Full build with default compiler then C++ tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
 
     steps:
       - name: Checkout source code
