@@ -66,6 +66,28 @@ Typically an `ExperimentDatabase` is created and its tables created with `db.cre
 
 After this, multiple simulation can be run using the `ExperimentRunner` class.
 
+### Database read queries
+
+`SuperClusterDatabase.available_dos_histograms_query()` returns available DOS
+configuration IDs (`histogram_params_id`) and `bin_width` in kelvin, including
+both cluster and products DOS. `available_rate_histograms_query()` returns the
+same columns for configurations used by `k_rate`. Each configuration appears
+once, even when several configurations share a bin width. These are independent
+sets with no implied pairing or ordering; callers choose compatible configurations.
+
+`ExperimentDatabase.experiment_overview_query(experiment_run_id=None)` returns
+the `experiment_summary` columns plus raw `config` and `run_config` JSON. Omit
+the run ID to retrieve all runs. Timestamps remain Python datetimes when fetched.
+`experiment_clusters_query(experiment_run_id, cluster_id=None)` returns rows from
+`experiment_cluster_report`, including cluster facts and `is_single_pathway`,
+optionally filtered to one cluster. Mode flags retain the report views' semantics:
+they indicate whether the run has single-pathway results, so a run without
+results has a false flag; its requested simulation mode remains in `run_config`.
+
+All four methods return DuckDB relations that callers can select, filter, sort
+or fetch. Missing run or cluster IDs return empty relations. Display labels and
+date formatting belong to callers.
+
 ### Result and event views
 
 `experiment_result` contains one row per successful result, with `id`,
