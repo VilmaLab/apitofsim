@@ -11,7 +11,7 @@ from .api import (
     Histogram,
     MassSpectrometer,
     Quadrupole,
-    _ClusterData,
+    _ClusterSpec,
     _Gas,
     _MassSpectrometer,
     _Quadrupole,
@@ -327,7 +327,7 @@ def cluster_from_particle_config(
             particle_config["electronic_energy"], "hartree"
         )
     else:
-        cls = _ClusterData
+        cls = _ClusterSpec
         atomic_mass = particle_config["atomic_mass"]
         electronic_energy = particle_config["electronic_energy"]
     return cls(

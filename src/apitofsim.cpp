@@ -6,50 +6,50 @@
 
 #include <iostream>
 
-ClusterData::ClusterData() = default;
-
-ClusterData::ClusterData(int atomic_mass, double electronic_energy, Eigen::Vector3d rotations, Eigen::ArrayXd frequencies, int charge)
-    : atomic_mass(atomic_mass), electronic_energy(electronic_energy), rotations(rotations), frequencies(frequencies), charge(charge)
+ClusterSpec::ClusterSpec(int nucleon_count, double electronic_energy, Eigen::Vector3d rotations, Eigen::ArrayXd frequencies, int charge)
+    : nucleon_count(nucleon_count), electronic_energy(electronic_energy), rotations(rotations), frequencies(frequencies), charge(charge)
 {
 }
 
-void ClusterData::validate()
-{
-  if (this->is_atom_like_product() && !this->rotations.isZero(0))
-  {
-    std::cout << "Atom-like products must have 0 rotations" << std::endl;
-    exit(EXIT_FAILURE);
-  }
-}
-
-int ClusterData::num_oscillators()
+int ClusterSpec::num_oscillators() const
 {
   return this->frequencies.rows();
 }
 
-bool ClusterData::is_atom_like_product()
+bool ClusterSpec::is_atom_like_product() const
 {
   return this->num_oscillators() == 0;
 }
 
-void ClusterData::compute_derived()
+std::optional<std::string> ClusterSpec::validation_error() const
+{
+  if (this->is_atom_like_product() && !this->rotations.isZero(0))
+  {
+    return "Atom-like products must have 0 rotations";
+  }
+  return std::nullopt;
+}
+
+ClusterDerived compute_derived(const ClusterSpec &spec)
 {
   using consts::pmass;
-  if (this->is_atom_like_product())
+  ClusterDerived derived;
+  if (spec.is_atom_like_product())
   {
     // No rotations, so can't calculate inertia moment/radius
-    inertia_moment = 0;
-    radius = 0;
-    mass = pmass * this->atomic_mass; // proton mass * nucleons
+    derived.inertia_moment = 0;
+    derived.radius = 0;
+    derived.mass = pmass * spec.nucleon_count; // proton mass * nucleons
   }
   else
   {
-    inertia_moment = compute_inertia(rotations);
-    std::tie(mass, radius) = compute_mass_and_radius(inertia_moment, atomic_mass);
+    derived.inertia_moment = compute_inertia(spec.rotations);
+    std::tie(derived.mass, derived.radius) = compute_mass_and_radius(derived.inertia_moment, spec.nucleon_count);
   }
+  return derived;
 }
 
-double FragmentationPathway::fragmentation_energy_kelvin()
+double FragmentationPathway::fragmentation_energy_kelvin() const
 {
   return (this->product1.electronic_energy + this->product2.electronic_energy - this->parent.electronic_energy) * consts::hartK;
 }
@@ -60,10 +60,10 @@ double compute_inertia(const Eigen::Vector3d &rotations)
   return 0.5 * hbar * hbar / (boltzmann * pow(rotations[0] * rotations[1] * rotations[2], 1.0 / 3));
 }
 
-std::tuple<double, double> compute_mass_and_radius(double inertia, double amu)
+std::tuple<double, double> compute_mass_and_radius(double inertia, double nucleon_count)
 {
   using consts::pmass;
-  double mass = pmass * amu; // proton mass * nucleons
+  double mass = pmass * nucleon_count; // proton mass * nucleons
   double radius = sqrt(2.5 * inertia / mass);
   return std::make_tuple(mass, radius);
 }

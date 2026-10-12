@@ -31,7 +31,7 @@ from .apitofsimraw import (
     SampleMode,
 )
 from .apitofsimraw import (
-    ClusterData as _ClusterData,
+    ClusterSpec as _ClusterSpec,
 )
 from .apitofsimraw import (
     Counter as Counter,
@@ -166,11 +166,11 @@ class ClusterData(ClusterLike):
     charge: int
     """The cluster's charge"""
 
-    def into_cpp(self) -> _ClusterData:
+    def into_cpp(self) -> _ClusterSpec:
         frequencies = self.get_frequencies()
         if frequencies is None:
             frequencies = numpy.empty(0, dtype=numpy.float64, order="F")
-        return _ClusterData(
+        return _ClusterSpec(
             int(self.mass.to("amu").magnitude + 0.5),
             self.electronic_energy.to("hartree").magnitude,
             self.rotations,

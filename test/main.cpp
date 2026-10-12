@@ -304,8 +304,8 @@ TEST_CASE("k total batch reports every completed item in order")
   Eigen::Vector3d rotations = Eigen::Vector3d::Ones();
   Eigen::ArrayXd frequencies(1);
   frequencies << 1.0;
-  ClusterData product_1(1, 0.0, rotations, frequencies, 0);
-  ClusterData product_2(1, 0.0, rotations, frequencies, 0);
+  ClusterSpec product_1(1, 0.0, rotations, frequencies, 0);
+  ClusterSpec product_2(1, 0.0, rotations, frequencies, 0);
   std::vector<KTotalInput> batch;
   batch.reserve(batch_size);
   for (size_t i = 0; i < batch_size; ++i)

@@ -79,9 +79,9 @@ Histogram scaled_rate_const(const Histogram &rate_const)
 }
 
 MassSpecInputFragmentationPathway::MassSpecInputFragmentationPathway(
-  const ClusterData &cluster_0,
-  const ClusterData &cluster_1,
-  const ClusterData &cluster_2,
+  const ClusterSpec &cluster_0,
+  const ClusterSpec &cluster_1,
+  const ClusterSpec &cluster_2,
   const Histogram &rate_const,
   std::optional<double> fragmentation_energy) : rate_const(rate_const)
 {
@@ -106,19 +106,34 @@ MassSpecInputFragmentationPathway::MassSpecInputFragmentationPathway(
 }
 
 MassSpecSubstanceSingleInput::MassSpecSubstanceSingleInput(
-  const ClusterData &cluster_0,
-  const ClusterData &cluster_1,
-  const ClusterData &cluster_2,
+  const ClusterSpec &cluster_0,
+  const ClusterSpec &cluster_1,
+  const ClusterSpec &cluster_2,
   Gas gas,
   const Histogram &density_cluster,
   const Histogram &rate_const,
   std::optional<double> fragmentation_energy,
-  int cluster_charge_sign) : cluster_charge_sign(cluster_charge_sign),
-                             density_cluster(density_cluster),
-                             pathways({MassSpecInputFragmentationPathway(cluster_0, cluster_1, cluster_2, rate_const, fragmentation_energy)}),
-                             gas(gas)
+  int cluster_charge_sign) : MassSpecSubstanceSingleInput(
+                               compute_derived(cluster_0),
+                               cluster_charge_sign,
+                               density_cluster,
+                               {MassSpecInputFragmentationPathway(cluster_0, cluster_1, cluster_2, rate_const, fragmentation_energy)},
+                               gas)
 {
-  std::tie(this->m_ion, this->R_cluster) = compute_mass_and_radius(compute_inertia(cluster_0.rotations), cluster_0.atomic_mass);
+}
+
+MassSpecSubstanceSingleInput::MassSpecSubstanceSingleInput(
+  const ClusterDerived &derived,
+  int cluster_charge_sign,
+  const Histogram &density_cluster,
+  std::vector<MassSpecInputFragmentationPathway> pathways,
+  Gas gas) : cluster_charge_sign(cluster_charge_sign),
+             m_ion(derived.mass),
+             R_cluster(derived.radius),
+             density_cluster(density_cluster),
+             pathways(pathways),
+             gas(gas)
+{
 }
 
 MassSpecSubstanceSingleInput::MassSpecSubstanceSingleInput(
@@ -137,16 +152,17 @@ MassSpecSubstanceSingleInput::MassSpecSubstanceSingleInput(
 }
 
 MassSpecSubstanceSingleInput::MassSpecSubstanceSingleInput(
-  const ClusterData &cluster_0,
+  const ClusterSpec &cluster_0,
   const std::vector<MassSpecInputFragmentationPathway> pathways,
   Gas gas,
   const Histogram &density_cluster,
-  int cluster_charge_sign) : cluster_charge_sign(cluster_charge_sign),
-                             density_cluster(density_cluster),
-                             pathways(pathways),
-                             gas(gas)
+  int cluster_charge_sign) : MassSpecSubstanceSingleInput(
+                               compute_derived(cluster_0),
+                               cluster_charge_sign,
+                               density_cluster,
+                               pathways,
+                               gas)
 {
-  std::tie(this->m_ion, this->R_cluster) = compute_mass_and_radius(compute_inertia(cluster_0.rotations), cluster_0.atomic_mass);
 }
 
 MSSubstanceTreeCluster::MSSubstanceTreeCluster(
@@ -159,10 +175,17 @@ MSSubstanceTreeCluster::MSSubstanceTreeCluster(
 }
 
 MSSubstanceTreeCluster::MSSubstanceTreeCluster(
-  const ClusterData &cluster_0,
-  const Histogram density_cluster) : density_cluster(density_cluster)
+  const ClusterSpec &cluster_0,
+  const Histogram density_cluster) : MSSubstanceTreeCluster(compute_derived(cluster_0), density_cluster)
 {
-  std::tie(this->m_ion, this->R_cluster) = compute_mass_and_radius(compute_inertia(cluster_0.rotations), cluster_0.atomic_mass);
+}
+
+MSSubstanceTreeCluster::MSSubstanceTreeCluster(
+  const ClusterDerived &derived,
+  const Histogram density_cluster) : m_ion(derived.mass),
+                                     R_cluster(derived.radius),
+                                     density_cluster(density_cluster)
+{
 }
 
 MassSpecSubstanceTreeInput::MassSpecSubstanceTreeInput(

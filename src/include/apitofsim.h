@@ -1,6 +1,8 @@
 #pragma once
 
 #include <cassert>
+#include <optional>
+#include <string>
 #include <tuple>
 #include <variant>
 #include <Eigen/Dense>
@@ -9,7 +11,7 @@
 double compute_inertia(const Eigen::Vector3d &rotations);
 
 // Compute mass and radius of cluster
-std::tuple<double, double> compute_mass_and_radius(double inertia, double amu);
+std::tuple<double, double> compute_mass_and_radius(double inertia, double nucleon_count);
 
 Eigen::ArrayXd prepare_energies(double bin_width, int m_max);
 
@@ -100,34 +102,43 @@ struct Histogram
 };
 
 // TODO: Separate struct for atom-like products
-struct ClusterData
+// The inputs describing a cluster. All members are initialised, so a default
+// constructed ClusterSpec is valid (if uninteresting) rather than indeterminate.
+struct ClusterSpec
 {
-  int atomic_mass;
-  double electronic_energy;
-  Eigen::Vector3d rotations;
+  int nucleon_count{};
+  double electronic_energy{};
+  Eigen::Vector3d rotations = Eigen::Vector3d::Zero();
   Eigen::ArrayXd frequencies;
-  int charge;
+  int charge{};
 
-  // Computed members
-  double inertia_moment;
-  double radius;
-  double mass;
+  ClusterSpec() = default;
+  ClusterSpec(int nucleon_count, double electronic_energy, Eigen::Vector3d rotations, Eigen::ArrayXd frequencies, int charge);
 
-  ClusterData();
-  ClusterData(int atomic_mass, double electronic_energy, Eigen::Vector3d rotations, Eigen::ArrayXd frequencies, int charge);
-  void validate();
-  int num_oscillators();
-  bool is_atom_like_product();
-  void compute_derived();
+  int num_oscillators() const;
+  bool is_atom_like_product() const;
+  // Description of the first problem found, or nullopt if the spec is usable.
+  std::optional<std::string> validation_error() const;
 };
+
+// Quantities derived from a ClusterSpec. Computed by compute_derived and passed
+// alongside the spec to everything that needs them.
+struct ClusterDerived
+{
+  double inertia_moment{};
+  double radius{};
+  double mass{};
+};
+
+ClusterDerived compute_derived(const ClusterSpec &spec);
 
 struct FragmentationPathway
 {
-  ClusterData parent;
-  ClusterData product1;
-  ClusterData product2;
+  ClusterSpec parent;
+  ClusterSpec product1;
+  ClusterSpec product2;
 
-  double fragmentation_energy_kelvin();
+  double fragmentation_energy_kelvin() const;
 };
 
 void debug_info();

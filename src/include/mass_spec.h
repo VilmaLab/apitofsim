@@ -55,9 +55,9 @@ struct MassSpecInputFragmentationPathway
   double bonding_energy;
 
   MassSpecInputFragmentationPathway(
-    const ClusterData &cluster_0,
-    const ClusterData &cluster_1,
-    const ClusterData &cluster_2,
+    const ClusterSpec &cluster_0,
+    const ClusterSpec &cluster_1,
+    const ClusterSpec &cluster_2,
     const Histogram &rate_const,
     std::optional<double> fragmentation_energy = std::nullopt);
 
@@ -76,9 +76,9 @@ struct MassSpecSubstanceSingleInput
   const Gas gas;
 
   MassSpecSubstanceSingleInput(
-    const ClusterData &cluster_0,
-    const ClusterData &cluster_1,
-    const ClusterData &cluster_2,
+    const ClusterSpec &cluster_0,
+    const ClusterSpec &cluster_1,
+    const ClusterSpec &cluster_2,
     Gas gas,
     const Histogram &density_cluster,
     const Histogram &rate_const,
@@ -94,11 +94,21 @@ struct MassSpecSubstanceSingleInput
     const Gas gas);
 
   MassSpecSubstanceSingleInput(
-    const ClusterData &cluster_0,
+    const ClusterSpec &cluster_0,
     const std::vector<MassSpecInputFragmentationPathway> pathways,
     Gas gas,
     const Histogram &density_cluster,
     int cluster_charge_sign);
+
+private:
+  // Delegated to by the ClusterSpec constructors, so that the derived quantities
+  // are computed once and every member is initialised rather than assigned.
+  MassSpecSubstanceSingleInput(
+    const ClusterDerived &derived,
+    int cluster_charge_sign,
+    const Histogram &density_cluster,
+    std::vector<MassSpecInputFragmentationPathway> pathways,
+    Gas gas);
 };
 
 struct MSSubstanceTreeCluster
@@ -113,7 +123,12 @@ struct MSSubstanceTreeCluster
     const Histogram density_cluster);
 
   MSSubstanceTreeCluster(
-    const ClusterData &cluster_0,
+    const ClusterSpec &cluster_0,
+    const Histogram density_cluster);
+
+private:
+  MSSubstanceTreeCluster(
+    const ClusterDerived &derived,
     const Histogram density_cluster);
 };
 

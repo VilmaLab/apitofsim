@@ -21,16 +21,16 @@ struct ClusterInputs
 
   // char file_density[150];
   // char file_density_comb[150];
-  void read_into(ClusterData &cluster_data)
+  void read_into(ClusterSpec &spec)
   {
     // Read frequencies
-    cluster_data.frequencies = read_frequencies(file_frequencies.data());
+    spec.frequencies = read_frequencies(file_frequencies.data());
 
     // Read rotational constants
-    cluster_data.rotations = read_rotations(file_rotations.data());
+    spec.rotations = read_rotations(file_rotations.data());
 
     // Read electronic energies
-    cluster_data.electronic_energy = read_electronic_energy(file_electronic_energy.data());
+    spec.electronic_energy = read_electronic_energy(file_electronic_energy.data());
   }
 };
 
@@ -54,18 +54,18 @@ int main()
   ClusterInputs cluster_files_0;
   ClusterInputs cluster_files_1;
   ClusterInputs cluster_files_2;
-  ClusterData cluster_0 = ClusterData();
-  ClusterData cluster_1 = ClusterData();
-  ClusterData cluster_2 = ClusterData();
+  ClusterSpec spec_0;
+  ClusterSpec spec_1;
+  ClusterSpec spec_2;
 
   // Use read_config to read all input fields
   read_config<int, double>(
     std::cin,
     nullptr, // title
     nullptr, // cluster_charge_sign
-    &cluster_0.atomic_mass,
-    &cluster_1.atomic_mass,
-    &cluster_2.atomic_mass,
+    &spec_0.nucleon_count,
+    &spec_1.nucleon_count,
+    &spec_2.nucleon_count,
     &T,
     &P1,
     nullptr, // pressure_second
@@ -122,19 +122,24 @@ int main()
   cout << "Reading inputs..." << endl;
 
   // Read cluster data
-  cluster_files_0.read_into(cluster_0);
-  cluster_files_1.read_into(cluster_1);
-  cluster_files_2.read_into(cluster_2);
-  cluster_0.validate();
-  cluster_1.validate();
-  cluster_2.validate();
+  cluster_files_0.read_into(spec_0);
+  cluster_files_1.read_into(spec_1);
+  cluster_files_2.read_into(spec_2);
+  for (const ClusterSpec *spec : {&spec_0, &spec_1, &spec_2})
+  {
+    if (const auto error = spec->validation_error())
+    {
+      cout << *error << endl;
+      exit(EXIT_FAILURE);
+    }
+  }
 
   // Combine the frequencies of two products
-  int num_oscillators_comb = cluster_1.num_oscillators() + cluster_2.num_oscillators();
+  int num_oscillators_comb = spec_1.num_oscillators() + spec_2.num_oscillators();
 
-  if (cluster_1.num_oscillators() > 0 && cluster_2.num_oscillators() > 0)
+  if (spec_1.num_oscillators() > 0 && spec_2.num_oscillators() > 0)
   {
-    if (cluster_0.num_oscillators() - num_oscillators_comb != 6)
+    if (spec_0.num_oscillators() - num_oscillators_comb != 6)
     {
       cout << "Number of frequencies wrong!!!" << endl;
       exit(EXIT_FAILURE);
@@ -142,44 +147,48 @@ int main()
   }
   else
   {
-    if (cluster_0.num_oscillators() - num_oscillators_comb != 3)
+    if (spec_0.num_oscillators() - num_oscillators_comb != 3)
     {
       cout << "Number of frequencies wrong!!!" << endl;
       exit(EXIT_FAILURE);
     }
   }
-  if (cluster_0.is_atom_like_product() || cluster_1.is_atom_like_product())
+  if (spec_0.is_atom_like_product() || spec_1.is_atom_like_product())
   {
     cout << "Only the 2nd product may be atom-like!" << endl;
     exit(EXIT_FAILURE);
   }
 
-  DensityResult rhos = compute_density_of_states_all(cluster_0, cluster_1, cluster_2, energy_max, bin_width);
+  const ClusterDerived derived_0 = compute_derived(spec_0);
+  const ClusterDerived derived_1 = compute_derived(spec_1);
+  const ClusterDerived derived_2 = compute_derived(spec_2);
+
+  DensityResult rhos = compute_density_of_states_all(spec_0, spec_1, spec_2, energy_max, bin_width);
 
   cout << endl;
-  cout << "Cluster vibrational modes: " << cluster_0.num_oscillators() << endl;
-  cout << "First product vibrational modes: " << cluster_1.num_oscillators() << endl;
-  cout << "Second product vibrational modes: " << cluster_2.num_oscillators() << endl;
-  cout << "Combined vibrational modes of two products: " << num_oscillators_comb << " (+ " << cluster_0.num_oscillators() - num_oscillators_comb << " degrees of freedom, translational and rotational)" << endl;
+  cout << "Cluster vibrational modes: " << spec_0.num_oscillators() << endl;
+  cout << "First product vibrational modes: " << spec_1.num_oscillators() << endl;
+  cout << "Second product vibrational modes: " << spec_2.num_oscillators() << endl;
+  cout << "Combined vibrational modes of two products: " << num_oscillators_comb << " (+ " << spec_0.num_oscillators() - num_oscillators_comb << " degrees of freedom, translational and rotational)" << endl;
   cout << "Energy resolution: " << std::scientific << bin_width << " K" << endl;
 
-  cout << "Inertia moment of cluster : " << cluster_0.inertia_moment << " Kg m^2" << endl;
-  cout << "Inertia moment of first product: " << cluster_1.inertia_moment << " Kg m^2" << endl;
-  cout << "Inertia moment of second product: " << cluster_2.inertia_moment << " Kg m^2" << endl;
+  cout << "Inertia moment of cluster : " << derived_0.inertia_moment << " Kg m^2" << endl;
+  cout << "Inertia moment of first product: " << derived_1.inertia_moment << " Kg m^2" << endl;
+  cout << "Inertia moment of second product: " << derived_2.inertia_moment << " Kg m^2" << endl;
 
-  cout << "Mass of cluster: " << cluster_0.mass << " Kg" << endl;
-  cout << "Mass of first product: " << cluster_1.mass << " Kg" << endl;
-  cout << "Mass of second product: " << cluster_2.mass << " Kg" << endl;
+  cout << "Mass of cluster: " << derived_0.mass << " Kg" << endl;
+  cout << "Mass of first product: " << derived_1.mass << " Kg" << endl;
+  cout << "Mass of second product: " << derived_2.mass << " Kg" << endl;
 
-  cout << "Radius of cluster: " << cluster_0.radius << " m" << endl;
-  cout << "Radius of first product: " << cluster_1.radius << " m" << endl;
-  cout << "Radius of second product: " << cluster_2.radius << " m" << endl;
+  cout << "Radius of cluster: " << derived_0.radius << " m" << endl;
+  cout << "Radius of first product: " << derived_1.radius << " m" << endl;
+  cout << "Radius of second product: " << derived_2.radius << " m" << endl;
   cout << endl;
 
   cout << endl
        << "Computing total fragmentation rate constant..." << endl;
 
-  const Eigen::ArrayXd k_rate = compute_k_total_full(cluster_0, cluster_1, cluster_2, rhos, fragmentation_energy, energy_max_rate, bin_width);
+  const Eigen::ArrayXd k_rate = compute_k_total_full(spec_0, spec_1, derived_1, spec_2, derived_2, rhos, fragmentation_energy, energy_max_rate, bin_width);
 
   int m_max_rate = static_cast<int>(energy_max_rate / bin_width);
   int m_max = static_cast<int>(energy_max / bin_width);

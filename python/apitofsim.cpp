@@ -129,20 +129,24 @@ SkimmerResult skimmer(
 }
 
 std::tuple<Histogram, Histogram> densityandrate(
-  ClusterData &cluster_0,
-  ClusterData &cluster_1,
-  ClusterData &cluster_2,
+  const ClusterSpec &cluster_0,
+  const ClusterSpec &cluster_1,
+  const ClusterSpec &cluster_2,
   double energy_max,
   double energy_max_rate,
   double bin_width,
   double fragmentation_energy)
 {
   // TODO:: The individual product densities are not used -- should be possible to not compute them
+  const ClusterDerived derived_1 = compute_derived(cluster_1);
+  const ClusterDerived derived_2 = compute_derived(cluster_2);
   DensityResult rhos = compute_density_of_states_all(cluster_0, cluster_1, cluster_2, energy_max, bin_width);
   const Eigen::ArrayXd k_rate = compute_k_total_full(
     cluster_0,
     cluster_1,
+    derived_1,
     cluster_2,
+    derived_2,
     rhos,
     fragmentation_energy,
     energy_max_rate,
@@ -489,23 +493,27 @@ NB_MODULE(apitofsimraw, m)
   m.doc() = "APi-TOF-MS simulation module";
   m.def("skimmer", &skimmer);
 
-  nb::class_<ClusterData>(m, "ClusterData")
+  nb::class_<ClusterSpec>(m, "ClusterSpec")
     .def(nb::init<int, double, Eigen::Vector3d, Eigen::ArrayXd, int>(),
-         "atomic_mass"_a,
+         "nucleon_count"_a,
          "electronic_energy"_a,
          "rotations"_a,
          "frequencies"_a,
          "charge"_a)
-    .def_ro("atomic_mass", &ClusterData::atomic_mass)
-    .def_ro("electronic_energy", &ClusterData::electronic_energy)
-    .def_ro("rotations", &ClusterData::rotations)
-    .def_ro("frequencies", &ClusterData::frequencies)
-    .def_ro("inertia_moment", &ClusterData::inertia_moment)
-    .def_ro("radius", &ClusterData::radius)
-    .def_ro("mass", &ClusterData::mass)
-    .def("num_oscillators", &ClusterData::num_oscillators)
-    .def("is_atom_like_product", &ClusterData::is_atom_like_product)
-    .def("compute_derived", &ClusterData::compute_derived);
+    .def_ro("nucleon_count", &ClusterSpec::nucleon_count)
+    .def_ro("electronic_energy", &ClusterSpec::electronic_energy)
+    .def_ro("rotations", &ClusterSpec::rotations)
+    .def_ro("frequencies", &ClusterSpec::frequencies)
+    .def_ro("charge", &ClusterSpec::charge)
+    .def("num_oscillators", &ClusterSpec::num_oscillators)
+    .def("is_atom_like_product", &ClusterSpec::is_atom_like_product);
+
+  nb::class_<ClusterDerived>(m, "ClusterDerived")
+    .def_ro("inertia_moment", &ClusterDerived::inertia_moment)
+    .def_ro("radius", &ClusterDerived::radius)
+    .def_ro("mass", &ClusterDerived::mass);
+
+  m.def("compute_derived", &compute_derived, "spec"_a);
 
   nb::class_<Gas>(m, "Gas")
     .def(nb::init<double, double, double>(),
@@ -560,7 +568,7 @@ NB_MODULE(apitofsimraw, m)
     .def_ro("radius_pinhole", &MassSpectrometer::radius_pinhole);
 
   nb::class_<MassSpecInputFragmentationPathway>(m, "MassSpecInputFragmentationPathway")
-    .def(nb::init<ClusterData &, ClusterData &, ClusterData &, const Histogram &, std::optional<double>>(),
+    .def(nb::init<const ClusterSpec &, const ClusterSpec &, const ClusterSpec &, const Histogram &, std::optional<double>>(),
          "cluster_0"_a,
          "cluster_1"_a,
          "cluster_2"_a,
@@ -571,7 +579,7 @@ NB_MODULE(apitofsimraw, m)
     .def_ro("bonding_energy", &MassSpecInputFragmentationPathway::bonding_energy);
 
   nb::class_<MassSpecSubstanceSingleInput>(m, "MassSpecSubstanceSingleInput")
-    .def(nb::init<ClusterData &, ClusterData &, ClusterData &, Gas, const Histogram &, const Histogram &, std::optional<double>, int>(),
+    .def(nb::init<const ClusterSpec &, const ClusterSpec &, const ClusterSpec &, Gas, const Histogram &, const Histogram &, std::optional<double>, int>(),
          "cluster_0"_a,
          "cluster_1"_a,
          "cluster_2"_a,
@@ -580,7 +588,7 @@ NB_MODULE(apitofsimraw, m)
          "rate_const"_a,
          "fragmentation_energy"_a = std::nullopt,
          "cluster_charge_sign"_a = defaults::cluster_charge_sign)
-    .def(nb::init<ClusterData &, std::vector<MassSpecInputFragmentationPathway>, Gas, const Histogram &, int>(),
+    .def(nb::init<const ClusterSpec &, std::vector<MassSpecInputFragmentationPathway>, Gas, const Histogram &, int>(),
          "cluster_0"_a,
          "pathways"_a,
          "gas"_a,
@@ -605,7 +613,7 @@ NB_MODULE(apitofsimraw, m)
          "m_ion"_a,
          "R_cluster"_a,
          "density_cluster"_a)
-    .def(nb::init<const ClusterData &, const Histogram>(),
+    .def(nb::init<const ClusterSpec &, const Histogram>(),
          "cluster_0"_a,
          "density_cluster"_a)
     .def_ro("m_ion", &MSSubstanceTreeCluster::m_ion)
@@ -667,7 +675,7 @@ NB_MODULE(apitofsimraw, m)
         "use_old_impl"_a = false);
 
   nb::class_<KTotalInput>(m, "KTotalInput")
-    .def(nb::init<ClusterData &, ClusterData &, double, Eigen::Ref<const Eigen::ArrayXd>, Eigen::Ref<const Eigen::ArrayXd>>(),
+    .def(nb::init<const ClusterSpec &, const ClusterSpec &, double, Eigen::Ref<const Eigen::ArrayXd>, Eigen::Ref<const Eigen::ArrayXd>>(),
          nb::arg("cluster_1"),
          nb::arg("cluster_2"),
          nb::arg("fragmentation_energy"),
@@ -790,7 +798,7 @@ NB_MODULE(apitofsimraw, m)
     .def("join_if_joinable", &MassSpecIterator::join_if_joinable);
 
   nb::class_<FragmentationPathway>(m, "FragmentationPathway")
-    .def(nb::init<ClusterData, ClusterData, ClusterData>(),
+    .def(nb::init<ClusterSpec, ClusterSpec, ClusterSpec>(),
          nb::arg("parent"),
          nb::arg("product1"),
          nb::arg("product2"))
