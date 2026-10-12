@@ -548,3 +548,138 @@ def test_sql_foreign_keys_declared_on_own_line():
         assert "references" not in stripped.lower(), (
             f"{path.name}: stripping foreign keys left references behind"
         )
+
+
+@pytest.mark.parametrize("attached", [False, True])
+def test_normalized_result_and_event_views(tmp_path, attached):
+    import duckdb
+    from apitofsim.workflow import sql_files, sql_files_nofk
+    from apitofsim.workflow.db import RealizationDatabase, connection_scope
+
+    if attached:
+        clusters_path = str(tmp_path / "clusters.duckdb")
+        results_path = str(tmp_path / "results.duckdb")
+        with duckdb.connect(clusters_path) as clusters:
+            clusters.execute(sql_files.pathway)
+            clusters.execute(
+                "insert into cluster (id, common_name) values (1, 'parent')"
+            )
+            clusters.execute("insert into pathway values (1, 1, 1, 1), (2, 1, 1, 1)")
+        # Arbitrary aliases and read-only cluster attachment, as used by the web app.
+        connection = duckdb.connect()
+        connection.execute(f"attach '{clusters_path}' as molecules (read_only)")
+        connection.execute(f"attach '{results_path}' as output")
+        connection.execute("use output; set search_path = 'output,molecules'")
+        connection.execute(sql_files_nofk.experiment)
+        connection.execute(sql_files_nofk.realizations)
+        filename = (connection, None)
+    else:
+        filename = ":memory:"
+
+    with connection_scope(RealizationDatabase, filename) as database:
+        db = database.db
+        if not attached:
+            database.create_tables()
+            db.execute("insert into cluster (id, common_name) values (1, 'parent')")
+            db.execute("insert into pathway values (1, 1, 1, 1), (2, 1, 1, 1)")
+        database.refresh_views()
+        for view in ("experiment_result", "event_details", "event_report"):
+            assert db.execute(f"select count(*) from {view}").fetchone() == (0,)
+
+        db.execute("insert into experiment_config (id) values (1)")
+        db.execute(
+            "insert into experiment_run (id, experiment_config_id) values (1, 1), (2, 1)"
+        )
+        db.execute(
+            "insert into single_pathway_experiment_result (id, experiment_run_id, pathway_id) "
+            "values (1, 1, 1)"
+        )
+        db.execute(
+            "insert into multi_pathway_experiment_result (id, experiment_run_id, cluster_id) "
+            "values (2, 2, 1)"
+        )
+        db.execute(
+            "insert into pathway_fragmentation (experiment_result_id, pathway_id, count) "
+            "values (2, 1, 1), (2, 2, 1)"
+        )
+        db.execute(
+            "insert into experiment_failure (id, experiment_run_id, pathway_id) values (3, 1, 1)"
+        )
+        db.execute(
+            "insert into realization values (1, 1), (2, 2), (3, null), (4, 99), (5, 3)"
+        )
+        event_id = 0
+        for realization_id in range(1, 6):
+            types = (
+                ("init", "collision", "fragmentation", "escape")
+                if realization_id <= 2
+                else ("init",)
+            )
+            for event_type in types:
+                event_id += 1
+                db.execute(
+                    "insert into event_info values (?, ?, ?, "
+                    "{x: 1.0, y: 2.0, z: -3.0, t: 4.0}, "
+                    "{x: 5.0, y: 6.0, z: 7.0}, {x: 8.0, y: 9.0, z: 10.0}, 11, 12, 13)",
+                    (event_id, realization_id, event_type),
+                )
+                if event_type == "collision":
+                    db.execute(
+                        "insert into collision_event values (?, 0.5, 14, false)",
+                        (event_id,),
+                    )
+                elif event_type == "fragmentation":
+                    db.execute(
+                        "insert into fragmentation_event values (?, 2)", (event_id,)
+                    )
+
+        # Refresh also upgrades existing files with stale report definitions.
+        db.execute("create or replace view event_report as select 0 as obsolete")
+        database.refresh_views()
+        assert db.execute("select * from experiment_result order by id").fetchall() == [
+            (1, 1, 1, 1, True),
+            (2, 2, 1, None, False),
+        ]
+        assert db.execute("select count(*) from event_details").fetchone() == (11,)
+        assert db.execute(
+            "select count(*), count(distinct event_id) from event_report"
+        ).fetchone() == (8, 8)
+        assert db.execute(
+            "select experiment_result_id, cluster_id, count(*) from event_report group by all order by 1"
+        ).fetchall() == [(1, 1, 4), (2, 1, 4)]
+        assert db.execute(
+            "select count(*) from event_report where event_type = 'init'"
+        ).fetchone() == (2,)
+        assert db.execute(
+            "select event_type, theta, u_norm, accepted, pathway_id from event_report "
+            "where experiment_result_id = 1 order by event_id"
+        ).fetchall() == [
+            ("init", None, None, None, None),
+            ("collision", 0.5, 14, False, None),
+            ("fragmentation", None, None, None, 2),
+            ("escape", None, None, None, None),
+        ]
+        assert db.execute(
+            "select count(*) from event_details where postime.z = z and z = -3 "
+            "and x = 1 and y = 2 and t = 4 and velocity.x = 5 and omega.z = 10 "
+            "and rot_energy = 11 and vibrational_energy = 12 and particle_index = 13"
+        ).fetchone() == (11,)
+        assert db.execute(
+            "select count(*) from event_report where z = -3"
+        ).fetchone() == (8,)
+
+    if attached:
+        # Refreshed persisted views can be consumed through read-only attachments.
+        with duckdb.connect() as readonly:
+            readonly.execute(f"attach '{clusters_path}' as molecules (read_only)")
+            readonly.execute(f"attach '{results_path}' as output (read_only)")
+            readonly.execute("use output; set search_path = 'output,molecules'")
+            assert readonly.execute(
+                "select count(*) from experiment_result"
+            ).fetchone() == (2,)
+            assert readonly.execute(
+                "select count(*) from event_details"
+            ).fetchone() == (11,)
+            assert readonly.execute("select count(*) from event_report").fetchone() == (
+                8,
+            )

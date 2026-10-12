@@ -66,6 +66,28 @@ Typically an `ExperimentDatabase` is created and its tables created with `db.cre
 
 After this, multiple simulation can be run using the `ExperimentRunner` class.
 
+### Result and event views
+
+`experiment_result` contains one row per successful result, with `id`,
+`experiment_run_id`, resolved parent `cluster_id`, optional `pathway_id`, and
+`is_single_pathway`. Multi-pathway results have a null `pathway_id`; failures
+are excluded.
+
+Realization databases also provide `event_details`, which retains every
+`event_info` row and left-joins optional collision and fragmentation fields.
+It includes the raw `postime` struct and its `x`, `y`, `z`, `t` fields, with
+coordinates and physical quantities in the recorder's original units. It
+retains initial events and events whose realization has no successful result.
+`event_report` joins these events to successful results and parent clusters,
+preserving its existing columns, including the fragmentation `pathway_id`.
+Neither view clamps coordinates or assigns display labels or regions;
+`event_details` has no display ordering.
+
+New databases receive these views through `create_tables()`. For existing
+writable files, use `refresh_views()` or `apitofsim refresh-views DATABASE`.
+The SQL continues to resolve tables through the connection's search path,
+without fixed attachment aliases.
+
 ::: apitofsim.workflow.ClusterDatabase
     options:
       members: true

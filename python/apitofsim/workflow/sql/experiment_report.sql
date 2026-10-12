@@ -1,3 +1,21 @@
+create or replace view experiment_result as
+select
+    res.id,
+    res.experiment_run_id,
+    pathway.cluster_id,
+    res.pathway_id,
+    true as is_single_pathway
+from single_pathway_experiment_result as res
+inner join pathway on pathway.id = res.pathway_id
+union all
+select
+    id,
+    experiment_run_id,
+    cluster_id,
+    null as pathway_id,
+    false as is_single_pathway
+from multi_pathway_experiment_result;
+
 create or replace view experiment_pathway_report as
 select
     -- Experiment run info
