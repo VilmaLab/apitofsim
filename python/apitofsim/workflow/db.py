@@ -701,6 +701,102 @@ class RealizationDatabase(ExperimentDatabase):
         super().refresh_views()
         self.db.execute(sql_files.event_report)
 
+    @staticmethod
+    def _scope_query(query, run_id, parent, result_id):
+        for column, value in (
+            ("experiment_run_id", run_id),
+            ("cluster_id", parent),
+            ("experiment_result_id", result_id),
+        ):
+            if value is not None:
+                query = query.filter(
+                    duckdb.ColumnExpression(column) == duckdb.ConstantExpression(value)
+                )
+        return query
+
+    def results_query(self, run_id=None, parent=None, result_id=None):
+        """Return successful results, scoped by run, parent cluster ID and/or result ID.
+
+        Single-pathway parents are resolved through their pathway. Multi-pathway
+        results appear once, including results with no pathway_fragmentation rows.
+        All supplied scope filters are intersected; omitted filters select all rows.
+        """
+        query = self.db.table("experiment_result").select(
+            "id as experiment_result_id, * exclude (id)"
+        )
+        return self._scope_query(query, run_id, parent, result_id)
+
+    def realizations_query(self, run_id=None, parent=None, result_id=None):
+        """Return recorded realizations with result, run and parent IDs.
+
+        Database scope (no filters) includes unlinked realizations; narrower scopes
+        include only realizations linked to matching successful results.
+        """
+        query = (
+            self.db.table("realization")
+            .set_alias("r")
+            .join(
+                self.results_query().set_alias("results"),
+                "results.experiment_result_id = r.experiment_result_id",
+                how="left",
+            )
+            .select("""
+                r.id as realization_id, r.experiment_result_id,
+                results.experiment_run_id, results.cluster_id,
+                results.pathway_id, results.is_single_pathway
+            """)
+        )
+        return self._scope_query(query, run_id, parent, result_id)
+
+    def events_query(self, run_id=None, parent=None, result_id=None, *, sort=False):
+        """Return raw event state, cohort IDs and optional subtype fields.
+
+        Subtypes are left joined: collision_event_id/fragmentation_event_id reveal
+        missing records even when a present fragmentation has a NULL pathway_id.
+        With sort=True, order by realization, simulation time, then event ID to
+        break ties. The default leaves ordering to the caller.
+        """
+        query = (
+            self.db.table("event_details")
+            .set_alias("e")
+            .join(
+                self.realizations_query(run_id, parent, result_id).set_alias("cohort"),
+                "cohort.realization_id = e.realization_id",
+            )
+            .select("""
+                e.id as event_id, e.* exclude (id),
+                cohort.experiment_result_id, cohort.experiment_run_id,
+                cohort.cluster_id, cohort.is_single_pathway
+            """)
+        )
+        if sort:
+            query = query.order("realization_id, postime.t, event_id")
+        return query
+
+    def recorded_output_query(self, run_id=None, parent=None, result_id=None):
+        """Return one row of diagnostics for recorded output in the given scope.
+
+        Counts describe database records, not simulation counters. Terminal events
+        mean escape or fragmentation event-info records, regardless of subtype
+        presence; a realization with multiple such events is counted once.
+        Empty scopes return zero counts. With no filters, scope is this database.
+        """
+        realizations = self.realizations_query(run_id, parent, result_id).aggregate(
+            "count(*) as realization_count"
+        )
+        events = self.events_query(run_id, parent, result_id).aggregate("""
+            count(*) as event_count,
+            count(*) filter (where event_type = 'escape') as escape_count,
+            count(*) filter (where event_type = 'collision') as collision_event_count,
+            count(collision_event_id) as collision_subtype_count,
+            count(*) filter (where event_type = 'fragmentation') as fragmentation_event_count,
+            count(fragmentation_event_id) as fragmentation_subtype_count,
+            count(distinct realization_id) filter (
+                where event_type in ('escape', 'fragmentation')
+            ) as terminal_realization_count
+        """)
+        return realizations.join(events, "true")
+
     def insert_realization(self, experiment_run_id):
         id = self.db.execute(
             "insert into realization values (default, ?) returning id",

@@ -683,3 +683,170 @@ def test_normalized_result_and_event_views(tmp_path, attached):
             assert readonly.execute("select count(*) from event_report").fetchone() == (
                 8,
             )
+
+
+@pytest.fixture
+def query_db():
+    from apitofsim.workflow.db import RealizationDatabase, connection_scope
+
+    with connection_scope(RealizationDatabase, ":memory:") as db:
+        db.create_tables()
+        for name in ("parent", "other parent", "product"):
+            db.insert_cluster(name, 1, 1, 0, [1, 1, 1], [])
+        db.insert_pathway(1, 3, 3)
+        db.insert_pathway(1, 2, 3)
+        db.insert_pathway(2, 3, 3)
+        config_id = db.insert_config("queries", "{}")
+        db.insert_run(config_id)
+        db.insert_run(config_id)
+        # Two single results for one parent, plus multi results without pathway counts.
+        db.db.execute("""
+            insert into single_pathway_experiment_result (id, experiment_run_id, pathway_id)
+            values (1, 1, 1), (2, 1, 2), (3, 2, 1), (4, 1, 3);
+            insert into multi_pathway_experiment_result (id, experiment_run_id, cluster_id)
+            values (5, 1, 1), (6, 2, 1), (7, 1, 2);
+            insert into realization values
+            (1, 1), (2, 2), (3, 3), (4, 4), (5, 5), (6, 6), (7, 7),
+            (8, 5), (9, null);
+        """)
+        # IDs deliberately differ from chronological order; equal times use ID ties.
+        for event_id, realization_id, event_type, t in (
+            (1, 1, "escape", 3),
+            (2, 1, "collision", 2),
+            (3, 1, "init", 0),
+            (4, 2, "fragmentation", 1),
+            (5, 3, "escape", 1),
+            (6, 4, "escape", 1),
+            (7, 5, "fragmentation", 1),
+            (8, 5, "collision", 1),
+            (9, 5, "escape", 2),
+            (10, 6, "escape", 1),
+            (11, 7, "escape", 1),
+            (12, 9, "init", 0),
+        ):
+            db.db.execute(
+                "insert into event_info values (?, ?, ?, {'x': 0, 'y': 0, 'z': 0, 't': ?}, "
+                "{'x': 0, 'y': 0, 'z': 0}, {'x': 0, 'y': 0, 'z': 0}, 0, 0, 0)",
+                (event_id, realization_id, event_type, t),
+            )
+        db.db.execute("""
+            insert into collision_event values (2, 0.5, 2, false);
+            insert into fragmentation_event values (7, null);
+        """)
+        yield db
+
+
+@pytest.mark.parametrize(
+    "scope, result_ids, realization_ids",
+    [
+        ({}, list(range(1, 8)), list(range(1, 10))),
+        ({"run_id": 1, "parent": 1}, [1, 2, 5], [1, 2, 5, 8]),
+        ({"run_id": 2, "parent": 1}, [3, 6], [3, 6]),
+        ({"run_id": 1, "parent": 2}, [4, 7], [4, 7]),
+        ({"result_id": 5}, [5], [5, 8]),
+        ({"run_id": 2, "result_id": 5}, [], []),
+        ({"parent": 2, "result_id": 5}, [], []),
+        ({"run_id": 999}, [], []),
+        ({"parent": 999}, [], []),
+        ({"result_id": 999}, [], []),
+    ],
+)
+def test_realization_query_scopes(query_db, scope, result_ids, realization_ids):
+    import duckdb
+
+    results = query_db.results_query(**scope)
+    realizations = query_db.realizations_query(**scope)
+    events = query_db.events_query(**scope)
+    assert isinstance(results, duckdb.DuckDBPyRelation)
+    assert isinstance(realizations, duckdb.DuckDBPyRelation)
+    assert isinstance(events, duckdb.DuckDBPyRelation)
+    assert results.order("experiment_result_id").select(
+        "experiment_result_id"
+    ).fetchall() == [(i,) for i in result_ids]
+    assert realizations.order("realization_id").select("realization_id").fetchall() == [
+        (i,) for i in realization_ids
+    ]
+    expected_events = query_db.db.sql("select * from event_info").fetchall()
+    assert sorted(events.select("event_id").fetchall()) == sorted(
+        (e[0],) for e in expected_events if e[1] in realization_ids
+    )
+
+
+def test_recorded_output_queries(query_db):
+    assert query_db.results_query().order("experiment_result_id").fetchall() == (
+        query_db.db.table("experiment_result").order("id").fetchall()
+    )
+    assert query_db.events_query().filter(
+        "postime.x = x and postime.y = y and postime.z = z and postime.t = t"
+    ).count("*").fetchone() == (12,)
+
+    def counts(**scope):
+        df = query_db.recorded_output_query(**scope).fetchdf()
+        assert len(df) == 1
+        return df.iloc[0].to_dict()
+
+    assert counts(run_id=1, parent=1) == {
+        "realization_count": 4,
+        "event_count": 7,
+        "escape_count": 2,
+        "collision_event_count": 2,
+        "collision_subtype_count": 1,
+        "fragmentation_event_count": 2,
+        "fragmentation_subtype_count": 1,
+        "terminal_realization_count": 3,
+    }
+    assert counts()["realization_count"] == 9
+    assert counts()["event_count"] == 12
+    assert counts(run_id=2)["realization_count"] == 2
+    assert counts(result_id=5)["terminal_realization_count"] == 1
+    assert all(value == 0 for value in counts(run_id=999).values())
+    rows = (
+        query_db.events_query(run_id=1, parent=1, sort=True)
+        .select(
+            "event_id, realization_id, collision_event_id, fragmentation_event_id, pathway_id, accepted"
+        )
+        .fetchall()
+    )
+    assert rows == [
+        (3, 1, None, None, None, None),
+        (2, 1, 2, None, None, False),
+        (1, 1, None, None, None, None),
+        (4, 2, None, None, None, None),
+        (7, 5, None, 7, None, None),
+        (8, 5, None, None, None, None),
+        (9, 5, None, None, None, None),
+    ]
+    # Lazy relations retain their own scope when other queries run on the connection.
+    first = query_db.events_query(run_id=1, parent=1, sort=True)
+    query_db.events_query(run_id=2).fetchall()
+    assert first.select("event_id").fetchall() == [(row[0],) for row in rows]
+
+
+@pytest.mark.parametrize("parameter", ["run_id", "parent", "result_id"])
+def test_query_scope_parameters_are_values(query_db, parameter):
+    import duckdb
+
+    for method in (
+        query_db.results_query,
+        query_db.realizations_query,
+        query_db.events_query,
+        query_db.recorded_output_query,
+    ):
+        with pytest.raises(duckdb.ConversionException):
+            method(**{parameter: "1 OR 1=1"}).fetchall()
+
+
+def test_recorded_output_database_scope(query_db):
+    from apitofsim.workflow.db import RealizationDatabase, connection_scope
+
+    # A second database must not share aliases or counts with the populated one.
+    with connection_scope(RealizationDatabase, ":memory:") as empty_db:
+        empty_db.create_tables()
+        assert empty_db.results_query().fetchall() == []
+        assert empty_db.events_query(sort=True).fetchall() == []
+        assert empty_db.recorded_output_query().fetchone() == (0,) * 8
+        empty_db.insert_realization(None)
+        assert empty_db.recorded_output_query().fetchone() == (1,) + (0,) * 7
+        assert query_db.recorded_output_query().select(
+            "realization_count"
+        ).fetchone() == (9,)
