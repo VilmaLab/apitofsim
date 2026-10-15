@@ -70,6 +70,7 @@ def connect_duckdb_cleanup(filename, *, readonly=False):
 
 class ClusterDatabase:
     TABLES = [sql_files.pathway]
+    VIEWS = []
 
     def __init__(self, filename, *, readonly=False, ase_filename=None):
         self.closed = False
@@ -88,7 +89,14 @@ class ClusterDatabase:
         self._setup_db()
 
     def refresh_views(self):
-        pass
+        for view in self.VIEWS:
+            self.db.execute(view)
+
+    def create_temp_views(self):
+        for view in self.VIEWS:
+            self.db.execute(
+                view.replace("create or replace view", "create or replace temp view")
+            )
 
     def _setup_db(self):
         import os
@@ -116,6 +124,7 @@ class ClusterDatabase:
     def create_tables(self):
         sql = "\n".join(self.TABLES)
         self.db.execute(sql)
+        self.refresh_views()
         if self.ase_db is not None:
             self.db.execute(
                 """
@@ -420,16 +429,13 @@ class SuperClusterDatabase(ClusterDatabase):
     TABLES = [
         sql_files.pathway,
         sql_files.histograms,
+    ]
+    VIEWS = [
         sql_files.pathway_report,
     ]
 
     def __init__(self, filename, **kwargs):
         super().__init__(filename, **kwargs)
-
-    def refresh_views(self):
-        super().refresh_views()
-        self.db.execute(sql_files.pathway_report)
-        self.db.execute(sql_files.experiment_report)
 
     def get_histogram_params(self, histogram_id):
         row = (
@@ -540,15 +546,14 @@ class ExperimentDatabase(SuperClusterDatabase):
         sql_files.pathway,
         sql_files.histograms,
         sql_files.experiment,
+    ]
+    VIEWS = [
         sql_files.pathway_report,
         sql_files.experiment_report,
     ]
 
     def __init__(self, filename, **kwargs):
         super().__init__(filename, **kwargs)
-
-    def refresh_views(self):
-        super().refresh_views()
 
     def insert_run(self, config_id=None, simulation_mode=SimulationMode.SINGLE_CLUSTER):
         import orjson
@@ -751,18 +756,16 @@ class RealizationDatabase(ExperimentDatabase):
         sql_files.pathway,
         sql_files.histograms,
         sql_files.experiment,
+        sql_files.realizations,
+    ]
+    VIEWS = [
         sql_files.pathway_report,
         sql_files.experiment_report,
-        sql_files.realizations,
         sql_files.event_report,
     ]
 
     def __init__(self, filename, **kwargs):
         super().__init__(filename, **kwargs)
-
-    def refresh_views(self):
-        super().refresh_views()
-        self.db.execute(sql_files.event_report)
 
     @staticmethod
     def _scope_query(query, run_id, parent, result_id):
