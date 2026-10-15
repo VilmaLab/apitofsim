@@ -122,6 +122,7 @@ select
     cluster_id,
     cluster_common_name,
     cluster_atomic_mass,
+    cluster_charge,
     cluster_electronic_energy,
     cluster_rotational_temperatures,
     cluster_vibrational_temperatures,

@@ -485,22 +485,6 @@ def survival(database, pngout):
     fig.savefig(pngout, dpi=150, bbox_inches="tight")
 
 
-def transform_intensity(df, model_transmission):
-    from apitofsim.transmission import (
-        new_transmission_neg,
-        new_transmsision_pos,
-        old_transmission,
-    )
-
-    if model_transmission is not None:
-        model_transmission_func = {
-            "old": old_transmission,
-            "new_neg": new_transmission_neg,
-            "new_pos": new_transmsision_pos,
-        }[model_transmission]
-        df["intensity"] = model_transmission_func(df["atomic_mass"]) * df["intensity"]
-
-
 @plot.command(short_help="Plot a spectrogram for a single cluster in an experiment")
 @click.argument("database", required=True, type=click.Path(exists=True, dir_okay=False))
 @click.argument("pngout", type=click.Path(dir_okay=False))
@@ -555,6 +539,7 @@ def spectrogram(
         get_intensities,
         plot_spectrogram_to_file,
     )
+    from apitofsim.transmission import transform_intensity
     from apitofsim.workflow import ExperimentDatabase
 
     with connection_scope(ExperimentDatabase, database, readonly=True) as db:
@@ -617,6 +602,7 @@ def spectrogram_many(
         get_intensities,
         plot_spectrogram_to_file,
     )
+    from apitofsim.transmission import transform_intensity
     from apitofsim.workflow import ExperimentDatabase
 
     with connection_scope(ExperimentDatabase, database, readonly=True) as db:
