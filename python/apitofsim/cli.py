@@ -12,7 +12,11 @@ def cli():
     """
     The command line interface to apitofsim
     """
-    pass
+    import logging
+
+    # ASE's Gaussian reader warns once per geometry block when the log only
+    # prints "Standard orientation:"; the geometry/forces are still consistent.
+    logging.getLogger("ase.io.gaussian").setLevel(logging.ERROR)
 
 
 @cli.group(short_help="Commands to work with the database-backed workflow")
