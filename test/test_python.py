@@ -197,7 +197,10 @@ def test_iterator_cancellation_blocking(action, tree):
     code = f"""
 import os, runpy, signal, threading, time
 make_stream = runpy.run_path({__file__!r})['_cancellation_stream']
-stream = make_stream(tree={tree!r}, slow=True)
+stream = make_stream(tree={tree!r})
+# Ensure completed work is present before interrupting the remaining simulation.
+first = next(stream)
+assert first.counters.n_realizations > 0
 def interrupt():
     time.sleep(.05)
     if {action!r} == 'sigint':
@@ -212,11 +215,10 @@ try:
     with stream:
         if {action!r} == 'join':
             stream.join_if_joinable()
-            final = list(stream)[-1]
-        else:
-            final = next(stream)
+        final = list(stream)[-1]
         assert {action!r} != 'sigint', 'SIGINT must raise KeyboardInterrupt'
-        assert final.cancelled and final.counters.n_realizations == 0
+        assert final.cancelled
+        assert first.counters.n_realizations <= final.counters.n_realizations < 1_000_000
         assert list(stream) == []
 except KeyboardInterrupt:
     assert {action!r} == 'sigint'
