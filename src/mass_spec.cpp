@@ -970,7 +970,7 @@ SimulationResult apitof_mass_spec(
           if (logconf.log_events && operation.should_continue())
           {
             int next_particle_index = product_idx ? *product_idx : -1;
-            result_queue.enqueue(FragmentationEvent{ParticleStateMsg{j, {x, y, z, t}, v_cluster, omega, rot_energy, vib_energy, subnode_index}, next_particle_index, next_particle_index});
+            result_queue.enqueue(FragmentationEvent{ParticleStateMsg{j, {x, y, z, t}, v_cluster, omega, rot_energy, vib_energy, subnode_index}, static_cast<int>(tree_pathway_idx), next_particle_index});
           }
           if (product_idx)
           {
