@@ -19,3 +19,6 @@ work/
 __marimo__/
 /uv.toml
 /.env
+/examples/validation/*.duckdb
+/examples/validation/*.duckdb.wal
+/examples/validation/*.db
