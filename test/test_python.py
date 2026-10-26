@@ -337,6 +337,11 @@ def test_init_events_workflow(tmp_path, monkeypatch, mode):
                 )
             else:
                 assert state.realization in initial_states
+            if isinstance(event, api.FragmentationEvent) and mode == "CLUSTER_TREE":
+                assert (
+                    event.pathway_index
+                    in subs.tree_nodes[state.particle_index].pathway_indices
+                )
             if (
                 isinstance(event, api.FragmentationEvent)
                 and mode == "SINGLE_CLUSTER"
@@ -360,7 +365,6 @@ def test_init_events_workflow(tmp_path, monkeypatch, mode):
             pathway_id = (
                 recorder.pathways[event.pathway_index]
                 if isinstance(event, api.FragmentationEvent)
-                and mode == "SINGLE_CLUSTER"
                 else None
             )
             assert_event_row(recorder.db.db, event, pathway_id)

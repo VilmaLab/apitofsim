@@ -477,6 +477,47 @@ TEST_CASE("apitof pinhole smoke tests")
   CHECK((counters == expected_counters).all());
 }
 
+TEST_CASE("tree fragmentation events keep pathway and particle indices separate")
+{
+  SkimmerData skimmer(2, 3);
+  skimmer << 100, 300, 100, 100, 300, 100;
+  MassSpectrometer ms{skimmer, 0.0005, InstrumentDims::Constant(0.001), InstrumentVoltages::Zero(), 300, InstrumentPressures{100, 2}};
+  Histogram density(1e-21, 32, Eigen::ArrayXd::Ones(32));
+  // Fast, barrierless fragmentation also fires after the first transition resets energy.
+  Histogram rate(1e-21, 32, Eigen::ArrayXd::Constant(32, 1e30));
+  Histogram inactive_rate(1e-21, 32, Eigen::ArrayXd::Zero(32));
+  MassSpecSubstanceTreeInput subs{
+    -1,
+    Gas{2e-10, 4.8e-26, 1.4},
+    {MSSubstanceTreeCluster{1e-25, 5e-10, density}},
+    {MassSpecInputFragmentationPathway{rate, -1e-21}, MassSpecInputFragmentationPathway{inactive_rate, -1e-21}},
+    {{0, {1, 2}}, {0, {0}}},
+    {{0, std::nullopt}, {1, std::nullopt}, {0, 1}},
+  };
+  // Local pathway 1 selects tree pathway 2 to node 1, then pathway 0 terminates.
+  StreamingResultQueue queue;
+  apitof_mass_spec(ms, subs, 1, 42, queue, SampleMode::dss_normalized, true, MassSpecLogConf{0, true});
+  std::vector<FragmentationEvent> events;
+  StreamingResultElement result;
+  while (queue.try_dequeue(result))
+  {
+    if (auto *event = std::get_if<EventMessage>(&result))
+    {
+      if (auto *fragmentation = std::get_if<FragmentationEvent>(event))
+      {
+        events.push_back(*fragmentation);
+      }
+    }
+  }
+  REQUIRE(events.size() == 2);
+  CHECK(events[0].state.particle_index == 0);
+  CHECK(events[0].pathway_index == 2);
+  CHECK(events[0].next_particle_index == 1);
+  CHECK(events[1].state.particle_index == 1);
+  CHECK(events[1].pathway_index == 0);
+  CHECK(events[1].next_particle_index == -1);
+}
+
 TEST_CASE("collision profile shares instantaneous simulator frequency")
 {
   SkimmerData skimmer(2, 3);
