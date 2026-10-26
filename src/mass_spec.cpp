@@ -1194,8 +1194,9 @@ std::tuple<double, double, double> update_skimmer_quantities(const SkimmerData &
   double pressure;
   position = z - first_chamber_end;
   m = static_cast<int>(position / mesh_skimmer);
-  if (m == skimmer.rows() - 1)
+  if (m >= skimmer.rows() - 1)
   {
+    m = static_cast<int>(skimmer.rows() - 1);
     v_gas = skimmer(m, VEL_SKIMMER);
     temp = skimmer(m, TEMP_SKIMMER);
     pressure = skimmer(m, PRESSURE_SKIMMER);
@@ -1317,6 +1318,38 @@ double init_vib_energy(GenT &gen, uniform_real_distribution<double> &unif, doubl
 }
 
 
+double collision_frequency(double z, const Eigen::Vector3d &velocity, const ChamberQuantities &chamber, double m_gas, double R, const SkimmerData &skimmer, double mesh_skimmer)
+{
+  if (z < chamber.clens.first_chamber_end)
+    return coll_freq(chamber.pressures.n[0], chamber.mobility_gas, chamber.mobility_gas_inv, R, velocity.norm());
+  if (z > chamber.clens.sk_end)
+    return coll_freq(chamber.pressures.n[1], chamber.mobility_gas, chamber.mobility_gas_inv, R, velocity.norm());
+  auto [v_gas, temperature, pressure] = update_skimmer_quantities(skimmer, z, chamber.clens.first_chamber_end, mesh_skimmer);
+  double kT = consts::boltzmann * temperature;
+  Eigen::Vector3d relative_velocity = velocity;
+  relative_velocity[2] -= v_gas;
+  return coll_freq(particle_density(pressure, kT), kT / m_gas, m_gas / kT, R, relative_velocity.norm());
+}
+
+CollisionProfile::CollisionProfile(const MassSpectrometer &ms, const Gas &gas, double cluster_radius)
+    : ms(ms), gas(gas), chamber(ms, gas), radius(cluster_radius + gas.radius)
+{
+}
+
+Eigen::ArrayXd CollisionProfile::frequency(const Eigen::ArrayXd &z, const Eigen::Matrix<double, Eigen::Dynamic, 3> &velocity) const
+{
+  if (velocity.rows() != z.size())
+    throw std::invalid_argument("velocity must have one row per z");
+  Eigen::ArrayXd result(z.size());
+  for (Eigen::Index i = 0; i < z.size(); ++i)
+  {
+    if (!std::isfinite(z[i]) || z[i] < 0 || z[i] > chamber.clens.total_length || !velocity.row(i).allFinite())
+      throw std::invalid_argument("z must be within the instrument and z/velocity must be finite");
+    result[i] = collision_frequency(z[i], velocity.row(i).transpose(), chamber, gas.mass, radius, ms.skimmer, ms.mesh_skimmer);
+  }
+  return result;
+}
+
 // Evaluate time to next collision
 template <typename GenT>
 TimeNextCollOutcome time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &unif, Eigen::Vector3d &v_cluster, double &v_cluster_norm, const ChamberQuantities &chamber, double R, Eigen::Array2d dts, double &z, double &x, double &y, double &t_fragmentation, const Eigen::Array4d &acc, double &t, double m_gas, const SkimmerData &skimmer, double mesh_skimmer, const std::optional<Quadrupole> quadrupole)
@@ -1344,24 +1377,7 @@ TimeNextCollOutcome time_next_coll_quadrupole(GenT &gen, uniform_real_distributi
   double delta_t = 0.0;
   v_cluster_norm = v_cluster.norm();
 
-  if (z < chamber.clens.first_chamber_end) // In first chamber
-  {
-    c1 = coll_freq(chamber.pressures.n[0], chamber.mobility_gas, chamber.mobility_gas_inv, R, v_cluster_norm);
-  }
-  else if (z > chamber.clens.sk_end) // In the second chamber
-  {
-    c1 = coll_freq(chamber.pressures.n[1], chamber.mobility_gas, chamber.mobility_gas_inv, R, v_cluster_norm);
-  }
-  else // In the skimmer
-  {
-    std::tie(v_gas, T_skimmer, P_skimmer) = update_skimmer_quantities(skimmer, z, chamber.clens.first_chamber_end, mesh_skimmer);
-    kT_skimmer = boltzmann * T_skimmer;
-    mobility_gas_skimmer = boltzmann * T_skimmer / m_gas;
-    mobility_gas_inv_skimmer = 1.0 / mobility_gas_skimmer;
-    n_skimmer = particle_density(P_skimmer, kT_skimmer);
-    v_rel_norm = sqrt(v_cluster_norm_xy + pow(v_cluster[2] - v_gas, 2));
-    c1 = coll_freq(n_skimmer, mobility_gas_skimmer, mobility_gas_inv_skimmer, R, v_rel_norm);
-  }
+  c1 = collision_frequency(z, v_cluster, chamber, m_gas, R, skimmer, mesh_skimmer);
 
   // tmp_evolution << z << " " << c1 << endl;
   // if(z<first_chamber_end) tmp_evolution << z << " " << c1 << endl;

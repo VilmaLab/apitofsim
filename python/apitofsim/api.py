@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from collections import namedtuple
 from dataclasses import KW_ONLY, MISSING, dataclass
-from typing import Callable, List, Optional, Tuple, cast
+from typing import Any, Callable, List, Optional, Tuple, cast, overload
 
 import numpy
 from pandas import DataFrame
@@ -435,7 +435,75 @@ class QuantityProcessor:
             )
 
 
+@overload
 def skimmer(
+    T0: dict[str, Any],
+    *,
+    output_pandas: bool = False,
+    quantities_strict: bool = True,
+) -> numpy.ndarray | DataFrame: ...
+
+
+@overload
+def skimmer(
+    T0: MaybeQuantity,
+    P0: MaybeQuantity,
+    rmax: MaybeQuantity,
+    dc: MaybeQuantity,
+    alpha_factor: MaybeQuantity,
+    gas: Gas | _Gas,
+    N: int,
+    M: int,
+    resolution: int,
+    tolerance: float,
+    *,
+    output_pandas: bool = False,
+    quantities_strict: bool = True,
+) -> numpy.ndarray | DataFrame: ...
+
+
+def skimmer(T0, *args, output_pandas=False, quantities_strict=True, **kwargs):
+    """Precompute gas velocity, temperature and pressure along the skimmer.
+
+    Pass physical parameters or an effective experiment config dictionary as
+    the first argument. Return six SI columns (position, velocity, temperature,
+    pressure, density, sound speed), or a DataFrame with output_pandas=True.
+    Plain SI parameters require quantities_strict=False.
+    """
+    if isinstance(T0, dict):
+        from copy import deepcopy
+
+        from .config import import_raw_config
+
+        if args or kwargs:
+            raise TypeError(
+                "A config dictionary cannot be combined with physical parameters"
+            )
+        config = import_raw_config(deepcopy(T0))
+        return _skimmer_with_parameters(
+            config["T"],
+            config["pressures"][0],
+            config["lengths"][-1],
+            config["dc"],
+            config["alpha_factor"],
+            config["gas"],
+            config["N_iter"],
+            config["M_iter"],
+            config["resolution"],
+            config["tolerance"],
+            output_pandas=output_pandas,
+            quantities_strict=quantities_strict,
+        )
+    return _skimmer_with_parameters(
+        T0,
+        *args,
+        output_pandas=output_pandas,
+        quantities_strict=quantities_strict,
+        **kwargs,
+    )
+
+
+def _skimmer_with_parameters(
     T0: MaybeQuantity,
     P0: MaybeQuantity,
     rmax: MaybeQuantity,
@@ -450,9 +518,6 @@ def skimmer(
     output_pandas=False,
     quantities_strict=True,
 ):
-    """
-    This function precomputes various parameters including gas velocity, temperature and pressure at fixed points along the skimmer's' length.
-    """
     process_arg = QuantityProcessor(quantities_strict)
     T0 = process_arg("T0", T0, "kelvin")
     P0 = process_arg("P0", P0, "pascal")

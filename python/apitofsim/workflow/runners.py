@@ -44,18 +44,7 @@ class DerivedDataPreparer:
     def _run_skimmer(self, config):
         from apitofsim import skimmer
 
-        return skimmer(
-            T0=config["T"],  # pyright: ignore[reportCallIssue]
-            P0=config["pressures"][0],
-            rmax=config["lengths"][-1],
-            dc=config["dc"],
-            alpha_factor=config["alpha_factor"],
-            gas=config["gas"],
-            N=config["N_iter"],
-            M=config["M_iter"],
-            resolution=config["resolution"],
-            tolerance=config["tolerance"],
-        )
+        return skimmer(config)
 
     def _get_cached_dos(
         self,

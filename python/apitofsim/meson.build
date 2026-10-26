@@ -1,6 +1,7 @@
 # We need to install the pure Python sources, but we also need them in the build dir for the tests
 apitofsim_python_py_src = [
 'api.py',
+'collision.py',
 'cli.py',
 'config.py',
 'generate.py',

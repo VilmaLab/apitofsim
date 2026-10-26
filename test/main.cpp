@@ -476,3 +476,36 @@ TEST_CASE("apitof pinhole smoke tests")
   expected_counters << 0, 15, 0, 5, 5, 0;
   CHECK((counters == expected_counters).all());
 }
+
+TEST_CASE("collision profile shares instantaneous simulator frequency")
+{
+  SkimmerData skimmer(2, 3);
+  skimmer << 100, 250, 80, 300, 150, 20;
+  MassSpectrometer ms{skimmer, 0.0005, InstrumentDims::Constant(0.001), InstrumentVoltages::Zero(), 300, InstrumentPressures{100, 2}};
+  Gas gas{2e-10, 4.8e-26, 1.4};
+  ChamberQuantities chamber(ms, gas);
+  CollisionProfile profile(ms, gas, 5e-10);
+  Eigen::ArrayXd z(6);
+  z << 0, 0.001, 0.00125, 0.00175, 0.002, 0.005;
+  for (const Eigen::Vector3d &velocity : {Eigen::Vector3d::Zero().eval(), Eigen::Vector3d{200, 0, 0}, Eigen::Vector3d{0, 0, 200}, Eigen::Vector3d{0, 0, -200}})
+  {
+    Eigen::Matrix<double, Eigen::Dynamic, 3> velocities = velocity.transpose().replicate(z.size(), 1);
+    auto frequencies = profile.frequency(z, velocities);
+    for (Eigen::Index i = 0; i < z.size(); ++i)
+    {
+      double temperature = 300;
+      double pressure = z[i] < 0.001 ? 100 : 2;
+      Eigen::Vector3d relative = velocity;
+      if (z[i] >= 0.001 && z[i] <= 0.002)
+      {
+        double fraction = std::min((z[i] - 0.001) / 0.0005, 1.0);
+        relative[2] -= 100 + 200 * fraction;
+        temperature = 250 - 100 * fraction;
+        pressure = 80 - 60 * fraction;
+      }
+      double kT = consts::boltzmann * temperature;
+      CHECK(frequencies[i] == doctest::Approx(coll_freq(particle_density(pressure, kT), kT / gas.mass, gas.mass / kT, 7e-10, relative.norm())));
+      CHECK(frequencies[i] == doctest::Approx(collision_frequency(z[i], velocity, chamber, gas.mass, 7e-10, skimmer, ms.mesh_skimmer)));
+    }
+  }
+}

@@ -576,6 +576,10 @@ NB_MODULE(apitofsimraw, m)
     .def_ro("quadrupole", &MassSpectrometer::quadrupole)
     .def_ro("radius_pinhole", &MassSpectrometer::radius_pinhole);
 
+  nb::class_<CollisionProfile>(m, "CollisionProfile")
+    .def(nb::init<const MassSpectrometer &, const Gas &, double>(), "mass_spec"_a, "gas"_a, "cluster_radius"_a)
+    .def("frequency", &CollisionProfile::frequency, "z"_a, "velocity"_a);
+
   nb::class_<MassSpecInputFragmentationPathway>(m, "MassSpecInputFragmentationPathway")
     .def(nb::init<const MolecularCluster &, const MolecularCluster &, const ClusterSpec &, const Histogram &, std::optional<double>>(),
          "cluster_0"_a,

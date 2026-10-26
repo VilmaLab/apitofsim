@@ -208,6 +208,21 @@ struct ChamberQuantities
   ChamberQuantities(const MassSpectrometer &ms, const Gas &gas);
 };
 
+// Instantaneous total frequency, using the collision-time sampler's boundaries.
+double collision_frequency(double z, const Eigen::Vector3d &velocity, const ChamberQuantities &chamber, double m_gas, double R, const SkimmerData &skimmer, double mesh_skimmer);
+
+class CollisionProfile
+{
+  MassSpectrometer ms;
+  Gas gas;
+  ChamberQuantities chamber;
+  double radius;
+
+public:
+  CollisionProfile(const MassSpectrometer &ms, const Gas &gas, double cluster_radius);
+  Eigen::ArrayXd frequency(const Eigen::ArrayXd &z, const Eigen::Matrix<double, Eigen::Dynamic, 3> &velocity) const;
+};
+
 struct SubstanceQuantities
 {
   double reduced_mass;
