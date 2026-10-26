@@ -40,6 +40,24 @@ def counter_fragmented_total(counters):
 class DerivedDataPreparer:
     def __init__(self, db: SuperClusterDatabase):
         self.db = db
+        self.dos_histogram_id = None
+        self.rate_histogram_id = None
+
+    def histogram(self, config, data, *, rate=False):
+        """Use the actual selected cache's mesh, including independent widths."""
+        histogram_id = self.rate_histogram_id if rate else self.dos_histogram_id
+        params = (
+            self.db.get_histogram_params(histogram_id)
+            if histogram_id is not None
+            else (
+                config["bin_width"],
+                config["energy_max_rate" if rate else "energy_max"],
+            )
+        )
+        if params is None:
+            raise ValueError(f"Missing histogram configuration {histogram_id}")
+        bin_width, maximum = params
+        return Histogram.from_mesh(bin_width, maximum, data)
 
     def _run_skimmer(self, config):
         from apitofsim import skimmer
@@ -198,6 +216,7 @@ class DerivedDataPreparer:
             bin_width=bin_width.to("K").magnitude,
             max=energy_max_rate.to("K").magnitude,
         )
+        self.rate_histogram_id = histogram_id
 
         k_total_inputs = []
         k_total_keys = []
@@ -338,6 +357,7 @@ class DerivedDataPreparer:
             bin_width=config["bin_width"].to("K").magnitude,
             max=config["energy_max"].to("K").magnitude,
         )
+        self.dos_histogram_id = histogram_id
 
         cluster_dos_dict = self._run_dos(
             cluster_indexed,
@@ -421,6 +441,8 @@ class DerivedDataPreparer:
             include_cluster_dos=True,
             include_product_dos=False,
         )
+        self.dos_histogram_id = dos_histogram_id
+        self.rate_histogram_id = rate_histogram_id
         return k_rates, cluster_dos_dict
 
     def run_preliminaries(
@@ -577,6 +599,7 @@ class ExperimentRunner:
         config,
         parent=None,
         pathways=None,
+        cached_densityandrate=None,
     ):
         cluster_indexed, name_lookup, pathway_lookup = self.db.get_all_lookups(
             parent, pathways
@@ -587,6 +610,14 @@ class ExperimentRunner:
             cluster_indexed,
             pathway_lookup=pathway_lookup,
             name_lookup=name_lookup,
+            cached_densityandrate=cached_densityandrate,
+        )
+
+        self.db.record_run_preparation(
+            self.current_run_id,
+            config,
+            self.preparer.dos_histogram_id,
+            self.preparer.rate_histogram_id,
         )
 
         assert isinstance(skimmer_np, numpy.ndarray)
@@ -621,9 +652,11 @@ class ExperimentRunner:
         parent=None,
         pathways=None,
         verbose=False,
+        cached_densityandrate=None,
     ):
         if not run_started:
-            self.start_run()
+            config_id = self.db.insert_config(None, config)
+            self.start_run(config_id, simulation_mode=mode)
 
         (
             mass_spec,
@@ -636,6 +669,7 @@ class ExperimentRunner:
             config,
             parent=parent,
             pathways=pathways,
+            cached_densityandrate=cached_densityandrate,
         )
 
         if mode == SimulationMode.PATHWAY_AT_A_TIME:
@@ -708,8 +742,6 @@ class ExperimentRunner:
 
         from progress_table import ProgressTable
 
-        from apitofsim.api import Histogram
-
         mass_spec_table = ProgressTable(
             default_column_alignment="right",
             refresh_rate=0,
@@ -751,18 +783,10 @@ class ExperimentRunner:
             )
             start = timer()
             density_hist = scaled_density(
-                Histogram.from_mesh(
-                    config["bin_width"],
-                    config["energy_max"],
-                    density_cluster,
-                )
+                self.preparer.histogram(config, density_cluster)
             )
             rate_hist = scaled_rate_const(
-                Histogram.from_mesh(
-                    config["bin_width"],
-                    config["energy_max_rate"],
-                    rate_const,
-                )
+                self.preparer.histogram(config, rate_const, rate=True)
             )
             subs = MassSpecSubstanceSingleInput(
                 cluster,
@@ -852,11 +876,7 @@ class ExperimentRunner:
                 if cur_group is not None:
                     groups.append(cur_group)
                 density_hist = scaled_density(
-                    Histogram.from_mesh(
-                        config["bin_width"],
-                        config["energy_max"],
-                        density_cluster,
-                    )
+                    self.preparer.histogram(config, density_cluster)
                 )
                 cur_group = {
                     "pathways": [],
@@ -870,11 +890,7 @@ class ExperimentRunner:
             product1 = cluster_indexed[product1_id]
             product2 = cluster_indexed[product2_id]
             rate_hist = scaled_rate_const(
-                Histogram.from_mesh(
-                    config["bin_width"],
-                    config["energy_max_rate"],
-                    rate_const,
-                )
+                self.preparer.histogram(config, rate_const, rate=True)
             )
             assert cur_group is not None
             cur_group["pathways"].append(
@@ -993,11 +1009,7 @@ class ExperimentRunner:
         for cluster_id in productive_cluster_ids:
             density_cluster = cluster_dos[cluster_id]
             density_hist = scaled_density(
-                Histogram.from_mesh(
-                    config["bin_width"],
-                    config["energy_max"],
-                    density_cluster,
-                )
+                self.preparer.histogram(config, density_cluster)
             )
             cluster_lookup[cluster_id] = {
                 "pathways": [],
@@ -1025,11 +1037,7 @@ class ExperimentRunner:
             product1 = cluster_indexed[product1_id]
             product2 = cluster_indexed[product2_id]
             rate_hist = scaled_rate_const(
-                Histogram.from_mesh(
-                    config["bin_width"],
-                    config["energy_max_rate"],
-                    rate_const,
-                )
+                self.preparer.histogram(config, rate_const, rate=True)
             )
             productive_product = None
             if product1.charge != 0:
@@ -1238,9 +1246,7 @@ class ExperimentRunner:
             print()
             self.start_run(
                 row.id,
-                simulation_mode=kwargs.get(
-                    "simulation_mode", SimulationMode.SINGLE_CLUSTER
-                ),
+                simulation_mode=kwargs.get("mode", SimulationMode.SINGLE_CLUSTER),
             )
             self.run_from_config(row.config, run_started=True, **kwargs)
             print()

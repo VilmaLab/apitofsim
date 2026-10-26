@@ -2,6 +2,7 @@
 
 from collections import Counter, namedtuple
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import timedelta
 
 import duckdb
@@ -9,10 +10,11 @@ import numpy
 import pandas
 from ase.db import connect as ase_connect
 from ase.db.sqlite import SQLite3Database
-from pint import get_application_registry
+from pint import Quantity, get_application_registry
 
 import apitofsim.workflow.sql_files as sql_files
 from apitofsim import ClusterData
+from apitofsim.api import Histogram
 
 from .base import SimulationMode
 from .db_utils import duckdb_connect_roview_cow, get_through_join_else
@@ -541,6 +543,69 @@ class SuperClusterDatabase(ClusterDatabase):
 ConfigRow = namedtuple("ConfigRow", ["id", "name", "config"])
 
 
+class RateCurveProvenanceError(ValueError):
+    """The selected result's rate data cannot be identified unambiguously."""
+
+
+@dataclass(frozen=True)
+class PathwayRateCurve:
+    """Cached k(delta_E), where delta_E = internal energy - bonding energy.
+
+    histogram.x and bonding_energy are per-particle joules; rates has units 1/s.
+    bin_width and energy_max describe the rate mesh in kelvin.
+    A missing histogram is explicit and never triggers computation.
+    """
+
+    pathway_id: int
+    parent_id: int
+    product1_id: int
+    product2_id: int
+    participating: bool
+    dos_histogram_id: int
+    rate_histogram_id: int
+    bin_width: Quantity[float]
+    energy_max: Quantity[float]
+    bonding_energy: Quantity[float]
+    histogram: Histogram | None
+
+    @property
+    def rates(self):
+        return None if self.histogram is None else Q_(self.histogram.y, "1/s")
+
+    def rate_at(self, delta_energy, *, strict=True):
+        """Evaluate k with simulation bin-centre interpolation and thresholds.
+
+        Excess energy at or below zero gives a zero rate.
+        Above the upper bin edge, strict raises ApiTofRateConstantOverflow;
+        non-strict clamps to the last value, as next_fragmentation_time does.
+        Missing energy remains missing. NaNs propagate.
+        """
+        from apitofsim.api import (
+            ApiTofRateConstantOverflow,
+            energy_in_joules,
+        )
+
+        if self.histogram is None:
+            raise ValueError(f"Missing rate curve for pathway {self.pathway_id}")
+        energy = energy_in_joules(delta_energy)
+        if energy is None:
+            return None
+        x = self.histogram.x.magnitude
+        values = numpy.asarray(energy.magnitude)
+        maximum = (x[1] - x[0]) * len(x)
+        if strict and numpy.any(values > maximum):
+            from apitofsim import consts
+
+            error = ApiTofRateConstantOverflow(
+                "Excess energy exceeds the rate histogram"
+            )
+            error.max = maximum / consts.boltzmann
+            error.current = float(numpy.nanmax(values)) / consts.boltzmann
+            raise error
+        rate = numpy.interp(values, x, self.histogram.y)
+        return Q_(numpy.where(values <= 0, 0, rate), "1/s")
+
+
 class ExperimentDatabase(SuperClusterDatabase):
     TABLES = [
         sql_files.pathway,
@@ -555,15 +620,198 @@ class ExperimentDatabase(SuperClusterDatabase):
     def __init__(self, filename, **kwargs):
         super().__init__(filename, **kwargs)
 
-    def insert_run(self, config_id=None, simulation_mode=SimulationMode.SINGLE_CLUSTER):
+    def insert_run(
+        self,
+        config_id=None,
+        simulation_mode=SimulationMode.SINGLE_CLUSTER,
+        *,
+        dos_histogram_id=None,
+        rate_histogram_id=None,
+    ):
         import orjson
 
         id = self.db.execute(
             "insert into experiment_run values (default, ?, ?, current_timestamp) returning id",
-            (config_id, orjson.dumps({"simulation_mode": simulation_mode.name})),
+            (
+                config_id,
+                orjson.dumps(
+                    {
+                        "simulation_mode": simulation_mode.name,
+                        "dos_histogram_id": dos_histogram_id,
+                        "rate_histogram_id": rate_histogram_id,
+                    }
+                ).decode(),
+            ),
         ).fetchone()
         assert id is not None
         return id[0]
+
+    def record_run_preparation(
+        self, run_id, config, dos_histogram_id, rate_histogram_id
+    ):
+        """Record the exact cache IDs and effective config before simulation.
+
+        Custom runners using DerivedDataPreparer should call this after
+        run_preliminaries, using its dos_histogram_id and rate_histogram_id.
+        """
+        from apitofsim.config import dump_to_raw
+
+        metadata = dump_to_raw(
+            {
+                "config": config,
+                "dos_histogram_id": dos_histogram_id,
+                "rate_histogram_id": rate_histogram_id,
+            }
+        ).decode()
+        self.db.execute(
+            "update experiment_run set run_config = json_merge_patch(coalesce(run_config, '{}'), ?::json) where id = ?",
+            (metadata, run_id),
+        )
+
+    def pathway_rate_curves(
+        self, run_id, parent, result_id=None, *, all_pathways=False
+    ):
+        """Read one result's cached curves without preparing data or changing views.
+
+        parent is a database cluster ID (the current parent for serial events).
+        Omit result_id only if the run/parent identifies exactly one result.
+        By default, return enabled pathways, including those with zero events.
+        all_pathways also includes other outgoing pathways with participating=False.
+        Missing cached curves have histogram=None; no data is computed on read.
+        Bonding energies honour the selected single-pathway fragmentation_energy
+        override, otherwise using the simulation's electronic-energy calculation.
+        Explicit histogram IDs in run_config are required: legacy runs without
+        provenance raise RateCurveProvenanceError rather than guessing a cache.
+        """
+        import orjson
+
+        from apitofsim.api import (
+            FragmentationPathway,
+            Histogram,
+            consts,
+            energy_in_joules,
+            scaled_rate_const,
+        )
+        from apitofsim.config import import_raw_config
+
+        run = self.db.execute(
+            """
+            select r.run_config, c.config from experiment_run r
+            left join experiment_config c on c.id = r.experiment_config_id
+            where r.id = ?
+        """,
+            (run_id,),
+        ).fetchone()
+        if run is None:
+            raise RateCurveProvenanceError(f"No run {run_id}")
+        metadata = orjson.loads(run[0] or "{}")
+        # Older insert_run versions passed JSON bytes, stored as a JSON string.
+        if isinstance(metadata, str):
+            metadata = orjson.loads(metadata)
+        config = import_raw_config(
+            metadata["config"] if "config" in metadata else orjson.loads(run[1] or "{}")
+        )
+        dos_id = metadata.get("dos_histogram_id")
+        rate_id = metadata.get("rate_histogram_id")
+        if dos_id is None or rate_id is None:
+            raise RateCurveProvenanceError("Missing DOS/rate histogram provenance")
+        params = self.get_histogram_params(rate_id)
+        if params is None or self.get_histogram_params(dos_id) is None:
+            raise RateCurveProvenanceError("Recorded histogram configuration is absent")
+        results = self.db.execute(
+            """
+            select id, pathway_id, null as cluster_id
+            from single_pathway_experiment_result where experiment_run_id = ?
+            union all
+            select id, null, cluster_id
+            from multi_pathway_experiment_result where experiment_run_id = ?
+        """,
+            (run_id, run_id),
+        ).fetchall()
+        outgoing = sorted(self.pathways_ids(parent=parent))
+        outgoing_ids = {p[0] for p in outgoing}
+        if result_id is not None:
+            results = [r for r in results if r[0] == result_id]
+        else:
+            results = [r for r in results if r[1] in outgoing_ids or r[2] == parent]
+        if len(results) != 1:
+            raise RateCurveProvenanceError("Select exactly one successful result")
+        result_id, single_pathway, root = results[0]
+        if single_pathway is not None:
+            if single_pathway not in outgoing_ids:
+                raise RateCurveProvenanceError("Result does not belong to this parent")
+            enabled = {single_pathway}
+        else:
+            # record_result stores every enabled pathway, including zero counts.
+            enabled = {
+                r[0]
+                for r in self.db.execute(
+                    "select pathway_id from pathway_fragmentation where experiment_result_id = ?",
+                    (result_id,),
+                ).fetchall()
+            }
+            if not enabled:
+                raise RateCurveProvenanceError("Missing enabled-pathway provenance")
+            if root != parent and not enabled.intersection(outgoing_ids):
+                raise RateCurveProvenanceError(
+                    "Parent is not identified in this result"
+                )
+        clusters = self.clusters_objects_indexed(parent=parent)
+        curves = []
+        for pathway_id, parent_id, p1, p2 in outgoing:
+            participating = pathway_id in enabled
+            if not all_pathways and not participating:
+                continue
+            rows = self.db.execute(
+                "select data from k_rate where pathway_id = ? and histogram_params_id = ?",
+                (pathway_id, rate_id),
+            ).fetchall()
+            if len(rows) > 1:
+                raise RateCurveProvenanceError(
+                    f"Ambiguous rate cache for pathway {pathway_id}"
+                )
+            histogram = None
+            if rows and rows[0][0] is not None:
+                histogram = scaled_rate_const(
+                    Histogram.from_mesh(*params, numpy.array(rows[0][0]))
+                )
+                if len(histogram.x) != len(histogram.y):
+                    raise RateCurveProvenanceError(
+                        f"Invalid rate cache for pathway {pathway_id}"
+                    )
+            override = (
+                config.get("fragmentation_energy")
+                if single_pathway == pathway_id
+                else None
+            )
+            if override is not None:
+                # Match the native preparation's existing Boltzmann constant.
+                energy = energy_in_joules(override)
+                assert energy is not None
+                kelvin = energy.to("K", "boltzmann").magnitude
+                bonding = Q_(kelvin * consts.boltzmann, "J")
+            else:
+                energy_kelvin = FragmentationPathway(
+                    clusters[parent_id].into_cpp(),
+                    clusters[p1].into_cpp(),
+                    clusters[p2].into_cpp(),
+                ).fragmentation_energy_kelvin()
+                bonding = Q_(energy_kelvin * consts.boltzmann, "J")
+            curves.append(
+                PathwayRateCurve(
+                    pathway_id,
+                    parent_id,
+                    p1,
+                    p2,
+                    participating,
+                    dos_id,
+                    rate_id,
+                    *params,
+                    bonding,
+                    histogram,
+                )
+            )
+        return curves
 
     def insert_config(self, name, config):
         from apitofsim.config import dump_to_raw
