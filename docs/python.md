@@ -218,3 +218,42 @@ The individual simulation functions are the low level interface to the simulatio
 ::: apitofsim.skimmer
     options:
       heading_level: 3
+
+## Collision-frequency profiles
+
+A collision profile evaluates instantaneous total collision frequency along the
+instrument for a fixed particle velocity. Prepare it once and reuse it when
+selecting different recorded velocities; evaluation runs no trajectories and
+performs no database writes.
+
+Given an `ExperimentDatabase` named `db` and a selected `result_id`:
+
+```python
+import numpy as np
+from pint import get_application_registry
+from apitofsim import collision_profile, skimmer
+
+Q_ = get_application_registry().Quantity
+config, cluster = db.collision_profile_inputs(result_id=result_id)
+# Alternatively: db.collision_profile_inputs(run_id=run_id, cluster_id=cluster_id)
+profile = collision_profile(config, cluster, skimmer=skimmer(config))
+z = Q_(np.linspace(0, config["lengths"].to("m").magnitude.sum(), 500), "m")
+nu = profile.frequency(z)  # stationary particle; output in 1/s
+nu_selected = profile.frequency(z, velocity=Q_([0, 0, 200], "m/s"))
+```
+
+Replace the example velocity with the selected event's `(vx, vy, vz)` in the
+instrument frame. Gas flow is included, so even a stationary particle has
+relative motion inside the skimmer. Collision rows record velocity before the
+collision update. The returned rate includes collisions that may be rejected;
+it is not an accepted-collision rate. Input resolution also works with read-only
+and attached databases, provided the run references its stored configuration.
+
+::: apitofsim.collision_profile
+
+::: apitofsim.CollisionProfile
+    options:
+      members: true
+      heading_level: 3
+
+::: apitofsim.workflow.ExperimentDatabase.collision_profile_inputs

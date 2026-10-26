@@ -426,7 +426,7 @@ def import_raw_config(config):
         elif k == "quadrupole":
             into_cls = Quadrupole
 
-        if into_cls is not None:
+        if into_cls is not None and not isinstance(config[k], into_cls):
             config[k] = into_cls(
                 **{k2: into_quantity_obj(config[k], k2) for k2 in config[k]}  # pyright: ignore
             )

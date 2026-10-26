@@ -18,6 +18,7 @@ from .api import (
     skimmer,
 )
 from .apitofsimraw import debug_info
+from .collision import CollisionProfile, collision_profile
 from .config import (
     config_to_shortnames,
     get_clusters,
@@ -49,6 +50,8 @@ __all__ = [
     "KTotalInput",
     "FragmentationPathway",
     "precompute_mesh",
+    "CollisionProfile",
+    "collision_profile",
     # Config
     "parse_config_with_particles",
     "config_to_shortnames",

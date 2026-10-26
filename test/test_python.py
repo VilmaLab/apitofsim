@@ -989,3 +989,238 @@ def test_recorded_output_database_scope(query_db):
         assert query_db.recorded_output_query().select(
             "realization_count"
         ).fetchone() == (9,)
+
+
+@pytest.fixture
+def collision_inputs():
+    import numpy as np
+    from apitofsim import Gas
+    from apitofsim.api import Q_
+
+    config = dict(
+        lengths=Q_([1, 1, 1, 1, 1], "mm"),
+        pressures=Q_([100, 2], "Pa"),
+        T=Q_(300, "K"),
+        gas=Gas(Q_(0.2, "nm"), Q_(4.8e-26, "kg"), 1.4),
+    )
+    # Includes a final held cell, just like the numerical skimmer output.
+    skimmer = np.array([[100, 250, 80], [300, 150, 20]], dtype=float)
+    return config, Q_(0.5, "nm"), skimmer
+
+
+@pytest.mark.parametrize(
+    "velocity", [[0, 0, 0], [200, 0, 0], [0, 0, 200], [0, 0, -200]]
+)
+def test_collision_profile_physics(collision_inputs, velocity):
+    import math
+
+    import numpy as np
+    from apitofsim import collision_profile, consts
+    from apitofsim.api import Q_
+
+    config, radius, skimmer = collision_inputs
+    profile = collision_profile(
+        config, radius, skimmer=skimmer, mesh_skimmer=Q_(0.5, "mm")
+    )
+    # Unsorted, repeated, both endpoints, interpolated and held-cell positions.
+    z = np.array([5, 1, 1.25, 0, 2, 1.25, 1.75, 2.001])
+    actual = profile.frequency(Q_(z, "mm"), Q_(velocity, "m/s"))
+    expected = []
+    for position in z:
+        if 1 <= position <= 2:
+            vgas, temperature, pressure = [
+                np.interp(position, [1, 1.5], skimmer[:, i]) for i in range(3)
+            ]
+        else:
+            vgas, temperature, pressure = 0, 300, (100 if position < 1 else 2)
+        relative = np.asarray(velocity, dtype=float) - [0, 0, vgas]
+        speed = np.linalg.norm(relative)
+        kT = consts.boltzmann * temperature
+        mobility = kT / config["gas"].mass.to("kg").magnitude
+        n = pressure / kT
+        R = (radius + config["gas"].radius).to("m").magnitude
+        if speed == 0:
+            frequency = 2 * math.sqrt(2 * math.pi * mobility) * n * R**2
+        else:
+            frequency = (
+                2
+                * math.pi
+                * n
+                * R**2
+                * (
+                    0.5
+                    * (mobility / speed + speed)
+                    * math.erf(speed / math.sqrt(2 * mobility))
+                    + math.sqrt(mobility / (2 * math.pi))
+                    * math.exp(-(speed**2) / (2 * mobility))
+                )
+            )
+        expected.append(frequency)
+    np.testing.assert_allclose(actual.to("1/s").magnitude, expected, rtol=1e-12)
+    vectors = np.tile(velocity, (len(z), 1))
+    np.testing.assert_allclose(
+        profile.frequency(Q_(z / 10, "cm"), Q_(vectors * 100, "cm/s")).magnitude,
+        expected,
+    )
+    np.testing.assert_allclose(
+        profile.frequency(
+            z * 1e-3, np.array(velocity), quantities_strict=False
+        ).magnitude,
+        expected,
+    )
+
+
+def test_collision_profile_validation_and_snapshot(collision_inputs):
+    import numpy as np
+    from apitofsim import collision_profile
+    from apitofsim.api import Q_
+    from pint import DimensionalityError
+
+    config, radius, skimmer = collision_inputs
+    profile = collision_profile(
+        config, radius, skimmer=skimmer, mesh_skimmer=Q_(0.5, "mm")
+    )
+    z = Q_([0, 1.25, 4], "mm")
+    baseline = profile.frequency(z)
+    skimmer[:] = 0
+    config["pressures"] *= 2
+    np.testing.assert_array_equal(profile.frequency(z).magnitude, baseline.magnitude)
+    assert profile.frequency(Q_([], "m")).shape == (0,)
+    assert profile.frequency(Q_([], "m"), Q_(np.empty((0, 3)), "m/s")).shape == (0,)
+    for invalid in (
+        Q_(1, "m"),
+        Q_([[0]], "m"),
+        Q_([-1], "mm"),
+        Q_([6], "mm"),
+        Q_([np.nan], "m"),
+    ):
+        with pytest.raises(ValueError):
+            profile.frequency(invalid)
+    for invalid in (
+        Q_(0, "m/s"),
+        Q_([1, 2], "m/s"),
+        Q_(np.zeros((1, 3)), "m/s"),
+        Q_([0, 0, np.inf], "m/s"),
+    ):
+        with pytest.raises(ValueError):
+            profile.frequency(z, invalid)
+    with pytest.raises(ValueError, match="pint.Quantity"):
+        profile.frequency([0])
+    with pytest.raises(DimensionalityError):
+        profile.frequency(Q_([1], "s"))
+    with pytest.raises(DimensionalityError):
+        profile.frequency(z, Q_([0, 0, 0], "m"))
+    with pytest.raises(ValueError, match="Prepared skimmer"):
+        collision_profile(config, radius)
+    with pytest.raises(ValueError, match="Missing.*gas"):
+        collision_profile(
+            {k: v for k, v in config.items() if k != "gas"}, radius, skimmer=skimmer
+        )
+    with pytest.raises(ValueError, match="temperature"):
+        collision_profile(config, radius, skimmer=skimmer, mesh_skimmer=Q_(0.5, "mm"))
+
+
+def test_collision_profile_readonly_inputs(tmp_path, collision_inputs):
+    import duckdb
+    import numpy as np
+    from apitofsim import collision_profile
+    from apitofsim.api import Q_
+
+    config, _, skimmer = collision_inputs
+    path = str(tmp_path / "experiment.duckdb")
+    db = ExperimentDatabase(path)
+    db.create_tables()
+    config_id = db.insert_config("profile", config)
+    run_id = db.insert_run(config_id)
+    db.db.execute(
+        "insert into cluster values (1, 'cluster', 100, -1, 0, [1, 2, 3], [10, 20], null)"
+    )
+    db.db.execute(
+        "insert into multi_pathway_experiment_result values (1, ?, 1, 0, 0, 0, 1, 0, 0)",
+        [run_id],
+    )
+    db.close()
+    for attached in (False, True):
+        conn = (
+            duckdb.connect(":memory:")
+            if attached
+            else duckdb.connect(path, read_only=True)
+        )
+        if attached:
+            conn.execute(f"attach '{path}' as results (read_only)")
+            conn.execute("use results")
+        db = ExperimentDatabase((conn, None))
+        resolved, cluster = db.collision_profile_inputs(result_id=1)
+        profile = collision_profile(
+            resolved, cluster, skimmer=skimmer, mesh_skimmer=Q_(0.5, "mm")
+        )
+        assert np.isfinite(profile.frequency(Q_([0, 1.25, 2, 5], "mm")).magnitude).all()
+        direct, _ = db.collision_profile_inputs(run_id=run_id, cluster_id=1)
+        assert direct["T"] == resolved["T"]
+        with pytest.raises(ValueError, match="Unknown experiment result"):
+            db.collision_profile_inputs(result_id=99)
+        with pytest.raises(ValueError, match="No stored configuration"):
+            db.collision_profile_inputs(run_id=99, cluster_id=1)
+        with pytest.raises(ValueError, match="Unknown cluster"):
+            db.collision_profile_inputs(run_id=run_id, cluster_id=99)
+        db.close()
+
+
+def test_collision_profile_prepared_skimmer(collision_inputs):
+    import numpy as np
+    from apitofsim import collision_profile
+    from apitofsim import skimmer as compute_skimmer
+    from apitofsim.api import Q_
+
+    config = ConfigFile(
+        filename=os.path.join(os.environ["DATA_DIR"], "raw/config.in")
+    ).into_json_config()
+    skimmer = compute_skimmer(config)
+    radius = collision_inputs[1]
+    profile = collision_profile(config, radius, skimmer=skimmer)
+    start = config["lengths"][0].to("m").magnitude
+    end = start + config["lengths"][-1].to("m").magnitude
+    z = Q_([start, (start + end) / 2, end], "m")
+    velocities = Q_([[0, 0, 0], [100, 200, -300], [0, 0, 400]], "m/s")
+    expected = [
+        profile.frequency(z[i : i + 1], velocities[i]).magnitude[0] for i in range(3)
+    ]
+    np.testing.assert_allclose(profile.frequency(z, velocities).magnitude, expected)
+    np.testing.assert_allclose(
+        profile.frequency(z).magnitude,
+        profile.frequency(z, Q_([0, 0, 0], "m/s")).magnitude,
+    )
+
+
+def test_skimmer_config_dispatch():
+    import numpy as np
+    import orjson
+    from apitofsim import skimmer
+    from apitofsim.config import dump_to_raw
+
+    config = ConfigFile(
+        filename=os.path.join(os.environ["DATA_DIR"], "raw/config.in")
+    ).into_json_config()
+    parameters = dict(
+        T0=config["T"],
+        P0=config["pressures"][0],
+        rmax=config["lengths"][-1],
+        dc=config["dc"],
+        alpha_factor=config["alpha_factor"],
+        gas=config["gas"],
+        N=config["N_iter"],
+        M=config["M_iter"],
+        resolution=config["resolution"],
+        tolerance=config["tolerance"],
+    )
+    expected = skimmer(**parameters)
+    np.testing.assert_array_equal(skimmer(*parameters.values()), expected)
+    np.testing.assert_array_equal(skimmer(config), expected)
+    np.testing.assert_array_equal(skimmer(orjson.loads(dump_to_raw(config))), expected)
+    np.testing.assert_array_equal(
+        skimmer(config, output_pandas=True).to_numpy(), expected
+    )
+    with pytest.raises(TypeError, match="cannot be combined"):
+        skimmer(config, N=10)
+    with pytest.raises(TypeError, match="cannot be combined"):
+        skimmer(config, 10)

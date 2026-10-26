@@ -597,6 +597,48 @@ class ExperimentDatabase(SuperClusterDatabase):
         for id, name, config in query.fetchall():
             yield ConfigRow(id, name, import_raw_config(orjson.loads(config)))
 
+    def collision_profile_inputs(self, *, run_id=None, cluster_id=None, result_id=None):
+        """Read config and ClusterData for a result, or a run_id/cluster_id pair.
+
+        Works with read-only/attached databases. The run must reference a stored
+        config; missing inputs raise ValueError. No derived data is prepared.
+        """
+        import orjson
+
+        from apitofsim.config import import_raw_config
+
+        if result_id is not None:
+            if run_id is not None or cluster_id is not None:
+                raise ValueError("Supply result_id or run_id and cluster_id")
+            result = self.db.execute(
+                "select experiment_run_id, cluster_id from experiment_result where id = ?",
+                [result_id],
+            ).fetchone()
+            if result is None:
+                raise ValueError(f"Unknown experiment result: {result_id}")
+            run_id, cluster_id = result
+        if run_id is None or cluster_id is None:
+            raise ValueError("Supply result_id or run_id and cluster_id")
+        row = self.db.execute(
+            """select conf.config from experiment_run as run
+            join experiment_config as conf on conf.id = run.experiment_config_id
+            where run.id = ?""",
+            [run_id],
+        ).fetchone()
+        if row is None or row[0] is None:
+            raise ValueError(f"No stored configuration for experiment run: {run_id}")
+        clusters = (
+            self.db.table("cluster")
+            .filter(
+                duckdb.ColumnExpression("id") == duckdb.ConstantExpression(cluster_id)
+            )
+            .fetchdf()
+        )
+        if clusters.empty:
+            raise ValueError(f"Unknown cluster: {cluster_id}")
+        cluster = self._cluster_obj_from_tuple(next(iter(clusters.itertuples())))
+        return import_raw_config(orjson.loads(row[0])), cluster
+
     def record_result(
         self,
         run_id,
