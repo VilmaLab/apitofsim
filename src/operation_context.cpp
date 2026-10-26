@@ -87,6 +87,11 @@ bool OperationContext::should_continue()
   return checkpoint();
 }
 
+void OperationContext::request_cancel()
+{
+  context.cancel_group_execution();
+}
+
 oneapi::tbb::task_group_context &OperationContext::tbb_context()
 {
   return context;

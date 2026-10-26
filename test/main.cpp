@@ -78,6 +78,22 @@ TEST_CASE("operation context cancels on the first cooperative signal")
   }
 }
 
+TEST_CASE("programmatic cancellation is idempotent and isolated")
+{
+  OperationContext cancelled;
+  OperationContext independent;
+  std::thread requester([&]
+  {
+    cancelled.request_cancel();
+    cancelled.request_cancel();
+  });
+  requester.join();
+
+  CHECK_FALSE(cancelled.checkpoint());
+  CHECK(independent.checkpoint());
+  CHECK_NOTHROW(cancelled.rethrow_pending_signal(true));
+}
+
 TEST_CASE("exception transport rethrows a background exception")
 {
   ExceptionTransport transport;

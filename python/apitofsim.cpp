@@ -1,6 +1,7 @@
 #include <Python.h>
 
 #include <cassert>
+#include <atomic>
 #include <cstdio>
 #include <iostream>
 #include <memory>
@@ -189,9 +190,10 @@ std::jthread run_mass_spec_in_thread(
   StreamingResultQueue &result_queue,
   SampleMode sample_mode,
   bool strict,
-  std::tuple<int, bool> logconf)
+  std::tuple<int, bool> logconf,
+  std::function<void()> on_complete = {})
 {
-  return std::jthread([&, N, seed, sample_mode, strict, logconf]
+  return std::jthread([&, N, seed, sample_mode, strict, logconf, on_complete]
   {
     exception_transport.guard([&, N, seed, sample_mode, strict, logconf]
     {
@@ -206,6 +208,10 @@ std::jthread run_mass_spec_in_thread(
         MassSpecLogConf(std::get<0>(logconf), std::get<1>(logconf)),
         operation);
     });
+    if (on_complete)
+    {
+      on_complete();
+    }
     result_queue.enqueue(std::monostate{});
   });
 }
@@ -313,6 +319,10 @@ struct MassSpecIterator
   ExceptionTransport exception_transport;
   SimulationResult final_result;
   bool finished{false};
+  std::atomic<bool> completed{false};
+  bool cancelled{false};
+  int requested_realizations;
+  std::mutex join_mutex;
   std::jthread execution_thread;
 
   template <typename MassSpecSubstanceT>
@@ -328,7 +338,11 @@ struct MassSpecIterator
                                                              ms(ms),
                                                              subs(std::shared_ptr<const void>(subs)),
                                                              exception_transport(),
-                                                             execution_thread(run_mass_spec_in_thread<MassSpecSubstanceT>(final_result, operation, exception_transport, *ms, *subs, N, seed, result_queue.queue, sample_mode, strict, logconf))
+                                                             requested_realizations(N),
+                                                             execution_thread(run_mass_spec_in_thread<MassSpecSubstanceT>(final_result, operation, exception_transport, *ms, *subs, N, seed, result_queue.queue, sample_mode, strict, logconf, [this]
+  {
+    completed = true;
+  }))
   {
   }
 
@@ -338,13 +352,24 @@ struct MassSpecIterator
     {
       throw nb::stop_iteration();
     }
-    auto result = pump_mass_spec_queue(result_queue, partial_counters);
+    auto result = [&]
+    {
+      nb::gil_scoped_release release;
+      return pump_mass_spec_queue(result_queue, partial_counters);
+    }();
     if (std::holds_alternative<std::monostate>(result))
     {
       finished = true;
-      join_if_joinable();
+      {
+        nb::gil_scoped_release release;
+        join_if_joinable();
+      }
       operation.rethrow_pending_signal();
       exception_transport.rethrow();
+      // A cancelled TBB reduction may omit completed branches. The drained
+      // partial results contain every completed realization exactly once.
+      std::get<0>(final_result) = partial_counters;
+      cancelled = !operation.checkpoint() && partial_counters[Counter::n_realizations] < requested_realizations;
       return final_result;
     }
     else if (std::holds_alternative<Eigen::ArrayXi>(result))
@@ -367,9 +392,18 @@ struct MassSpecIterator
 
   void join_if_joinable()
   {
+    std::scoped_lock lock(join_mutex);
     if (execution_thread.joinable())
     {
       execution_thread.join();
+    }
+  }
+
+  void request_cancel()
+  {
+    if (!completed)
+    {
+      operation.request_cancel();
     }
   }
 };
@@ -808,7 +842,9 @@ NB_MODULE(apitofsimraw, m)
          "strict"_a = true,
          "logconf"_a = DEFAULT_LOGCONF_TUPLE)
     .def("__next__", &MassSpecIterator::__next__)
-    .def("join_if_joinable", &MassSpecIterator::join_if_joinable);
+    .def("join_if_joinable", &MassSpecIterator::join_if_joinable, nb::call_guard<nb::gil_scoped_release>())
+    .def("request_cancel", &MassSpecIterator::request_cancel)
+    .def_ro("cancelled", &MassSpecIterator::cancelled);
 
   nb::class_<FragmentationPathway>(m, "FragmentationPathway")
     .def(nb::init<const MolecularCluster &, const MolecularCluster &, const ClusterSpec &>(),
