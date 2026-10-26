@@ -430,6 +430,8 @@ def import_raw_config(config):
             config[k] = into_cls(
                 **{k2: into_quantity_obj(config[k], k2) for k2 in config[k]}  # pyright: ignore
             )
+        elif k == "fragmentation_energy":
+            config[k] = into_quantity(config[k], "K")
         elif k in TOPLEVEL + ["voltages", "lengths", "pressures"]:
             config[k] = into_quantity_obj(config, k)
     check_for_deprecated_keys(config)

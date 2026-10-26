@@ -4,6 +4,7 @@ from dataclasses import KW_ONLY, MISSING, dataclass
 from typing import Any, Callable, List, Optional, Tuple, cast, overload
 
 import numpy
+from pandas import NA as pandas_NA
 from pandas import DataFrame
 from pint import Quantity, get_application_registry
 from pint._typing import Magnitude
@@ -96,6 +97,9 @@ __all__ = [
     "Gas",
     "Quadrupole",
     "Histogram",
+    "energy_in_joules",
+    "internal_energy",
+    "available_fragmentation_energy",
     "densityandrate",
     "mass_spec",
     "mass_spec_iter",
@@ -299,6 +303,36 @@ def scaled_rate_const(rate_const):
     with ureg.context("boltzmann", "spectroscopy"):
         x = rate_const.x.to("J")
     return Histogram(x, rate_const.y)
+
+
+def energy_in_joules(energy):
+    """Convert energy to per-particle joules; bare recorded values are joules.
+
+    Kelvin uses the registry's Boltzmann context. Molar energies are divided
+    by Avogadro's constant. None/NA remain missing; NaNs propagate.
+    """
+    if energy is None or energy is pandas_NA:
+        return None
+    if not isinstance(energy, Quantity):
+        energy = Q_(energy, "J")
+    if energy.check("[energy] / [substance]"):
+        energy = energy / ureg.avogadro_constant
+    with ureg.context("boltzmann", "spectroscopy"):
+        return energy.to("J")
+
+
+def internal_energy(rot_energy, vibrational_energy):
+    """Recorded rotational plus vibrational energy, in joules (None if missing)."""
+    rot = energy_in_joules(rot_energy)
+    vib = energy_in_joules(vibrational_energy)
+    return None if rot is None or vib is None else rot + vib
+
+
+def available_fragmentation_energy(internal_energy, bonding_energy):
+    """Excess energy delta_E in joules; preserve missing and negative values."""
+    internal = energy_in_joules(internal_energy)
+    bond = energy_in_joules(bonding_energy)
+    return None if internal is None or bond is None else internal - bond
 
 
 @dataclass
@@ -637,6 +671,11 @@ def MassSpecSubstanceSingleInput(*args, **kwargs):
     get = ArgGetter(args, kwargs)
     if len(args) >= 1 and isinstance(args[0], ClusterLike) or "cluster_0" in kwargs:
         if len(args) >= 2 and isinstance(args[1], ClusterLike) or "cluster_1" in kwargs:
+            fragmentation_energy = get("fragmentation_energy", 6, None)
+            if isinstance(fragmentation_energy, Quantity):
+                energy = energy_in_joules(fragmentation_energy)
+                assert energy is not None
+                fragmentation_energy = energy.to("K", "boltzmann").magnitude
             return _MassSpecSubstanceSingleInput(
                 cluster_0=get("cluster_0", 0).into_cpp(),
                 cluster_1=get("cluster_1", 1).into_cpp(),
@@ -646,7 +685,7 @@ def MassSpecSubstanceSingleInput(*args, **kwargs):
                     mass_spec_stage=True
                 ),
                 rate_const=get("rate_const", 5).into_cpp(mass_spec_stage=True),
-                fragmentation_energy=get("fragmentation_energy", 6, None),
+                fragmentation_energy=fragmentation_energy,
                 cluster_charge_sign=get(
                     "cluster_charge_sign", 7, defaults.cluster_charge_sign
                 ),

@@ -437,6 +437,11 @@ def test_init_events_workflow(tmp_path, monkeypatch, mode):
         runner = ExperimentRunner(db)
         runner.run_prepared_config(mode=SimulationMode[mode])
         assert num_runs > 0
+        for result_id, run_id, parent, _, _ in db.db.table(
+            "experiment_result"
+        ).fetchall():
+            curves = db.pathway_rate_curves(run_id, parent, result_id)
+            assert curves and all(c.histogram is not None for c in curves)
         if mode == "SINGLE_CLUSTER":
             assert rollback_checked
         count = db.db.execute(
@@ -1224,3 +1229,303 @@ def test_skimmer_config_dispatch():
         skimmer(config, N=10)
     with pytest.raises(TypeError, match="cannot be combined"):
         skimmer(config, 10)
+
+
+def test_quantity_energy_helpers():
+    import numpy as np
+    import pandas as pd
+    from apitofsim import (
+        available_fragmentation_energy,
+        energy_in_joules,
+        internal_energy,
+    )
+    from apitofsim.api import Q_, ureg
+    from pint import DimensionalityError
+
+    joules = energy_in_joules(Q_(300, "K"))
+    assert joules.magnitude == pytest.approx(
+        (Q_(300, "K") * ureg.boltzmann_constant).to("J").magnitude, abs=0
+    )
+    assert energy_in_joules(joules.to("eV")).magnitude == pytest.approx(
+        joules.magnitude
+    )
+    molar = (joules * ureg.avogadro_constant).to("kcal/mol")
+    assert energy_in_joules(molar).magnitude == pytest.approx(joules.magnitude, abs=0)
+    assert internal_energy(Q_(100, "K"), molar).to(
+        "K", "boltzmann"
+    ).magnitude == pytest.approx(400)
+    assert available_fragmentation_energy(joules, molar * 2).magnitude == pytest.approx(
+        -joules.magnitude, abs=0
+    )
+    assert internal_energy(None, joules) is None
+    assert internal_energy(joules, pd.NA) is None
+    assert available_fragmentation_energy(joules, None) is None
+    assert np.isnan(internal_energy(float("nan"), 1).magnitude)
+    assert internal_energy(1, 2).magnitude == 3
+    with pytest.raises(DimensionalityError):
+        energy_in_joules(Q_(1, "s"))
+
+
+@pytest.fixture
+def rate_curve_db():
+    from apitofsim.api import Q_
+    from apitofsim.workflow.db import RealizationDatabase, connection_scope
+
+    with connection_scope(RealizationDatabase, ":memory:") as db:
+        db.create_tables()
+        for name, energy, frequencies, charge in (
+            ("parent", -10.0, [100.0, 200.0, 300.0], -1),
+            ("product", -6.0, [100.0, 200.0, 300.0], -1),
+            ("neutral", -3.9, [], 0),
+        ):
+            db.insert_cluster(name, 100, charge, energy, [1.0, 2.0, 3.0], frequencies)
+        db.insert_pathway(1, 2, 3)
+        db.insert_pathway(1, 2, 3)
+        db.insert_pathway(1, 2, 3)
+        # Independent DOS/rate widths; a decoy with the same width must not win.
+        db.db.execute(
+            "insert into histogram_params values (1, 20, 100), (2, 10, 40), (3, 10, 60)"
+        )
+        db.db.execute(
+            "insert into k_rate (pathway_id, histogram_params_id, data) values (1, 2, [10,20,40,80]), (2, 2, [1,2,3,4]), (1, 3, [9,9,9,9,9,9])"
+        )
+        config = {"fragmentation_energy": Q_(150, "K"), "bin_width": Q_(99, "K")}
+        config_id = db.insert_config("selected", config)
+        for rate_id in (2, 3):
+            run = db.insert_run(
+                config_id, dos_histogram_id=1, rate_histogram_id=rate_id
+            )
+            db.db.execute(
+                "insert into single_pathway_experiment_result (experiment_run_id, pathway_id) values (?, 1)",
+                (run,),
+            )
+        db.db.execute(
+            "insert into multi_pathway_experiment_result (experiment_run_id, cluster_id) values (1, 1)"
+        )
+        db.db.execute(
+            "insert into pathway_fragmentation (experiment_result_id, pathway_id, count) values (3, 1, 7), (3, 2, 0)"
+        )
+        yield db
+
+
+def test_pathway_rate_curves(rate_curve_db):
+    import numpy as np
+    from apitofsim.api import (
+        Q_,
+        ApiTofRateConstantOverflow,
+        Gas,
+        MassSpecInputFragmentationPathway,
+        MassSpecSubstanceSingleInput,
+    )
+
+    db = rate_curve_db
+    single = db.pathway_rate_curves(1, 1, 1)
+    assert len(single) == 1
+    curve = single[0]
+    assert (
+        curve.pathway_id,
+        curve.parent_id,
+        curve.product1_id,
+        curve.product2_id,
+    ) == (1, 1, 2, 3)
+    assert (curve.dos_histogram_id, curve.rate_histogram_id) == (1, 2)
+    np.testing.assert_allclose(
+        curve.histogram.x.to("K", "boltzmann").magnitude, [5, 15, 25, 35]
+    )
+    np.testing.assert_equal(curve.rates.to("1/s").magnitude, [10, 20, 40, 80])
+    assert curve.bonding_energy.to("K", "boltzmann").magnitude == pytest.approx(150)
+    assert db.pathway_rate_curves(2, 1)[0].rates[0].magnitude == 9
+    np.testing.assert_allclose(
+        curve.rate_at(Q_([-1, 0, 2, 5, 10, 15, 20, 35, 39.9], "K")).magnitude,
+        [0, 0, 10, 10, 15, 20, 30, 80, 80],
+    )
+    with pytest.raises(ApiTofRateConstantOverflow):
+        curve.rate_at(Q_(41, "K"))
+    assert curve.rate_at(Q_(41, "K"), strict=False).magnitude == 80
+    upper_edge = (curve.histogram.x[1] - curve.histogram.x[0]) * len(curve.histogram.x)
+    assert curve.rate_at(upper_edge).magnitude == 80
+    assert curve.rate_at(None) is None
+    assert np.isnan(curve.rate_at(Q_(float("nan"), "J")).magnitude)
+
+    multi = db.pathway_rate_curves(1, 1, 3)
+    assert [c.pathway_id for c in multi] == [
+        1,
+        2,
+    ]  # Includes zero-event enabled pathway.
+    clusters = db.clusters_objects_indexed()
+    native = MassSpecInputFragmentationPathway(
+        clusters[1], clusters[2], clusters[3], curve.histogram
+    )
+    assert multi[0].bonding_energy.magnitude == native.bonding_energy
+    # The configured override is used by single-pathway preparation only.
+    gas = Gas(Q_(1e-10, "m"), Q_(1e-26, "kg"), 1.4)
+    native_single = MassSpecSubstanceSingleInput(
+        clusters[1],
+        clusters[2],
+        clusters[3],
+        gas,
+        curve.histogram,
+        curve.histogram,
+        fragmentation_energy=Q_(150, "K"),
+    )
+    assert curve.bonding_energy.magnitude == native_single.pathways[0].bonding_energy
+    all_curves = db.pathway_rate_curves(1, 1, 3, all_pathways=True)
+    assert [c.participating for c in all_curves] == [True, True, False]
+    assert all_curves[2].histogram is None
+    assert all_curves[2].rates is None
+    with pytest.raises(ValueError, match="Missing rate curve"):
+        all_curves[2].rate_at(Q_(100, "K"))
+    # Removing an enabled curve stays explicit, with no compute-on-read.
+    db.db.execute("delete from k_rate where pathway_id = 2")
+    assert db.pathway_rate_curves(1, 1, 3)[1].histogram is None
+
+
+def test_rate_curve_provenance_errors(rate_curve_db):
+    from apitofsim.workflow import RateCurveProvenanceError
+
+    db = rate_curve_db
+    for args in ((999, 1), (1, 1), (1, 2, 1), (1, 1, 999), (2, 1, 1)):
+        with pytest.raises(RateCurveProvenanceError):
+            db.pathway_rate_curves(*args)
+    db.db.execute("update experiment_run set run_config = '{}' where id = 2")
+    with pytest.raises(RateCurveProvenanceError, match="Missing DOS/rate"):
+        db.pathway_rate_curves(2, 1)
+    db.db.execute(
+        "insert into k_rate (pathway_id, histogram_params_id, data) values (1, 2, [1,2,3,4])"
+    )
+    with pytest.raises(RateCurveProvenanceError, match="Ambiguous rate cache"):
+        db.pathway_rate_curves(1, 1, 1)
+    db.db.execute("delete from pathway_fragmentation")
+    with pytest.raises(RateCurveProvenanceError, match="enabled-pathway"):
+        db.pathway_rate_curves(1, 1, 3)
+
+
+@pytest.mark.parametrize("attached", [False, True])
+def test_rate_curves_readonly(rate_curve_db, tmp_path, attached):
+    import duckdb
+    from apitofsim.workflow.db import RealizationDatabase, connection_scope
+
+    path = str(tmp_path / "curves.duckdb")
+    source = rate_curve_db.db
+    clusters_path = str(tmp_path / "molecules.duckdb")
+    source.execute(f"attach '{path}' as saved")
+    if attached:
+        source.execute(f"attach '{clusters_path}' as molecules")
+    cluster_tables = {
+        "cluster",
+        "pathway",
+        "histogram_params",
+        "cluster_dos",
+        "products_dos",
+        "k_rate_mesh",
+        "k_rate",
+    }
+    for (name,) in source.execute(
+        "select table_name from duckdb_tables() where database_name = 'memory'"
+    ).fetchall():
+        destination = "molecules" if attached and name in cluster_tables else "saved"
+        source.execute(
+            f'create table {destination}.main."{name}" as select * from "{name}"'
+        )
+    source.execute("detach saved")
+    if attached:
+        source.execute("detach molecules")
+        connection = duckdb.connect()
+        connection.execute(f"attach '{path}' as output (read_only)")
+        connection.execute(f"attach '{clusters_path}' as molecules (read_only)")
+        connection.execute("set search_path = 'output,molecules'")
+    else:
+        connection = duckdb.connect(path, read_only=True)
+    with connection_scope(RealizationDatabase, (connection, None)) as db:
+        before = connection.execute("select count(*) from k_rate").fetchone()
+        assert len(db.pathway_rate_curves(1, 1, 3)) == 2
+        assert before == connection.execute("select count(*) from k_rate").fetchone()
+        assert connection.execute(
+            "select count(*) from duckdb_views() where not internal"
+        ).fetchone() == (0,)
+
+
+def test_recorded_run_preparation(rate_curve_db):
+    import json
+
+    import numpy as np
+    from apitofsim.api import Q_
+    from apitofsim.workflow.runners import DerivedDataPreparer
+
+    db = rate_curve_db
+    config = {"fragmentation_energy": Q_(2, "kJ/mol")}
+    db.record_run_preparation(1, config, 1, 3)
+    metadata = json.loads(
+        db.db.execute("select run_config from experiment_run where id = 1").fetchone()[
+            0
+        ]
+    )
+    assert metadata["simulation_mode"] == "SINGLE_CLUSTER"
+    assert (metadata["dos_histogram_id"], metadata["rate_histogram_id"]) == (1, 3)
+    curve = db.pathway_rate_curves(1, 1, 1)[0]
+    assert curve.bonding_energy.to("eV").magnitude == pytest.approx(0.0207285393)
+    preparer = DerivedDataPreparer(db)
+    preparer.dos_histogram_id, preparer.rate_histogram_id = 1, 3
+    np.testing.assert_equal(
+        preparer.histogram({}, np.ones(5)).x.magnitude, [10, 30, 50, 70, 90]
+    )
+    np.testing.assert_equal(
+        preparer.histogram({}, np.ones(6), rate=True).x.magnitude,
+        [5, 15, 25, 35, 45, 55],
+    )
+
+
+def test_cached_run_preparation(rate_curve_db, monkeypatch):
+    import numpy as np
+    from apitofsim.api import Q_
+    from apitofsim.workflow import ExperimentRunner, runners
+
+    db = rate_curve_db
+    db.db.execute(
+        "insert into cluster_dos (histogram_params_id, cluster_id, data) values (1, 1, [1,2,3,4,5]), (1, 2, [1,2,3,4,5])"
+    )
+    runner = ExperimentRunner(db)
+    runner.start_run(1)
+    monkeypatch.setattr(
+        runner.preparer, "_run_skimmer", lambda config: np.zeros((2, 6))
+    )
+    monkeypatch.setattr(runners, "MassSpectrometer", lambda *args, **kwargs: None)
+    config = dict(
+        next(db.iter_configs()).config,
+        lengths=None,
+        voltages=None,
+        T=Q_(300, "K"),
+        pressures=None,
+    )
+    _, _, _, _, rates, densities = runner._prepare_from_config(
+        config,
+        pathways=[1],
+        cached_densityandrate=(1, 3),
+    )
+    result_id = db.db.execute(
+        "insert into single_pathway_experiment_result (experiment_run_id, pathway_id) values (?, 1) returning id",
+        (runner.current_run_id,),
+    ).fetchone()[0]
+    curve = db.pathway_rate_curves(runner.current_run_id, 1, result_id)[0]
+    prepared = runner.preparer.histogram(config, rates[1], rate=True)
+    np.testing.assert_equal(
+        curve.histogram.x.to("K", "boltzmann").magnitude, prepared.x.magnitude
+    )
+    assert len(runner.preparer.histogram(config, densities[1]).x) == 5
+    assert len(curve.histogram.x) == 6
+
+
+def test_serial_rate_curve_parent(rate_curve_db):
+    from apitofsim.workflow import RateCurveProvenanceError
+
+    db = rate_curve_db
+    db.insert_pathway(2, 2, 3)
+    db.db.execute(
+        "insert into pathway_fragmentation (experiment_result_id, pathway_id, count) values (3, 4, 0)"
+    )
+    # A known downstream parent uses its own outgoing pathways, not the root's.
+    downstream = db.pathway_rate_curves(1, 2, 3)
+    assert [(c.pathway_id, c.parent_id) for c in downstream] == [(4, 2)]
+    assert downstream[0].histogram is None
+    with pytest.raises(RateCurveProvenanceError, match="Parent is not identified"):
+        db.pathway_rate_curves(1, 3, 3)

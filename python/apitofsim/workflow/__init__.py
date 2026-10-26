@@ -2,6 +2,8 @@ from .base import SimulationMode
 from .db import (
     ClusterDatabase,
     ExperimentDatabase,
+    PathwayRateCurve,
+    RateCurveProvenanceError,
     RealizationDatabase,
     SuperClusterDatabase,
     auto_db_type,
@@ -13,6 +15,8 @@ __all__ = [
     "SimulationMode",
     "ClusterDatabase",
     "ExperimentDatabase",
+    "PathwayRateCurve",
+    "RateCurveProvenanceError",
     "SuperClusterDatabase",
     "RealizationDatabase",
     "DerivedDataPreparer",

@@ -257,3 +257,45 @@ and attached databases, provided the run references its stored configuration.
       heading_level: 3
 
 ::: apitofsim.workflow.ExperimentDatabase.collision_profile_inputs
+
+
+## Cached pathway rate curves and energy markers
+
+Use [pathway_rate_curves][apitofsim.workflow.ExperimentDatabase.pathway_rate_curves]
+to load a selected result's cached curves, including from read-only or attached
+databases. By default it returns enabled pathways; use `all_pathways=True` to
+include other known pathways. Missing curves have `histogram=None`.
+
+```python
+from apitofsim import internal_energy, available_fragmentation_energy
+
+curves = db.pathway_rate_curves(run_id=1, parent=3, result_id=7)
+for curve in curves:
+    if curve.histogram is None:
+        continue  # Cached curve absent; display an unavailable facet.
+    xs = curve.histogram.x.to("eV").magnitude
+    ks = curve.rates.to("1/s").magnitude
+    # Raw recorded event energies are per-particle joules.
+    energy = internal_energy(event.rot_energy, event.vibrational_energy)
+    marker = available_fragmentation_energy(energy, curve.bonding_energy)
+    if marker is not None:
+        marker_ev = marker.to("eV").magnitude
+```
+
+The x coordinate is excess energy: internal energy minus bonding energy.
+Energy helpers accept Pint quantities or recorded joule values and preserve
+missing energies. Collision rows contain energies before the collision update.
+For serial fragmentation, supply the event's known current parent ID; older
+records may not identify it. Runs without histogram provenance raise
+`RateCurveProvenanceError`.
+
+::: apitofsim.workflow.PathwayRateCurve
+    options:
+      members: true
+      heading_level: 3
+
+::: apitofsim.internal_energy
+
+::: apitofsim.available_fragmentation_energy
+
+::: apitofsim.energy_in_joules
