@@ -35,6 +35,7 @@ public:
 
   bool checkpoint();
   bool should_continue();
+  void request_cancel();
   oneapi::tbb::task_group_context &tbb_context();
   void rethrow_pending_signal(bool signals_as_exceptions = false);
 

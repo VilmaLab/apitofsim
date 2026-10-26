@@ -80,6 +80,160 @@ def test_native_operation_signal_behavior(signum):
     assert time.monotonic() - started < 2
 
 
+def _cancellation_stream(tree=False, slow=False, n=1_000_000, events=False):
+    import numpy as np
+    from apitofsim import api
+
+    raw = api.apitofsimraw
+    ms = raw.MassSpectrometer(
+        np.array([[0.0, 300.0, 100.0], [0.0, 300.0, 100.0]]),
+        0.0005,
+        np.array([0.1 if slow else 0.001, 0.001, 0.001, 0.001, 0.001]),
+        np.arange(5.0) * 10,
+        300.0,
+        np.array([100.0, 100.0]),
+        None,
+        None,
+    )
+    energies = np.arange(0.5, 1000.0) * 100 * api.consts.boltzmann
+    density = raw.Histogram(energies, np.ones(1000))
+    pathways = [
+        raw.MassSpecInputFragmentationPathway(
+            raw.Histogram(energies, np.zeros(1000)), 1e10
+        )
+    ]
+    gas = raw.Gas(2.46e-10, 4.85e-26, 1.4)
+    if tree:
+        subs = raw.MassSpecSubstanceTreeInput(
+            -1,
+            gas,
+            [raw.MSSubstanceTreeCluster(3.6e-25, 5e-10, density)],
+            pathways,
+            [raw.MSSubstanceTreeNode(0, [0])],
+            [raw.MSSubstanceTreePathway(0, None)],
+        )
+    else:
+        subs = raw.MassSpecSubstanceSingleInput(
+            -1, 3.6e-25, 5e-10, density, pathways, gas
+        )
+    return api.MassSpecIterator(ms, subs, n, logconf=(0, events))
+
+
+@pytest.mark.parametrize("tree", [False, True])
+@pytest.mark.parametrize("early", [False, True])
+def test_iterator_cancellation(tree, early):
+    import numpy as np
+    from apitofsim import api
+
+    with _cancellation_stream(tree, slow=early, events=True) as stream:
+        latest = None
+        initial = 0
+        finals = []
+        requested = False
+        for item in stream:
+            if isinstance(item, api.InitEvent):
+                initial += 1
+            if isinstance(item, api.MassSpecIntermediateCounter):
+                latest = item.counters
+            if not requested and (
+                (early and initial) or (not early and latest is not None)
+            ):
+                stream.request_cancel()
+                stream.request_cancel()
+                requested = True
+            if isinstance(item, api.MassSpecFinalResult):
+                finals.append(item)
+        assert requested
+        assert len(finals) == 1
+        final = finals[0]
+        assert final.cancelled and stream.cancelled
+        assert final.counters.n_realizations < 1_000_000
+        if early:
+            assert final.counters.n_realizations == 0
+            assert initial > 0  # Events from an interrupted realization are retained.
+        else:
+            assert final.counters.n_realizations > 0
+            for actual, expected in zip(final.counters, latest):
+                np.testing.assert_array_equal(actual, expected)
+        stream.request_cancel()
+        stream.join_if_joinable()
+        stream.join_if_joinable()
+        assert list(stream) == []
+
+
+@pytest.mark.parametrize("tree", [False, True])
+@pytest.mark.parametrize("n", [0, 3])
+def test_iterator_cancellation_after_completion(tree, n):
+    from apitofsim import api
+
+    with _cancellation_stream(tree, n=n) as stream:
+        stream.join_if_joinable()  # Complete before draining the queue.
+        stream.request_cancel()
+        items = list(stream)
+        final = items[-1]
+        assert isinstance(final, api.MassSpecFinalResult)
+        assert final.counters.n_realizations == n
+        assert not final.cancelled and not stream.cancelled
+        stream.request_cancel()
+        assert not stream.cancelled
+
+
+def test_iterator_cancellation_isolation():
+    with (
+        _cancellation_stream(slow=True) as cancelled,
+        _cancellation_stream(n=3) as independent,
+    ):
+        cancelled.request_cancel()
+        assert list(cancelled)[-1].cancelled
+        final = list(independent)[-1]
+        assert final.counters.n_realizations == 3
+        assert not final.cancelled
+
+
+@pytest.mark.parametrize("action", ["next", "join", "sigint"])
+@pytest.mark.parametrize("tree", [False, True])
+def test_iterator_cancellation_blocking(action, tree):
+    # A subprocess bounds failures if a blocking binding accidentally keeps the GIL.
+    code = f"""
+import os, runpy, signal, threading, time
+make_stream = runpy.run_path({__file__!r})['_cancellation_stream']
+stream = make_stream(tree={tree!r}, slow=True)
+def interrupt():
+    time.sleep(.05)
+    if {action!r} == 'sigint':
+        os.kill(os.getpid(), signal.SIGINT)
+    else:
+        stream.request_cancel()
+        stream.request_cancel()
+        stream.join_if_joinable()
+requester = threading.Thread(target=interrupt)
+requester.start()
+try:
+    with stream:
+        if {action!r} == 'join':
+            stream.join_if_joinable()
+            final = list(stream)[-1]
+        else:
+            final = next(stream)
+        assert {action!r} != 'sigint', 'SIGINT must raise KeyboardInterrupt'
+        assert final.cancelled and final.counters.n_realizations == 0
+        assert list(stream) == []
+except KeyboardInterrupt:
+    assert {action!r} == 'sigint'
+requester.join()
+print('done')
+"""
+    child = subprocess.run(
+        [sys.executable, "-X", "dev", "-c", code],
+        env=dict(os.environ, PYTHONPATH=os.pathsep.join(sys.path)),
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    assert child.returncode == 0, child.stdout + child.stderr
+    assert child.stdout.strip() == "done"
+
+
 def test_legacy_atom_like_runner_functional():
     data_dir = os.environ.get("DATA_DIR")
     assert data_dir is not None, "DATA_DIR environment variable not set"

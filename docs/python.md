@@ -299,3 +299,31 @@ records may not identify it. Runs without histogram provenance raise
 ::: apitofsim.available_fragmentation_energy
 
 ::: apitofsim.energy_in_joules
+
+## Cancelling a streaming simulation
+
+`mass_spec_iter(...)` returns a `MassSpecIterator`. Call its thread-safe,
+idempotent, non-blocking `request_cancel()` method to request cooperative
+cancellation of that simulation. Another Python thread can call this while
+iteration or `join_if_joinable()` is blocked. Continue iterating to drain queued
+items and receive one `MassSpecFinalResult`, then normal iteration termination:
+
+```python
+from apitofsim.api import MassSpecFinalResult, MassSpecIntermediateCounter, mass_spec_iter
+
+with mass_spec_iter(instrument, substance, N) as stream:
+    for item in stream:
+        if isinstance(item, MassSpecIntermediateCounter) and should_stop():
+            stream.request_cancel()
+        if isinstance(item, MassSpecFinalResult):
+            completed = item.counters.n_realizations
+            cancelled = item.cancelled  # Also available as stream.cancelled.
+```
+
+Final counters include only completed realizations. Active realizations may be
+interrupted, and their streamed events may remain in the queue without a
+corresponding completed realization. Cancellation does not send a signal, raise
+`KeyboardInterrupt`, or cancel other iterators. Actual Ctrl-C behavior is
+unchanged. Requests after completion have no effect; `cancelled` stays false for
+full completion. Exiting the context manager waits for the worker; request
+cancellation explicitly if needed before exiting.

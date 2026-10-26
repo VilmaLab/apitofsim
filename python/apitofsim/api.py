@@ -877,9 +877,23 @@ class MassSpecLogItem:
 class MassSpecFinalResult:
     counters: Counters
     timings: Timings
+    cancelled: bool = False
 
 
 class MassSpecIterator(_MassSpecIterator):
+    """Streaming simulation with per-iterator cooperative cancellation.
+
+    ``request_cancel()`` is thread-safe, idempotent and non-blocking. Continue
+    iterating afterwards to drain queued items and receive a final result with
+    completed-realization counters and a ``cancelled`` flag. The iterator's
+    ``cancelled`` property is updated when that final result is yielded. Cancellation may
+    interrupt active realizations, so streamed events can include unfinished
+    realizations that are absent from the counters. It does not raise
+    KeyboardInterrupt or affect other iterators; actual Ctrl-C is unchanged.
+
+    Exiting the context manager joins the worker; it does not request cancellation.
+    """
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -903,7 +917,9 @@ class MassSpecIterator(_MassSpecIterator):
                 return MassSpecLogItem(*val)
             elif isinstance(val[0], numpy.ndarray):
                 return MassSpecFinalResult(
-                    counters=counters_named_tuple(val[0]), timings=Timings(*val[1:])
+                    counters=counters_named_tuple(val[0]),
+                    timings=Timings(*val[1:]),
+                    cancelled=self.cancelled,
                 )
             else:
                 raise ValueError(f"Unexpected tuple value from MassSpecIterator: {val}")
