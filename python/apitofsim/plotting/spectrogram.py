@@ -58,14 +58,18 @@ def get_intensities_multipathway(db, er_id, cluster_id=None):
             ),
             experiment_counts as (
                 select
-                    cluster_counts.parent_id as parent_id,
-                    cluster_counts.experiment_result_id as experiment_result_id,
-                    sum(cluster_counts.count) as count
+                    result.cluster_id as parent_id,
+                    result.id as experiment_result_id,
+                    result.n_escaped_total + coalesce(sum(fragmentation.count), 0) as count
                 from
-                    cluster_counts
+                    multi_pathway_experiment_result as result
+                left join
+                    pathway_fragmentation as fragmentation
+                    on fragmentation.experiment_result_id = result.id
                 group by
-                    parent_id,
-                    experiment_result_id
+                    result.cluster_id,
+                    result.id,
+                    result.n_escaped_total
             )
         select
             cluster_counts.experiment_run_id as experiment_run_id,
