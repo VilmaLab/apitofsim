@@ -396,7 +396,9 @@ TEST_CASE("apitof pinhole smoke tests")
       6.0e-3),
   };
   bool test_rejections = false;
-  SUBCASE("standard pinhole") {}
+  SUBCASE("standard pinhole")
+  {
+  }
   SUBCASE("large pinhole rejects collisions")
   {
     // Put the pinhole region immediately after a uniform skimmer flow.
