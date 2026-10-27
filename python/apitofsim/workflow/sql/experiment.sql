@@ -4,6 +4,8 @@ create sequence experiment_result_sequence start 1;
 create sequence pathway_fragmentation_sequence start 1;
 create sequence fragmentation_product_sequence start 1;
 
+create type simulation_mode as enum('PATHWAY_AT_A_TIME', 'SINGLE_CLUSTER', 'CLUSTER_TREE');
+
 create table experiment_config (
     id integer default nextval('experiment_config_sequence') primary key,
     name varchar,
@@ -13,6 +15,7 @@ create table experiment_config (
 create table experiment_run (
     id integer default nextval('experiment_run_sequence') primary key,
     experiment_config_id integer not null,
+    simulation_mode simulation_mode not null,
     run_config json,
     foreign key (experiment_config_id) references experiment_config (id),
     start_time timestamp

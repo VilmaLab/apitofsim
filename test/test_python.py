@@ -936,7 +936,6 @@ def test_available_histogram_queries(cluster_dos, products_dos, rates):
 
 
 def test_experiment_metadata_queries():
-    import json
     from datetime import datetime
 
     import duckdb
@@ -957,13 +956,13 @@ def test_experiment_metadata_queries():
         )
         start_time = datetime(2026, 1, 2, 3, 4, 5)
         for run_id, mode in (
-            (1, "SINGLE_PATHWAY"),
+            (1, "PATHWAY_AT_A_TIME"),
             (2, "SINGLE_CLUSTER"),
             (3, "SINGLE_CLUSTER"),
         ):
             db.execute(
-                "insert into experiment_run values (?, 1, ?, ?)",
-                (run_id, json.dumps({"simulation_mode": mode}), start_time),
+                "insert into experiment_run values (?, 1, ?, '{}', ?)",
+                (run_id, mode, start_time),
             )
         db.execute(
             "insert into single_pathway_experiment_result (experiment_run_id, pathway_id) "
@@ -1001,13 +1000,10 @@ def test_experiment_metadata_queries():
                 "failures": failures,
                 "is_single_pathway": is_single,
                 "config": '{"N": 42}',
-                "run_config": json.dumps(
-                    {
-                        "simulation_mode": "SINGLE_PATHWAY"
-                        if is_single
-                        else "SINGLE_CLUSTER"
-                    }
-                ),
+                "simulation_mode": "PATHWAY_AT_A_TIME"
+                if is_single
+                else "SINGLE_CLUSTER",
+                "run_config": "{}",
             }
         for run_id, is_single in ((1, True), (2, False)):
             clusters = database.experiment_clusters_query(run_id)
@@ -1059,7 +1055,8 @@ def test_normalized_result_and_event_views(tmp_path, attached):
 
         db.execute("insert into experiment_config (id) values (1)")
         db.execute(
-            "insert into experiment_run (id, experiment_config_id) values (1, 1), (2, 1)"
+            "insert into experiment_run (id, experiment_config_id, simulation_mode) "
+            "values (1, 1, 'PATHWAY_AT_A_TIME'), (2, 1, 'SINGLE_CLUSTER')"
         )
         db.execute(
             "insert into single_pathway_experiment_result (id, experiment_run_id, pathway_id) "
@@ -1787,7 +1784,10 @@ def test_recorded_run_preparation(rate_curve_db):
             0
         ]
     )
-    assert metadata["simulation_mode"] == "SINGLE_CLUSTER"
+    assert "simulation_mode" not in metadata
+    assert db.db.execute(
+        "select simulation_mode from experiment_run where id = 1"
+    ).fetchone() == ("SINGLE_CLUSTER",)
     assert (metadata["dos_histogram_id"], metadata["rate_histogram_id"]) == (1, 3)
     curve = db.pathway_rate_curves(1, 1, 1)[0]
     assert curve.bonding_energy.to("eV").magnitude == pytest.approx(0.0207285393)

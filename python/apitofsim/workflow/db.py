@@ -631,12 +631,12 @@ class ExperimentDatabase(SuperClusterDatabase):
         import orjson
 
         id = self.db.execute(
-            "insert into experiment_run values (default, ?, ?, current_timestamp) returning id",
+            "insert into experiment_run values (default, ?, ?, ?, current_timestamp) returning id",
             (
                 config_id,
+                simulation_mode.name,
                 orjson.dumps(
                     {
-                        "simulation_mode": simulation_mode.name,
                         "dos_histogram_id": dos_histogram_id,
                         "rate_histogram_id": rate_histogram_id,
                     }
@@ -973,7 +973,7 @@ class ExperimentDatabase(SuperClusterDatabase):
         """Return run summaries with raw timestamps, config JSON and run_config.
 
         Omit the ID for all runs; a missing ID returns an empty relation.
-        is_single_pathway follows experiment_summary's result-based semantics.
+        is_single_pathway is derived from the stored simulation_mode.
         """
         query = self.db.sql("""
             select summary.*, config.config, run.run_config

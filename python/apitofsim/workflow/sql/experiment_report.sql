@@ -21,6 +21,7 @@ select
     -- Experiment run info
     er.id as experiment_run_id,
     er.start_time,
+    er.simulation_mode,
 
     -- Config info
     conf.name as config_name,
@@ -32,6 +33,8 @@ select
 
     -- Pathway info
     p.id as pathway_id,
+    p.cluster_id as pathway_cluster_id,
+    pc.common_name as pathway_cluster_common_name,
 
     -- Cluster info (the main cluster)
     c.id as cluster_id,
@@ -66,6 +69,7 @@ select
     res.total_us,
     res.nwarnings,
     res.n_escaped_pathway,
+    -- First fragmentation for SINGLE_CLUSTER; last fragmentation for CLUSTER_TREE.
     res.n_fragmented_pathway,
     res.n_escaped_cluster,
     res.ncoll_total,
@@ -88,17 +92,19 @@ left join (
             n_escaped_total as n_escaped_cluster,
             * exclude (id, count, n_escaped_total)
         from multi_pathway_experiment_result
-        inner join pathway_fragmentation
+        left join pathway_fragmentation
         on pathway_fragmentation.experiment_result_id = multi_pathway_experiment_result.id
     )
     union by name
     select * from experiment_failure
 ) as res on res.experiment_run_id = er.id
 inner join experiment_config as conf on conf.id = er.experiment_config_id
-inner join pathway p on p.id = res.pathway_id
-inner join cluster c on c.id = p.cluster_id
-inner join cluster p1 on p1.id = p.product1_id
-inner join cluster p2 on p2.id = p.product2_id
+left join pathway p on p.id = res.pathway_id
+-- Serial pathways may belong to a descendant of the original result cluster.
+inner join cluster c on c.id = coalesce(res.cluster_id, p.cluster_id)
+left join cluster pc on pc.id = p.cluster_id
+left join cluster p1 on p1.id = p.product1_id
+left join cluster p2 on p2.id = p.product2_id
 
 order by
     er.start_time,
@@ -114,34 +120,57 @@ order by
 
 
 create or replace view experiment_cluster_report as
+with result_counts as (
+    select
+        res.experiment_run_id,
+        p.cluster_id,
+        res.n_escaped_total as escaped,
+        res.n_fragmented_total as fragmented
+    from single_pathway_experiment_result res
+    join pathway p on p.id = res.pathway_id
+    union all
+    -- Each fragmented trajectory contributes once, also in CLUSTER_TREE mode.
+    select
+        res.experiment_run_id,
+        res.cluster_id,
+        res.n_escaped_total as escaped,
+        coalesce(sum(pf.count), 0) as fragmented
+    from multi_pathway_experiment_result res
+    left join pathway_fragmentation pf on pf.experiment_result_id = res.id
+    group by res.id, res.experiment_run_id, res.cluster_id, res.n_escaped_total
+    union all
+    select
+        failure.experiment_run_id,
+        coalesce(failure.cluster_id, p.cluster_id) as cluster_id,
+        null as escaped,
+        null as fragmented
+    from experiment_failure failure
+    left join pathway p on p.id = failure.pathway_id
+)
 select
-    experiment_run_id,
-    start_time,
-    config_name,
-    config,
-    cluster_id,
-    cluster_common_name,
-    cluster_atomic_mass,
-    cluster_charge,
-    cluster_electronic_energy,
-    cluster_rotational_temperatures,
-    cluster_vibrational_temperatures,
-    coalesce(
-        sum(n_fragmented_pathway + n_escaped_pathway),
-        sum(n_fragmented_pathway) + any_value(n_escaped_cluster)
-    ) as realizations,
-    coalesce(
-        product(1 - n_fragmented_pathway / (n_fragmented_pathway + n_escaped_pathway)),
-        any_value(n_escaped_cluster) / (sum(n_fragmented_pathway) + any_value(n_escaped_cluster))
-    ) as survival_rate,
-    (
-        select count(*) > 0
-        from single_pathway_experiment_result
-        where single_pathway_experiment_result.experiment_run_id = experiment_pathway_report.experiment_run_id
-    ) as is_single_pathway,
-from experiment_pathway_report
+    er.id as experiment_run_id,
+    er.start_time,
+    er.simulation_mode,
+    conf.name as config_name,
+    conf.config,
+    c.id as cluster_id,
+    c.common_name as cluster_common_name,
+    c.atomic_mass as cluster_atomic_mass,
+    c.charge as cluster_charge,
+    c.electronic_energy as cluster_electronic_energy,
+    c.rotational_temperatures as cluster_rotational_temperatures,
+    c.vibrational_temperatures as cluster_vibrational_temperatures,
+    sum(escaped + fragmented) as realizations,
+    case when any_value(er.simulation_mode) = 'PATHWAY_AT_A_TIME'
+        then product(escaped / nullif(escaped + fragmented, 0))
+        else sum(escaped) / nullif(sum(escaped + fragmented), 0)
+    end as survival_rate,
+    er.simulation_mode = 'PATHWAY_AT_A_TIME' as is_single_pathway
+from result_counts
+join experiment_run er on er.id = result_counts.experiment_run_id
+join experiment_config conf on conf.id = er.experiment_config_id
+join cluster c on c.id = result_counts.cluster_id
 group by all
-
 order by
     start_time,
     experiment_run_id,
@@ -154,6 +183,7 @@ select
     er.id as experiment_run_id,
     conf.name as config_name,
     er.start_time,
+    er.simulation_mode,
     (
         select count()
         from (
@@ -168,10 +198,6 @@ select
         from experiment_failure
         where experiment_failure.experiment_run_id = er.id
     ) as failures,
-    (
-        select count(*) > 0
-        from single_pathway_experiment_result
-        where single_pathway_experiment_result.experiment_run_id = er.id
-    ) as is_single_pathway
+    er.simulation_mode = 'PATHWAY_AT_A_TIME' as is_single_pathway
 from experiment_run as er
 join experiment_config conf on conf.id = er.experiment_config_id;
