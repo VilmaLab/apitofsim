@@ -180,7 +180,7 @@ def get_intensities_singlepathway(db, er_id, cluster_id=None):
             survival_probs.append(row.survival_prob)
             fragmentation_probs.append(row.fragmentation_prob)
         probabilities = {name: 0.0 for name in (cluster_name, *product_names)}
-        for combination in range(2 << len(survival_probs)):
+        for combination in range(1 << len(survival_probs)):
             # Step 1. Find probability of this combination of survivals and fragmentations
             prob = 1.0
             for product_idx in range(len(survival_probs)):
@@ -200,9 +200,10 @@ def get_intensities_singlepathway(db, er_id, cluster_id=None):
                 if denom == 0.0:
                     continue
                 for product_idx, name in enumerate(product_names):
-                    probabilities[name] += (
-                        fragmentation_probs[product_idx] / denom * prob
-                    )
+                    if combination & (1 << product_idx) > 0:
+                        probabilities[name] += (
+                            fragmentation_probs[product_idx] / denom * prob
+                        )
         for product_name, product_mass in zip(
             (*product_names, cluster_name), (*product_masses, cluster_atomic_mass)
         ):
