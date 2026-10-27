@@ -105,6 +105,12 @@ preserving its existing columns, including the fragmentation `pathway_id`.
 Neither view clamps coordinates or assigns display labels or regions;
 `event_details` has no display ordering.
 
+`postcollision` rows contain the final particle state for accepted collisions,
+after velocity updates and internal-energy redistribution. They correlate with
+the preceding `collision` row within the realization by particle index and
+position/time, and have null collision-detail fields. `collision` rows contain
+the pre-collision state, including for rejected attempts.
+
 New databases receive these views through `create_tables()`. For existing
 writable files, use `refresh_views()` or `apitofsim refresh-views DATABASE`.
 The SQL continues to resolve tables through the connection's search path,
@@ -160,9 +166,9 @@ Diagnostics return one row, including for empty cohorts (all counts are zero):
 | Column | Recorded quantity |
 | --- | --- |
 | `realization_count` | Realization rows, including those with no events |
-| `event_count` | Event-info rows |
+| `event_count` | Event-info rows, including post-collision states |
 | `escape_count` | Escape event-info rows |
-| `collision_event_count` | Collision event-info rows |
+| `collision_event_count` | Collision attempts, excluding post-collision states |
 | `collision_subtype_count` | Joined collision subtype rows |
 | `fragmentation_event_count` | Fragmentation event-info rows |
 | `fragmentation_subtype_count` | Joined fragmentation subtype rows |

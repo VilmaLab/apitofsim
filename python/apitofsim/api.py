@@ -29,6 +29,7 @@ from .apitofsimraw import (
     MSSubstanceTreeNode,
     MSSubstanceTreePathway,
     ParticleState,
+    PostCollisionEvent,
     SampleMode,
 )
 from .apitofsimraw import (
@@ -125,6 +126,7 @@ __all__ = [
     "ParticleState",
     "InitEvent",
     "CollisionEvent",
+    "PostCollisionEvent",
     "FragmentationEvent",
     "EscapeEvent",
     # Enums
@@ -813,7 +815,14 @@ def mass_spec(
     log_callback: Callable[[str, str], None] | None = None,
     result_callback: Callable[[numpy.ndarray], None] | None = None,
     event_callback: Callable[
-        [ParticleState | InitEvent | CollisionEvent | FragmentationEvent | EscapeEvent],
+        [
+            ParticleState
+            | InitEvent
+            | CollisionEvent
+            | PostCollisionEvent
+            | FragmentationEvent
+            | EscapeEvent
+        ],
         None,
     ]
     | None = None,
@@ -824,7 +833,9 @@ def mass_spec(
     This function runs the main simulation of the APi-ToF mass spectrometer.
 
     With event logging enabled, each realization begins with an InitEvent carrying
-    the sampled particle state, including its vibrational_energy.
+    the sampled particle state, including its vibrational_energy. CollisionEvent
+    captures the pre-collision state; accepted collisions also emit a
+    PostCollisionEvent after velocity updates and internal-energy redistribution.
     """
 
     def convert_counters(counters):
@@ -908,6 +919,7 @@ class MassSpecIterator(_MassSpecIterator):
         | MassSpecIntermediateCounter
         | InitEvent
         | CollisionEvent
+        | PostCollisionEvent
         | FragmentationEvent
         | EscapeEvent
     ):

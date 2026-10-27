@@ -1223,11 +1223,13 @@ class EventRecorder:
             EscapeEvent,
             FragmentationEvent,
             InitEvent,
+            PostCollisionEvent,
         )
 
         event_type = {
             InitEvent: "init",
             CollisionEvent: "collision",
+            PostCollisionEvent: "postcollision",
             FragmentationEvent: "fragmentation",
             EscapeEvent: "escape",
         }[type(event)]

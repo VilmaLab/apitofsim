@@ -63,6 +63,11 @@ struct CollisionEvent
   bool accepted;
 };
 
+struct PostCollisionEvent
+{
+  ParticleStateMsg state;
+};
+
 struct FragmentationEvent
 {
   ParticleStateMsg state;
@@ -75,7 +80,7 @@ struct EscapeEvent
   ParticleStateMsg state;
 };
 
-using EventMessage = std::variant<InitEvent, CollisionEvent, FragmentationEvent, EscapeEvent>;
+using EventMessage = std::variant<InitEvent, CollisionEvent, PostCollisionEvent, FragmentationEvent, EscapeEvent>;
 
 struct LogMessage
 {

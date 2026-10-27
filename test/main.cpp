@@ -395,6 +395,21 @@ TEST_CASE("apitof pinhole smoke tests")
       1.3e6,
       6.0e-3),
   };
+  bool test_rejections = false;
+  SUBCASE("standard pinhole") {}
+  SUBCASE("large pinhole rejects collisions")
+  {
+    // Put the pinhole region immediately after a uniform skimmer flow.
+    ms.skimmer = SkimmerData(2, 3);
+    ms.skimmer << 0, 300, 100, 0, 300, 100;
+    ms.mesh_skimmer = 0.0005;
+    ms.radius_pinhole = 1.0;
+    ms.lengths = InstrumentDims{0.001, 0.000001, 0.000001, 0.05, 0.001};
+    ms.voltages = InstrumentVoltages{0, 10, 10, 10, 20};
+    ms.pressures = InstrumentPressures{100, 0.01};
+    ms.quadrupole = std::nullopt;
+    test_rejections = true;
+  }
   auto subs = MassSpecSubstanceSingleInput(
     -1,
     m_ion,
@@ -414,6 +429,8 @@ TEST_CASE("apitof pinhole smoke tests")
   bool exiting = false;
   auto num_partial_results = 0;
   std::vector<bool> initialized(5, false);
+  std::vector<std::optional<ParticleStateMsg>> pending_collisions(5);
+  int post_collisions = 0;
   Eigen::ArrayXi streamed_counters = Eigen::ArrayXi::Zero(counters.size());
   while (true)
   {
@@ -451,6 +468,28 @@ TEST_CASE("apitof pinhole smoke tests")
         const auto &state = event.state;
         REQUIRE(state.realization >= 0);
         REQUIRE(state.realization < 5);
+        auto &pending = pending_collisions[state.realization];
+        constexpr bool is_post_collision = std::is_same_v<std::decay_t<decltype(event)>, PostCollisionEvent>;
+        CHECK(pending.has_value() == is_post_collision);
+        if constexpr (is_post_collision)
+        {
+          REQUIRE(pending.has_value());
+          CHECK((state.postime == pending->postime).all());
+          CHECK(state.particle_index == pending->particle_index);
+          CHECK(state.velocity.isFinite().all());
+          CHECK(state.omega.isFinite().all());
+          CHECK(state.rot_energy == doctest::Approx(0.5 * inertia * state.omega.square().sum()).epsilon(1e-12));
+          pending.reset();
+          post_collisions++;
+        }
+        else if constexpr (std::is_same_v<std::decay_t<decltype(event)>, CollisionEvent>)
+        {
+          CHECK(state.rot_energy == doctest::Approx(0.5 * inertia * state.omega.square().sum()).epsilon(1e-12));
+          if (event.accepted)
+          {
+            pending = state;
+          }
+        }
         if constexpr (std::is_same_v<std::decay_t<decltype(event)>, InitEvent>)
         {
           CHECK_FALSE(initialized[state.realization]);
@@ -484,13 +523,23 @@ TEST_CASE("apitof pinhole smoke tests")
       }
     }
   }
+  CHECK(post_collisions == counters[Counter::ncoll_total] - counters[Counter::counter_collision_rejections]);
+  CHECK(std::none_of(pending_collisions.begin(), pending_collisions.end(), [](const auto &state)
+  { return state.has_value(); }));
   CHECK(num_partial_results == 5);
   CHECK(std::all_of(initialized.begin(), initialized.end(), [](bool value)
   { return value; }));
   CHECK((streamed_counters == counters).all());
   Eigen::ArrayXi expected_counters(6);
   expected_counters << 0, 15, 0, 5, 5, 0;
-  CHECK((counters == expected_counters).all());
+  if (test_rejections)
+  {
+    CHECK(counters[Counter::counter_collision_rejections] > 0);
+  }
+  else
+  {
+    CHECK((counters == expected_counters).all());
+  }
 }
 
 TEST_CASE("tree fragmentation events keep pathway and particle indices separate")

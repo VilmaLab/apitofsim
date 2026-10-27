@@ -815,6 +815,9 @@ NB_MODULE(apitofsimraw, m)
     .def_ro("u_norm", &CollisionEvent::u_norm)
     .def_ro("accepted", &CollisionEvent::accepted);
 
+  nb::class_<PostCollisionEvent>(m, "PostCollisionEvent")
+    .def_ro("state", &PostCollisionEvent::state);
+
   nb::class_<FragmentationEvent>(m, "FragmentationEvent")
     .def_ro("state", &FragmentationEvent::state)
     .def_ro("pathway_index", &FragmentationEvent::pathway_index);

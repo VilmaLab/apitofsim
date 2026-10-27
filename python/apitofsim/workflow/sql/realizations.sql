@@ -6,7 +6,7 @@ create table realization (
     experiment_result_id integer null
 );
 
-create type event_type as enum('init', 'collision', 'fragmentation', 'escape');
+create type event_type as enum('init', 'collision', 'postcollision', 'fragmentation', 'escape');
 create type position_type as struct(x double, y double, z double, t double);
 create type vector_type as struct(x double, y double, z double);
 
