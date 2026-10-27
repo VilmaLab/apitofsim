@@ -397,6 +397,83 @@ def test_tree_building():
             )
 
 
+@pytest.mark.parametrize(
+    "edges",
+    [
+        [(0, 1), (1, 2), (2, None)],
+        [(0, 1), (0, 2), (1, 3), (2, 3), (3, None)],
+    ],
+)
+def test_tree_indices(edges, monkeypatch):
+    from types import SimpleNamespace
+
+    from apitofsim.workflow import runners
+
+    lookup = {
+        cluster_id: dict(
+            cluster_id=cluster_id,
+            cluster=SimpleNamespace(charge=-1),
+            density_hist=None,
+            pathway_ids=[],
+            pathway_products=[],
+        )
+        for cluster_id, _ in edges
+    }
+    for pathway_id, (parent, product) in enumerate(edges):
+        lookup[parent]["pathway_ids"].append(pathway_id)
+        lookup[parent]["pathway_products"].append(product)
+
+    runner = ExperimentRunner(None)
+    monkeypatch.setattr(
+        runner,
+        "_prepare_cluster_tree_lookup",
+        lambda *args: (lookup, dict(enumerate(edges))),
+    )
+    monkeypatch.setattr(
+        runners, "MSSubstanceTreeCluster", lambda cluster, density: cluster
+    )
+    monkeypatch.setattr(
+        runners,
+        "MassSpecSubstanceTreeInput",
+        lambda charge, gas, clusters, pathways, nodes, tree_pathways: SimpleNamespace(
+            cluster_payloads=clusters,
+            pathway_payloads=pathways,
+            tree_nodes=nodes,
+            tree_pathways=tree_pathways,
+        ),
+    )
+    for cluster_ids, _, tree, root in runner._prepare_cluster_tree(
+        {"gas": None}, None, None, None, None, None
+    ):
+        payload_clusters = {index: cluster for cluster, index in cluster_ids.items()}
+        visited_nodes, visited_pathways = [], []
+
+        def visit(node_index, expected_cluster):
+            visited_nodes.append(node_index)
+            node = tree.tree_nodes[node_index]
+            assert payload_clusters[node.payload_idx] == expected_cluster
+            assert len(node.pathway_indices) == len(
+                lookup[expected_cluster]["pathway_ids"]
+            )
+            for pathway_index in node.pathway_indices:
+                visited_pathways.append(pathway_index)
+                pathway = tree.tree_pathways[pathway_index]
+                parent, product = tree.pathway_payloads[pathway.payload_idx]
+                assert parent == expected_cluster
+                if product is None:
+                    assert pathway.product_idx is None
+                else:
+                    visit(pathway.product_idx, product)
+
+        visit(0, root["cluster_id"])
+        assert sorted(visited_nodes) == list(range(len(tree.tree_nodes)))
+        assert sorted(visited_pathways) == list(range(len(tree.tree_pathways)))
+        assert set(payload_clusters.values()) == {
+            payload_clusters[tree.tree_nodes[index].payload_idx]
+            for index in visited_nodes
+        }
+
+
 def assert_event_row(connection, event, pathway_id=None):
     import apitofsim.api as api
     import numpy as np
