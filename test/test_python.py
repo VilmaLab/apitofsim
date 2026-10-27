@@ -462,6 +462,62 @@ def test_init_events_workflow(tmp_path, monkeypatch, mode):
         nonlocal num_runs
         recorder = kwargs["event_callback"]
         initial_states = {}
+        previous_events = {}
+        accepted_collisions = 0
+        post_collisions = 0
+
+        def check_collision(event):
+            nonlocal accepted_collisions, post_collisions
+            state = event.state
+            previous = previous_events.get(state.realization)
+            expects_post = (
+                isinstance(previous, api.CollisionEvent) and previous.accepted
+            )
+            assert isinstance(event, api.PostCollisionEvent) == expects_post
+            if isinstance(event, api.PostCollisionEvent):
+                post_collisions += 1
+                np.testing.assert_array_equal(state.postime, previous.state.postime)
+                assert state.particle_index == previous.state.particle_index
+                assert not any(
+                    hasattr(event, field) for field in ("theta", "u_norm", "accepted")
+                )
+            if isinstance(event, (api.CollisionEvent, api.PostCollisionEvent)):
+                particle = (
+                    subs
+                    if mode == "SINGLE_CLUSTER"
+                    else subs.cluster_payloads[
+                        subs.tree_nodes[state.particle_index].payload_idx
+                    ]
+                )
+                assert state.rot_energy == pytest.approx(
+                    0.2
+                    * particle.m_ion
+                    * particle.R_cluster**2
+                    * np.dot(state.omega, state.omega),
+                    rel=1e-12,
+                    abs=0,
+                )
+                assert np.isfinite(state.velocity).all()
+                assert np.isfinite(state.omega).all()
+                assert np.isfinite(state.vibrational_energy)
+            if isinstance(event, api.CollisionEvent):
+                accepted_collisions += event.accepted
+            if (
+                previous is not None
+                and not isinstance(previous, api.FragmentationEvent)
+                and not isinstance(event, api.PostCollisionEvent)
+            ):
+                np.testing.assert_array_equal(state.omega, previous.state.omega)
+                if ms.quadrupole is None:
+                    np.testing.assert_array_equal(
+                        state.velocity[:2], previous.state.velocity[:2]
+                    )
+                assert state.rot_energy == pytest.approx(
+                    previous.state.rot_energy, rel=1e-12, abs=0
+                )
+                assert state.vibrational_energy == previous.state.vibrational_energy
+            previous_events[state.realization] = event
+
         root = (
             subs
             if mode == "SINGLE_CLUSTER"
@@ -471,6 +527,7 @@ def test_init_events_workflow(tmp_path, monkeypatch, mode):
         def record(event):
             nonlocal num_events, rollback_checked
             state = event.state
+            check_collision(event)
             if isinstance(event, api.InitEvent):
                 assert state.realization not in initial_states
                 initial_states[state.realization] = state
@@ -530,6 +587,8 @@ def test_init_events_workflow(tmp_path, monkeypatch, mode):
             ms, subs, n, **{**kwargs, "event_callback": record}
         )
         assert set(initial_states) == set(range(n))
+        assert accepted_collisions == post_collisions
+        assert post_collisions > 0
         events = []
         unlogged = original_mass_spec(
             ms,
@@ -540,10 +599,26 @@ def test_init_events_workflow(tmp_path, monkeypatch, mode):
         assert not events
         np.testing.assert_array_equal(counters[0][:-1], unlogged[0][:-1])
         np.testing.assert_array_equal(counters[0][-1], unlogged[0][-1])
+        previous_events.clear()
+        accepted_collisions = post_collisions = 0
         with api.mass_spec_iter(ms, subs, n, logconf=(0, True)) as stream:
-            streamed_states = [
-                event.state for event in stream if isinstance(event, api.InitEvent)
-            ]
+            streamed_states = []
+            for event in stream:
+                if isinstance(
+                    event,
+                    (
+                        api.InitEvent,
+                        api.CollisionEvent,
+                        api.PostCollisionEvent,
+                        api.FragmentationEvent,
+                        api.EscapeEvent,
+                    ),
+                ):
+                    check_collision(event)
+                    if isinstance(event, api.InitEvent):
+                        streamed_states.append(event.state)
+        assert accepted_collisions == post_collisions
+        assert post_collisions > 0
         assert len(streamed_states) == n
         streamed = {state.realization: state for state in streamed_states}
         assert set(streamed) == set(initial_states)
@@ -583,7 +658,13 @@ def test_init_events_workflow(tmp_path, monkeypatch, mode):
                 ) as stream:
                     for event in stream:
                         if isinstance(
-                            event, (api.InitEvent, api.CollisionEvent, api.EscapeEvent)
+                            event,
+                            (
+                                api.InitEvent,
+                                api.CollisionEvent,
+                                api.PostCollisionEvent,
+                                api.EscapeEvent,
+                            ),
                         ):
                             escape_recorder(event)
                             assert_event_row(escape_db.db, event)
@@ -661,8 +742,10 @@ def test_collision_details_and_escape(accepted, monkeypatch):
 
     # Native events are read-only; use payload fixtures to exercise both acceptance values.
     CollisionEvent = type("CollisionEvent", (SimpleNamespace,), {})
+    PostCollisionEvent = type("PostCollisionEvent", (SimpleNamespace,), {})
     EscapeEvent = type("EscapeEvent", (SimpleNamespace,), {})
     monkeypatch.setattr(api, "CollisionEvent", CollisionEvent)
+    monkeypatch.setattr(api, "PostCollisionEvent", PostCollisionEvent)
     monkeypatch.setattr(api, "EscapeEvent", EscapeEvent)
     state = SimpleNamespace(
         realization=7,
@@ -681,10 +764,17 @@ def test_collision_details_and_escape(accepted, monkeypatch):
         )
         recorder(collision)
         assert_event_row(db.db, collision)
+        if accepted:
+            postcollision = PostCollisionEvent(state=state)
+            recorder(postcollision)
+            assert_event_row(db.db, postcollision)
         escape = EscapeEvent(state=state)
         recorder(escape)
         assert_event_row(db.db, escape)
-        assert db.db.execute("select count(*) from event_info").fetchone()[0] == 2
+        assert (
+            db.db.execute("select count(*) from event_info").fetchone()[0]
+            == 2 + accepted
+        )
         assert db.db.execute("select count(*) from collision_event").fetchone()[0] == 1
         assert (
             db.db.execute("select count(*) from fragmentation_event").fetchone()[0] == 0
