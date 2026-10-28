@@ -17,6 +17,7 @@ from .apitofsimraw import (
     ApiTofError,
     ApiTofMaxCollisions,
     ApiTofOverflowError,
+    ApiTofParticleEscapeError,
     ApiTofRateConstantOverflow,
     ApiTofUnexpectedNumericalError,
     CollisionEvent,
@@ -121,6 +122,7 @@ __all__ = [
     "ApiTofDosOverflow",
     "ApiTofRateConstantOverflow",
     "ApiTofMaxCollisions",
+    "ApiTofParticleEscapeError",
     "ApiTofUnexpectedNumericalError",
     # EventMessage
     "ParticleState",
@@ -836,6 +838,10 @@ def mass_spec(
     the sampled particle state, including its vibrational_energy. CollisionEvent
     captures the pre-collision state; accepted collisions also emit a
     PostCollisionEvent after velocity updates and internal-energy redistribution.
+
+    Initial axial velocity is folded positive. Negative-z excursions have no gas
+    collisions and use chamber 1's field. A particle with no finite return raises
+    ApiTofParticleEscapeError and invalidates the entire run, even with strict=False.
     """
 
     def convert_counters(counters):
@@ -901,6 +907,10 @@ class MassSpecIterator(_MassSpecIterator):
     interrupt active realizations, so streamed events can include unfinished
     realizations that are absent from the counters. It does not raise
     KeyboardInterrupt or affect other iterators; actual Ctrl-C is unchanged.
+
+    ApiTofParticleEscapeError invalidates the entire run if a particle cannot
+    return from upstream. Previously streamed events then belong to an invalid run;
+    no successful final result is yielded.
 
     Exiting the context manager joins the worker; it does not request cancellation.
     """

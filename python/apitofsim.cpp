@@ -865,6 +865,7 @@ NB_MODULE(apitofsimraw, m)
   nb::exception<ApiTofDosOverflow> PyApiTofDosOverflow(m, "ApiTofDosOverflow", m.attr("ApiTofOverflowError"));
   nb::exception<ApiTofRateConstantOverflow> PyApiTofRateConstantOverflow(m, "ApiTofRateConstantOverflow", m.attr("ApiTofOverflowError"));
   nb::exception<ApiTofMaxCollisions> PyApiTofMaxCollisions(m, "ApiTofMaxCollisions", m.attr("ApiTofOverflowError"));
+  nb::exception<ApiTofParticleEscapeError>(m, "ApiTofParticleEscapeError", m.attr("ApiTofError"));
   nb::exception<ApiTofUnexpectedNumericalError>(m, "ApiTofUnexpectedNumericalError", m.attr("ApiTofError"));
 
   register_overflow_translator<ApiTofDosOverflow>(PyApiTofDosOverflow);

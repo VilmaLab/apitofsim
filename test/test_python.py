@@ -1856,3 +1856,73 @@ def test_serial_rate_curve_parent(rate_curve_db):
     assert downstream[0].histogram is None
     with pytest.raises(RateCurveProvenanceError, match="Parent is not identified"):
         db.pathway_rate_curves(1, 3, 3)
+
+
+@pytest.mark.parametrize("tree", [False, True])
+@pytest.mark.parametrize("streaming", [False, True])
+@pytest.mark.parametrize("strict", [False, True])
+def test_upstream_escape_invalidates_run(tree, streaming, strict):
+    import numpy as np
+    from apitofsim import api
+
+    raw = api.apitofsimraw
+    # A strong reverse field turns every launched particle back before chamber 1 ends.
+    ms = api.MassSpectrometer(
+        np.array([[0.0, 300.0, 100.0], [0.0, 300.0, 100.0]]),
+        api.Q_(np.full(5, 0.001), "m"),
+        api.Q_(-np.arange(5.0) * 1000, "V"),
+        api.Q_(300.0, "K"),
+        api.Q_(np.array([0.001, 0.001]), "Pa"),
+        mesh_skimmer=api.Q_(0.0005, "m"),
+        radius_pinhole=None,
+    )
+    energies = np.arange(0.5, 1000.0) * 100 * api.consts.boltzmann
+    density = raw.Histogram(energies, np.ones(1000))
+    pathways = [
+        raw.MassSpecInputFragmentationPathway(
+            raw.Histogram(energies, np.zeros(1000)), 1e10
+        )
+    ]
+    gas = raw.Gas(2.46e-10, 4.85e-26, 1.4)
+    if tree:
+        subs = raw.MassSpecSubstanceTreeInput(
+            -1,
+            gas,
+            [raw.MSSubstanceTreeCluster(3.6e-25, 5e-10, density)],
+            pathways,
+            [raw.MSSubstanceTreeNode(0, [0])],
+            [raw.MSSubstanceTreePathway(0, None)],
+        )
+    else:
+        subs = raw.MassSpecSubstanceSingleInput(
+            -1, 3.6e-25, 5e-10, density, pathways, gas
+        )
+    initial = []
+    with pytest.raises(
+        api.ApiTofParticleEscapeError, match="axial velocity.*acceleration"
+    ):
+        if streaming:
+            with api.MassSpecIterator(
+                ms.into_cpp(), subs, 8, strict=strict, seed=42, logconf=(0, True)
+            ) as stream:
+                for item in stream:
+                    assert not isinstance(item, api.MassSpecFinalResult)
+                    if isinstance(item, api.InitEvent):
+                        initial.append(item.state)
+        else:
+            api.mass_spec(
+                ms,
+                subs,
+                8,
+                strict=strict,
+                seed=42,
+                logconf=(0, True),
+                event_callback=lambda event: (
+                    initial.append(event.state)
+                    if isinstance(event, api.InitEvent)
+                    else None
+                ),
+            )
+    assert initial
+    assert all(state.velocity[2] >= 0 for state in initial)
+    assert issubclass(api.ApiTofParticleEscapeError, api.ApiTofError)
