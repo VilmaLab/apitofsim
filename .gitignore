@@ -6,6 +6,7 @@ attic/
 /.python-version
 /compile_commands.json
 /.cache/
+/site/
 # pixi environments
 .pixi/*
 !.pixi/config.toml

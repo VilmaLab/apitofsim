@@ -52,11 +52,11 @@ jobs:
           uv pip install --no-deps wheelhouse/*.whl
 
       - name: Build docs
-        run: uv run --no-sync mkdocs build
+        run: uv run --no-sync zensical build --clean
 
       - name: Deploy docs
         if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         run: |
           git config user.name github-actions[bot]
           git config user.email github-actions[bot]@users.noreply.github.com
-          uv run --no-sync mkdocs gh-deploy --force
+          uv run --no-sync ghp-import --no-jekyll --push --force site
