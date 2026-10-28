@@ -266,9 +266,15 @@ A convenient way of inspecting your result database is to use [apitofsim-resultv
 You can generate CSV reports from the database file, e.g. for usage in Excel or LibreOffice Calc, with the `apitofsim db report` command, for example:
 
 <code>
-<a href="cli.md#apitofsim-db-report">apitofsim db report</a> pathway-report database.db pathway_report.csv
-<a href="cli.md#apitofsim-db-report">apitofsim db report</a> experiment-report database.db experiment_report.csv
-<a href="cli.md#apitofsim-db-report">apitofsim db report</a> experiment-summary database.db experiment_summary.csv
+<a href="../cli/#apitofsim-db-report">apitofsim db report</a> pathway-report database.db pathway_report.csv
+</code>
+
+<code>
+<a href="../cli/#apitofsim-db-report">apitofsim db report</a> experiment-report database.db experiment_report.csv
+</code>
+
+<code>
+<a href="../cli/#apitofsim-db-report">apitofsim db report</a> experiment-summary database.db experiment_summary.csv
 </code>
 
 You can also generate plots directly from the database file.
