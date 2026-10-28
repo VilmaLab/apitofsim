@@ -30,10 +30,10 @@ def get_intensities_multipathway(db, er_id, cluster_id=None):
         with
             pathway_products as (
                 select id as pathway_id, product1_id as product_id from pathway
-                union
+                union all
                 select id as pathway_id, product2_id as product_id from pathway
             ),
-            cluster_counts as (
+            raw_cluster_counts as (
                 select
                     multi_pathway_experiment_result.experiment_run_id as experiment_run_id,
                     multi_pathway_experiment_result.cluster_id as parent_id,
@@ -46,7 +46,7 @@ def get_intensities_multipathway(db, er_id, cluster_id=None):
                     pathway_fragmentation on multi_pathway_experiment_result.id = pathway_fragmentation.experiment_result_id
                 inner join
                     pathway_products on pathway_products.pathway_id = pathway_fragmentation.pathway_id
-                union
+                union all
                 select
                     multi_pathway_experiment_result.experiment_run_id as experiment_run_id,
                     multi_pathway_experiment_result.cluster_id as parent_id,
@@ -56,16 +56,34 @@ def get_intensities_multipathway(db, er_id, cluster_id=None):
                 from
                     multi_pathway_experiment_result
             ),
+            cluster_counts as (
+                select
+                    experiment_run_id,
+                    parent_id,
+                    experiment_result_id,
+                    product_id,
+                    sum(count) as count
+                from raw_cluster_counts
+                group by
+                    experiment_run_id,
+                    parent_id,
+                    experiment_result_id,
+                    product_id
+            ),
             experiment_counts as (
                 select
-                    cluster_counts.parent_id as parent_id,
-                    cluster_counts.experiment_result_id as experiment_result_id,
-                    sum(cluster_counts.count) as count
+                    result.cluster_id as parent_id,
+                    result.id as experiment_result_id,
+                    result.n_escaped_total + coalesce(sum(fragmentation.count), 0) as count
                 from
-                    cluster_counts
+                    multi_pathway_experiment_result as result
+                left join
+                    pathway_fragmentation as fragmentation
+                    on fragmentation.experiment_result_id = result.id
                 group by
-                    parent_id,
-                    experiment_result_id
+                    result.cluster_id,
+                    result.id,
+                    result.n_escaped_total
             )
         select
             cluster_counts.experiment_run_id as experiment_run_id,
@@ -162,7 +180,7 @@ def get_intensities_singlepathway(db, er_id, cluster_id=None):
             survival_probs.append(row.survival_prob)
             fragmentation_probs.append(row.fragmentation_prob)
         probabilities = {name: 0.0 for name in (cluster_name, *product_names)}
-        for combination in range(2 << len(survival_probs)):
+        for combination in range(1 << len(survival_probs)):
             # Step 1. Find probability of this combination of survivals and fragmentations
             prob = 1.0
             for product_idx in range(len(survival_probs)):
@@ -182,9 +200,10 @@ def get_intensities_singlepathway(db, er_id, cluster_id=None):
                 if denom == 0.0:
                     continue
                 for product_idx, name in enumerate(product_names):
-                    probabilities[name] += (
-                        fragmentation_probs[product_idx] / denom * prob
-                    )
+                    if combination & (1 << product_idx) > 0:
+                        probabilities[name] += (
+                            fragmentation_probs[product_idx] / denom * prob
+                        )
         for product_name, product_mass in zip(
             (*product_names, cluster_name), (*product_masses, cluster_atomic_mass)
         ):

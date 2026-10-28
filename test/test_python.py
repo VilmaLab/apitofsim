@@ -397,6 +397,83 @@ def test_tree_building():
             )
 
 
+@pytest.mark.parametrize(
+    "edges",
+    [
+        [(0, 1), (1, 2), (2, None)],
+        [(0, 1), (0, 2), (1, 3), (2, 3), (3, None)],
+    ],
+)
+def test_tree_indices(edges, monkeypatch):
+    from types import SimpleNamespace
+
+    from apitofsim.workflow import runners
+
+    lookup = {
+        cluster_id: dict(
+            cluster_id=cluster_id,
+            cluster=SimpleNamespace(charge=-1),
+            density_hist=None,
+            pathway_ids=[],
+            pathway_products=[],
+        )
+        for cluster_id, _ in edges
+    }
+    for pathway_id, (parent, product) in enumerate(edges):
+        lookup[parent]["pathway_ids"].append(pathway_id)
+        lookup[parent]["pathway_products"].append(product)
+
+    runner = ExperimentRunner(None)
+    monkeypatch.setattr(
+        runner,
+        "_prepare_cluster_tree_lookup",
+        lambda *args: (lookup, dict(enumerate(edges))),
+    )
+    monkeypatch.setattr(
+        runners, "MSSubstanceTreeCluster", lambda cluster, density: cluster
+    )
+    monkeypatch.setattr(
+        runners,
+        "MassSpecSubstanceTreeInput",
+        lambda charge, gas, clusters, pathways, nodes, tree_pathways: SimpleNamespace(
+            cluster_payloads=clusters,
+            pathway_payloads=pathways,
+            tree_nodes=nodes,
+            tree_pathways=tree_pathways,
+        ),
+    )
+    for cluster_ids, _, tree, root in runner._prepare_cluster_tree(
+        {"gas": None}, None, None, None, None, None
+    ):
+        payload_clusters = {index: cluster for cluster, index in cluster_ids.items()}
+        visited_nodes, visited_pathways = [], []
+
+        def visit(node_index, expected_cluster):
+            visited_nodes.append(node_index)
+            node = tree.tree_nodes[node_index]
+            assert payload_clusters[node.payload_idx] == expected_cluster
+            assert len(node.pathway_indices) == len(
+                lookup[expected_cluster]["pathway_ids"]
+            )
+            for pathway_index in node.pathway_indices:
+                visited_pathways.append(pathway_index)
+                pathway = tree.tree_pathways[pathway_index]
+                parent, product = tree.pathway_payloads[pathway.payload_idx]
+                assert parent == expected_cluster
+                if product is None:
+                    assert pathway.product_idx is None
+                else:
+                    visit(pathway.product_idx, product)
+
+        visit(0, root["cluster_id"])
+        assert sorted(visited_nodes) == list(range(len(tree.tree_nodes)))
+        assert sorted(visited_pathways) == list(range(len(tree.tree_pathways)))
+        assert set(payload_clusters.values()) == {
+            payload_clusters[tree.tree_nodes[index].payload_idx]
+            for index in visited_nodes
+        }
+
+
 def assert_event_row(connection, event, pathway_id=None):
     import apitofsim.api as api
     import numpy as np
@@ -859,7 +936,6 @@ def test_available_histogram_queries(cluster_dos, products_dos, rates):
 
 
 def test_experiment_metadata_queries():
-    import json
     from datetime import datetime
 
     import duckdb
@@ -880,13 +956,13 @@ def test_experiment_metadata_queries():
         )
         start_time = datetime(2026, 1, 2, 3, 4, 5)
         for run_id, mode in (
-            (1, "SINGLE_PATHWAY"),
+            (1, "PATHWAY_AT_A_TIME"),
             (2, "SINGLE_CLUSTER"),
             (3, "SINGLE_CLUSTER"),
         ):
             db.execute(
-                "insert into experiment_run values (?, 1, ?, ?)",
-                (run_id, json.dumps({"simulation_mode": mode}), start_time),
+                "insert into experiment_run values (?, 1, ?, '{}', ?)",
+                (run_id, mode, start_time),
             )
         db.execute(
             "insert into single_pathway_experiment_result (experiment_run_id, pathway_id) "
@@ -924,13 +1000,10 @@ def test_experiment_metadata_queries():
                 "failures": failures,
                 "is_single_pathway": is_single,
                 "config": '{"N": 42}',
-                "run_config": json.dumps(
-                    {
-                        "simulation_mode": "SINGLE_PATHWAY"
-                        if is_single
-                        else "SINGLE_CLUSTER"
-                    }
-                ),
+                "simulation_mode": "PATHWAY_AT_A_TIME"
+                if is_single
+                else "SINGLE_CLUSTER",
+                "run_config": "{}",
             }
         for run_id, is_single in ((1, True), (2, False)):
             clusters = database.experiment_clusters_query(run_id)
@@ -982,7 +1055,8 @@ def test_normalized_result_and_event_views(tmp_path, attached):
 
         db.execute("insert into experiment_config (id) values (1)")
         db.execute(
-            "insert into experiment_run (id, experiment_config_id) values (1, 1), (2, 1)"
+            "insert into experiment_run (id, experiment_config_id, simulation_mode) "
+            "values (1, 1, 'PATHWAY_AT_A_TIME'), (2, 1, 'SINGLE_CLUSTER')"
         )
         db.execute(
             "insert into single_pathway_experiment_result (id, experiment_run_id, pathway_id) "
@@ -1710,7 +1784,10 @@ def test_recorded_run_preparation(rate_curve_db):
             0
         ]
     )
-    assert metadata["simulation_mode"] == "SINGLE_CLUSTER"
+    assert "simulation_mode" not in metadata
+    assert db.db.execute(
+        "select simulation_mode from experiment_run where id = 1"
+    ).fetchone() == ("SINGLE_CLUSTER",)
     assert (metadata["dos_histogram_id"], metadata["rate_histogram_id"]) == (1, 3)
     curve = db.pathway_rate_curves(1, 1, 1)[0]
     assert curve.bonding_energy.to("eV").magnitude == pytest.approx(0.0207285393)

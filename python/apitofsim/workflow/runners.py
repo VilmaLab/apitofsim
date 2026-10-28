@@ -1093,6 +1093,8 @@ class ExperimentRunner:
                         )
                     )
                 cluster_payload_idx = cluster_payload_lookup[cluster_id]
+                node_idx = len(tree_nodes)
+                tree_nodes.append(None)
                 pathway_indices = []
                 for product_id, pathway_id in zip(
                     root["pathway_products"], root["pathway_ids"]
@@ -1101,7 +1103,6 @@ class ExperimentRunner:
                         pathway_payload_lookup[pathway_id] = len(pathway_payloads)
                         pathway_payloads.append(pathway_input_lookup[pathway_id])
                     pathway_payload_idx = pathway_payload_lookup[pathway_id]
-                    pathway_indices.append(pathway_payload_idx)
                     product_idx = None
                     if product_id in parents:
                         raise ValueError(
@@ -1109,13 +1110,14 @@ class ExperimentRunner:
                         )
                     if product_id in cluster_lookup:
                         product_idx = walk(cluster_lookup[product_id], new_parents)
+                    pathway_indices.append(len(tree_pathways))
                     tree_pathways.append(
                         MSSubstanceTreePathway(pathway_payload_idx, product_idx)
                     )
-                tree_nodes.append(
-                    MSSubstanceTreeNode(cluster_payload_idx, pathway_indices)
+                tree_nodes[node_idx] = MSSubstanceTreeNode(
+                    cluster_payload_idx, pathway_indices
                 )
-                return cluster_payload_idx
+                return node_idx
 
             walk(root)
             tree_input = MassSpecSubstanceTreeInput(
