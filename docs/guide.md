@@ -260,6 +260,9 @@ There are various options to the [`apitofsim db run`][apitofsim-db-run] command 
 ## Analysing the results
 
 All results are stored in the database.
+
+A convenient way of inspecting your result database is to use [apitofsim-resultviewer](https://github.com/VilmaLab/apitofsim-resultviewer). This package offers functionality above and beyond that accessible from the command line tools. The rest of this document details working with the command line tools.
+
 You can generate CSV reports from the database file, e.g. for usage in Excel or LibreOffice Calc, with the `apitofsim db report` command, for example:
 
 <code>
