@@ -11,6 +11,7 @@
 #include "operation_context.h"
 #include "samplers.h"
 #include "upstream.h"
+#include "trajectory.h"
 
 #include <algorithm>
 #include <atomic>
@@ -746,4 +747,76 @@ TEST_CASE("upstream fragmentation products and repeated excursions return")
   CHECK(elapsed == time);
   CHECK(x == 3);
   CHECK(y == 4);
+}
+
+TEST_CASE("trajectory sampler preserves fragmentation time across upstream product return")
+{
+  SkimmerData skimmer(2, 3);
+  skimmer << 0, 300, 100, 0, 300, 100;
+  // Keep in-instrument collisions negligible; the event thresholds are explicit.
+  MassSpectrometer ms{skimmer, 0.5, InstrumentDims::Constant(10), InstrumentVoltages::Zero(), 300, InstrumentPressures::Constant(1e-12)};
+  Gas gas{2e-10, 4.8e-26, 1.4};
+  ChamberQuantities chamber(ms, gas);
+  Eigen::Array2d dts = Eigen::Array2d::Constant(0.125);
+  Eigen::Array4d acc = Eigen::Array4d::Constant(2);
+  Eigen::Vector3d velocity{3, 4, -2};
+  double norm = velocity.norm();
+  double z = -3, x = 0, y = 0, time = 0, fragmentation = 1;
+  auto next_event = [&]
+  {
+    return time_next_coll_quadrupole(0.5, velocity, norm, chamber, 7e-10, dts, z, x, y,
+                                     fragmentation, acc, time, gas.mass, skimmer, ms.mesh_skimmer, ms.quadrupole);
+  };
+  REQUIRE(next_event() == TimeNextCollOutcome::fragmentation);
+  REQUIRE(z == doctest::Approx(-4));
+  CHECK(zone(z, chamber.clens) == 0);
+  CHECK(time == doctest::Approx(1));
+  CHECK(norm == doctest::Approx(5));
+  CHECK(x == doctest::Approx(3));
+  CHECK(y == doctest::Approx(4));
+
+  // Tree products start at rest. Changing mass changes acceleration, while the
+  // same explicit fragmentation deadline falls before or after return.
+  velocity.setZero();
+  fragmentation = 1.5;
+  SUBCASE("heavier product fragments upstream")
+  {
+    acc[0] = 2; // return takes 2 seconds
+    REQUIRE(next_event() == TimeNextCollOutcome::fragmentation);
+    CHECK(z == doctest::Approx(-1.75));
+    CHECK(zone(z, chamber.clens) == 0);
+    CHECK(velocity[2] == doctest::Approx(3));
+  }
+  SUBCASE("lighter product returns before fragmentation")
+  {
+    acc[0] = 8; // return takes 1 second
+    REQUIRE(next_event() == TimeNextCollOutcome::fragmentation);
+    CHECK(z == doctest::Approx(5));
+    CHECK(zone(z, chamber.clens) == 1);
+    CHECK(velocity[2] == doctest::Approx(12));
+  }
+  CHECK(time == doctest::Approx(2.5));
+  CHECK(norm == doctest::Approx(velocity.norm()));
+  CHECK(x == doctest::Approx(3));
+  CHECK(y == doctest::Approx(4));
+}
+
+TEST_CASE("trajectory sampler suppresses gas collisions upstream")
+{
+  SkimmerData skimmer(2, 3);
+  skimmer << 0, 300, 100, 0, 300, 100;
+  MassSpectrometer ms{skimmer, 0.5, InstrumentDims::Constant(10), InstrumentVoltages::Zero(), 300, InstrumentPressures::Constant(100)};
+  Gas gas{2e-10, 4.8e-26, 1.4};
+  ChamberQuantities chamber(ms, gas);
+  Eigen::Vector3d velocity{0, 0, -2};
+  double norm = velocity.norm();
+  double z = -3, x = 0, y = 0, time = 0, fragmentation = 1;
+  // At this pressure, ordinary chamber motion would produce a collision almost
+  // immediately at this threshold. Upstream motion must fragment instead.
+  auto outcome = time_next_coll_quadrupole(std::nextafter(1.0, 0.0), velocity, norm, chamber, 7e-10,
+                                           Eigen::Array2d::Constant(0.125), z, x, y, fragmentation,
+                                           Eigen::Array4d::Constant(2), time, gas.mass, skimmer, ms.mesh_skimmer, ms.quadrupole);
+  CHECK(outcome == TimeNextCollOutcome::fragmentation);
+  CHECK(z == doctest::Approx(-4));
+  CHECK(time == doctest::Approx(1));
 }

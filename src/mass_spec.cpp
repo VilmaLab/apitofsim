@@ -17,6 +17,7 @@
 #include "mass_spec.h"
 #include "operation_context.h"
 #include "upstream.h"
+#include "trajectory.h"
 
 #include <oneapi/tbb/blocked_range.h>
 #include <oneapi/tbb/parallel_reduce.h>
@@ -184,13 +185,6 @@ MassSpecSubstanceTreeInput::MassSpecSubstanceTreeInput(
 {
 }
 
-enum struct TimeNextCollOutcome
-{
-  fragmentation,
-  gas_collision,
-  escape
-};
-
 // LIST OF FUNCTIONS
 // Here we are
 template <typename GenT>
@@ -202,8 +196,6 @@ double init_vib_energy(GenT &gen, uniform_real_distribution<double> &unif, doubl
 double evaluate_rotational_energy(const Eigen::Vector3d &omega, double inertia);
 double evaluate_internal_energy(double vib_energy, double rot_energy);
 double evaluate_rate_const(const Histogram &rate_const, double energy);
-template <typename GenT>
-TimeNextCollOutcome time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &unif, Eigen::Vector3d &v_cluster, double &v_cluster_norm, const ChamberQuantities &chamber, double R, Eigen::Array2d dts, double &z, double &x, double &y, double &t_fragmentation, const Eigen::Array4d &acc, double &t, double m_gas, const SkimmerData &skimmer, double mesh_skimmer, const std::optional<Quadrupole> quadrupole);
 std::tuple<double, Eigen::Vector3d, double, double, double> get_quantities_for_collision(double z, const ChamberQuantities &chamber, double m_gas, const Eigen::Vector3d &v_cluster, double v_gas, double pressure, double temperature);
 std::tuple<double, double, double> update_physical_quantities(double z, const SkimmerData &skimmer, double mesh_skimmer, const ChamberQuantities &chamber, double T);
 void update_velocities(Eigen::Vector3d &v_cluster, double &v_cluster_norm, const Eigen::Vector3d &v_rel, double v_gas);
@@ -219,7 +211,6 @@ template <typename GenT>
 double onedimMaxwell(GenT &gen, normal_distribution<double> &gauss, double m, double kT);
 double mean_free_path(double R, double kT, double pressure);
 double eval_solid_angle_stokes(double R, double L, double xx, double yy, double zz);
-int zone(double z, const CumulativeLengths &clens);
 
 template <typename GasCollSamplerT, typename VibEnergySamplerT>
 SimulationResult apitof_mass_spec(
@@ -696,7 +687,7 @@ SimulationResult apitof_mass_spec(
         auto [effective_pathway_index, t_fragmentation, overflow_exception] = next_fragmentation_time_multi(gen, unif, subs.pathways, internal_energy, strict);
 
         double old_t = t;
-        TimeNextCollOutcome outcome = time_next_coll_quadrupole(gen, unif, v_cluster, v_cluster_norm, chamber, subs.gas.radius + subs.R_cluster, subquants.dts, z, x, y, t_fragmentation, subquants.acc, t, subs.gas.mass, ms.skimmer, ms.mesh_skimmer, ms.quadrupole);
+        TimeNextCollOutcome outcome = time_next_coll_quadrupole(unif(gen), v_cluster, v_cluster_norm, chamber, subs.gas.radius + subs.R_cluster, subquants.dts, z, x, y, t_fragmentation, subquants.acc, t, subs.gas.mass, ms.skimmer, ms.mesh_skimmer, ms.quadrupole);
 
         if (logconf.level >= LOGLEVEL_NORMAL)
         {
@@ -948,7 +939,7 @@ SimulationResult apitof_mass_spec(
         auto [effective_pathway_index, t_fragmentation, overflow_exception] = next_fragmentation_time_multi(gen, unif, pathways, internal_energy, strict);
 
         double old_t = t;
-        TimeNextCollOutcome outcome = time_next_coll_quadrupole(gen, unif, v_cluster, v_cluster_norm, chamber, subs.gas.radius + subpayload.R_cluster, subquants.dts, z, x, y, t_fragmentation, subquants.acc, t, subs.gas.mass, ms.skimmer, ms.mesh_skimmer, ms.quadrupole);
+        TimeNextCollOutcome outcome = time_next_coll_quadrupole(unif(gen), v_cluster, v_cluster_norm, chamber, subs.gas.radius + subpayload.R_cluster, subquants.dts, z, x, y, t_fragmentation, subquants.acc, t, subs.gas.mass, ms.skimmer, ms.mesh_skimmer, ms.quadrupole);
 
         if (logconf.level >= LOGLEVEL_NORMAL)
         {
@@ -1368,8 +1359,7 @@ Eigen::ArrayXd CollisionProfile::frequency(const Eigen::ArrayXd &z, const Eigen:
 }
 
 // Evaluate time to next collision
-template <typename GenT>
-TimeNextCollOutcome time_next_coll_quadrupole(GenT &gen, uniform_real_distribution<double> &unif, Eigen::Vector3d &v_cluster, double &v_cluster_norm, const ChamberQuantities &chamber, double R, Eigen::Array2d dts, double &z, double &x, double &y, double &t_fragmentation, const Eigen::Array4d &acc, double &t, double m_gas, const SkimmerData &skimmer, double mesh_skimmer, const std::optional<Quadrupole> quadrupole)
+TimeNextCollOutcome time_next_coll_quadrupole(double collision_quantile, Eigen::Vector3d &v_cluster, double &v_cluster_norm, const ChamberQuantities &chamber, double R, Eigen::Array2d dts, double &z, double &x, double &y, double &t_fragmentation, const Eigen::Array4d &acc, double &t, double m_gas, const SkimmerData &skimmer, double mesh_skimmer, const std::optional<Quadrupole> quadrupole)
 {
   using namespace consts;
   double integral = 0.0;
@@ -1378,7 +1368,7 @@ TimeNextCollOutcome time_next_coll_quadrupole(GenT &gen, uniform_real_distributi
   double c2;
   double v1;
   double v_cluster_norm_xy = (v_cluster[0] * v_cluster[0]) + (v_cluster[1] * v_cluster[1]);
-  double r = unif(gen);
+  const double r = collision_quantile;
   double mobility_gas_skimmer;
   double mobility_gas_inv_skimmer;
   double T_skimmer;
