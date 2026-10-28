@@ -9,11 +9,13 @@
 #include "densityandrate_smoke.h"
 #include "cli/mass_spec_io.h"
 #include "operation_context.h"
+#include "samplers.h"
 
 #include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdlib>
+#include <limits>
 #include <mutex>
 #include <thread>
 #include <type_traits>
@@ -38,6 +40,35 @@ void test_signal_handler(int)
 {
 }
 } // namespace
+
+TEST_CASE_TEMPLATE("vibrational energy sampling handles cold clusters", Sampler,
+                   VibEnergyNormSampler, VibEnergyUnnormSampler)
+{
+  Eigen::ArrayXd x(4), y(4);
+  x << 2, 6, 10, 14;
+  x *= consts::boltzmann;
+  y << 0, 0, 1, 1;
+  Histogram density(x, y);
+  Sampler sampler(density);
+  std::mt19937 gen(1);
+
+  for (double energy : {0., 1., 2., 3., 6., 9., 10.})
+  {
+    CAPTURE(energy);
+    CHECK(sampler.sample(gen, energy * consts::boltzmann) == 0);
+  }
+
+  // With an accessible populated bin, ordinary sampling still works.
+  CHECK(sampler.sample(gen, 11 * consts::boltzmann) == x[2]);
+  for (double energy : {-1., std::numeric_limits<double>::quiet_NaN(),
+                        std::numeric_limits<double>::infinity(),
+                        -std::numeric_limits<double>::infinity()})
+  {
+    CAPTURE(energy);
+    CHECK_THROWS_AS(sampler.sample(gen, energy), ApiTofArgumentError);
+  }
+  CHECK_THROWS_AS(sampler.sample(gen, 20 * consts::boltzmann), ApiTofDosOverflow);
+}
 
 TEST_CASE("operation context restores handlers across nested scopes")
 {

@@ -1,4 +1,5 @@
 #include <Eigen/Dense>
+#include <cmath>
 #include <iostream>
 #include <random>
 #include "consts.h"
@@ -219,6 +220,15 @@ struct VibEnergySamplerBase
   {
     using consts::boltzmann;
 
+    if (!std::isfinite(E) || E < 0)
+    {
+      throw ApiTofArgumentError("Available vibrational energy must be finite and nonnegative");
+    }
+    if (E == 0)
+    {
+      return 0;
+    }
+
     if (E > density_cluster.x_max())
     {
       throw ApiTofDosOverflow(density_cluster.x_max(), E / boltzmann);
@@ -245,6 +255,11 @@ struct VibEnergyNormSampler : VibEnergySamplerBase
   double sample(GenT &gen, double E)
   {
     double nc = normalization(E);
+    // No accessible vibrational states: leave the energy in the other modes.
+    if (nc == 0)
+    {
+      return 0;
+    }
     // 2nd step: I evaluate the random transferred energy to the cluster
     double r = unif(gen);
     double integral = 0.0;
@@ -266,6 +281,11 @@ struct VibEnergyUnnormSampler : VibEnergySamplerBase
   double sample(GenT &gen, double E)
   {
     double nc = normalization(E);
+    // No accessible vibrational states: leave the energy in the other modes.
+    if (nc == 0)
+    {
+      return 0;
+    }
     // 2nd step: I evaluate the random transferred energy to the cluster
     double r_unnorm = unif(gen) * nc;
     double integral_unnorm = 0.0;
