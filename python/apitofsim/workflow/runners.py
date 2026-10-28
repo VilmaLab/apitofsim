@@ -1,4 +1,5 @@
-from typing import Callable, Optional, Tuple
+from dataclasses import dataclass, field
+from typing import Any, Callable, Optional, Tuple
 
 import numpy
 from pint import get_application_registry
@@ -7,7 +8,10 @@ from apitofsim.api import (
     ApiTofError,
     ApiTofOverflowError,
     Histogram,
+    MassSpecFinalResult,
     MassSpecInputFragmentationPathway,
+    MassSpecIntermediateCounter,
+    MassSpecLogItem,
     MassSpecSubstanceSingleInput,
     MassSpecSubstanceTreeInput,
     MassSpectrometer,
@@ -37,6 +41,181 @@ def counter_fragmented_total(counters):
     return int(counters.n_fragmented_total.sum())
 
 
+@dataclass(frozen=True)
+class PreparedGroup:
+    """One parent; pathway/product order is the native event-index order."""
+
+    cluster_id: int
+    pathway_ids: tuple[int, ...]
+    product_ids: tuple[tuple[int, int], ...]
+    substance: Any
+    cluster_label: str
+
+
+@dataclass(frozen=True)
+class PreparedSimulation:
+    """Inputs bound to a started run and the runner that prepared them."""
+
+    run_id: int
+    mass_spec: MassSpectrometer
+    groups: tuple[PreparedGroup, ...]
+    dos_histogram_id: int
+    rate_histogram_id: int
+    _runner: object = field(repr=False, compare=False)
+
+
+@dataclass(frozen=True)
+class RecordedMassSpecResult:
+    """Completion exposed only after result and event associations are saved."""
+
+    run_id: int
+    cluster_id: int
+    pathway_ids: tuple[int, ...]
+    result_id: int
+    result: MassSpecFinalResult
+
+
+class RecordingMassSpecIterator:
+    """Consuming-thread persistence around the native iterator.
+
+    Always use as a context manager. Early exit cancels, drains/records and
+    joins, unlike the native iterator's join-only context exit. Only
+    request_cancel() may be called from another thread; it never accesses DB.
+    The caller retains ownership of the database. Execution/persistence errors
+    record one failure when possible, retain partial events, then propagate.
+    Consumers own diagnostics for errors in their own processing code.
+    """
+
+    def __init__(self, db, prepared, group, N, **options):
+        from apitofsim.api import mass_spec_iter
+
+        self.db = db
+        self.prepared = prepared
+        self.group = group
+        self.result = None
+        self._done = False
+        self._stream = None
+        self._recorder = (
+            EventRecorder(db, group.pathway_ids)
+            if isinstance(db, RealizationDatabase)
+            else None
+        )
+        try:
+            self._stream = mass_spec_iter(
+                prepared.mass_spec, group.substance, N, **options
+            )
+        except BaseException as error:
+            self._abort(error)
+            raise
+
+    def request_cancel(self):
+        """Thread-safe, idempotent, non-blocking cooperative cancellation."""
+        assert self._stream is not None
+        self._stream.request_cancel()
+
+    def __iter__(self):
+        return self
+
+    def _record_event(self, item):
+        if self._recorder is not None and not isinstance(
+            item, (MassSpecIntermediateCounter, MassSpecLogItem, MassSpecFinalResult)
+        ):
+            self._recorder(item)
+
+    def __next__(self):
+        if self._done:
+            raise StopIteration
+        try:
+            try:
+                item = next(self._stream)
+            except StopIteration:
+                raise RuntimeError("Simulation ended without a final result") from None
+            if isinstance(item, MassSpecFinalResult):
+                result_id = self.db.record_result(
+                    self.prepared.run_id,
+                    item.counters,
+                    item.timings,
+                    cluster_id=self.group.cluster_id,
+                    pathway_ids=self.group.pathway_ids,
+                )
+                if self._recorder is not None:
+                    self._recorder.relate_realizations(result_id)
+                self.result = RecordedMassSpecResult(
+                    self.prepared.run_id,
+                    self.group.cluster_id,
+                    self.group.pathway_ids,
+                    result_id,
+                    item,
+                )
+                self._done = True
+                return self.result
+            self._record_event(item)
+            return item
+        except BaseException as error:
+            self._abort(error)
+            raise
+
+    @staticmethod
+    def _cleanup_step(error, action):
+        try:
+            return action()
+        except BaseException as secondary:
+            error.add_note(
+                f"Recording stream cleanup: {type(secondary).__name__}: {secondary}"
+            )
+
+    def _abort(self, error):
+        # Do not retry a failed write or turn a later native final into success.
+        self._done = True
+        if self._stream is not None:
+            self._cleanup_step(error, self.request_cancel)
+            try:
+                for item in self._stream:
+                    self._cleanup_step(error, lambda: self._record_event(item))
+            except BaseException as secondary:
+                error.add_note(
+                    f"Draining simulation: {type(secondary).__name__}: {secondary}"
+                )
+            self._cleanup_step(error, self._stream.join_if_joinable)
+        failure_id = self._cleanup_step(
+            error,
+            lambda: self.db.record_failure(
+                self.prepared.run_id,
+                type(error).__name__,
+                str(error),
+                error.current if isinstance(error, ApiTofOverflowError) else None,
+                cluster_id=self.group.cluster_id,
+            ),
+        )
+        if failure_id is not None and self._recorder is not None:
+            recorder = self._recorder
+            self._cleanup_step(error, lambda: recorder.relate_realizations(failure_id))
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        stream = self._stream
+        assert stream is not None
+
+        def finish():
+            try:
+                if not self._done:
+                    self.request_cancel()
+                    for _ in self:
+                        pass
+            except BaseException as error:
+                self._cleanup_step(error, stream.join_if_joinable)
+                raise
+            else:
+                stream.join_if_joinable()
+
+        if exc_val is not None:
+            self._cleanup_step(exc_val, finish)
+        else:
+            finish()
+
+
 class DerivedDataPreparer:
     def __init__(self, db: SuperClusterDatabase):
         self.db = db
@@ -57,7 +236,12 @@ class DerivedDataPreparer:
         if params is None:
             raise ValueError(f"Missing histogram configuration {histogram_id}")
         bin_width, maximum = params
-        return Histogram.from_mesh(bin_width, maximum, data)
+        histogram = Histogram.from_mesh(bin_width, maximum, data)
+        if len(histogram.x) != len(histogram.y):
+            raise ValueError(
+                f"Data does not match histogram configuration {histogram_id}"
+            )
+        return histogram
 
     def _run_skimmer(self, config):
         from apitofsim import skimmer
@@ -319,18 +503,24 @@ class DerivedDataPreparer:
         return k_total_dict
 
     def run_densityandrate(
-        self, config, cluster_indexed, pathway_lookup, tablepbar=None, name_lookup=None
+        self,
+        config,
+        cluster_indexed,
+        pathway_lookup,
+        tablepbar=None,
+        name_lookup=None,
+        show_progress=True,
     ):
         from timeit import default_timer as timer
 
-        from progress_table import ProgressTable
-
         from apitofsim import precompute_mesh
 
-        if tablepbar is None:
+        table = pbar = None
+        total_steps, cur_step = 3, 1
+        if show_progress and tablepbar is None:
+            from progress_table import ProgressTable
+
             table = ProgressTable(default_column_alignment="left", refresh_rate=0)
-            total_steps = 3
-            cur_step = 1
             pbar = table(
                 3,
                 description="Preliminary steps",
@@ -342,13 +532,14 @@ class DerivedDataPreparer:
             table.add_column("Step", width=20)
             table.add_column("Description", width=40)
             table.add_column("Time (s)", alignment="right")
-        else:
+        elif show_progress and tablepbar is not None:
             table, pbar = tablepbar
             total_steps = 4
             cur_step = 2
-        table["#"] = f"{cur_step}/{total_steps}"
-        table["Step"] = "Density of states"
-        pbar.update()
+        if table is not None and pbar is not None:
+            table["#"] = f"{cur_step}/{total_steps}"
+            table["Step"] = "Density of states"
+            pbar.update()
         start = timer()
 
         histogram_id = get_or_insert(
@@ -368,30 +559,33 @@ class DerivedDataPreparer:
             status_table=table,
         )
 
-        table["Time (s)"] = f"{(timer() - start):.2f}"
-        table.next_row()
-        cur_step += 1
+        if table is not None and pbar is not None:
+            table["Time (s)"] = f"{(timer() - start):.2f}"
+            table.next_row()
+            cur_step += 1
 
-        table["#"] = f"{cur_step}/{total_steps}"
-        table["Step"] = "Computing mesh"
-        pbar.update()
+            table["#"] = f"{cur_step}/{total_steps}"
+            table["Step"] = "Computing mesh"
+            pbar.update()
         start = timer()
 
-        mesh_points = config["energy_max_rate"] / config["bin_width"]
-        table["Description"] = f"Mesh of {mesh_points} pts"
+        if table is not None and pbar is not None:
+            mesh_points = config["energy_max_rate"] / config["bin_width"]
+            table["Description"] = f"Mesh of {mesh_points} pts"
 
         mesh = precompute_mesh(
             energy_max_rate=config["energy_max_rate"],
             bin_width=config["bin_width"],
             mesh_mode=MeshMode.compute_mesh_diagonal_multithreaded,
         )
-        table["Time (s)"] = f"{(timer() - start):.2f}"
-        table.next_row()
-        cur_step += 1
+        if table is not None and pbar is not None:
+            table["Time (s)"] = f"{(timer() - start):.2f}"
+            table.next_row()
+            cur_step += 1
 
-        table["#"] = f"{cur_step}/{total_steps}"
-        table["Step"] = "K total"
-        pbar.update()
+            table["#"] = f"{cur_step}/{total_steps}"
+            table["Step"] = "K total"
+            pbar.update()
         start = timer()
 
         k_rates = self._run_k_total(
@@ -406,11 +600,12 @@ class DerivedDataPreparer:
             name_lookup=name_lookup,
         )
 
-        table["Time (s)"] = f"{(timer() - start):.2f}"
-        table.close()
-        if pbar._is_active:
-            # Not sure why this is sometimes needed
-            pbar.close()
+        if table is not None and pbar is not None:
+            table["Time (s)"] = f"{(timer() - start):.2f}"
+            table.close()
+            if pbar._is_active:
+                # Not sure why this is sometimes needed
+                pbar.close()
 
         return k_rates, cluster_dos_dict
 
@@ -499,6 +694,7 @@ class DerivedDataPreparer:
                 pathway_lookup,
                 tablepbar=(prelim_table, outer_pbar) if show_progress else None,
                 name_lookup=name_lookup,
+                show_progress=show_progress,
             )
 
         return skimmer_np, k_rates, cluster_dos
@@ -517,6 +713,7 @@ class ExperimentRunner:
         self.db = db
         self.preparer = DerivedDataPreparer(db)
         self.current_run_id = None
+        self._simulation_mode = None
 
     def _guard_run_started(self):
         if self.current_run_id is None:
@@ -524,6 +721,86 @@ class ExperimentRunner:
 
     def start_run(self, config_id=None, **kwargs):
         self.current_run_id = self.db.insert_run(config_id, **kwargs)
+        self._simulation_mode = kwargs.get(
+            "simulation_mode", SimulationMode.SINGLE_CLUSTER
+        )
+
+    def prepare_from_config(
+        self,
+        config,
+        *,
+        parent=None,
+        pathways=None,
+        cached_densityandrate=None,
+        show_progress=False,
+    ) -> PreparedSimulation:
+        """Prepare SINGLE_CLUSTER groups for an explicitly started run.
+
+        Select a parent (ID/name) OR pathways (IDs/name triples), or omit both
+        for all pathways. Empty, unknown and partially missing selections fail.
+        Preparation saves effective config/cache provenance; it creates no run.
+        Grouped inputs retain the existing electronic-energy bonding energies;
+        the pathway-at-a-time fragmentation_energy override does not apply.
+        """
+        self._guard_run_started()
+        if self._simulation_mode != SimulationMode.SINGLE_CLUSTER:
+            raise ValueError("Public preparation supports SINGLE_CLUSTER only")
+        if pathways is not None:
+            pathways = list(pathways)
+            if not pathways:
+                raise ValueError("Pathway selection must not be empty")
+        inputs = self._prepare_from_config(
+            config,
+            parent=parent,
+            pathways=pathways,
+            cached_densityandrate=cached_densityandrate,
+            show_progress=show_progress,
+            validate_selection=True,
+        )
+        mass_spec, clusters, names, lookup, rates, densities = inputs
+        groups = self._prepare_groups(config, clusters, names, lookup, rates, densities)
+        assert self.current_run_id is not None
+        assert self.preparer.dos_histogram_id is not None
+        assert self.preparer.rate_histogram_id is not None
+        return PreparedSimulation(
+            self.current_run_id,
+            mass_spec,
+            groups,
+            self.preparer.dos_histogram_id,
+            self.preparer.rate_histogram_id,
+            self,
+        )
+
+    def iter_mass_spec(
+        self,
+        prepared,
+        group,
+        N,
+        *,
+        sample_mode=SampleMode.rejection,
+        strict_dos=True,
+        loglevel=0,
+        seed=42,
+    ) -> RecordingMassSpecIterator:
+        """Stream a prepared group; see RecordingMassSpecIterator for cleanup.
+
+        Counters, logs and native events are forwarded unchanged. The terminal
+        RecordedMassSpecResult includes the original final result (and cancelled
+        flag). Each invocation records a new result; consuming it twice does not.
+        Use stream.result after early context exit to inspect saved completion.
+        """
+        if prepared._runner is not self or not any(group is g for g in prepared.groups):
+            raise ValueError("Prepared inputs/group must belong to this runner")
+        return RecordingMassSpecIterator(
+            self.db,
+            prepared,
+            group,
+            N,
+            sample_mode=sample_mode,
+            strict=strict_dos,
+            logconf=(loglevel, isinstance(self.db, RealizationDatabase)),
+            seed=seed,
+        )
 
     def run_mass_spec(
         self,
@@ -600,10 +877,27 @@ class ExperimentRunner:
         parent=None,
         pathways=None,
         cached_densityandrate=None,
+        show_progress=True,
+        validate_selection=False,
     ):
         cluster_indexed, name_lookup, pathway_lookup = self.db.get_all_lookups(
             parent, pathways
         )
+
+        if validate_selection:
+            if not pathway_lookup:
+                raise ValueError("No pathways found for the selection")
+            if pathways is not None:
+                if isinstance(pathways[0], tuple):
+                    selected = {
+                        (name_lookup[c], *sorted((name_lookup[p1], name_lookup[p2])))
+                        for c, p1, p2 in pathway_lookup.values()
+                    }
+                    requested = {(c, *sorted((p1, p2))) for c, p1, p2 in pathways}
+                else:
+                    selected, requested = set(pathway_lookup), set(pathways)
+                if selected != requested:
+                    raise ValueError("Some selected pathways were not found")
 
         skimmer_np, k_rates, cluster_dos = self.preparer.run_preliminaries(
             config,
@@ -611,6 +905,7 @@ class ExperimentRunner:
             pathway_lookup=pathway_lookup,
             name_lookup=name_lookup,
             cached_densityandrate=cached_densityandrate,
+            show_progress=show_progress,
         )
 
         self.db.record_run_preparation(
@@ -658,6 +953,19 @@ class ExperimentRunner:
             config_id = self.db.insert_config(None, config)
             self.start_run(config_id, simulation_mode=mode)
 
+        if mode == SimulationMode.SINGLE_CLUSTER:
+            prepared = self.prepare_from_config(
+                config,
+                parent=parent,
+                pathways=pathways,
+                cached_densityandrate=cached_densityandrate,
+                show_progress=True,
+            )
+            self._run_cluster_grouped(
+                prepared, config, strict_dos=strict_dos, verbose=verbose
+            )
+            return
+
         (
             mass_spec,
             cluster_indexed,
@@ -674,18 +982,6 @@ class ExperimentRunner:
 
         if mode == SimulationMode.PATHWAY_AT_A_TIME:
             self._run_pathways_at_a_time(
-                mass_spec,
-                config,
-                cluster_indexed,
-                name_lookup,
-                pathway_lookup,
-                k_rates,
-                cluster_dos,
-                strict_dos=strict_dos,
-                verbose=verbose,
-            )
-        elif mode == SimulationMode.SINGLE_CLUSTER:
-            self._run_cluster_grouped(
                 mass_spec,
                 config,
                 cluster_indexed,
@@ -843,68 +1139,47 @@ class ExperimentRunner:
             cluster_seq += 1
         mass_spec_table.close()
 
-    def _run_cluster_grouped(
-        self,
-        mass_spec,
-        config,
-        cluster_indexed,
-        name_lookup,
-        pathway_lookup,
-        k_rates,
-        cluster_dos,
-        strict_dos=True,
-        verbose=False,
+    def _prepare_groups(
+        self, config, cluster_indexed, name_lookup, pathway_lookup, k_rates, cluster_dos
     ):
+        by_parent = {}
+        for pathway_id, (cluster_id, p1, p2) in pathway_lookup.items():
+            by_parent.setdefault(cluster_id, []).append((pathway_id, p1, p2))
+        groups = []
+        for cluster_id, rows in by_parent.items():
+            cluster = cluster_indexed[cluster_id]
+            density = scaled_density(
+                self.preparer.histogram(config, cluster_dos[cluster_id])
+            )
+            pathways = [
+                MassSpecInputFragmentationPathway(
+                    cluster,
+                    cluster_indexed[p1],
+                    cluster_indexed[p2],
+                    scaled_rate_const(
+                        self.preparer.histogram(config, k_rates[pathway_id], rate=True)
+                    ),
+                )
+                for pathway_id, p1, p2 in rows
+            ]
+            groups.append(
+                PreparedGroup(
+                    cluster_id,
+                    tuple(pathway_id for pathway_id, _, _ in rows),
+                    tuple((p1, p2) for _, p1, p2 in rows),
+                    MassSpecSubstanceSingleInput(
+                        cluster, pathways, config["gas"], density, cluster.charge
+                    ),
+                    name_lookup[cluster_id],
+                )
+            )
+        return tuple(groups)
+
+    def _run_cluster_grouped(self, prepared, config, strict_dos=True, verbose=False):
         from os import environ
         from timeit import default_timer as timer
-        from typing import Any
 
         from progress_table import ProgressTable
-
-        last_cluster_id = None
-        groups = []
-        cur_group: dict[str, Any] | None = None
-        for pathway_id, (
-            cluster_id,
-            product1_id,
-            product2_id,
-        ) in pathway_lookup.items():
-            rate_const = k_rates[pathway_id]
-            density_cluster = cluster_dos[cluster_id]
-            cluster = cluster_indexed[cluster_id]
-            if cluster_id != last_cluster_id:
-                if cur_group is not None:
-                    groups.append(cur_group)
-                density_hist = scaled_density(
-                    self.preparer.histogram(config, density_cluster)
-                )
-                cur_group = {
-                    "pathways": [],
-                    "cluster": cluster,
-                    "cluster_id": cluster_id,
-                    "cluster_label": name_lookup[cluster_id],
-                    "density_hist": density_hist,
-                    "product_labels": [],
-                    "pathway_ids": [],
-                }
-            product1 = cluster_indexed[product1_id]
-            product2 = cluster_indexed[product2_id]
-            rate_hist = scaled_rate_const(
-                self.preparer.histogram(config, rate_const, rate=True)
-            )
-            assert cur_group is not None
-            cur_group["pathways"].append(
-                MassSpecInputFragmentationPathway(
-                    cluster, product1, product2, rate_hist
-                )
-            )
-            cur_group["product_labels"].append(
-                f"{name_lookup[product1_id]} + {name_lookup[product2_id]}"
-            )
-            cur_group["pathway_ids"].append(pathway_id)
-            last_cluster_id = cluster_id
-        if cur_group is not None:
-            groups.append(cur_group)
 
         mass_spec_table = ProgressTable(
             default_column_alignment="right",
@@ -926,7 +1201,7 @@ class ExperimentRunner:
         )
         cluster_seq = 1
         outer_pbar = mass_spec_table(
-            groups,
+            prepared.groups,
             description="Cluster",
             show_throughput=False,
             show_progress=True,
@@ -934,19 +1209,11 @@ class ExperimentRunner:
             position=2,
         )
         for group in outer_pbar:
-            mass_spec_table["Cluster"] = group["cluster_label"]
-            mass_spec_table["Paths"] = str(len(group["pathways"]))
+            mass_spec_table["Cluster"] = group.cluster_label
+            mass_spec_table["Paths"] = str(len(group.pathway_ids))
             start = timer()
             realizations = (
                 int(environ["N_OVERRIDE"]) if "N_OVERRIDE" in environ else config["N"]
-            )
-            cluster = group["cluster"]
-            subs = MassSpecSubstanceSingleInput(
-                cluster,
-                group["pathways"],
-                config["gas"],
-                group["density_hist"],
-                cluster.charge,
             )
             inner_pbar = mass_spec_table(
                 realizations, position=1, description="Realization"
@@ -955,18 +1222,24 @@ class ExperimentRunner:
             update_from_counters = self._mk_update_from_counters(
                 mass_spec_table, inner_pbar
             )
-            counters = self.run_mass_spec(
-                mass_spec,
-                subs,
-                realizations,
-                cluster_id=group["cluster_id"],
-                pathway_ids=group["pathway_ids"],
-                sample_mode=SampleMode.rejection,
-                loglevel=1 if verbose else 0,
-                strict="STRICT" in environ,
-                strict_dos=strict_dos,
-                result_callback=update_from_counters,
-            )
+            counters = None
+            try:
+                with self.iter_mass_spec(
+                    prepared,
+                    group,
+                    realizations,
+                    sample_mode=SampleMode.rejection,
+                    loglevel=1 if verbose else 0,
+                    strict_dos=strict_dos,
+                ) as stream:
+                    for item in stream:
+                        if isinstance(item, MassSpecIntermediateCounter):
+                            update_from_counters(item.counters)
+                        elif isinstance(item, RecordedMassSpecResult):
+                            counters = item.result.counters
+            except ApiTofError:
+                if "STRICT" in environ:
+                    raise
             t_total = timer() - start
             if counters is None:
                 for k in [
