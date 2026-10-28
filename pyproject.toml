@@ -45,11 +45,10 @@ dev = [
   "pytest>=9.0.2",
 ]
 docs = [
+  "ghp-import>=2.1.0",
   "mkdocs-click>=0.9.0",
-  "mkdocs-material>=9.7.0",
-  "mkdocstrings>=1.0.0",
   "mkdocstrings-python>=2.0.1",
-  "mkdocs < 2"
+  "zensical>=0.0.73,<0.1",
 ]
 notebooks = ["scipy>=1.16.3", "sympy>=1.14.0", "marimo[sql]", "polars[pyarrow]"]
 

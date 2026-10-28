@@ -118,12 +118,21 @@ uv sync -p /usr/bin/python3.12-dbg --reinstall-package apitofsim
 
 ### Building docs
 
-The following will run a live-reloading mkdocs server:
+The following will run a live-reloading Zensical server:
 
 ```bash
-uv sync --all-groups
-PYTHONPATH=./python/ uv run mkdocs serve --livereload --watch=python --watch=docs --watch=src
+uv sync --group docs
+PYTHONPATH=./python/ uv run --group docs zensical serve
 ```
+
+To build the static site in `site/`:
+
+```bash
+PYTHONPATH=./python/ uv run --group docs zensical build --clean
+```
+
+Site settings, navigation, Markdown extensions, and watched source directories are
+configured in `zensical.toml`.
 
 ### Running tests
 

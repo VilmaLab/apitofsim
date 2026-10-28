@@ -1,0 +1,62 @@
+[project]
+site_name = "Documentation for apitofsim"
+site_url = "https://vilmalab.github.io/apitofsim/"
+watch = ["python", "src"]
+extra_javascript = [
+  "js/katex.js",
+  "https://unpkg.com/katex@0/dist/katex.min.js",
+  "https://unpkg.com/katex@0/dist/contrib/auto-render.min.js",
+]
+extra_css = ["https://unpkg.com/katex@0/dist/katex.min.css"]
+nav = [
+  { "Getting started" = "index.md" },
+  { "Background" = "background.md" },
+  { "Guide" = "guide.md" },
+  { "Reference" = [
+    { "Configuration" = "configuration.md" },
+    { "CLI tools" = "cli.md" },
+    { "Python library" = "python.md" },
+  ] },
+  { "Notebooks" = "notebooks.md" },
+  { "Development" = "development.md" },
+]
+
+[project.theme]
+variant = "classic"
+features = ["content.footnote.tooltips"]
+
+[project.markdown_extensions]
+footnotes = {}
+"pymdownx.highlight" = { anchor_linenums = true, line_spans = "__span", pygments_lang_class = true }
+"pymdownx.blocks.caption" = {}
+"pymdownx.inlinehilite" = {}
+"pymdownx.snippets" = {}
+"pymdownx.superfences" = {}
+attr_list = {}
+md_in_html = {}
+"mkdocs-click" = {}
+tables = {}
+"pymdownx.arithmatex" = { generic = true }
+"pymdownx.tabbed" = { alternate_style = true }
+
+[project.plugins.search]
+[project.plugins.autorefs]
+
+[project.plugins.mkdocstrings]
+default_handler = "python"
+
+[project.plugins.mkdocstrings.handlers.python.options]
+backlinks = "tree"
+docstring_options = { ignore_init_summary = true }
+docstring_section_style = "list"
+filters = ["!^_"]
+heading_level = 1
+merge_init_into_class = true
+separate_signature = true
+show_root_heading = true
+show_root_full_path = true
+show_signature_annotations = true
+show_source = true
+show_symbol_type_heading = true
+show_symbol_type_toc = true
+signature_crossrefs = true
