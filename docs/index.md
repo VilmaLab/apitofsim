@@ -4,11 +4,26 @@ This is the documentation for apitofsim, a simulation of cluster fragmentation i
 
 ## Installation
 
+This package can be installed using packages from Conda or pip (wheel) or from source
+
+### Installation using pip
+
+Visit https://github.com/VilmaLab/apitofsim/releases and find the appropriate release ending .whl for your platform, right click and copy the link address. Then run the following command in your terminal, replacing `<link>` with the copied link:
+
+    pip install <link>
+
+Or using uv:
+
+    uv tool install <link>
+
+### Installation using Conda
+
 It is recommend to install this package using Conda.
-Users on Windows should use WSL.
-First download [miniforge](https://github.com/conda-forge/miniforge?tab=readme-ov-file#unix-like-platforms-macos-linux--wsl) and then run:
+First download [miniforge](https://github.com/conda-forge/miniforge) and then run:
 
     conda install -c https://prefix.dev/vilma apitofsim
+
+### Build from source
 
 It is also possible to [build from source](development.md).
 
