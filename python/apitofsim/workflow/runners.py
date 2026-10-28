@@ -125,6 +125,7 @@ class RecordingMassSpecIterator:
     def __next__(self):
         if self._done:
             raise StopIteration
+        assert self._stream is not None
         try:
             try:
                 item = next(self._stream)
@@ -183,7 +184,7 @@ class RecordingMassSpecIterator:
                 self.prepared.run_id,
                 type(error).__name__,
                 str(error),
-                error.current if isinstance(error, ApiTofOverflowError) else None,
+                error.current if isinstance(error, ApiTofOverflowError) else None,  # pyright: ignore [reportAttributeAccessIssue]
                 cluster_id=self.group.cluster_id,
             ),
         )
