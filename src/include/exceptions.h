@@ -71,6 +71,11 @@ public:
   }
 };
 
+class ApiTofParticleEscapeError : public ApiTofError
+{
+  using ApiTofError::ApiTofError;
+};
+
 class ApiTofUnexpectedNumericalError : public ApiTofError
 {
   using ApiTofError::ApiTofError;

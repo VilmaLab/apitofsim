@@ -16,6 +16,7 @@
 #include "samplers.h"
 #include "mass_spec.h"
 #include "operation_context.h"
+#include "upstream.h"
 
 #include <oneapi/tbb/blocked_range.h>
 #include <oneapi/tbb/parallel_reduce.h>
@@ -1153,10 +1154,12 @@ double onedimMaxwell_angular(GenT &gen, normal_distribution<double> &gauss, doub
 template <typename GenT>
 Eigen::Vector3d init_vel(GenT &gen, normal_distribution<double> &gauss, double m, double kT)
 {
-  return Eigen::Vector3d(
+  Eigen::Vector3d velocity(
     onedimMaxwell(gen, gauss, m, kT),
     onedimMaxwell(gen, gauss, m, kT),
     onedimMaxwell(gen, gauss, m, kT));
+  velocity[2] = std::abs(velocity[2]);
+  return velocity;
 }
 
 // Inizialize the cluster angular velocity
@@ -1332,6 +1335,8 @@ double init_vib_energy(GenT &gen, uniform_real_distribution<double> &unif, doubl
 
 double collision_frequency(double z, const Eigen::Vector3d &velocity, const ChamberQuantities &chamber, double m_gas, double R, const SkimmerData &skimmer, double mesh_skimmer)
 {
+  if (z < 0)
+    return 0;
   if (z < chamber.clens.first_chamber_end)
     return coll_freq(chamber.pressures.n[0], chamber.mobility_gas, chamber.mobility_gas_inv, R, velocity.norm());
   if (z > chamber.clens.sk_end)
@@ -1396,6 +1401,15 @@ TimeNextCollOutcome time_next_coll_quadrupole(GenT &gen, uniform_real_distributi
 
   while (true)
   {
+    if (z < 0 || (z == 0 && (v_cluster[2] < 0 || (v_cluster[2] == 0 && acc[0] < 0))))
+    {
+      bool fragmented = upstream::advance(v_cluster, z, x, y, acc[0],
+                                          std::max(0.0, t_fragmentation - delta_t), t, delta_t);
+      v_cluster_norm = v_cluster.norm();
+      if (fragmented)
+        return TimeNextCollOutcome::fragmentation;
+      c1 = collision_frequency(z, v_cluster, chamber, m_gas, R, skimmer, mesh_skimmer);
+    }
     if (z >= chamber.clens.second_chamber_end)
     {
       return TimeNextCollOutcome::escape;
@@ -1412,9 +1426,13 @@ TimeNextCollOutcome time_next_coll_quadrupole(GenT &gen, uniform_real_distributi
     v1x = v_cluster[0];
     v1y = v_cluster[1];
 
+    double first_dt = dts[0];
+    double outward_time = std::numeric_limits<double>::infinity();
     if (z < chamber.clens.first_chamber_end)
     {
-      v_cluster[2] += acc[0] * dts[0];
+      outward_time = upstream::crossing_time(z, v1, acc[0], false);
+      first_dt = std::min({first_dt, outward_time, t_fragmentation - delta_t});
+      v_cluster[2] += acc[0] * first_dt;
     }
 
     else if (z >= chamber.clens.sk_end and z < chamber.clens.quadrupole_start)
@@ -1445,13 +1463,20 @@ TimeNextCollOutcome time_next_coll_quadrupole(GenT &gen, uniform_real_distributi
     if (z < chamber.clens.first_chamber_end) // Dynamics in the 1st chamber
     {
       c2 = coll_freq(chamber.pressures.P[0], chamber.mobility_gas, chamber.mobility_gas_inv, R, v_cluster_norm);
-      integral += (c1 + c2) * dts[0] / 2.0;
+      integral += (c1 + c2) * first_dt / 2.0;
       P = exp(-integral);
-      delta_t += dts[0];
-      x += v1x * dts[0];
-      y += v1y * dts[0];
-      z += (v1 + v_cluster[2]) * dts[0] / 2.0;
-      t += dts[0];
+      delta_t += first_dt;
+      x += v1x * first_dt;
+      y += v1y * first_dt;
+      z += (v1 + v_cluster[2]) * first_dt / 2.0;
+      t += first_dt;
+      if (first_dt == outward_time)
+      {
+        z = 0;
+        // Resolve a collision accumulated inside the chamber before entering vacuum.
+        if (r >= P && delta_t < t_fragmentation)
+          return TimeNextCollOutcome::gas_collision;
+      }
     }
 
     else if (z > chamber.clens.sk_end and z < chamber.clens.quadrupole_start) // Dynamics in the 2nd chamber
@@ -1855,6 +1880,8 @@ bool eval_collision(GenT &gen, uniform_real_distribution<double> &unif, double g
 
 int zone(double z, const CumulativeLengths &clens)
 {
+  if (z < 0)
+    return 0;
   if (z < clens.first_chamber_end)
     return 1;
   else if (z < clens.sk_end)

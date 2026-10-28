@@ -1856,3 +1856,161 @@ def test_serial_rate_curve_parent(rate_curve_db):
     assert downstream[0].histogram is None
     with pytest.raises(RateCurveProvenanceError, match="Parent is not identified"):
         db.pathway_rate_curves(1, 3, 3)
+
+
+@pytest.mark.parametrize("tree", [False, True])
+@pytest.mark.parametrize("streaming", [False, True])
+@pytest.mark.parametrize("strict", [False, True])
+def test_upstream_escape_invalidates_run(tree, streaming, strict):
+    import numpy as np
+    from apitofsim import api
+
+    raw = api.apitofsimraw
+    # A strong reverse field turns every launched particle back before chamber 1 ends.
+    ms = api.MassSpectrometer(
+        np.array([[0.0, 300.0, 100.0], [0.0, 300.0, 100.0]]),
+        api.Q_(np.full(5, 0.001), "m"),
+        api.Q_(-np.arange(5.0) * 1000, "V"),
+        api.Q_(300.0, "K"),
+        api.Q_(np.array([0.001, 0.001]), "Pa"),
+        mesh_skimmer=api.Q_(0.0005, "m"),
+        radius_pinhole=None,
+    )
+    energies = np.arange(0.5, 1000.0) * 100 * api.consts.boltzmann
+    density = raw.Histogram(energies, np.ones(1000))
+    pathways = [
+        raw.MassSpecInputFragmentationPathway(
+            raw.Histogram(energies, np.zeros(1000)), 1e10
+        )
+    ]
+    gas = raw.Gas(2.46e-10, 4.85e-26, 1.4)
+    if tree:
+        subs = raw.MassSpecSubstanceTreeInput(
+            -1,
+            gas,
+            [raw.MSSubstanceTreeCluster(3.6e-25, 5e-10, density)],
+            pathways,
+            [raw.MSSubstanceTreeNode(0, [0])],
+            [raw.MSSubstanceTreePathway(0, None)],
+        )
+    else:
+        subs = raw.MassSpecSubstanceSingleInput(
+            -1, 3.6e-25, 5e-10, density, pathways, gas
+        )
+    initial = []
+    with pytest.raises(
+        api.ApiTofParticleEscapeError, match="axial velocity.*acceleration"
+    ):
+        if streaming:
+            with api.MassSpecIterator(
+                ms.into_cpp(), subs, 8, strict=strict, seed=42, logconf=(0, True)
+            ) as stream:
+                for item in stream:
+                    assert not isinstance(item, api.MassSpecFinalResult)
+                    if isinstance(item, api.InitEvent):
+                        initial.append(item.state)
+        else:
+            api.mass_spec(
+                ms,
+                subs,
+                8,
+                strict=strict,
+                seed=42,
+                logconf=(0, True),
+                event_callback=lambda event: (
+                    initial.append(event.state)
+                    if isinstance(event, api.InitEvent)
+                    else None
+                ),
+            )
+    assert initial
+    assert all(state.velocity[2] >= 0 for state in initial)
+    assert issubclass(api.ApiTofParticleEscapeError, api.ApiTofError)
+
+
+def test_tree_fragmentation_upstream_preserves_time_and_product_motion():
+    from pathlib import Path
+
+    import numpy as np
+    from apitofsim import api
+
+    raw = api.apitofsimraw
+    data = np.loadtxt(Path(__file__).parent / "data/ready/density_cluster.out")
+    energies = data[:, 0] * api.consts.boltzmann
+    density = raw.Histogram(energies, data[:, 1] / api.consts.boltzmann)
+    rate = raw.Histogram(energies, np.full(len(energies), 1e6))
+    product_rate = raw.Histogram(energies, np.full(len(energies), 1e5))
+    ms = raw.MassSpectrometer(
+        np.array([[0.0, 300.0, 100.0], [0.0, 300.0, 100.0]]),
+        0.0005,
+        np.full(5, 0.001),
+        np.arange(5.0) * 0.01,
+        300.0,
+        np.array([100.0, 2.0]),
+        None,
+        None,
+    )
+    final_times = []
+    final_positions = []
+    for product_mass in (5e-26, 1e-26):
+        subs = raw.MassSpecSubstanceTreeInput(
+            -1,
+            raw.Gas(2e-10, 4.8e-26, 1.4),
+            [
+                raw.MSSubstanceTreeCluster(1e-25, 5e-10, density),
+                raw.MSSubstanceTreeCluster(product_mass, 4e-10, density),
+            ],
+            [
+                raw.MassSpecInputFragmentationPathway(rate, -100),
+                raw.MassSpecInputFragmentationPathway(product_rate, -100),
+            ],
+            [raw.MSSubstanceTreeNode(0, [0]), raw.MSSubstanceTreeNode(1, [1])],
+            [raw.MSSubstanceTreePathway(0, 1), raw.MSSubstanceTreePathway(1, None)],
+        )
+        events, fragments_log = [], []
+        # This seed produces an early collision that reverses the parent near z = 0.
+        raw.mass_spec(
+            ms,
+            subs,
+            1,
+            seed=8171,
+            logconf=(2, True),
+            sample_mode=raw.SampleMode.dss_normalized,
+            event_callback=events.append,
+            log_callback=lambda kind, message: (
+                fragments_log.append(message) if kind == "fragments" else None
+            ),
+        )
+        fragments = [
+            event for event in events if isinstance(event, api.FragmentationEvent)
+        ]
+        assert len(fragments) == 2
+        parent, product = (event.state for event in fragments)
+        assert parent.postime[2] < 0
+        assert (parent.particle_index, product.particle_index) == (0, 1)
+        assert all(
+            event.state.postime[2] >= 0
+            for event in events
+            if isinstance(event, (api.CollisionEvent, api.PostCollisionEvent))
+        )
+        # Products start at rest; their mass changes acceleration and return time.
+        dt = product.postime[3] - parent.postime[3]
+        acceleration = 0.01 / 0.001 * 1.602176565e-19 / product_mass
+        np.testing.assert_allclose(product.postime[:2], parent.postime[:2])
+        assert product.postime[2] == pytest.approx(
+            parent.postime[2] + 0.5 * acceleration * dt**2
+        )
+        assert product.velocity[2] == pytest.approx(acceleration * dt)
+        rows = [
+            line.split()
+            for chunk in fragments_log
+            for line in chunk.splitlines()
+            if line and not line.startswith("#")
+        ]
+        assert int(rows[0][3]) == 0
+        final_times.append(product.postime[3])
+        final_positions.append(product.postime[2])
+    # One product fragments upstream; the lighter product returns first. The
+    # fragmentation clock must advance equally in vacuum and inside the instrument.
+    assert final_positions[0] < 0 < final_positions[1]
+    assert final_times[0] == pytest.approx(final_times[1], rel=1e-10)

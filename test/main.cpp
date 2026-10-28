@@ -10,6 +10,7 @@
 #include "cli/mass_spec_io.h"
 #include "operation_context.h"
 #include "samplers.h"
+#include "upstream.h"
 
 #include <algorithm>
 #include <atomic>
@@ -502,6 +503,8 @@ TEST_CASE("apitof pinhole smoke tests")
         REQUIRE(state.realization >= 0);
         REQUIRE(state.realization < 5);
         auto &pending = pending_collisions[state.realization];
+        if constexpr (std::is_same_v<std::decay_t<decltype(event)>, InitEvent>)
+          CHECK(state.velocity[2] >= 0);
         constexpr bool is_post_collision = std::is_same_v<std::decay_t<decltype(event)>, PostCollisionEvent>;
         CHECK(pending.has_value() == is_post_collision);
         if constexpr (is_post_collision)
@@ -647,4 +650,100 @@ TEST_CASE("collision profile shares instantaneous simulator frequency")
       CHECK(frequencies[i] == doctest::Approx(collision_frequency(z[i], velocity, chamber, gas.mass, 7e-10, skimmer, ms.mesh_skimmer)));
     }
   }
+}
+
+TEST_CASE("upstream crossing selects the first crossing into the instrument")
+{
+  CHECK(upstream::crossing_time(-3, -2, 2, true) == doctest::Approx(3));
+  CHECK(upstream::crossing_time(-3, 2, 0, true) == doctest::Approx(1.5));
+  CHECK(upstream::crossing_time(-3, 4, -2, true) == doctest::Approx(1));
+  CHECK(upstream::crossing_time(0, -2, 2, true) == doctest::Approx(2));
+  CHECK(upstream::crossing_time(0, 2, -2, false) == doctest::Approx(2));
+  // An excursion can cross zero twice even when the step's endpoint is positive.
+  double outward = upstream::crossing_time(1, -3, 2, false);
+  CHECK(outward == doctest::Approx((3 - std::sqrt(5.0)) / 2));
+  CHECK(1 - 3 * 3 + 3 * 3 > 0);
+  CHECK(std::isinf(upstream::crossing_time(-1, 2, -2, true))); // tangency
+  CHECK(std::isinf(upstream::crossing_time(-3, 1, -2, true)));
+  // The stable root avoids subtracting nearly equal quantities.
+  CHECK(upstream::crossing_time(-1, 1e12, 1, true) == doctest::Approx(1e-12).epsilon(1e-12));
+}
+
+TEST_CASE("upstream motion advances exactly to fragmentation or return")
+{
+  Eigen::Vector3d velocity{3, 4, -2};
+  double z = -3, x = 1, y = 2, time = 10, elapsed = 0.5;
+  double remaining = std::numeric_limits<double>::infinity();
+  SUBCASE("return without fragmentation")
+  {
+  }
+  SUBCASE("fragment before return")
+  {
+    remaining = 1;
+  }
+  SUBCASE("fragment at return")
+  {
+    remaining = 3;
+  }
+  bool fragmented = upstream::advance(velocity, z, x, y, 2, remaining, time, elapsed);
+  double dt = std::min(remaining, 3.0);
+  CHECK(fragmented == (remaining <= 3));
+  CHECK(z == doctest::Approx(-3 - 2 * dt + dt * dt));
+  CHECK(velocity[2] == doctest::Approx(-2 + 2 * dt));
+  CHECK(x == doctest::Approx(1 + 3 * dt));
+  CHECK(y == doctest::Approx(2 + 4 * dt));
+  CHECK(time == doctest::Approx(10 + dt));
+  CHECK(elapsed == doctest::Approx(0.5 + dt));
+}
+
+TEST_CASE("nonreturning upstream particles invalidate the run before fragmentation")
+{
+  for (auto [z0, vz, acceleration] : std::vector<std::tuple<double, double, double>>{
+         {-1, -1, 0}, {-1, 0, 0}, {-1, -1, -1}, {-3, 1, -2}, {0, -1, 0}, {0, 0, -1}})
+  {
+    Eigen::Vector3d velocity{3, 4, vz};
+    double z = z0, x = 0, y = 0, time = 0, elapsed = 0;
+    CHECK_THROWS_AS(upstream::advance(velocity, z, x, y, acceleration, 0.01, time, elapsed), ApiTofParticleEscapeError);
+    CHECK(z == z0);
+    CHECK(time == 0);
+    CHECK(elapsed == 0);
+  }
+}
+
+TEST_CASE("upstream collision frequency is zero")
+{
+  SkimmerData skimmer(2, 3);
+  skimmer << 100, 300, 100, 100, 300, 100;
+  MassSpectrometer ms{skimmer, 0.0005, InstrumentDims::Constant(0.001), InstrumentVoltages::Zero(), 300, InstrumentPressures{100, 2}};
+  Gas gas{2e-10, 4.8e-26, 1.4};
+  ChamberQuantities chamber(ms, gas);
+  CHECK(collision_frequency(-1, Eigen::Vector3d{0, 0, -200}, chamber, gas.mass, 7e-10, skimmer, ms.mesh_skimmer) == 0);
+  CollisionProfile profile(ms, gas, 5e-10);
+  Eigen::Matrix<double, 1, 3> velocity = Eigen::Matrix<double, 1, 3>::Zero();
+  CHECK_THROWS_AS(profile.frequency(Eigen::ArrayXd::Constant(1, -1), velocity), std::invalid_argument);
+}
+
+TEST_CASE("upstream fragmentation products and repeated excursions return")
+{
+  Eigen::Vector3d velocity{3, 4, -2};
+  double z = -3, x = 0, y = 0, time = 0, elapsed = 0;
+  REQUIRE(upstream::advance(velocity, z, x, y, 2, 1, time, elapsed));
+  CHECK(z == doctest::Approx(-4));
+  // Tree products start at rest, with acceleration determined by their new mass.
+  velocity.setZero();
+  CHECK_FALSE(upstream::advance(velocity, z, x, y, 8, INFINITY, time, elapsed));
+  CHECK(z == 0);
+  CHECK(time == doctest::Approx(2));
+  CHECK(velocity[2] == doctest::Approx(8));
+  for (int i = 0; i < 3; ++i)
+  {
+    velocity[2] = -8;
+    CHECK_FALSE(upstream::advance(velocity, z, x, y, 8, INFINITY, time, elapsed));
+    CHECK(z == 0);
+    CHECK(velocity[2] == doctest::Approx(8));
+  }
+  CHECK(time == doctest::Approx(8));
+  CHECK(elapsed == time);
+  CHECK(x == 3);
+  CHECK(y == 4);
 }
