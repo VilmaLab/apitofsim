@@ -333,3 +333,73 @@ corresponding completed realization. Cancellation does not send a signal, raise
 unchanged. Requests after completion have no effect; `cancelled` stays false for
 full completion. Exiting the context manager waits for the worker; request
 cancellation explicitly if needed before exiting.
+
+## Prepared, database-recording simulations
+
+For `SINGLE_CLUSTER` runs, preparation and execution can be consumed separately.
+The database must already contain clusters, pathways and a configuration. Select
+one parent by ID/name, or select pathways by IDs/name triples; the two selectors
+are mutually exclusive. An empty or partly missing selection raises `ValueError`.
+Selections spanning parents produce separate groups. The tuple `pathway_ids` in
+each group matches its substance's native pathway indices and `product_ids`.
+
+```python
+from apitofsim.api import MassSpecIntermediateCounter, MassSpecLogItem
+from apitofsim.workflow import ExperimentRunner, RecordedMassSpecResult, SimulationMode
+
+# db is caller-owned: ExperimentDatabase or RealizationDatabase.
+row = next(db.iter_configs())
+runner = ExperimentRunner(db)
+runner.start_run(row.id, simulation_mode=SimulationMode.SINGLE_CLUSTER)
+print("Preparing")
+prepared = runner.prepare_from_config(row.config, show_progress=False)
+# To reuse explicitly selected caches, also pass cached_densityandrate=(dos_id, rate_id).
+# Their independent meshes are used, and their actual IDs are saved as provenance.
+print("Simulating")
+for group in prepared.groups:
+    with runner.iter_mass_spec(prepared, group, N=row.config["N"], seed=42, loglevel=1) as stream:
+        for item in stream:
+            if isinstance(item, MassSpecIntermediateCounter):
+                print("Completed:", item.counters.n_realizations)
+                if item.counters.n_realizations >= 100:
+                    stream.request_cancel()  # Example stopping policy; keep draining.
+            elif isinstance(item, MassSpecLogItem):
+                print(item.type, item.name)
+            elif isinstance(item, RecordedMassSpecResult):
+                print("Saved:", item.run_id, item.cluster_id, item.result_id)
+                print("Cancelled:", item.result.cancelled)
+            # Native events are already recorded on this consuming thread.
+```
+
+`prepare_from_config()` requires `start_run()` and never inserts another run or
+config. Preparation saves the effective configuration and actual histogram IDs
+before any trajectories start. Prepared inputs retain their run identity even
+if the runner later starts another run. Inputs belong to their preparing runner;
+use a group from that prepared object's `groups`. Treat the prepared native inputs
+as read-only. Grouped runs preserve existing electronic-energy bonding energies;
+`fragmentation_energy` overrides currently apply to pathway-at-a-time runs only.
+
+Use the recording stream as a context manager. Exiting early requests
+cancellation, drains and records remaining events/results, and joins the worker.
+The saved terminal wrapper is also available as `stream.result` after context
+exit. This is stronger than the low-level iterator's join-only context exit.
+`request_cancel()` is thread-safe, idempotent and non-blocking, including while
+`next()` is blocked. Only that method may be called from another thread; iteration,
+context exit and database access stay on the consuming thread.
+
+A terminal wrapper is exposed only after counters, timings and realization
+associations are saved. It contains the original `MassSpecFinalResult`, including
+`cancelled`; cancellation status is not currently a database column. Cancelled
+runs with zero completed realizations are saved too. Interrupted realizations may
+have recorded events without contributing to final completed-realization counters.
+Consumers choose how to display or delete cancelled output.
+
+The stream records execution/persistence failures once when possible and re-raises
+the original exception. Missing native completion is an error. Committed events
+are retained and linked to the failure when possible. Do not insert another
+execution-failure row in the consumer; consumer-specific diagnostics and errors
+in consumer processing remain the consumer's responsibility. Secondary cleanup
+errors are attached as exception notes. Final persistence uses the existing
+non-atomic database methods: a persistence error may leave partial result rows
+or associations; writes are not retried and no successful terminal wrapper is
+exposed. The stream never closes or checkpoints the caller's database.

@@ -753,7 +753,22 @@ def test_init_events_workflow(tmp_path, monkeypatch, mode):
     monkeypatch.setattr(api, "mass_spec", check_mass_spec)
     with connection_scope(RealizationDatabase, filename) as db:
         runner = ExperimentRunner(db)
-        runner.run_prepared_config(mode=SimulationMode[mode])
+        if mode == "SINGLE_CLUSTER":
+            # Keep exercising the blocking recording API as a parity reference;
+            # the grouped CLI now consumes the public recording stream.
+            row = next(db.iter_configs())
+            runner.start_run(row.id)
+            prepared = runner.prepare_from_config(row.config)
+            for group in prepared.groups:
+                runner.run_mass_spec(
+                    prepared.mass_spec,
+                    group.substance,
+                    row.config["N"],
+                    cluster_id=group.cluster_id,
+                    pathway_ids=group.pathway_ids,
+                )
+        else:
+            runner.run_prepared_config(mode=SimulationMode[mode])
         assert num_runs > 0
         for result_id, run_id, parent, _, _ in db.db.table(
             "experiment_result"
