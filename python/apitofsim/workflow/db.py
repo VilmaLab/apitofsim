@@ -1,5 +1,6 @@
 # pyright: reportAttributeAccessIssue=false
 
+import json
 from collections import Counter, namedtuple
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -960,11 +961,52 @@ class ExperimentDatabase(SuperClusterDatabase):
         cluster_id=None,
     ):
         id = self.db.execute(
-            "insert into experiment_failure values (default, ?, ?, ?, ?, ?, ?) returning id",
+            """insert into experiment_failure
+            (experiment_run_id, pathway_id, cluster_id, exc_name, msg, overflow_requested)
+            values (?, ?, ?, ?, ?, ?) returning id""",
             (run_id, pathway_id, cluster_id, exc_name, msg, overflow_requested),
         ).fetchone()
         assert id is not None
         return id[0]
+
+    def add_failure_diagnostics(self, failure_id, diagnostics):
+        """Shallow-merge JSON diagnostics into an existing failure.
+
+        Accept a dict of JSON values with finite numbers.
+        Supplied keys replace old values, including whole nested objects.
+        Preserve the primary error and event links; unknown IDs raise KeyError.
+        Add the column on first use for older databases. Use the connection's
+        current result database/schema and transaction; callers handle errors.
+        """
+        if not isinstance(diagnostics, dict):
+            raise TypeError("diagnostics must be a JSON object")
+        if (
+            self.db.execute(
+                "select id from experiment_failure where id = ?", [failure_id]
+            ).fetchone()
+            is None
+        ):
+            raise KeyError(f"Unknown failure ID {failure_id}")
+        payload = json.dumps(
+            self.get_failure_diagnostics(failure_id) | diagnostics, allow_nan=False
+        )
+        if "diagnostics" not in self.db.table("experiment_failure").columns:
+            self.db.execute(
+                "alter table experiment_failure add column diagnostics json"
+            )
+        self.db.execute(
+            "update experiment_failure set diagnostics = ? where id = ?",
+            [payload, failure_id],
+        )
+
+    def get_failure_diagnostics(self, failure_id):
+        """Return the diagnostics dict, or {} for an unenriched or unknown ID."""
+        if "diagnostics" not in self.db.table("experiment_failure").columns:
+            return {}
+        row = self.db.execute(
+            "select diagnostics from experiment_failure where id = ?", [failure_id]
+        ).fetchone()
+        return json.loads(row[0]) if row and row[0] is not None else {}
 
     def report_df(self, tbl_name):
         return self.db.table(tbl_name).fetchdf()

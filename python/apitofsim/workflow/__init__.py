@@ -14,8 +14,10 @@ from .runners import (
     ExperimentRunner,
     PreparedGroup,
     PreparedSimulation,
+    RecordedFailure,
     RecordedMassSpecResult,
     RecordingMassSpecIterator,
+    recorded_failure,
 )
 
 __all__ = [
@@ -30,8 +32,10 @@ __all__ = [
     "ExperimentRunner",
     "PreparedGroup",
     "PreparedSimulation",
+    "RecordedFailure",
     "RecordedMassSpecResult",
     "RecordingMassSpecIterator",
+    "recorded_failure",
     "ingest_legacy_one",
     "ingest_tree",
     "auto_db_type",

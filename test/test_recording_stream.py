@@ -2,6 +2,8 @@
 
 import json
 import threading
+import traceback
+from dataclasses import FrozenInstanceError
 from datetime import timedelta
 from itertools import chain
 
@@ -12,8 +14,10 @@ from apitofsim.workflow import (
     ExperimentDatabase,
     ExperimentRunner,
     RealizationDatabase,
+    RecordedFailure,
     RecordedMassSpecResult,
     SimulationMode,
+    recorded_failure,
 )
 from apitofsim.workflow.db import EventRecorder, connection_scope
 
@@ -326,6 +330,11 @@ def test_errors_preserve_primary_and_join(prepared_case, monkeypatch):
         with runner.iter_mass_spec(prepared, prepared.groups[0], N=5) as stream:
             list(stream)
     assert caught.value is primary
+    assert recorded_failure(primary) is stream.failure
+    assert stream.failure == RecordedFailure(1, prepared.run_id, 1, (1,))
+    assert "__next__" in [
+        frame.name for frame in traceback.extract_tb(primary.__traceback__)
+    ]
     assert fake.cancelled and fake.joined
     assert db.db.execute("select count(*) from experiment_failure").fetchone() == (1,)
     assert db.db.execute(
@@ -343,6 +352,7 @@ def test_missing_final(prepared_case, monkeypatch):
         with runner.iter_mass_spec(prepared, prepared.groups[0], N=5) as stream:
             list(stream)
     assert stream.result is None
+    assert stream.failure == RecordedFailure(1, prepared.run_id, 1, (1,))
     assert fake.joined
     assert db.db.execute("select count(*) from experiment_failure").fetchone() == (1,)
 
@@ -361,6 +371,13 @@ def test_persistence_error(prepared_case, monkeypatch, where):
         raise primary
 
     if where == "event":
+        # Queue events before injecting the write failure: immediate cancellation
+        # can otherwise race the native producer and leave nothing to drain.
+        with api.mass_spec_iter(
+            prepared.mass_spec, prepared.groups[0].substance, 5, logconf=(0, True)
+        ) as native:
+            fake = FakeStream(list(native))
+        monkeypatch.setattr(api, "mass_spec_iter", lambda *a, **k: fake)
         # Fail once to verify subsequent queued events can still be saved.
         original = EventRecorder.__call__
 
@@ -379,6 +396,11 @@ def test_persistence_error(prepared_case, monkeypatch, where):
             list(stream)
     assert caught.value is primary
     assert stream.result is None
+    assert recorded_failure(primary) is stream.failure
+    assert stream.failure.run_id == prepared.run_id
+    assert stream.failure.cluster_id == 1
+    if where == "link":
+        assert any("link persistence failed" in note for note in primary.__notes__)
     assert db.db.execute("select count(*) from experiment_failure").fetchone() == (1,)
     assert db.db.execute(
         "select count(*) from multi_pathway_experiment_result"
@@ -406,17 +428,19 @@ def test_secondary_failure_does_not_hide_primary(prepared_case, monkeypatch):
         with runner.iter_mass_spec(prepared, prepared.groups[0], N=5) as stream:
             list(stream)
     assert caught.value is primary
+    assert recorded_failure(primary) is stream.failure is None
     assert any("secondary" in note for note in primary.__notes__)
 
 
 def test_consumer_exception_drains_without_failure_row(prepared_case):
     db, runner, _, _ = prepared_case
     prepared = prepare(prepared_case, pathways=[1])
-    with pytest.raises(ValueError, match="consumer"):
+    with pytest.raises(ValueError, match="consumer") as caught:
         with runner.iter_mass_spec(prepared, prepared.groups[0], N=1_000_000) as stream:
             next(stream)
             raise ValueError("consumer")
     assert stream.result is not None
+    assert recorded_failure(caught.value) is stream.failure is None
     assert db.db.execute("select count(*) from experiment_failure").fetchone() == (0,)
 
 
@@ -601,6 +625,7 @@ def test_startup_error_is_recorded_once(prepared_case, monkeypatch):
     with pytest.raises(ValueError, match="invalid native input") as caught:
         runner.iter_mass_spec(prepared, prepared.groups[0], N=5)
     assert caught.value is primary
+    assert recorded_failure(primary) == RecordedFailure(1, prepared.run_id, 1, (1,))
     assert db.db.execute("select count(*) from experiment_failure").fetchone() == (1,)
     assert db.db.execute(
         "select count(*) from multi_pathway_experiment_result"
@@ -629,6 +654,7 @@ def test_partial_result_is_not_retried(prepared_case, monkeypatch):
     assert db.db.execute("select count(*) from experiment_failure").fetchone() == (1,)
     if isinstance(db, RealizationDatabase):
         failure_id = db.db.execute("select id from experiment_failure").fetchone()[0]
+        assert stream.failure.failure_id == failure_id
         assert db.db.execute(
             "select distinct experiment_result_id from realization"
         ).fetchall() == [(failure_id,)]
@@ -664,12 +690,16 @@ def test_native_error_retains_partial_events(prepared_case, monkeypatch):
     assert db.db.execute(
         "select count(*) from multi_pathway_experiment_result"
     ).fetchone() == (0,)
+    reference = recorded_failure(primary)
+    assert reference is stream.failure
+    db.add_failure_diagnostics(reference.failure_id, {"stage": "iteration"})
     if isinstance(db, RealizationDatabase):
         assert db.db.execute("select count(*) from event_info").fetchone() == (2,)
         failure_id = db.db.execute("select id from experiment_failure").fetchone()[0]
         assert db.db.execute(
             "select distinct experiment_result_id from realization"
         ).fetchall() == [(failure_id,)]
+        assert reference.failure_id == failure_id
 
 
 def test_counters_and_logs_are_forwarded_unchanged(prepared_case, monkeypatch):
@@ -700,3 +730,172 @@ def test_counters_and_logs_are_forwarded_unchanged(prepared_case, monkeypatch):
     assert options["seed"] == 123
     assert not options["strict"]
     assert options["logconf"] == (2, isinstance(runner.db, RealizationDatabase))
+
+
+def test_failure_references_across_attempts(prepared_case, monkeypatch):
+    db, runner, _, _ = prepared_case
+    prepared = prepare(prepared_case)
+    references = []
+    # Reuse the exception too: each insertion belongs to this attempt.
+    primary = RuntimeError("repeated failure")
+    primary.add_note("existing diagnostic")
+    for group in (*prepared.groups, prepared.groups[0]):
+        fake = FakeStream([primary])
+        monkeypatch.setattr(api, "mass_spec_iter", lambda *a, **k: fake)
+        with pytest.raises(RuntimeError) as caught:
+            with runner.iter_mass_spec(prepared, group, N=0) as stream:
+                list(stream)
+        assert caught.value is primary
+        reference = recorded_failure(primary)
+        assert reference is stream.failure
+        assert reference.cluster_id == group.cluster_id
+        assert reference.pathway_ids == group.pathway_ids
+        assert reference.run_id == prepared.run_id
+        assert primary.__notes__[0] == "existing diagnostic"
+        with pytest.raises(FrozenInstanceError):
+            reference.failure_id = 99
+        references.append(reference)
+    assert len({ref.failure_id for ref in references}) == 3
+    assert db.db.execute(
+        "select id, experiment_run_id, cluster_id from experiment_failure order by id"
+    ).fetchall() == [(r.failure_id, r.run_id, r.cluster_id) for r in references]
+
+    def fail(*args, **kwargs):
+        raise OSError("cannot insert failure")
+
+    monkeypatch.setattr(db, "record_failure", fail)
+    monkeypatch.setattr(api, "mass_spec_iter", lambda *a, **k: FakeStream([primary]))
+    with pytest.raises(RuntimeError) as caught:
+        with runner.iter_mass_spec(prepared, prepared.groups[0], N=0) as stream:
+            list(stream)
+    assert caught.value is primary
+    assert recorded_failure(primary) is stream.failure is None
+    assert any("cannot insert failure" in note for note in primary.__notes__)
+
+
+def test_startup_failure_insertion_error(prepared_case, monkeypatch):
+    db, runner, _, _ = prepared_case
+    prepared = prepare(prepared_case)
+    primary = ValueError("startup")
+
+    def startup(*args, **kwargs):
+        raise primary
+
+    def insert(*args, **kwargs):
+        raise OSError("insertion")
+
+    monkeypatch.setattr(api, "mass_spec_iter", startup)
+    monkeypatch.setattr(db, "record_failure", insert)
+    with pytest.raises(ValueError) as caught:
+        runner.iter_mass_spec(prepared, prepared.groups[0], N=0)
+    assert caught.value is primary
+    assert recorded_failure(primary) is None
+    assert "insertion" in primary.__notes__[0]
+    assert db.db.execute("select count(*) from experiment_failure").fetchone() == (0,)
+
+
+@pytest.mark.parametrize("attached", [False, True])
+@pytest.mark.parametrize("legacy", [False, True])
+def test_failure_diagnostics(tmp_path, attached, legacy):
+    import duckdb
+    from apitofsim.workflow import sql_files_nofk
+
+    if attached:
+        connection = duckdb.connect()
+        connection.execute(f"attach '{tmp_path / 'results.duckdb'}' as output")
+        connection.execute("use output")
+        connection.execute(sql_files_nofk.experiment)
+        filename = (connection, None)
+    else:
+        filename = ":memory:"
+    with connection_scope(ExperimentDatabase, filename) as db:
+        if not attached:
+            db.create_tables()
+        if legacy:
+            db.db.execute("alter table experiment_failure drop column diagnostics")
+        config_id = db.insert_config("diagnostics", "{}")
+        run_id = db.insert_run(config_id)
+        failure_id = db.record_failure(run_id, "OverflowError", "original", 123)
+        primary_query = "select id, experiment_run_id, pathway_id, cluster_id, exc_name, msg, overflow_requested from experiment_failure"
+        original = db.db.execute(primary_query).fetchall()
+        assert db.get_failure_diagnostics(failure_id) == {}
+        assert db.get_failure_diagnostics(999) == {}
+        with pytest.raises(KeyError, match="Unknown failure"):
+            db.add_failure_diagnostics(999, {})
+        for diagnostics, error in (
+            ([], TypeError),
+            ({"bad": object()}, TypeError),
+            ({"bad": float("nan")}, ValueError),
+        ):
+            with pytest.raises(error):
+                db.add_failure_diagnostics(failure_id, diagnostics)
+        if legacy:
+            assert "diagnostics" not in db.db.table("experiment_failure").columns
+        db.add_failure_diagnostics(
+            failure_id, {"stage": "run", "counts": {"events": 2, "results": 0}}
+        )
+        for _ in range(2):
+            db.add_failure_diagnostics(
+                failure_id,
+                {
+                    "stage": "failed",
+                    "counts": {"events": 3},
+                    "traceback": ["failed"],
+                    "optional": None,
+                },
+            )
+        db.add_failure_diagnostics(failure_id, {})
+        expected = {
+            "stage": "failed",
+            "counts": {"events": 3},
+            "traceback": ["failed"],
+            "optional": None,
+        }
+        assert db.get_failure_diagnostics(failure_id) == expected
+        assert (
+            json.loads(
+                db.db.execute(
+                    "select diagnostics from experiment_failure where id = ?",
+                    [failure_id],
+                ).fetchone()[0]
+            )
+            == expected
+        )
+        assert db.db.execute(primary_query).fetchall() == original
+        # Recording remains compatible with both the old and migrated schema.
+        second_id = db.record_failure(run_id, "ValueError", "second")
+        assert second_id != failure_id
+        assert db.get_failure_diagnostics(second_id) == {}
+        if not attached:
+            # Existing report views still bind after a legacy schema is enriched.
+            assert db.report_df("experiment_summary").iloc[0].failures == 2
+        if attached:
+            assert db.db.execute(
+                "select count(*) from output.experiment_failure where diagnostics is not null"
+            ).fetchone() == (1,)
+            db.forget(runs=True)
+            assert db.get_failure_diagnostics(failure_id) == {}
+
+
+@pytest.mark.parametrize("startup", [True, False])
+def test_native_failure_reference(prepared_case, startup):
+    db, runner, _, _ = prepared_case
+    prepared = prepare(prepared_case, pathways=[1])
+    if startup:
+        error_type = TypeError
+        count = "invalid native count"
+    else:
+        error_type = api.ApiTofParticleEscapeError
+        count = 5
+        # Reverse field forces an upstream escape in the native worker.
+        prepared.mass_spec.voltages = api.Q_(-np.arange(5.0) * 1000, "V")
+        prepared.mass_spec.pressures = api.Q_([0.001, 0.001], "Pa")
+    with pytest.raises(error_type) as caught:
+        with runner.iter_mass_spec(prepared, prepared.groups[0], N=count) as stream:
+            list(stream)
+    reference = recorded_failure(caught.value)
+    assert reference == RecordedFailure(1, prepared.run_id, 1, (1,))
+    assert db.db.execute(
+        "select exc_name, msg from experiment_failure where id = ?",
+        [reference.failure_id],
+    ).fetchone() == (error_type.__name__, str(caught.value))

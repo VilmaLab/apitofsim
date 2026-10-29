@@ -75,6 +75,27 @@ class RecordedMassSpecResult:
     result: MassSpecFinalResult
 
 
+@dataclass(frozen=True)
+class RecordedFailure:
+    """Immutable failure identity in the recording stream's result database."""
+
+    failure_id: int
+    run_id: int
+    cluster_id: int
+    pathway_ids: tuple[int, ...]
+
+
+def recorded_failure(error: BaseException) -> RecordedFailure | None:
+    """Return this exception's inserted failure, including startup errors.
+
+    Return None if insertion failed or the error is consumer-owned. The same
+    reference is available as stream.failure, even if event linking fails.
+    Reusing an exception replaces its reference. Enrich before serialization,
+    or forward the reference explicitly; serializers may drop exception state.
+    """
+    return error.__dict__.get("_apitofsim_recorded_failure")
+
+
 class RecordingMassSpecIterator:
     """Consuming-thread persistence around the native iterator.
 
@@ -93,6 +114,7 @@ class RecordingMassSpecIterator:
         self.prepared = prepared
         self.group = group
         self.result = None
+        self.failure: RecordedFailure | None = None
         self._done = False
         self._stream = None
         self._recorder = (
@@ -168,6 +190,8 @@ class RecordingMassSpecIterator:
     def _abort(self, error):
         # Do not retry a failed write or turn a later native final into success.
         self._done = True
+        # A reused exception must never expose a previous attempt's reference.
+        error.__dict__.pop("_apitofsim_recorded_failure", None)
         if self._stream is not None:
             self._cleanup_step(error, self.request_cancel)
             try:
@@ -188,9 +212,19 @@ class RecordingMassSpecIterator:
                 cluster_id=self.group.cluster_id,
             ),
         )
-        if failure_id is not None and self._recorder is not None:
-            recorder = self._recorder
-            self._cleanup_step(error, lambda: recorder.relate_realizations(failure_id))
+        if failure_id is not None:
+            self.failure = RecordedFailure(
+                failure_id,
+                self.prepared.run_id,
+                self.group.cluster_id,
+                self.group.pathway_ids,
+            )
+            error.__dict__["_apitofsim_recorded_failure"] = self.failure
+            if self._recorder is not None:
+                recorder = self._recorder
+                self._cleanup_step(
+                    error, lambda: recorder.relate_realizations(failure_id)
+                )
 
     def __enter__(self):
         return self

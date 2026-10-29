@@ -78,5 +78,6 @@ create table experiment_failure (
     foreign key (cluster_id) references cluster (id),
     exc_name varchar,
     msg varchar,
-    overflow_requested double
+    overflow_requested double,
+    diagnostics json
 );
