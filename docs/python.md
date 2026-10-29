@@ -403,3 +403,35 @@ errors are attached as exception notes. Final persistence uses the existing
 non-atomic database methods: a persistence error may leave partial result rows
 or associations; writes are not retried and no successful terminal wrapper is
 exposed. The stream never closes or checkpoints the caller's database.
+
+### Failure diagnostics
+
+::: apitofsim.workflow.RecordedFailure
+
+::: apitofsim.workflow.recorded_failure
+
+See [add_failure_diagnostics][apitofsim.workflow.ExperimentDatabase.add_failure_diagnostics]
+and [get_failure_diagnostics][apitofsim.workflow.ExperimentDatabase.get_failure_diagnostics]
+for storing and reading diagnostics.
+
+```python
+from traceback import format_exception
+from apitofsim.workflow import recorded_failure
+
+try:
+    with runner.iter_mass_spec(prepared, group, N=100) as stream:
+        for item in stream:
+            handle(item)
+except Exception as exc:
+    failure = recorded_failure(exc)
+    diagnostics = {"stage": stage, "traceback": format_exception(exc)}
+    if failure is not None:
+        try:
+            db.add_failure_diagnostics(failure.failure_id, diagnostics)
+        except Exception as enrichment_error:
+            exc.add_note(f"Saving diagnostics failed: {enrichment_error}")
+            save_external_diagnostics(diagnostics)
+    else:
+        save_external_diagnostics(diagnostics)
+    raise
+```
