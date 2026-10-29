@@ -224,6 +224,8 @@ def _config_value(value, field, *, strict=False):
         if SimulationConfig.__annotations__.get(field) is int:
             if arr.item() != int(arr.item()):
                 raise ValueError("expected an integer")
+            if field == "N" and arr.item() < 0:
+                raise ValueError("expected a non-negative integer")
             return int(arr.item())
         value = arr.astype(float).copy() if shape else arr.item()
         return value if spec.unit == "dimensionless" else Q_(value, spec.unit)
@@ -231,6 +233,11 @@ def _config_value(value, field, *, strict=False):
         raise ValueError(
             f"{field}: expected shape {shape} in {spec.unit}: {exc}"
         ) from exc
+
+
+def validate_realizations(value) -> int:
+    """Normalize a non-negative realization count using the builder's rules."""
+    return _config_value(value, "N", strict=True)
 
 
 def build_config(

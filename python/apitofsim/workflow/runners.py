@@ -54,14 +54,45 @@ class PreparedGroup:
 
 @dataclass(frozen=True)
 class PreparedSimulation:
-    """Inputs bound to a started run and the runner that prepared them."""
+    """Inputs bound to one session; native inputs should be treated as read-only."""
 
     run_id: int
     mass_spec: MassSpectrometer
     groups: tuple[PreparedGroup, ...]
     dos_histogram_id: int
     rate_histogram_id: int
-    _runner: object = field(repr=False, compare=False)
+    _session: "RunSession" = field(repr=False, compare=False)
+    configured_realizations: int
+
+    def iter_mass_spec(self, group, *, realizations=None, **options):
+        """Execute with the configured count, or an explicit per-execution override."""
+        return self._session.iter_mass_spec(
+            self, group, realizations=realizations, **options
+        )
+
+
+@dataclass(frozen=True)
+class RunSession:
+    """One stable run, independent of the runner's subsequently started runs.
+
+    Repeated preparation may change selection, but must retain config/cache
+    provenance. Repeated execution records a separate result and count each time.
+    The caller owns the database; this is not a transaction or context manager.
+    """
+
+    run_id: int
+    simulation_mode: SimulationMode
+    _runner: "ExperimentRunner" = field(repr=False, compare=False)
+
+    def prepare(self, config, **options) -> PreparedSimulation:
+        return self._runner._prepare_session(self, config, **options)
+
+    def iter_mass_spec(self, prepared, group, *, realizations=None, **options):
+        if prepared._session is not self:
+            raise ValueError("Prepared inputs must belong to this session")
+        return self._runner.iter_mass_spec(
+            prepared, group, realizations=realizations, **options
+        )
 
 
 @dataclass(frozen=True)
@@ -73,6 +104,8 @@ class RecordedMassSpecResult:
     pathway_ids: tuple[int, ...]
     result_id: int
     result: MassSpecFinalResult
+    configured_realizations: int
+    requested_realizations: int
 
 
 @dataclass(frozen=True)
@@ -113,6 +146,7 @@ class RecordingMassSpecIterator:
         self.db = db
         self.prepared = prepared
         self.group = group
+        self.requested_realizations = N
         self.result = None
         self.failure: RecordedFailure | None = None
         self._done = False
@@ -161,6 +195,13 @@ class RecordingMassSpecIterator:
                     cluster_id=self.group.cluster_id,
                     pathway_ids=self.group.pathway_ids,
                 )
+                self.db.record_execution(
+                    self.prepared.run_id,
+                    result_id,
+                    self.prepared.configured_realizations,
+                    self.requested_realizations,
+                    int(item.counters.n_realizations),
+                )
                 if self._recorder is not None:
                     self._recorder.relate_realizations(result_id)
                 self.result = RecordedMassSpecResult(
@@ -169,6 +210,8 @@ class RecordingMassSpecIterator:
                     self.group.pathway_ids,
                     result_id,
                     item,
+                    self.prepared.configured_realizations,
+                    self.requested_realizations,
                 )
                 self._done = True
                 return self.result
@@ -220,6 +263,16 @@ class RecordingMassSpecIterator:
                 self.group.pathway_ids,
             )
             error.__dict__["_apitofsim_recorded_failure"] = self.failure
+            self._cleanup_step(
+                error,
+                lambda: self.db.record_execution(
+                    self.prepared.run_id,
+                    failure_id,
+                    self.prepared.configured_realizations,
+                    self.requested_realizations,
+                    None,
+                ),
+            )
             if self._recorder is not None:
                 recorder = self._recorder
                 self._cleanup_step(
@@ -748,20 +801,30 @@ class ExperimentRunner:
         self.db = db
         self.preparer = DerivedDataPreparer(db)
         self.current_run_id = None
-        self._simulation_mode = None
+        self._session = None
 
     def _guard_run_started(self):
         if self.current_run_id is None:
             raise RuntimeError("No experiment run started; call start_run() first")
 
-    def start_run(self, config_id=None, **kwargs):
+    def start_run(self, config_id=None, **kwargs) -> RunSession:
         self.current_run_id = self.db.insert_run(config_id, **kwargs)
-        self._simulation_mode = kwargs.get(
-            "simulation_mode", SimulationMode.SINGLE_CLUSTER
+        self._session = RunSession(
+            self.current_run_id,
+            kwargs.get("simulation_mode", SimulationMode.SINGLE_CLUSTER),
+            self,
         )
+        return self._session
 
-    def prepare_from_config(
+    def prepare_from_config(self, config, **options) -> PreparedSimulation:
+        """Compatibility adapter: prepare through the most recently started session."""
+        self._guard_run_started()
+        assert self._session is not None
+        return self._session.prepare(config, **options)
+
+    def _prepare_session(
         self,
+        session,
         config,
         *,
         parent=None,
@@ -777,8 +840,10 @@ class ExperimentRunner:
         Grouped inputs retain the existing electronic-energy bonding energies;
         the pathway-at-a-time fragmentation_energy override does not apply.
         """
-        self._guard_run_started()
-        if self._simulation_mode != SimulationMode.SINGLE_CLUSTER:
+        from apitofsim.config import validate_realizations
+
+        count = validate_realizations(config["N"])
+        if session.simulation_mode != SimulationMode.SINGLE_CLUSTER:
             raise ValueError("Public preparation supports SINGLE_CLUSTER only")
         if pathways is not None:
             pathways = list(pathways)
@@ -791,27 +856,29 @@ class ExperimentRunner:
             cached_densityandrate=cached_densityandrate,
             show_progress=show_progress,
             validate_selection=True,
+            run_id=session.run_id,
         )
         mass_spec, clusters, names, lookup, rates, densities = inputs
         groups = self._prepare_groups(config, clusters, names, lookup, rates, densities)
-        assert self.current_run_id is not None
         assert self.preparer.dos_histogram_id is not None
         assert self.preparer.rate_histogram_id is not None
         return PreparedSimulation(
-            self.current_run_id,
+            session.run_id,
             mass_spec,
             groups,
             self.preparer.dos_histogram_id,
             self.preparer.rate_histogram_id,
-            self,
+            session,
+            count,
         )
 
     def iter_mass_spec(
         self,
         prepared,
         group,
-        N,
+        N=None,
         *,
+        realizations=None,
         sample_mode=SampleMode.rejection,
         strict_dos=True,
         loglevel=0,
@@ -824,13 +891,25 @@ class ExperimentRunner:
         flag). Each invocation records a new result; consuming it twice does not.
         Use stream.result after early context exit to inspect saved completion.
         """
-        if prepared._runner is not self or not any(group is g for g in prepared.groups):
-            raise ValueError("Prepared inputs/group must belong to this runner")
+        from apitofsim.config import validate_realizations
+
+        if prepared._session._runner is not self or not any(
+            group is g for g in prepared.groups
+        ):
+            raise ValueError(
+                "Prepared inputs/group must belong to this runner/preparation"
+            )
+        if N is not None and realizations is not None:
+            raise ValueError("Supply only realizations or legacy N")
+        count = realizations if realizations is not None else N
+        count = validate_realizations(
+            prepared.configured_realizations if count is None else count
+        )
         return RecordingMassSpecIterator(
             self.db,
             prepared,
             group,
-            N,
+            count,
             sample_mode=sample_mode,
             strict=strict_dos,
             logconf=(loglevel, isinstance(self.db, RealizationDatabase)),
@@ -914,6 +993,7 @@ class ExperimentRunner:
         cached_densityandrate=None,
         show_progress=True,
         validate_selection=False,
+        run_id=None,
     ):
         cluster_indexed, name_lookup, pathway_lookup = self.db.get_all_lookups(
             parent, pathways
@@ -944,7 +1024,7 @@ class ExperimentRunner:
         )
 
         self.db.record_run_preparation(
-            self.current_run_id,
+            self.current_run_id if run_id is None else run_id,
             config,
             self.preparer.dos_histogram_id,
             self.preparer.rate_histogram_id,

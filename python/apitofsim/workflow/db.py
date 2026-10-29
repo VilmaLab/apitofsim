@@ -664,9 +664,40 @@ class ExperimentDatabase(SuperClusterDatabase):
                 "rate_histogram_id": rate_histogram_id,
             }
         ).decode()
+        row = self.db.execute(
+            "select run_config, json_merge_patch('{}', ?::json) from experiment_run where id = ?",
+            [metadata, run_id],
+        ).fetchone()
+        assert row is not None
+        previous = json.loads(row[0]) if row[0] else {}
+        effective = json.loads(row[1])
+        if "config" in previous and any(
+            previous.get(k) != v for k, v in effective.items()
+        ):
+            raise ValueError(
+                "Session config/cache provenance is fixed; start_run() for different inputs"
+            )
         self.db.execute(
             "update experiment_run set run_config = json_merge_patch(coalesce(run_config, '{}'), ?::json) where id = ?",
             (metadata, run_id),
+        )
+
+    def record_execution(self, run_id, result_id, configured, requested, completed):
+        """Save counts per result/failure, retaining compatibility with older schemas."""
+        metadata = json.dumps(
+            {
+                "executions": {
+                    str(result_id): {
+                        "configured_realizations": configured,
+                        "requested_realizations": requested,
+                        "completed_realizations": completed,
+                    }
+                }
+            }
+        )
+        self.db.execute(
+            "update experiment_run set run_config = json_merge_patch(coalesce(run_config, '{}'), ?::json) where id = ?",
+            [metadata, run_id],
         )
 
     def pathway_rate_curves(

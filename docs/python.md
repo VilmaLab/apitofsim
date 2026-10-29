@@ -443,14 +443,14 @@ from apitofsim.workflow import ExperimentRunner, RecordedMassSpecResult, Simulat
 # db is caller-owned: ExperimentDatabase or RealizationDatabase.
 row = next(db.iter_configs())
 runner = ExperimentRunner(db)
-runner.start_run(row.id, simulation_mode=SimulationMode.SINGLE_CLUSTER)
+run = runner.start_run(row.id, simulation_mode=SimulationMode.SINGLE_CLUSTER)
 print("Preparing")
-prepared = runner.prepare_from_config(row.config, show_progress=False)
+prepared = run.prepare(row.config, show_progress=False)
 # To reuse explicitly selected caches, also pass cached_densityandrate=(dos_id, rate_id).
 # Their independent meshes are used, and their actual IDs are saved as provenance.
 print("Simulating")
 for group in prepared.groups:
-    with runner.iter_mass_spec(prepared, group, N=row.config["N"], seed=42, loglevel=1) as stream:
+    with prepared.iter_mass_spec(group, seed=42, loglevel=1) as stream:
         for item in stream:
             if isinstance(item, MassSpecIntermediateCounter):
                 print("Completed:", item.counters.n_realizations)
@@ -464,12 +464,31 @@ for group in prepared.groups:
             # Native events are already recorded on this consuming thread.
 ```
 
-`prepare_from_config()` requires `start_run()` and never inserts another run or
-config. Preparation saves the effective configuration and actual histogram IDs
-before any trajectories start. Prepared inputs retain their run identity even
-if the runner later starts another run. Inputs belong to their preparing runner;
-use a group from that prepared object's `groups`. Treat the prepared native inputs
-as read-only. Grouped runs preserve existing electronic-energy bonding energies;
+`start_run()` returns a `RunSession` with a stable `run_id` and simulation mode.
+`run.prepare()` saves the effective configuration and actual histogram IDs before
+any trajectories start, without inserting another run or config. Starting another
+session never changes existing prepared inputs. Use a group from that prepared
+object's `groups`; `run.iter_mass_spec(prepared, group)` also rejects inputs from
+another session. Sessions do not own the database or introduce transactions.
+Repeated preparation may change selection, but changing config/cache provenance
+requires a new session so earlier results remain accurately described.
+
+Execution defaults to the prepared configuration's `N`. An intentional override
+is keyword-only: `prepared.iter_mass_spec(group, realizations=100)`. Counts follow
+`build_config()` validation: finite, non-negative integers, including zero.
+Each execution saves `configured_realizations`, `requested_realizations`, and
+`completed_realizations` under `run_config.executions[result_id]` (also keyed by
+failure IDs; completions are unknown for failures). Results expose the first two
+counts directly and completions via `result.counters.n_realizations`. Pathway
+reports expose all three; cluster reports sum requested and completed counts.
+Older results without execution metadata report null counts. Overrides never
+modify the caller's config or earlier executions. Cancellation may complete fewer
+realizations than requested.
+
+Existing `runner.prepare_from_config(config)` prepares through the latest session;
+`runner.iter_mass_spec(prepared, group, N=...)` remains a compatibility adapter.
+Prepared inputs retain their session even when using these older methods. Treat
+the prepared native inputs as read-only. Grouped runs preserve existing electronic-energy bonding energies;
 `fragmentation_energy` overrides currently apply to pathway-at-a-time runs only.
 
 Use the recording stream as a context manager. Exiting early requests

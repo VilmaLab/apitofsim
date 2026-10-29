@@ -6,6 +6,7 @@ import traceback
 from dataclasses import FrozenInstanceError
 from datetime import timedelta
 from itertools import chain
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -283,6 +284,12 @@ def test_cancellation_and_early_exit(prepared_case, early, monkeypatch):
             if isinstance(item, RecordedMassSpecResult):
                 break
     final = stream.result.result
+    assert stream.result.requested_realizations == 1_000_000
+    assert execution_metadata(db, prepared.run_id, stream.result.result_id) == dict(
+        configured_realizations=5,
+        requested_realizations=1_000_000,
+        completed_realizations=int(final.counters.n_realizations),
+    )
     assert final.cancelled
     assert final.counters.n_realizations < 1_000_000
     if not early:
@@ -449,7 +456,7 @@ def test_cancel_from_thread_while_blocked(prepared_case, monkeypatch):
     prepared = prepare(prepared_case, pathways=[1])
     entered = threading.Event()
     released = threading.Event()
-    final = api.MassSpecFinalResult(None, None, True)
+    final = api.MassSpecFinalResult(SimpleNamespace(n_realizations=0), None, True)
     # Only the cancellation delegate runs on the other thread. Persistence stays
     # on the owner thread even when next() is waiting for native output.
     owner = threading.get_ident()
@@ -883,15 +890,17 @@ def test_native_failure_reference(prepared_case, startup):
     prepared = prepare(prepared_case, pathways=[1])
     if startup:
         error_type = TypeError
-        count = "invalid native count"
+        options = {"seed": "invalid native seed"}
     else:
         error_type = api.ApiTofParticleEscapeError
-        count = 5
+        options = {}
         # Reverse field forces an upstream escape in the native worker.
         prepared.mass_spec.voltages = api.Q_(-np.arange(5.0) * 1000, "V")
         prepared.mass_spec.pressures = api.Q_([0.001, 0.001], "Pa")
     with pytest.raises(error_type) as caught:
-        with runner.iter_mass_spec(prepared, prepared.groups[0], N=count) as stream:
+        with runner.iter_mass_spec(
+            prepared, prepared.groups[0], N=5, **options
+        ) as stream:
             list(stream)
     reference = recorded_failure(caught.value)
     assert reference == RecordedFailure(1, prepared.run_id, 1, (1,))
@@ -899,3 +908,148 @@ def test_native_failure_reference(prepared_case, startup):
         "select exc_name, msg from experiment_failure where id = ?",
         [reference.failure_id],
     ).fetchone() == (error_type.__name__, str(caught.value))
+
+
+def execution_metadata(db, run_id, result_id):
+    metadata = json.loads(
+        db.db.execute(
+            "select run_config from experiment_run where id = ?", [run_id]
+        ).fetchone()[0]
+    )
+    return metadata["executions"][str(result_id)]
+
+
+def test_sessions_interleave_preparation_execution_and_failure(
+    prepared_case, monkeypatch
+):
+    db, runner, config, config_id = prepared_case
+    config = dict(config, quadrupole=None)
+    first = runner.start_run(config_id)
+    second = runner.start_run(config_id)
+    assert first.run_id != second.run_id == runner.current_run_id
+    with pytest.raises(FrozenInstanceError):
+        first.run_id = second.run_id
+    a = first.prepare(config, pathways=[1], cached_densityandrate=(1, 2))
+    b = second.prepare(config, pathways=[2], cached_densityandrate=(1, 2))
+    again = first.prepare(config, pathways=[3], cached_densityandrate=(1, 2))
+    for session, prepared in ((second, b), (first, a), (first, again)):
+        with session.iter_mass_spec(
+            prepared, prepared.groups[0], realizations=0
+        ) as stream:
+            terminal = list(stream)[-1]
+        assert terminal.run_id == session.run_id
+        assert db.db.execute(
+            "select experiment_run_id from experiment_result where id = ?",
+            [terminal.result_id],
+        ).fetchone() == (session.run_id,)
+    with pytest.raises(ValueError, match="session"):
+        second.iter_mass_spec(a, a.groups[0])
+    with pytest.raises(ValueError, match="preparation"):
+        a.iter_mass_spec(again.groups[0])
+    error = RuntimeError("old session failure")
+    monkeypatch.setattr(api, "mass_spec_iter", lambda *a, **k: FakeStream([error]))
+    with pytest.raises(RuntimeError, match="old session failure"):
+        with a.iter_mass_spec(a.groups[0]) as stream:
+            list(stream)
+    assert recorded_failure(error).run_id == first.run_id
+    assert db.db.execute(
+        "select experiment_run_id from experiment_failure where id = ?",
+        [stream.failure.failure_id],
+    ).fetchone() == (first.run_id,)
+    assert (
+        execution_metadata(db, first.run_id, stream.failure.failure_id)[
+            "requested_realizations"
+        ]
+        == 5
+    )
+
+
+def test_session_mode_is_stable(prepared_case):
+    _, runner, config, config_id = prepared_case
+    first = runner.start_run(config_id)
+    second = runner.start_run(config_id, simulation_mode=SimulationMode.CLUSTER_TREE)
+    assert first.simulation_mode == SimulationMode.SINGLE_CLUSTER
+    prepared = first.prepare(config, pathways=[1], cached_densityandrate=(1, 2))
+    with prepared.iter_mass_spec(prepared.groups[0], realizations=0) as stream:
+        assert list(stream)[-1].run_id == first.run_id
+    with pytest.raises(ValueError, match="SINGLE_CLUSTER"):
+        second.prepare(config)
+
+
+def test_execution_counts_and_immutable_provenance(prepared_case):
+    db, runner, config, config_id = prepared_case
+    run = runner.start_run(config_id)
+    prepared = run.prepare(config, pathways=[1], cached_densityandrate=(1, 2))
+    # Execution defaults are snapshots; callers still own their config.
+    config["N"] = 99
+    snapshots = []
+    for options, expected in (
+        ({}, 5),
+        ({"realizations": 2}, 2),
+        ({"realizations": 0}, 0),
+    ):
+        with prepared.iter_mass_spec(prepared.groups[0], **options) as stream:
+            terminal = list(stream)[-1]
+        assert terminal.configured_realizations == prepared.configured_realizations == 5
+        assert (
+            terminal.requested_realizations
+            == terminal.result.counters.n_realizations
+            == expected
+        )
+        metadata = execution_metadata(db, run.run_id, terminal.result_id)
+        assert metadata == dict(
+            configured_realizations=5,
+            requested_realizations=expected,
+            completed_realizations=expected,
+        )
+        snapshots.append((terminal.result_id, metadata))
+        assert db.db.execute(
+            "select configured_realizations, requested_realizations, completed_realizations from experiment_pathway_report where result_id = ?",
+            [terminal.result_id],
+        ).fetchone() == (5, expected, expected)
+    assert db.db.execute(
+        "select requested_realizations, completed_realizations from experiment_cluster_report"
+    ).fetchone() == (7, 7)
+    for result_id, metadata in snapshots:
+        assert execution_metadata(db, run.run_id, result_id) == metadata
+    assert config["N"] == 99
+    with pytest.raises(ValueError, match="provenance.*fixed"):
+        run.prepare(config, pathways=[1], cached_densityandrate=(1, 2))
+    config["N"] = 5
+    db.db.execute(
+        "insert into k_rate (pathway_id, histogram_params_id, data) values (1, 3, ?)",
+        [np.zeros(4)],
+    )
+    with pytest.raises(ValueError, match="provenance.*fixed"):
+        run.prepare(config, pathways=[1], cached_densityandrate=(1, 3))
+    for result_id, metadata in snapshots:
+        assert execution_metadata(db, run.run_id, result_id) == metadata
+    assert runner.current_run_id == run.run_id
+
+
+@pytest.mark.parametrize(
+    "count", [-1, 1.5, True, float("nan"), float("inf"), "2", [2], api.Q_(2, "m")]
+)
+def test_invalid_execution_counts(prepared_case, count):
+    db, runner, config, _ = prepared_case
+    prepared = prepare(prepared_case, pathways=[1])
+    with pytest.raises(ValueError):
+        prepared.iter_mass_spec(prepared.groups[0], realizations=count)
+    with pytest.raises(ValueError):
+        runner.iter_mass_spec(prepared, prepared.groups[0], N=count)
+    with pytest.raises(ValueError):
+        runner.prepare_from_config(dict(config, N=count), cached_densityandrate=(1, 2))
+    assert db.db.execute("select count(*) from experiment_failure").fetchone() == (0,)
+    with pytest.raises(ValueError, match="only"):
+        runner.iter_mass_spec(prepared, prepared.groups[0], N=1, realizations=2)
+
+
+def test_zero_configured_count(prepared_case):
+    db, runner, config, _ = prepared_case
+    config["N"] = 0
+    prepared = prepare(prepared_case, pathways=[1])
+    with prepared.iter_mass_spec(prepared.groups[0]) as stream:
+        terminal = list(stream)[-1]
+    assert execution_metadata(db, prepared.run_id, terminal.result_id) == dict(
+        configured_realizations=0, requested_realizations=0, completed_realizations=0
+    )

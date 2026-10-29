@@ -145,6 +145,7 @@ def test_optional_fields_and_quadrupole_defaults(inputs):
         ("T", Q_(1, "m"), "T.*kelvin"),
         ("T", 300, "T.*Pint quantity"),
         ("N_iter", 2.5, "N_iter.*integer"),
+        ("N", -1, "N.*non-negative"),
         ("resolution", True, "resolution.*numeric scalar"),
         ("dc", Q_([1, 2], "m"), "dc.*scalar"),
         ("tolerance", np.nan, "tolerance.*finite"),
@@ -240,3 +241,10 @@ def test_partial_stored_config_decoding():
     gas = decoded["gas"]
     assert import_raw_config(decoded)["gas"] is gas
     assert quadrupole_components.keys() == {"radiofrequency", "r_quadrupole"}
+
+
+@pytest.mark.parametrize("count", [0, 2.0, np.int64(3), Q_(4, "dimensionless")])
+def test_realization_count_normalization(inputs, count):
+    config = build_config(**dict(inputs, N=count))
+    assert config["N"] == int(count)
+    assert isinstance(config["N"], int)

@@ -65,6 +65,9 @@ select
 
     -- Result/failure fields
     res.msg as failure_msg,
+    json_extract(er.run_config, '$.executions.' || res.id || '.configured_realizations')::uint64 as configured_realizations,
+    json_extract(er.run_config, '$.executions.' || res.id || '.requested_realizations')::uint64 as requested_realizations,
+    json_extract(er.run_config, '$.executions.' || res.id || '.completed_realizations')::uint64 as completed_realizations,
     res.loop_us,
     res.total_us,
     res.nwarnings,
@@ -123,6 +126,7 @@ create or replace view experiment_cluster_report as
 with result_counts as (
     select
         res.experiment_run_id,
+        res.id as result_id,
         p.cluster_id,
         res.n_escaped_total as escaped,
         res.n_fragmented_total as fragmented
@@ -132,6 +136,7 @@ with result_counts as (
     -- Each fragmented trajectory contributes once, also in CLUSTER_TREE mode.
     select
         res.experiment_run_id,
+        res.id as result_id,
         res.cluster_id,
         res.n_escaped_total as escaped,
         coalesce(sum(pf.count), 0) as fragmented
@@ -141,6 +146,7 @@ with result_counts as (
     union all
     select
         failure.experiment_run_id,
+        failure.id as result_id,
         coalesce(failure.cluster_id, p.cluster_id) as cluster_id,
         null as escaped,
         null as fragmented
@@ -161,6 +167,8 @@ select
     c.rotational_temperatures as cluster_rotational_temperatures,
     c.vibrational_temperatures as cluster_vibrational_temperatures,
     sum(escaped + fragmented) as realizations,
+    sum(json_extract(er.run_config, '$.executions.' || result_counts.result_id || '.requested_realizations')::uint64) as requested_realizations,
+    sum(json_extract(er.run_config, '$.executions.' || result_counts.result_id || '.completed_realizations')::uint64) as completed_realizations,
     case when any_value(er.simulation_mode) = 'PATHWAY_AT_A_TIME'
         then product(escaped / nullif(escaped + fragmented, 0))
         else sum(escaped) / nullif(sum(escaped + fragmented), 0)

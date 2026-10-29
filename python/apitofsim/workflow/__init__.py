@@ -17,6 +17,7 @@ from .runners import (
     RecordedFailure,
     RecordedMassSpecResult,
     RecordingMassSpecIterator,
+    RunSession,
     recorded_failure,
 )
 
@@ -35,6 +36,7 @@ __all__ = [
     "RecordedFailure",
     "RecordedMassSpecResult",
     "RecordingMassSpecIterator",
+    "RunSession",
     "recorded_failure",
     "ingest_legacy_one",
     "ingest_tree",
