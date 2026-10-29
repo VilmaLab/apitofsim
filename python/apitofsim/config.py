@@ -1,9 +1,13 @@
 import json
 import os
-from typing import Any, Tuple
+from collections.abc import Mapping
+from dataclasses import dataclass
+from types import MappingProxyType
+from typing import Any, NotRequired, Tuple, TypedDict
 
 import numpy
-from pint import get_application_registry
+from pint import Quantity, get_application_registry
+from pint.errors import PintError
 
 from .api import (
     ClusterData,
@@ -20,6 +24,252 @@ from .api import (
 )
 
 Q_ = ureg.Quantity
+
+
+class LengthComponents(TypedDict):
+    L0: Quantity
+    L1: Quantity
+    L2: Quantity
+    L3: Quantity
+    Lsk: Quantity
+
+
+class VoltageComponents(TypedDict):
+    V0: Quantity
+    V1: Quantity
+    V2: Quantity
+    V3: Quantity
+    V4: Quantity
+
+
+class PressureComponents(TypedDict):
+    first: Quantity
+    second: Quantity
+
+
+class GasComponents(TypedDict):
+    radius: Quantity
+    mass: Quantity
+    adiabatic_index: float
+
+
+class QuadrupoleComponents(TypedDict):
+    radiofrequency: Quantity
+    r_quadrupole: Quantity
+    dc_field: NotRequired[Quantity]
+    ac_field: NotRequired[Quantity]
+
+
+class SimulationConfig(TypedDict):
+    """Quantity-based dictionary accepted by ExperimentRunner and ExperimentDatabase.
+
+    Arrays are in CONFIG_FIELDS component order. Optional keys retain the
+    runner's defaults when absent; a missing quadrupole means no mass filter.
+    """
+
+    lengths: Quantity
+    voltages: Quantity
+    pressures: Quantity
+    gas: Gas
+    T: Quantity
+    N: int
+    N_iter: int
+    M_iter: int
+    resolution: int
+    tolerance: float
+    dc: Quantity
+    alpha_factor: Quantity
+    bin_width: Quantity
+    energy_max: Quantity
+    energy_max_rate: Quantity
+    quadrupole: NotRequired[Quadrupole]
+    radius_pinhole: NotRequired[Quantity]
+    bonding_energy: NotRequired[Quantity]
+    fragmentation_energy: NotRequired[Quantity]
+
+
+@dataclass(frozen=True)
+class ConfigField:
+    """Canonical unit and named array order (empty for scalars).
+
+    ``dimensionless`` fields accept plain numbers. Dimensional fields require
+    Pint quantities. Object members use dotted names, e.g. ``gas.mass``.
+    """
+
+    unit: str
+    components: tuple[str, ...] = ()
+
+
+CONFIG_FIELDS = MappingProxyType(
+    {
+        **{
+            key: ConfigField(unit)
+            for key, unit in {
+                "T": "kelvin",
+                "N": "dimensionless",
+                "N_iter": "dimensionless",
+                "M_iter": "dimensionless",
+                "resolution": "dimensionless",
+                "tolerance": "dimensionless",
+                "dc": "meter",
+                "alpha_factor": "halfturn",
+                "bin_width": "kelvin",
+                "energy_max": "kelvin",
+                "energy_max_rate": "kelvin",
+                "radius_pinhole": "meter",
+                "bonding_energy": "kelvin",
+                "fragmentation_energy": "kelvin",
+                "gas.radius": "meter",
+                "gas.mass": "kilogram",
+                "gas.adiabatic_index": "dimensionless",
+                "quadrupole.dc_field": "volt",
+                "quadrupole.ac_field": "volt",
+                "quadrupole.radiofrequency": "hertz",
+                "quadrupole.r_quadrupole": "meter",
+            }.items()
+        },
+        "lengths": ConfigField("meter", ("L0", "L1", "L2", "L3", "Lsk")),
+        "voltages": ConfigField("volt", ("V0", "V1", "V2", "V3", "V4")),
+        "pressures": ConfigField("pascal", ("first", "second")),
+    }
+)
+
+
+def _normalize_scalar(value, field: str, *, unit: str | None = None) -> Any:
+    unit = unit or CONFIG_FIELDS[field].unit
+    try:
+        if isinstance(value, Quantity):
+            # halfturn is an application unit, absent from a consumer's registry.
+            value = (
+                value.to("radian").magnitude / numpy.pi
+                if unit == "halfturn"
+                else value.to(unit).magnitude
+            )
+        elif unit != "dimensionless":
+            raise ValueError("a Pint quantity is required")
+        arr = numpy.asarray(value)
+        if arr.shape != () or arr.dtype.kind not in "iuf" or not numpy.isfinite(arr):
+            raise ValueError("expected a finite numeric scalar")
+        value = arr.item()
+        if field in ("N", "N_iter", "M_iter", "resolution"):
+            if value != int(value):
+                raise ValueError("expected an integer")
+            return int(value)
+        return value if unit == "dimensionless" else Q_(value, unit)
+    except (TypeError, ValueError, PintError) as exc:
+        raise ValueError(f"{field}: expected scalar in {unit}: {exc}") from exc
+
+
+def _check_components(values, names, field):
+    missing = set(names) - values.keys()
+    extra = values.keys() - set(names)
+    if missing or extra:
+        raise ValueError(
+            f"{field}: expected components {', '.join(names)}; "
+            f"missing {sorted(missing)}, unknown {sorted(extra)}"
+        )
+
+
+def _normalize_array(value, field):
+    spec = CONFIG_FIELDS[field]
+    if isinstance(value, Mapping):
+        _check_components(value, spec.components, field)
+        value = Q_(
+            [
+                _normalize_scalar(
+                    value[name], f"{field}.{name}", unit=spec.unit
+                ).magnitude
+                for name in spec.components
+            ],
+            spec.unit,
+        )
+    try:
+        if not isinstance(value, Quantity):
+            raise ValueError("a Pint quantity array or named mapping is required")
+        arr = numpy.asarray(value.to(spec.unit).magnitude)
+        if arr.dtype.kind not in "iuf":
+            raise ValueError("expected numeric array")
+        arr = arr.astype(float)
+        if arr.shape != (len(spec.components),) or not numpy.isfinite(arr).all():
+            raise ValueError(
+                f"expected finite array with shape ({len(spec.components)},)"
+            )
+        return Q_(arr.copy(), spec.unit)
+    except (TypeError, ValueError, PintError) as exc:
+        raise ValueError(
+            f"{field}: expected {spec.components} in {spec.unit}: {exc}"
+        ) from exc
+
+
+def _normalize_object(value, field, cls):
+    if isinstance(value, cls):
+        value = vars(value)
+    if not isinstance(value, Mapping):
+        raise ValueError(f"{field}: expected named components or {cls.__name__}")
+    names = tuple(k.split(".")[1] for k in CONFIG_FIELDS if k.startswith(field + "."))
+    if field == "quadrupole":
+        value = {
+            "dc_field": Q_(DEFAULTS["dc_field"], "volt"),
+            "ac_field": Q_(DEFAULTS["ac_field"], "volt"),
+            **value,
+        }
+    _check_components(value, names, field)
+    return cls(
+        **{name: _normalize_scalar(value[name], f"{field}.{name}") for name in names}
+    )
+
+
+def build_config(
+    *,
+    lengths: LengthComponents | Quantity,
+    voltages: VoltageComponents | Quantity,
+    pressures: PressureComponents | Quantity,
+    gas: GasComponents | Gas,
+    T: Quantity,
+    N: int,
+    N_iter: int,
+    M_iter: int,
+    resolution: int,
+    tolerance: float,
+    dc: Quantity,
+    alpha_factor: Quantity,
+    bin_width: Quantity,
+    energy_max: Quantity,
+    energy_max_rate: Quantity,
+    quadrupole: QuadrupoleComponents | Quadrupole | None = None,
+    radius_pinhole: Quantity | None = None,
+    bonding_energy: Quantity | None = None,
+    fragmentation_energy: Quantity | None = None,
+) -> SimulationConfig:
+    """Build a runner configuration from named components and Pint quantities.
+
+    Normalize to CONFIG_FIELDS units without mutating inputs. All non-optional
+    arguments are required; no numerical/physical tuning defaults are supplied.
+    Quadrupole AC/DC voltages default to zero when a quadrupole is supplied.
+    None omits optional scalar fields, retaining the runner's defaults (including
+    the 1 mm pinhole). Energy histogram quantities use temperature units; callers
+    supplying energies must explicitly convert with a Pint Boltzmann context.
+    Form controls and submission-specific physical bounds belong to consumers.
+    """
+    values = locals()
+    result: dict[str, Any] = {}
+    for field, value in values.items():
+        if value is None and field in (
+            "quadrupole",
+            "radius_pinhole",
+            "bonding_energy",
+            "fragmentation_energy",
+        ):
+            continue
+        if field in ("lengths", "voltages", "pressures"):
+            result[field] = _normalize_array(value, field)
+        elif field in ("gas", "quadrupole"):
+            result[field] = _normalize_object(
+                value, field, Gas if field == "gas" else Quadrupole
+            )
+        else:
+            result[field] = _normalize_scalar(value, field)
+    return SimulationConfig(**result)
 
 
 def read_dat(fn):
@@ -140,6 +390,11 @@ class SettingsMetadata:
                     unit = "K"
             if unit is None:
                 unit = UNITS.get(short_name)
+            if (
+                short_name in CONFIG_FIELDS
+                and CONFIG_FIELDS[short_name].unit != "dimensionless"
+            ):
+                unit = CONFIG_FIELDS[short_name].unit
             long_name_no_units = long_name_unit_bits[0]
             human_name_units = " ".join((word for word in long_name.split("_")))
             human_name_no_units = " ".join(
@@ -207,39 +462,28 @@ class ConfigFile:
         self.config = config
 
     def get(self, quantity, *, by="any", asa="measurement"):
-        if quantity == "lengths":
+        if quantity in ("lengths", "voltages", "pressures"):
+            spec = CONFIG_FIELDS[quantity]
+            names = spec.components
+            if quantity == "pressures":
+                names = tuple(f"pressure_{name}" for name in names)
             value = numpy.array(
-                [
-                    self.get(k, by="short_name", asa="value")
-                    for k in ["L0", "L1", "L2", "L3", "Lsk"]
-                ]
+                [self.get(k, by="short_name", asa="value") for k in names]
             )
             if asa == "measurement":
-                value = Q_(value, "meter")
-            return value
-        if quantity == "voltages":
-            value = numpy.array(
-                [self.get(f"V{k}", by="short_name", asa="value") for k in range(5)]
-            )
-            if asa == "measurement":
-                value = Q_(value, "volts")
-            return value
-        if quantity == "pressures":
-            value = numpy.array(
-                [
-                    self.get(f"pressure_{k}", by="short_name", asa="value")
-                    for k in ["first", "second"]
-                ]
-            )
-            if asa == "measurement":
-                value = Q_(value, "Pa")
+                return _normalize_array(Q_(value, spec.unit), quantity)
             return value
         if quantity == "gas":
             cls = Gas if asa == "measurement" else _Gas
-            return cls(
+            components = dict(
                 adiabatic_index=self.get("ga", by="short_name", asa=asa),
                 radius=self.get("R_gas", by="short_name", asa=asa),
                 mass=self.get("m_gas", by="short_name", asa=asa),
+            )
+            return (
+                _normalize_object(components, "gas", cls)
+                if asa == "measurement"
+                else cls(**components)
             )
         if quantity == "mass_spec":
             cls = MassSpectrometer if asa == "measurement" else _MassSpectrometer
@@ -254,12 +498,20 @@ class ConfigFile:
             )
         if quantity == "quadrupole":
             cls = Quadrupole if asa == "measurement" else _Quadrupole
-            return cls(
+            components = dict(
                 ac_field=self.get("ac_field", by="short_name", asa=asa),
                 dc_field=self.get("dc_field", by="short_name", asa=asa),
                 radiofrequency=self.get("radiofrequency", by="short_name", asa=asa),
                 r_quadrupole=self.get("r_quadrupole", by="short_name", asa=asa),
             )
+            if (
+                components["radiofrequency"] is None
+                and components["r_quadrupole"] is None
+            ):
+                return None
+            if asa == "measurement" and all(v is not None for v in components.values()):
+                return _normalize_object(components, "quadrupole", cls)
+            return cls(**components)
         if quantity in ("cluster", "first_product", "second_product"):
             from contextlib import chdir, nullcontext
 
@@ -283,10 +535,14 @@ class ConfigFile:
         return value
 
     def into_json_config(self):
-        return {
+        config = {
             k: self.get(k, by="short_name")
             for k in (["lengths", "voltages", "gas", "pressures"] + TOPLEVEL)
         }
+        quadrupole = self.get("quadrupole")
+        if quadrupole is not None:
+            config["quadrupole"] = quadrupole
+        return config
 
 
 def get_particle(config, particle):
