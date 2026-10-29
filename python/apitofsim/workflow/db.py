@@ -668,7 +668,8 @@ class ExperimentDatabase(SuperClusterDatabase):
             "select run_config, json_merge_patch('{}', ?::json) from experiment_run where id = ?",
             [metadata, run_id],
         ).fetchone()
-        assert row is not None
+        if row is None:
+            return  # Legacy private preparation may run without a started run.
         previous = json.loads(row[0]) if row[0] else {}
         effective = json.loads(row[1])
         if "config" in previous and any(
