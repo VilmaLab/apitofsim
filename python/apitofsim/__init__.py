@@ -23,6 +23,15 @@ from .api import (
 from .apitofsimraw import debug_info
 from .collision import CollisionProfile, collision_profile
 from .config import (
+    CONFIG_FIELDS,
+    ConfigField,
+    GasComponents,
+    LengthComponents,
+    PressureComponents,
+    QuadrupoleComponents,
+    SimulationConfig,
+    VoltageComponents,
+    build_config,
     config_to_shortnames,
     get_clusters,
     get_gas,
@@ -59,6 +68,15 @@ __all__ = [
     "CollisionProfile",
     "collision_profile",
     # Config
+    "CONFIG_FIELDS",
+    "ConfigField",
+    "GasComponents",
+    "LengthComponents",
+    "PressureComponents",
+    "QuadrupoleComponents",
+    "SimulationConfig",
+    "VoltageComponents",
+    "build_config",
     "parse_config_with_particles",
     "config_to_shortnames",
     "read_dat",

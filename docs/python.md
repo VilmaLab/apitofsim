@@ -3,6 +3,95 @@
 This page documents the Python API.
 The main API is in the `apitofsim.api` module, most of which is re-exported from `apitofsim`.
 
+## Building simulation configurations
+
+Use `build_config()` for a GUI or custom runner. It returns `SimulationConfig`, a
+public `TypedDict` containing Pint quantities, ordered quantity arrays, `Gas`,
+and (optionally) `Quadrupole`. Pass it directly to `ExperimentRunner` or
+`ExperimentDatabase.insert_config()`; database reads reconstruct the objects
+and quantities. Input mappings and objects are not mutated.
+
+`CONFIG_FIELDS` is a read-only mapping from canonical field names to `ConfigField`
+records. Each record exposes `unit` and `components` (an empty tuple for scalars).
+Object members use dotted names such as `gas.radius` and
+`quadrupole.radiofrequency`. Array components are:
+
+| Field | Canonical unit | Component order |
+| --- | --- | --- |
+| lengths | meter | L0, L1, L2, L3, Lsk |
+| voltages | volt | V0, V1, V2, V3, V4 |
+| pressures | pascal | first, second |
+
+The named input types are `LengthComponents`, `VoltageComponents`,
+`PressureComponents`, `GasComponents`, and `QuadrupoleComponents`. Arrays may
+also be supplied as a Pint quantity with the exact shape `(5,)`, `(5,)`, or
+`(2,)`, respectively. Named mappings require every listed component and reject
+unknown keys. Gas and quadrupole inputs also accept existing public objects.
+Dimensional scalars require Pint quantities; dimensionless scalars accept plain
+numbers or dimensionless quantities. Values must be finite, and iteration,
+resolution and realization counts must be integers. Errors name the invalid
+field/component and expected unit or shape. Physical bounds and form-specific
+validation remain the consumer's responsibility.
+
+All arguments without defaults in `build_config()` are required. The builder
+supplies no numerical tuning defaults. Omitted/`None` quadrupoles mean no mass
+filter. When a quadrupole is supplied, its frequency and rod radius are required;
+AC and DC voltages default to zero. Optional `bonding_energy`,
+`fragmentation_energy`, and `radius_pinhole` are omitted when `None`, otherwise
+retained in kelvin, kelvin, and meters. Histogram energies use temperature units;
+convert energy quantities explicitly with a Pint Boltzmann context if needed.
+`fragmentation_energy` is a pathway-at-a-time runner override; grouped preparation
+uses electronic-energy differences. `radius_pinhole` is preserved for consumers
+constructing `MassSpectrometer` directly; `ExperimentRunner` currently retains
+its existing default pinhole radius (1 mm).
+
+Geometry follows the simulation's definitions: `L0` is the first chamber length,
+`L1` is the gap after the skimmer and before the quadrupole, `L2` is the quadrupole
+length, `L3` is the remaining second chamber length, and `Lsk` is the axial
+skimmer region length. `dc` is the radius at the smallest skimmer cross section.
+The flow calculation uses the expanding radius `dc + z * tan(alpha)`, where
+`alpha = alpha_factor * pi`; `alpha_factor` is normalized to `halfturn`.
+For example, 45 degrees becomes 0.25 halfturn. This angle is the slope angle
+used by that formula. See [configuration geometry](configuration.md#top-level-arrays)
+for voltage locations and diagrams.
+
+This example uses only public APIs; a form can substitute its submitted Pint
+quantities for the values below:
+
+```python
+from pint import get_application_registry
+from apitofsim import CONFIG_FIELDS, SimulationConfig, build_config
+from apitofsim.workflow import ExperimentRunner
+
+Q_ = get_application_registry().Quantity
+config: SimulationConfig = build_config(
+    lengths=dict(L0=Q_(1, "mm"), L1=Q_(2.44, "mm"), L2=Q_(10.1, "cm"),
+                 L3=Q_(4.48, "mm"), Lsk=Q_(0.5, "mm")),
+    voltages=dict(V0=Q_(-19, "V"), V1=Q_(-9, "V"), V2=Q_(-7, "V"),
+                  V3=Q_(-6, "V"), V4=Q_(11, "V")),
+    pressures=dict(first=Q_(194, "Pa"), second=Q_(3.88, "Pa")),
+    gas=dict(radius=Q_(1.84, "angstrom"), mass=Q_(4.65e-26, "kg"),
+             adiabatic_index=1.4),
+    quadrupole=dict(ac_field=Q_(200, "V"), radiofrequency=Q_(1.3, "MHz"),
+                    r_quadrupole=Q_(6, "mm")),
+    T=Q_(300, "K"), dc=Q_(0.5, "mm"), alpha_factor=Q_(45, "degree"),
+    N=1000, N_iter=1000, M_iter=1000, resolution=1000, tolerance=1e-8,
+    bin_width=Q_(1, "K"), energy_max=Q_(200_000, "K"),
+    energy_max_rate=Q_(100_000, "K"),
+)
+assert CONFIG_FIELDS["lengths"].components == ("L0", "L1", "L2", "L3", "Lsk")
+# db is an existing ExperimentDatabase with clusters and pathways already ingested.
+config_id = db.insert_config("custom", config)
+runner = ExperimentRunner(db)
+runner.start_run(config_id)
+prepared = runner.prepare_from_config(config)
+# Use runner.iter_mass_spec() as shown in the recording example below.
+```
+
+Legacy `ConfigFile` readers remain available. Their array ordering and gas/
+quadrupole construction share the same normalization helpers, and
+`ConfigFile.into_json_config()` preserves quadrupole settings.
+
 ## Data classes
 
 These classes input data to the simulation, as well as output data from intermediate steps in the simulation.
