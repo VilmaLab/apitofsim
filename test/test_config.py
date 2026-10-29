@@ -213,3 +213,30 @@ def test_public_runner_preparation(inputs):
         )
     finally:
         db.close()
+
+
+def test_partial_stored_config_decoding():
+    from apitofsim.config import import_raw_config
+
+    raw = dict(
+        name="partial",
+        bin_width="8 kelvin",
+        lengths=[[1, 2], "mm"],  # Stored partial configs are not shape-validated.
+        N_iter=1.5,  # Integer validation belongs to the builder, too.
+        gas=dict(radius=2.46e-10, mass=[4.8506e-26, "kg"], adiabatic_index=1.4),
+        quadrupole=dict(radiofrequency="1.3 MHz", r_quadrupole=[6, "mm"]),
+    )
+    quadrupole_components = raw["quadrupole"]
+    decoded = import_raw_config(raw)
+    assert decoded["name"] == "partial"
+    assert decoded["bin_width"].to("K").magnitude == 8
+    np.testing.assert_array_equal(decoded["lengths"].to("mm").magnitude, [1, 2])
+    assert decoded["N_iter"] == 1.5
+    assert decoded["gas"].radius.to("m").magnitude == 2.46e-10
+    assert decoded["gas"].into_cpp() is not None
+    assert decoded["quadrupole"].ac_field.to("V").magnitude == 0
+    assert decoded["quadrupole"].into_cpp() is not None
+    # Existing objects are passed through by the stored-config reader.
+    gas = decoded["gas"]
+    assert import_raw_config(decoded)["gas"] is gas
+    assert quadrupole_components.keys() == {"radiofrequency", "r_quadrupole"}

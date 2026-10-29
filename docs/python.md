@@ -12,7 +12,8 @@ and (optionally) `Quadrupole`. Pass it directly to `ExperimentRunner` or
 and quantities. Input mappings and objects are not mutated.
 
 `CONFIG_FIELDS` is a read-only mapping from canonical field names to `ConfigField`
-records. Each record exposes `unit` and `components` (an empty tuple for scalars).
+records. Each record exposes `unit`, `components` (an empty tuple for scalars),
+and `default` (`None` when no default is supplied).
 Object members use dotted names such as `gas.radius` and
 `quadrupole.radiofrequency`. Array components are:
 
@@ -88,8 +89,11 @@ prepared = runner.prepare_from_config(config)
 # Use runner.iter_mass_spec() as shown in the recording example below.
 ```
 
-Legacy `ConfigFile` readers remain available. Their array ordering and gas/
-quadrupole construction share the same normalization helpers, and
+Legacy `ConfigFile` readers remain available. Their array ordering and units
+come from the canonical metadata. Gas/quadrupole construction and quantity
+decoding are shared with `import_raw_config()` and the builder; complete-input
+validation is specific to the builder.
+Stored configurations may still be partial.
 `ConfigFile.into_json_config()` preserves quadrupole settings.
 
 ## Data classes
