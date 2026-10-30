@@ -490,7 +490,8 @@ def assert_event_row(connection, event, pathway_id=None):
     row = connection.execute(
         "select e.id, e.event_type, e.postime, e.velocity, e.omega, "
         "e.rot_energy, e.vibrational_energy, e.particle_index, "
-        "c.id, c.theta, c.u_norm, c.accepted, f.id, f.pathway_id "
+        "c.id, c.theta, c.u_norm, c.accepted, f.id, f.pathway_id, "
+        "f.transition_index, f.next_particle_index "
         "from event_info e "
         "left join collision_event c on c.id = e.id "
         "left join fragmentation_event f on f.id = e.id "
@@ -513,10 +514,11 @@ def assert_event_row(connection, event, pathway_id=None):
         assert row[8:12] == (None,) * 4
     if isinstance(event, api.FragmentationEvent):
         assert row[12] == event_id
+        assert row[14:] == (event.pathway_index, event.next_particle_index)
         if pathway_id is not None:
             assert row[13] == pathway_id
     else:
-        assert row[12:] == (None, None)
+        assert row[12:] == (None,) * 4
 
 
 @pytest.mark.parametrize("mode", ["SINGLE_CLUSTER", "CLUSTER_TREE"])
@@ -672,6 +674,15 @@ def test_init_events_workflow(tmp_path, monkeypatch, mode):
         counters = original_mass_spec(
             ms, subs, n, **{**kwargs, "event_callback": record}
         )
+        if mode == "CLUSTER_TREE":
+            assert (
+                recorder.db.tree_events_query(result_id=recorder.result_id)
+                .filter(
+                    "provenance != 'persisted' or continuity_valid is distinct from true"
+                )
+                .fetchall()
+                == []
+            )
         assert set(initial_states) == set(range(n))
         assert accepted_collisions == post_collisions
         assert post_collisions > 0
@@ -1122,7 +1133,8 @@ def test_normalized_result_and_event_views(tmp_path, attached):
                     )
                 elif event_type == "fragmentation":
                     db.execute(
-                        "insert into fragmentation_event values (?, 2)", (event_id,)
+                        "insert into fragmentation_event (id, pathway_id) values (?, 2)",
+                        (event_id,),
                     )
 
         # Refresh also upgrades existing files with stale report definitions.
@@ -1223,7 +1235,7 @@ def query_db():
             )
         db.db.execute("""
             insert into collision_event values (2, 0.5, 2, false);
-            insert into fragmentation_event values (7, null);
+            insert into fragmentation_event (id, pathway_id) values (7, null);
         """)
         yield db
 

@@ -7,7 +7,9 @@ select
     collision_event.u_norm,
     collision_event.accepted,
     fragmentation_event.id as fragmentation_event_id,
-    fragmentation_event.pathway_id
+    fragmentation_event.pathway_id,
+    fragmentation_event.transition_index,
+    fragmentation_event.next_particle_index
 from event_info
 left join collision_event on collision_event.id = event_info.id
 left join fragmentation_event on fragmentation_event.id = event_info.id;
