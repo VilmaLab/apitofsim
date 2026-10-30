@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+      <url>
+        <loc>https://vilmalab.github.io/apitofsim/</loc>
+      </url>
+      <url>
+        <loc>https://vilmalab.github.io/apitofsim/background/</loc>
+      </url>
+      <url>
+        <loc>https://vilmalab.github.io/apitofsim/cli/</loc>
+      </url>
+      <url>
+        <loc>https://vilmalab.github.io/apitofsim/configuration/</loc>
+      </url>
+      <url>
+        <loc>https://vilmalab.github.io/apitofsim/development/</loc>
+      </url>
+      <url>
+        <loc>https://vilmalab.github.io/apitofsim/guide/</loc>
+      </url>
+      <url>
+        <loc>https://vilmalab.github.io/apitofsim/notebooks/</loc>
+      </url>
+      <url>
+        <loc>https://vilmalab.github.io/apitofsim/python/</loc>
+      </url>
+</urlset>
