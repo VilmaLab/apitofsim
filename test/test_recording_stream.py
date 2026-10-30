@@ -263,6 +263,9 @@ def test_cancellation_and_early_exit(prepared_case, early, monkeypatch):
                 def __next__(self):
                     return next(self.items)
 
+                def read_batch(self, max_items=512):
+                    return [next(self)]
+
                 def __getattr__(self, name):
                     return getattr(native, name)
 
@@ -312,6 +315,9 @@ class FakeStream:
         if isinstance(item, BaseException):
             raise item
         return item
+
+    def read_batch(self, max_items=512):
+        return [next(self)]
 
     def request_cancel(self):
         self.cancelled = True
@@ -379,14 +385,14 @@ def test_persistence_error(prepared_case, monkeypatch, where):
             fake = FakeStream(list(native))
         monkeypatch.setattr(api, "mass_spec_iter", lambda *a, **k: fake)
         # Fail once to verify subsequent queued events can still be saved.
-        original = EventRecorder.__call__
+        original = EventRecorder.record_batch
 
         def record(self, item):
             if not attempts:
                 fail()
             original(self, item)
 
-        monkeypatch.setattr(EventRecorder, "__call__", record)
+        monkeypatch.setattr(EventRecorder, "record_batch", record)
     elif where == "link":
         monkeypatch.setattr(EventRecorder, "relate_realizations", fail)
     else:
@@ -899,3 +905,319 @@ def test_native_failure_reference(prepared_case, startup):
         "select exc_name, msg from experiment_failure where id = ?",
         [reference.failure_id],
     ).fetchone() == (error_type.__name__, str(caught.value))
+
+
+class AvailableStream(FakeStream):
+    """Deterministic available batches; terminal/error is a separate read."""
+
+    def __init__(self, items):
+        from collections import deque
+
+        super().__init__([])
+        self.pending = deque(items)
+
+    def __next__(self):
+        if not self.pending:
+            raise StopIteration
+        item = self.pending.popleft()
+        if isinstance(item, BaseException):
+            raise item
+        return item
+
+    def read_batch(self, max_items=512):
+        items = []
+        while self.pending and len(items) < max_items:
+            if items and isinstance(
+                self.pending[0], (BaseException, api.MassSpecFinalResult)
+            ):
+                break
+            items.append(next(self))
+        if not items:
+            raise StopIteration
+        return items
+
+
+def native_items(prepared, N=5):
+    with api.mass_spec_iter(
+        prepared.mass_spec, prepared.groups[0].substance, N, seed=123, logconf=(0, True)
+    ) as native:
+        return list(native)
+
+
+@pytest.mark.parametrize("cap", [1, 2, 512])
+def test_native_available_batches(prepared_case, cap):
+    prepared = prepare(prepared_case, pathways=[1])
+    with api.mass_spec_iter(
+        prepared.mass_spec, prepared.groups[0].substance, 5, logconf=(0, True)
+    ) as native:
+        native.join_if_joinable()  # Everything is queued before the first read.
+        first = next(native)  # Single-item and batch reads share one stream.
+        items = [first]
+        while True:
+            try:
+                batch = native.read_batch(cap)
+            except StopIteration:
+                break
+            assert 1 <= len(batch) <= cap
+            if any(isinstance(x, api.MassSpecFinalResult) for x in batch):
+                assert len(batch) == 1
+            items.extend(batch)
+    assert sum(isinstance(x, api.MassSpecFinalResult) for x in items) == 1
+    assert items[-1].counters.n_realizations == 5
+    counters = [
+        x.counters.n_realizations
+        for x in items
+        if isinstance(x, api.MassSpecIntermediateCounter)
+    ]
+    assert counters == list(range(1, 6))
+    with pytest.raises(StopIteration):
+        native.read_batch(cap)
+
+
+@pytest.mark.parametrize("cap", [0, -1])
+def test_invalid_batch_cap(prepared_case, cap):
+    prepared = prepare(prepared_case, pathways=[1])
+    with api.mass_spec_iter(
+        prepared.mass_spec, prepared.groups[0].substance, 0
+    ) as native:
+        with pytest.raises(ValueError, match="positive"):
+            native.read_batch(cap)
+        assert isinstance(list(native)[-1], api.MassSpecFinalResult)
+    with pytest.raises(ValueError, match="positive"):
+        prepared._runner.iter_mass_spec(
+            prepared, prepared.groups[0], 0, max_batch_items=cap
+        )
+
+
+def test_native_batch_retains_events_before_error(prepared_case):
+    prepared = prepare(prepared_case, pathways=[1])
+    prepared.mass_spec.voltages = api.Q_(-np.arange(5.0) * 1000, "V")
+    prepared.mass_spec.pressures = api.Q_([0.001, 0.001], "Pa")
+    items = []
+    with api.mass_spec_iter(
+        prepared.mass_spec, prepared.groups[0].substance, 5, seed=123, logconf=(0, True)
+    ) as native:
+        native.join_if_joinable()
+        with pytest.raises(api.ApiTofParticleEscapeError):
+            while True:
+                items.extend(native.read_batch(512))
+    assert any(isinstance(x, api.InitEvent) for x in items)
+    assert not any(isinstance(x, api.MassSpecFinalResult) for x in items)
+
+
+@pytest.mark.parametrize("cap", [1, 3, 512])
+@pytest.mark.parametrize("early_exit", [False, True])
+def test_recorded_batch_boundaries(prepared_case, monkeypatch, cap, early_exit):
+    db, runner, _, _ = prepared_case
+    prepared = prepare(prepared_case, pathways=[1])
+    items = native_items(prepared)
+    events = [x for x in items if hasattr(x, "state")]
+    fake = AvailableStream(events + [items[-1]])
+    monkeypatch.setattr(api, "mass_spec_iter", lambda *a, **k: fake)
+    with runner.iter_mass_spec(
+        prepared, prepared.groups[0], 5, max_batch_items=cap
+    ) as stream:
+        assert next(stream) is events[0]
+        if isinstance(db, RealizationDatabase):
+            # Commit the entire available batch before exposing its first event.
+            assert db.db.execute("select count(*) from event_info").fetchone()[
+                0
+            ] == min(cap, len(events))
+        if not early_exit:
+            assert list(stream)[-1] is stream.result
+    assert stream.result.result.counters.n_realizations == 5
+    assert fake.joined
+    assert fake.cancelled == early_exit
+    if isinstance(db, RealizationDatabase):
+        assert db.db.execute("select count(*) from event_info").fetchone()[0] == len(
+            events
+        )
+        assert (
+            db.db.execute(
+                "select count(*) from realization where experiment_result_id is null"
+            ).fetchone()[0]
+            == 0
+        )
+
+
+def test_failed_batch_rolls_back_without_retry(prepared_case, monkeypatch):
+    db, runner, _, _ = prepared_case
+    if not isinstance(db, RealizationDatabase):
+        pytest.skip("Event persistence only")
+    prepared = prepare(prepared_case, pathways=[1])
+    items = native_items(prepared)
+    events = [x for x in items if hasattr(x, "state")]
+    fake = AvailableStream(events + [items[-1]])
+    monkeypatch.setattr(api, "mass_spec_iter", lambda *a, **k: fake)
+    original = EventRecorder._insert_events
+    calls = []
+    primary = RuntimeError("failed batch")
+
+    def fail_second(recorder, table):
+        calls.append(table.num_rows)
+        original(recorder, table)
+        if len(calls) == 2:
+            raise primary
+
+    monkeypatch.setattr(EventRecorder, "_insert_events", fail_second)
+    with pytest.raises(RuntimeError, match="failed batch") as caught:
+        with runner.iter_mass_spec(
+            prepared, prepared.groups[0], 5, max_batch_items=3
+        ) as stream:
+            list(stream)
+    assert caught.value is primary
+    assert fake.cancelled and fake.joined
+    assert calls[:2] == [3, 3]
+    # First batch committed, second rolled back, later native events retained.
+    assert (
+        db.db.execute("select count(*) from event_info").fetchone()[0]
+        == len(events) - 3
+    )
+    assert (
+        db.db.execute(
+            "select count(*) from multi_pathway_experiment_result"
+        ).fetchone()[0]
+        == 0
+    )
+    assert db.db.execute("select count(*) from experiment_failure").fetchone()[0] == 1
+    assert (
+        db.db.execute(
+            "select count(*) from realization where experiment_result_id is null"
+        ).fetchone()[0]
+        == 0
+    )
+
+
+@pytest.mark.parametrize("attached", [False, True])
+def test_bulk_events_and_caller_transaction(prepared_case, tmp_path, attached):
+    import duckdb
+    from apitofsim.workflow import sql_files_nofk
+
+    source, _, _, _ = prepared_case
+    source.db.execute(
+        "update k_rate set data=list_transform(data, x -> 200000.0) where pathway_id in (1, 3)"
+    )
+    prepared = prepare(prepared_case, pathways=[1, 3])
+    events = [x for x in native_items(prepared, N=100) if hasattr(x, "state")]
+    assert {
+        x.pathway_index for x in events if isinstance(x, api.FragmentationEvent)
+    } == {0, 1}
+    if attached:
+        conn = duckdb.connect()
+        conn.execute(f"attach '{tmp_path / 'events.duckdb'}' as output")
+        conn.execute("use output")
+        conn.execute(
+            "\n".join(
+                getattr(sql_files_nofk, name)
+                for name in ("pathway", "histograms", "experiment", "realizations")
+            )
+        )
+        db = RealizationDatabase((conn, None))
+    else:
+        db = source if isinstance(source, RealizationDatabase) else None
+        if db is None:
+            pytest.skip("Realization persistence only")
+        conn = db.db
+    recorder = EventRecorder(db, [1, 3])
+    sentinel = db.insert_realization(None)
+    conn.execute("begin")
+    txid = conn.execute("select current_transaction_id()").fetchone()[0]
+    for offset in range(0, len(events), 512):
+        recorder.record_batch(events[offset : offset + 512])
+    recorder.relate_realizations(42)
+    assert conn.execute("select current_transaction_id()").fetchone()[0] == txid
+    assert (
+        conn.execute(
+            "select experiment_result_id from realization where id=?", [sentinel]
+        ).fetchone()[0]
+        is None
+    )
+    inverse = {v: k for k, v in recorder.realization_ids.items()}
+    actual = conn.execute("""select e.realization_id, e.event_type::varchar, e.postime,
+        e.velocity, e.omega, e.rot_energy, e.vibrational_energy, e.particle_index,
+        c.theta, c.u_norm, c.accepted, f.pathway_id from event_info e
+        left join collision_event c using(id) left join fragmentation_event f using(id)""").fetchall()
+    actual = [(inverse[row[0]], *row[1:]) for row in actual]
+    kinds = {
+        api.InitEvent: "init",
+        api.CollisionEvent: "collision",
+        api.PostCollisionEvent: "postcollision",
+        api.EscapeEvent: "escape",
+        api.FragmentationEvent: "fragmentation",
+    }
+    expected = []
+    for event in events:
+        state = event.state
+        collision = isinstance(event, api.CollisionEvent)
+        fragmentation = isinstance(event, api.FragmentationEvent)
+        expected.append(
+            (
+                state.realization,
+                kinds[type(event)],
+                dict(zip("xyzt", state.postime)),
+                dict(zip("xyz", state.velocity)),
+                dict(zip("xyz", state.omega)),
+                state.rot_energy,
+                state.vibrational_energy,
+                state.particle_index,
+                event.theta if collision else None,
+                event.u_norm if collision else None,
+                event.accepted if collision else None,
+                [1, 3][event.pathway_index] if fragmentation else None,
+            )
+        )
+    assert sorted(actual, key=repr) == sorted(expected, key=repr)
+    conn.execute("rollback")
+    assert conn.execute("select count(*) from event_info").fetchone()[0] == 0
+    assert conn.execute("select count(*) from realization").fetchone()[0] == 1
+    if attached:
+        db.close()
+
+
+@pytest.mark.parametrize("singleton", [False, True])
+def test_failed_first_batch_does_not_publish_ids(prepared_case, monkeypatch, singleton):
+    db, _, _, _ = prepared_case
+    if not isinstance(db, RealizationDatabase):
+        pytest.skip("Event persistence only")
+    prepared = prepare(prepared_case, pathways=[1])
+    events = [x for x in native_items(prepared) if hasattr(x, "state")]
+    recorder = EventRecorder(db, [1])
+    if singleton:
+        events = [next(x for x in events if isinstance(x, api.CollisionEvent))]
+    method = "_insert_one" if singleton else "_insert_events"
+    original = getattr(recorder, method)
+
+    def fail(*args):
+        original(*args)
+        raise ValueError("after subtype insertion")
+
+    monkeypatch.setattr(recorder, method, fail)
+    with pytest.raises(ValueError, match="after subtype"):
+        recorder.record_batch(events)
+    assert recorder.realization_ids == {}
+    for table in ["realization", "event_info", "collision_event"]:
+        assert db.db.execute(f"select count(*) from {table}").fetchone()[0] == 0
+
+
+def test_transaction_rollback_preserves_primary():
+    from apitofsim.workflow.db_utils import transaction_scope
+
+    class Connection:
+        def __init__(self):
+            self.txid = 0
+
+        def execute(self, sql):
+            if sql == "rollback":
+                raise OSError("rollback failed")
+            self.txid += 1
+            return self
+
+        def fetchone(self):
+            return (self.txid,)
+
+    error = ValueError("original write error")
+    with pytest.raises(ValueError, match="original write") as caught:
+        with transaction_scope(Connection()):
+            raise error
+    assert caught.value is error
+    assert any("rollback failed" in note for note in error.__notes__)

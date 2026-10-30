@@ -216,14 +216,12 @@ std::jthread run_mass_spec_in_thread(
   });
 }
 
-std::variant<std::tuple<const std::string, const std::string>, Eigen::ArrayXi, EventMessage, std::monostate> pump_mass_spec_queue(
-  DrainingStreamingResultQueue &result_queue,
-  Eigen::ArrayXi &partial_counters)
+using PumpedMassSpecItem = std::variant<std::tuple<const std::string, const std::string>, Eigen::ArrayXi, EventMessage, std::monostate>;
+using MassSpecItem = std::variant<std::tuple<const std::string, const std::string>, Eigen::ArrayXi, EventMessage, SimulationResult>;
+
+PumpedMassSpecItem convert_mass_spec_item(StreamingResultElement &result, Eigen::ArrayXi &partial_counters)
 {
   using magic_enum::enum_name;
-
-  StreamingResultElement result;
-  result_queue.draining_dequeue(result);
   if (std::holds_alternative<std::monostate>(result))
   {
     return std::monostate{};
@@ -248,6 +246,13 @@ std::variant<std::tuple<const std::string, const std::string>, Eigen::ArrayXi, E
   {
     throw ApiTofError("Unknown variant from mass spec output queue");
   }
+}
+
+PumpedMassSpecItem pump_mass_spec_queue(DrainingStreamingResultQueue &result_queue, Eigen::ArrayXi &partial_counters)
+{
+  StreamingResultElement result;
+  result_queue.draining_dequeue(result);
+  return convert_mass_spec_item(result, partial_counters);
 }
 
 template <typename MassSpecSubstanceT>
@@ -346,7 +351,7 @@ struct MassSpecIterator
   {
   }
 
-  std::variant<std::tuple<const std::string, const std::string>, Eigen::ArrayXi, EventMessage, SimulationResult> __next__()
+  MassSpecItem __next__()
   {
     if (finished)
     {
@@ -357,6 +362,11 @@ struct MassSpecIterator
       nb::gil_scoped_release release;
       return pump_mass_spec_queue(result_queue, partial_counters);
     }();
+    return decode_result(result);
+  }
+
+  MassSpecItem decode_result(PumpedMassSpecItem &result)
+  {
     if (std::holds_alternative<std::monostate>(result))
     {
       finished = true;
@@ -388,6 +398,53 @@ struct MassSpecIterator
     {
       throw ApiTofError("Unknown variant from mass spec output queue");
     }
+  }
+
+  std::vector<MassSpecItem> read_batch(size_t max_items = 512)
+  {
+    if (max_items == 0)
+    {
+      throw std::invalid_argument("max_items must be positive");
+    }
+    if (finished)
+    {
+      throw nb::stop_iteration();
+    }
+    std::vector<StreamingResultElement> raw;
+    raw.reserve(max_items);
+    {
+      nb::gil_scoped_release release;
+      StreamingResultElement first;
+      result_queue.draining_dequeue(first);
+      raw.push_back(std::move(first));
+      if (!std::holds_alternative<std::monostate>(raw.front()))
+      {
+        while (raw.size() < max_items)
+        {
+          StreamingResultElement item;
+          if (!result_queue.queue.try_dequeue(item))
+          {
+            break;
+          }
+          if (std::holds_alternative<std::monostate>(item))
+          {
+            // Terminal marker may precede other producer queues. Drain them on
+            // later reads too; do not raise a terminal error after popping data.
+            result_queue.draining = true;
+            continue;
+          }
+          raw.push_back(std::move(item));
+        }
+      }
+    }
+    std::vector<MassSpecItem> output;
+    output.reserve(raw.size());
+    for (auto &item : raw)
+    {
+      auto converted = convert_mass_spec_item(item, partial_counters);
+      output.push_back(decode_result(converted));
+    }
+    return output;
   }
 
   void join_if_joinable()
@@ -845,6 +902,7 @@ NB_MODULE(apitofsimraw, m)
          "strict"_a = true,
          "logconf"_a = DEFAULT_LOGCONF_TUPLE)
     .def("__next__", &MassSpecIterator::__next__)
+    .def("read_batch", &MassSpecIterator::read_batch, "max_items"_a = 512)
     .def("join_if_joinable", &MassSpecIterator::join_if_joinable, nb::call_guard<nb::gil_scoped_release>())
     .def("request_cancel", &MassSpecIterator::request_cancel)
     .def_ro("cancelled", &MassSpecIterator::cancelled);

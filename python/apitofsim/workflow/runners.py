@@ -1,4 +1,6 @@
+from collections import deque
 from dataclasses import dataclass, field
+from operator import index
 from typing import Any, Callable, Optional, Tuple
 
 import numpy
@@ -107,9 +109,13 @@ class RecordingMassSpecIterator:
     Consumers own diagnostics for errors in their own processing code.
     """
 
-    def __init__(self, db, prepared, group, N, **options):
+    def __init__(self, db, prepared, group, N, *, max_batch_items=512, **options):
         from apitofsim.api import mass_spec_iter
 
+        self.max_batch_items = index(max_batch_items)
+        if self.max_batch_items <= 0:
+            raise ValueError("max_batch_items must be positive")
+        self._ready = deque()
         self.db = db
         self.prepared = prepared
         self.group = group
@@ -138,11 +144,22 @@ class RecordingMassSpecIterator:
     def __iter__(self):
         return self
 
-    def _record_event(self, item):
-        if self._recorder is not None and not isinstance(
-            item, (MassSpecIntermediateCounter, MassSpecLogItem, MassSpecFinalResult)
-        ):
-            self._recorder(item)
+    def _record_batch(self, items):
+        if self._recorder is not None:
+            self._recorder.record_batch(
+                [
+                    item
+                    for item in items
+                    if not isinstance(
+                        item,
+                        (
+                            MassSpecIntermediateCounter,
+                            MassSpecLogItem,
+                            MassSpecFinalResult,
+                        ),
+                    )
+                ]
+            )
 
     def __next__(self):
         if self._done:
@@ -150,7 +167,11 @@ class RecordingMassSpecIterator:
         assert self._stream is not None
         try:
             try:
-                item = next(self._stream)
+                if not self._ready:
+                    items = self._stream.read_batch(self.max_batch_items)
+                    self._record_batch(items)
+                    self._ready.extend(items)
+                item = self._ready.popleft()
             except StopIteration:
                 raise RuntimeError("Simulation ended without a final result") from None
             if isinstance(item, MassSpecFinalResult):
@@ -172,7 +193,6 @@ class RecordingMassSpecIterator:
                 )
                 self._done = True
                 return self.result
-            self._record_event(item)
             return item
         except BaseException as error:
             self._abort(error)
@@ -190,13 +210,18 @@ class RecordingMassSpecIterator:
     def _abort(self, error):
         # Do not retry a failed write or turn a later native final into success.
         self._done = True
+        self._ready.clear()
         # A reused exception must never expose a previous attempt's reference.
         error.__dict__.pop("_apitofsim_recorded_failure", None)
         if self._stream is not None:
             self._cleanup_step(error, self.request_cancel)
             try:
-                for item in self._stream:
-                    self._cleanup_step(error, lambda: self._record_event(item))
+                while True:
+                    try:
+                        items = self._stream.read_batch(self.max_batch_items)
+                    except StopIteration:
+                        break
+                    self._cleanup_step(error, lambda: self._record_batch(items))
             except BaseException as secondary:
                 error.add_note(
                     f"Draining simulation: {type(secondary).__name__}: {secondary}"
@@ -816,6 +841,7 @@ class ExperimentRunner:
         strict_dos=True,
         loglevel=0,
         seed=42,
+        max_batch_items=512,
     ) -> RecordingMassSpecIterator:
         """Stream a prepared group; see RecordingMassSpecIterator for cleanup.
 
@@ -831,6 +857,7 @@ class ExperimentRunner:
             prepared,
             group,
             N,
+            max_batch_items=max_batch_items,
             sample_mode=sample_mode,
             strict=strict_dos,
             logconf=(loglevel, isinstance(self.db, RealizationDatabase)),

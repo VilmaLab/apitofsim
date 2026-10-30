@@ -933,7 +933,20 @@ class MassSpecIterator(_MassSpecIterator):
         | FragmentationEvent
         | EscapeEvent
     ):
-        val = super().__next__()
+        return self._convert_item(super().__next__())
+
+    def read_batch(self, max_items: int = 512):
+        """Wait for one item, then drain available items up to ``max_items``.
+
+        Never waits to fill a batch. Returns existing stream item types in queue
+        order; terminal completion/errors follow previously collected items.
+        Like next(), this advances the same single-consumer stream.
+        """
+        if max_items <= 0:
+            raise ValueError("max_items must be positive")
+        return [self._convert_item(item) for item in super().read_batch(max_items)]
+
+    def _convert_item(self, val):
         if isinstance(val, tuple):
             if len(val) == 2:
                 return MassSpecLogItem(*val)

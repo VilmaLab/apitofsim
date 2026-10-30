@@ -190,7 +190,7 @@ def test_iterator_cancellation_isolation():
         assert not final.cancelled
 
 
-@pytest.mark.parametrize("action", ["next", "join", "sigint"])
+@pytest.mark.parametrize("action", ["next", "read_batch", "join", "sigint"])
 @pytest.mark.parametrize("tree", [False, True])
 def test_iterator_cancellation_blocking(action, tree):
     # A subprocess bounds failures if a blocking binding accidentally keeps the GIL.
@@ -215,7 +215,16 @@ try:
     with stream:
         if {action!r} == 'join':
             stream.join_if_joinable()
-        final = list(stream)[-1]
+        if {action!r} == 'read_batch':
+            output = []
+            while True:
+                try:
+                    output.extend(stream.read_batch(512))
+                except StopIteration:
+                    break
+            final = output[-1]
+        else:
+            final = list(stream)[-1]
         assert {action!r} != 'sigint', 'SIGINT must raise KeyboardInterrupt'
         assert final.cancelled
         assert first.counters.n_realizations <= final.counters.n_realizations < 1_000_000
