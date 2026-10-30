@@ -935,7 +935,9 @@ class MassSpecIterator(_MassSpecIterator):
     ):
         return self._convert_item(super().__next__())
 
-    def read_batch(self, max_items: int = 512):
+    def read_batch(  # pyright: ignore [reportIncompatibleMethodOverride]
+        self, max_items: int = 512
+    ):
         """Wait for one item, then drain available items up to ``max_items``.
 
         Never waits to fill a batch. Returns existing stream item types in queue
