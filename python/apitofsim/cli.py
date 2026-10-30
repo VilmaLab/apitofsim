@@ -637,37 +637,36 @@ def spectrogram_many(
 
 
 @plot.command(
-    short_help="Plot a diagram of events (collisions/fragmentations/escapes) for a whole run"
+    short_help="Plot cumulative and regional fragmentation/escape fractions for a run"
 )
 @click.argument("database", required=True, type=click.Path(exists=True, dir_okay=False))
 @click.argument("dirout", type=click.Path(file_okay=False, path_type=pathlib.Path))
 @click.option(
-    "-t",
-    "--plot-type",
-    type=click.Choice(
-        [
-            "off-center",
-            "off-center-facet",
-            "beeswarm",
-            "beeswarm-facet",
-            "stripplot",
-            "stripplot-facet",
-            "violinplot",
-            "violinplot-facet",
-        ]
-    ),
-    default="beeswarm",
-    help="The plot type",
+    "-p",
+    "--panel",
+    "panels",
+    type=click.Choice(["schematic", "cumulative", "bars"]),
+    multiple=True,
+    default=("schematic", "cumulative", "bars"),
+    help="Panel to draw; repeat for 1–3 distinct panels in top-to-bottom order.",
 )
 @click.option(
-    "-r", "--rescale", type=click.Choice(["none", "equal", "schematic"]), default="none"
+    "-r",
+    "--rescale",
+    type=click.Choice(["none", "equal", "schematic"]),
+    default="schematic",
 )
-def plot_events(database, dirout, plot_type, rescale):
+def plot_events(database, dirout, panels, rescale):
     """
-    Output to DIROUT a diagram of events (collisions/fragmentations/escapes) for a whole run using the database at path DATABASE.
+    Output fragmentation/escape plots to DIROUT for the run selected from DATABASE.
     """
+    import matplotlib.pyplot as plt
+
     from apitofsim.plotting.events import plot_events_experiment
     from apitofsim.workflow.db import RealizationDatabase
+
+    if len(panels) > 3 or len(set(panels)) != len(panels):
+        raise click.BadParameter("Choose 1–3 distinct panels", param_hint="--panel")
 
     with connection_scope(RealizationDatabase, database, readonly=True) as db:
         experiment_id, is_single_pathway = select_experiment(db)
@@ -678,7 +677,7 @@ def plot_events(database, dirout, plot_type, rescale):
 
         dirout.mkdir(exist_ok=True, parents=True)
         for parent_name, fig in plot_events_experiment(
-            db, experiment_id, is_single_pathway, plot_type, rescale
+            db, experiment_id, is_single_pathway, rescale=rescale, panels=panels
         ):
             pngout = dirout / f"{parent_name}.png"
             fig.savefig(
@@ -687,6 +686,7 @@ def plot_events(database, dirout, plot_type, rescale):
                 facecolor=fig.get_facecolor(),
                 bbox_inches="tight",
             )
+            plt.close(fig)
 
 
 @db.command(short_help="Produce an Excel-friendly CSV report from the database")

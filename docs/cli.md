@@ -10,6 +10,30 @@ If you are using `uv` you may need to run `uv run apitofsim` instead.
     :depth: 1
     :list_subcommands: True
 
+## Event plots
+
+`apitofsim db plot plot-events results.db plots/` writes one Matplotlib figure per recorded
+parent cluster, containing the instrument schematic, stacked cumulative
+fragmentation/escape fractions, and regional fragmentation/escape bars.
+Repeat `--panel` to select 1–3 distinct panels in top-to-bottom order:
+
+```bash
+apitofsim db plot plot-events results.db plots/ --panel bars --panel schematic --panel cumulative
+apitofsim db plot plot-events results.db plots/ --panel cumulative --rescale none
+```
+
+`--rescale schematic` (the default) uses the explorer's chamber widths;
+`equal` gives each region equal width, and `none` uses physical distances in mm.
+Fractions include all recorded realizations in the denominator. Incomplete or
+ambiguous histories contribute to neither fragmentation nor escape counts.
+The former `--plot-type` scatter, swarm, strip and violin options are replaced
+by `--panel`.
+
+In Python, the same ordered selection is available as
+`plot_events_cluster(db, run_id, False, cluster_id, panels=("bars", "cumulative"))`
+from `apitofsim.plotting.events`. It returns a Matplotlib figure;
+`plot_events_experiment()` yields `(parent_name, figure)` pairs for a run.
+
 ## The legacy tools
 
 These tools are not recommended for new users, and kept available to support existing workflows.
