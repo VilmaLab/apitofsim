@@ -873,6 +873,7 @@ class ExperimentRunner:
         cluster_id=None,
         pathway_ids=None,
         product_ids=None,
+        tree_cluster_ids=None,
         strict=False,
         strict_dos=True,
         loglevel=0,
@@ -883,11 +884,22 @@ class ExperimentRunner:
             raise ValueError("Either pathway_id or cluster_id must be provided")
         from apitofsim.api import mass_spec as _mass_spec
 
+        if hasattr(subs, "tree_nodes") and tree_cluster_ids is None:
+            raise ValueError(
+                "Tree execution requires tree_cluster_ids (payload index to cluster ID)"
+            )
+        tree_result_id = None
+        if tree_cluster_ids is not None:
+            tree_result_id = self.db.start_tree_result(
+                self.current_run_id, cluster_id, subs, tree_cluster_ids, pathway_ids
+            )
         event_recorder = None
 
         if isinstance(self.db, RealizationDatabase):
             event_recorder = EventRecorder(
-                self.db, pathway_ids if pathway_ids is not None else [pathway_id]
+                self.db,
+                pathway_ids if pathway_ids is not None else [pathway_id],
+                result_id=tree_result_id,
             )
             logconf = (loglevel, True)
         else:
@@ -906,8 +918,8 @@ class ExperimentRunner:
                 output_timings=True,
                 strict=strict_dos,
             )
-        except ApiTofError as e:
-            if strict:
+        except BaseException as e:
+            if tree_result_id is None and (strict or not isinstance(e, ApiTofError)):
                 raise
             overflow_requested = None
             if isinstance(e, ApiTofOverflowError):
@@ -920,6 +932,13 @@ class ExperimentRunner:
                 pathway_id=pathway_id,
                 cluster_id=cluster_id,
             )
+            if tree_result_id is not None:
+                self.db.db.execute(
+                    "update cluster_tree_experiment_result set failure_id = ? where id = ?",
+                    [experiment_result_id, tree_result_id],
+                )
+                if strict or not isinstance(e, ApiTofError):
+                    raise
         else:
             experiment_result_id = self.db.record_result(
                 self.current_run_id,
@@ -928,9 +947,12 @@ class ExperimentRunner:
                 pathway_id=pathway_id,
                 pathway_ids=pathway_ids,
                 cluster_id=cluster_id,
+                tree_result_id=tree_result_id,
             )
         if event_recorder is not None:
-            event_recorder.relate_realizations(experiment_result_id)
+            event_recorder.relate_realizations(
+                tree_result_id if tree_result_id is not None else experiment_result_id
+            )
         return counters
 
     def _prepare_from_config(
@@ -1539,6 +1561,7 @@ class ExperimentRunner:
                 subs,
                 realizations,
                 cluster_id=root["cluster_id"],
+                tree_cluster_ids={v: k for k, v in cluster_payload_lookup.items()},
                 pathway_ids=[
                     inv_pathway_lookup[pathway.payload_idx]
                     for pathway in subs.tree_pathways

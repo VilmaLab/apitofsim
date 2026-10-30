@@ -530,3 +530,38 @@ except Exception as exc:
 ```
 
 `ExperimentRunner.iter_mass_spec(..., max_batch_items=512)` records available batches without waiting for them to fill and continues to yield individual items.
+
+### Cluster-tree fragmentation histories
+
+New tree executions persist `cluster_tree_experiment_result`, `cluster_tree_node`
+and `cluster_tree_transition` before starting native execution. Nodes are keyed by
+result ID and local node index; different routes to one species remain separate
+nodes. Transitions describe the exact enabled pathways, including unobserved
+branches. A NULL transition destination means an intentional stop.
+
+`tree_events_query(run_id=None, parent=None, result_id=None)` returns ordered
+recorded tree events. `fragmentation_histories_query(...)` returns their ordered
+fragmentation rows. Both use the same intersected scopes as `events_query()`;
+`parent` and `cluster_id` identify the execution root. `current_cluster_id`
+identifies the event's current species, including the **before** state at a split.
+`next_cluster_id` identifies a continuing destination. Recorded
+`next_particle_index = -1` means an intentional stop; NULL means unavailable data.
+An interrupted history can end at a continuing split, without implying a stop.
+
+```python
+history = db.fragmentation_histories_query(result_id=42).fetchdf()
+states = db.tree_events_query(result_id=42).fetchdf()
+```
+
+`provenance` is `persisted` for resolved records, or an explicit `missing_*` or
+`inconsistent_*` diagnostic. `continuity_valid` checks successive node transitions
+in event order; NULL means the preceding state/destination is unavailable. Keep
+these diagnostics when consuming histories. No legacy reconstruction or schema
+migration is provided: these readers require the new schema. Queries perform no
+writes and also work with read-only/attached databases.
+
+Tree realizations are linked as they are recorded, so scopes include retained
+partial executions. `total_us` remains NULL until successful completion;
+`failure_id` links a recorded failure. Aggregate reports include completed tree
+results and existing failure records, without counting incomplete trees as
+successes. This does not introduce a persisted cancellation-status protocol.
