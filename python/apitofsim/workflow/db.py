@@ -730,8 +730,11 @@ class ExperimentDatabase(SuperClusterDatabase):
             union all
             select id, null, cluster_id
             from multi_pathway_experiment_result where experiment_run_id = ?
+            union all
+            select id, null, cluster_id
+            from cluster_tree_experiment_result where experiment_run_id = ? and total_us is not null
         """,
-            (run_id, run_id),
+            (run_id, run_id, run_id),
         ).fetchall()
         outgoing = sorted(self.pathways_ids(parent=parent))
         outgoing_ids = {p[0] for p in outgoing}
@@ -892,6 +895,46 @@ class ExperimentDatabase(SuperClusterDatabase):
         cluster = self._cluster_obj_from_tuple(next(iter(clusters.itertuples())))
         return import_raw_config(orjson.loads(row[0])), cluster
 
+    def start_tree_result(
+        self, run_id, cluster_id, substance, cluster_ids, pathway_ids
+    ):
+        """Persist the exact native tree before starting execution.
+
+        cluster_ids maps payload indices to database IDs; pathway_ids maps native
+        transition indices to database pathway IDs. Node indices are result-local.
+        """
+        with transaction_scope(self.db):
+            row = self.db.execute(
+                "insert into cluster_tree_experiment_result (experiment_run_id, cluster_id) values (?, ?) returning id",
+                [run_id, cluster_id],
+            ).fetchone()
+            assert row is not None
+            result_id = row[0]
+            self.db.executemany(
+                "insert into cluster_tree_node values (?, ?, ?)",
+                [
+                    (result_id, i, cluster_ids[node.payload_idx])
+                    for i, node in enumerate(substance.tree_nodes)
+                ],
+            )
+            transitions = [
+                (
+                    result_id,
+                    i,
+                    source,
+                    pathway_ids[i],
+                    substance.tree_pathways[i].product_idx,
+                )
+                for source, node in enumerate(substance.tree_nodes)
+                for i in node.pathway_indices
+            ]
+            if transitions:
+                self.db.executemany(
+                    "insert into cluster_tree_transition values (?, ?, ?, ?, ?)",
+                    transitions,
+                )
+        return result_id
+
     def record_result(
         self,
         run_id,
@@ -900,6 +943,7 @@ class ExperimentDatabase(SuperClusterDatabase):
         pathway_id=None,
         cluster_id=None,
         pathway_ids=None,
+        tree_result_id=None,
     ):
         if timings is not None:
             loop_usecs = int(timings.loop / timedelta(microseconds=1))
@@ -927,19 +971,29 @@ class ExperimentDatabase(SuperClusterDatabase):
                 ),
             ).fetchone()
         else:
-            id = self.db.execute(
-                "insert into multi_pathway_experiment_result values (default, ?, ?, ?, ?, ?, ?, ?, ?) returning id",
-                (
-                    run_id,
-                    cluster_id,
-                    loop_usecs,
-                    total_usecs,
-                    int(counters.nwarnings),
-                    int(counters.n_escaped_total),
-                    int(counters.ncoll_total),
-                    int(counters.counter_collision_rejections),
-                ),
-            ).fetchone()
+            values = (
+                run_id,
+                cluster_id,
+                loop_usecs,
+                total_usecs,
+                int(counters.nwarnings),
+                int(counters.n_escaped_total),
+                int(counters.ncoll_total),
+                int(counters.counter_collision_rejections),
+            )
+            if tree_result_id is not None:
+                self.db.execute(
+                    """update cluster_tree_experiment_result set
+                    loop_us = ?, total_us = ?, nwarnings = ?, n_escaped_total = ?,
+                    ncoll_total = ?, counter_collision_rejections = ? where id = ?""",
+                    [*values[2:], tree_result_id],
+                )
+                id = (tree_result_id,)
+            else:
+                id = self.db.execute(
+                    "insert into multi_pathway_experiment_result values (default, ?, ?, ?, ?, ?, ?, ?, ?) returning id",
+                    values,
+                ).fetchone()
             assert pathway_ids is not None
             assert id is not None
             counter = Counter()
@@ -1065,6 +1119,9 @@ class ExperimentDatabase(SuperClusterDatabase):
                 "experiment_run",
                 "single_pathway_experiment_result",
                 "multi_pathway_experiment_result",
+                "cluster_tree_transition",
+                "cluster_tree_node",
+                "cluster_tree_experiment_result",
                 "pathway_fragmentation",
                 "experiment_failure",
             ]:
@@ -1117,7 +1174,9 @@ class RealizationDatabase(ExperimentDatabase):
         return query
 
     def results_query(self, run_id=None, parent=None, result_id=None):
-        """Return successful results, scoped by run, parent cluster ID and/or result ID.
+        """Return results, scoped by run, root cluster ID and/or result ID.
+
+        Tree executions are included from startup, even without successful completion.
 
         Single-pathway parents are resolved through their pathway. Multi-pathway
         results appear once, including results with no pathway_fragmentation rows.
@@ -1174,6 +1233,82 @@ class RealizationDatabase(ExperimentDatabase):
         if sort:
             query = query.order("realization_id, postime.t, event_id")
         return query
+
+    def tree_events_query(self, run_id=None, parent=None, result_id=None):
+        """Ordered events with persisted tree identity, without inferring history.
+
+        cluster_id remains the execution root; current_cluster_id identifies the
+        event's before-state species, including at fragmentation. Destinations use
+        native -1 for an intentional stop and NULL for unavailable information.
+        provenance reports missing/inconsistent data; it never treats a local
+        node index as a database cluster ID. Includes partial tree executions.
+        """
+        events = self.events_query(run_id, parent, result_id)
+        query = (
+            events.set_alias("e")
+            .join(
+                self.db.table("cluster_tree_experiment_result").set_alias("tree"),
+                "tree.id = e.experiment_result_id",
+            )
+            .join(
+                self.db.table("cluster_tree_node").set_alias("node"),
+                "node.experiment_result_id = e.experiment_result_id and node.node_index = e.particle_index",
+                how="left",
+            )
+            .join(
+                self.db.table("cluster_tree_transition").set_alias("transition"),
+                "transition.experiment_result_id = e.experiment_result_id and transition.transition_index = e.transition_index",
+                how="left",
+            )
+            .join(
+                self.db.table("cluster_tree_node").set_alias("destination"),
+                "destination.experiment_result_id = e.experiment_result_id and destination.node_index = transition.destination_node_index",
+                how="left",
+            )
+            .select("""
+                e.*, node.cluster_id as current_cluster_id,
+                destination.cluster_id as next_cluster_id,
+                transition.destination_node_index,
+                case
+                    when node.node_index is null then 'missing_node'
+                    when e.event_type = 'fragmentation' then
+                        case
+                            when e.fragmentation_event_id is null then 'missing_subtype'
+                            when e.pathway_id is null then 'missing_pathway'
+                            when transition.transition_index is null then 'missing_transition'
+                            when transition.source_node_index != e.particle_index
+                              or transition.pathway_id != e.pathway_id then 'inconsistent_transition'
+                            when e.next_particle_index is null then 'missing_destination'
+                            when e.next_particle_index != coalesce(transition.destination_node_index, -1)
+                                then 'inconsistent_destination'
+                            else 'persisted'
+                        end
+                    else 'persisted'
+                end as provenance
+            """)
+        )
+        # Validate continuity in event order, including retained partial histories.
+        return query.select("""
+            *, case
+                when event_type = 'init' then particle_index = 0
+                else particle_index = lag(
+                    case when event_type = 'fragmentation' then next_particle_index
+                         else particle_index end
+                ) over (partition by realization_id order by postime.t, event_id)
+            end as continuity_valid
+        """).order("realization_id, postime.t, event_id")
+
+    def fragmentation_histories_query(self, run_id=None, parent=None, result_id=None):
+        """One ordered row per observed split, retaining realization/node identity.
+
+        Enabled branches with no observations live in cluster_tree_transition.
+        This reader requires the new schema and performs no legacy reconstruction.
+        """
+        return (
+            self.tree_events_query(run_id, parent, result_id)
+            .filter("event_type = 'fragmentation'")
+            .order("realization_id, postime.t, event_id")
+        )
 
     def recorded_output_query(self, run_id=None, parent=None, result_id=None):
         """Return one row of diagnostics for recorded output in the given scope.
@@ -1238,7 +1373,8 @@ def auto_db_type(filename, *, readonly=False):
 
 
 class EventRecorder:
-    def __init__(self, db, pathways):
+    def __init__(self, db, pathways, *, result_id=None):
+        self.result_id = result_id
         self.db = db
         self.pathways = pathways
         assert isinstance(db, RealizationDatabase)
@@ -1285,8 +1421,8 @@ class EventRecorder:
         with transaction_scope(conn):
             allocated = (
                 conn.execute(
-                    "insert into realization select nextval('realization_sequence'), NULL from range(?) returning id",
-                    [len(unknown)],
+                    "insert into realization select nextval('realization_sequence'), ? from range(?) returning id",
+                    [self.result_id, len(unknown)],
                 ).fetchall()
                 if unknown
                 else []
@@ -1328,8 +1464,13 @@ class EventRecorder:
             )
         elif kind == "fragmentation":
             self.db.db.execute(
-                "insert into fragmentation_event values (?, ?)",
-                (row[0], self.pathways[event.pathway_index]),
+                "insert into fragmentation_event values (?, ?, ?, ?)",
+                (
+                    row[0],
+                    event.pathway_index,
+                    event.next_particle_index,
+                    self.pathways[event.pathway_index],
+                ),
             )
 
     def _insert_batch(self, events, kinds, staged):
@@ -1362,6 +1503,8 @@ class EventRecorder:
                     event.u_norm if collision else None,
                     event.accepted if collision else None,
                     self.pathways[event.pathway_index] if fragmentation else None,
+                    event.pathway_index if fragmentation else None,
+                    event.next_particle_index if fragmentation else None,
                 )
             )
         names = (
@@ -1385,8 +1528,17 @@ class EventRecorder:
             "u_norm",
             "accepted",
             "pathway_id",
+            "transition_index",
+            "next_particle_index",
         )
-        integers = {"id", "realization_id", "particle_index", "pathway_id"}
+        integers = {
+            "id",
+            "realization_id",
+            "particle_index",
+            "pathway_id",
+            "transition_index",
+            "next_particle_index",
+        }
         arrays = []
         for name, values in zip(names, zip(*rows), strict=True):
             dtype = (
@@ -1412,7 +1564,7 @@ class EventRecorder:
         ).insert_into("event_info")
         for kind, columns in (
             ("collision", "id, theta, u_norm, accepted"),
-            ("fragmentation", "id, pathway_id"),
+            ("fragmentation", "id, transition_index, next_particle_index, pathway_id"),
         ):
             if kind in table.column("event_type").to_pylist():
                 relation.filter(f"event_type = '{kind}'").project(columns).insert_into(

@@ -34,6 +34,8 @@ create table collision_event (
 create table fragmentation_event (
     id integer primary key,
     foreign key (id) references event_info (id),
+    transition_index integer,
+    next_particle_index integer,
     pathway_id integer null,
     foreign key (pathway_id) references pathway (id)
 );

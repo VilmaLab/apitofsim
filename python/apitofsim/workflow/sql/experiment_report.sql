@@ -1,3 +1,10 @@
+-- Common aggregate shape for successful single-cluster and tree executions.
+create or replace view multi_cluster_result as
+select * from multi_pathway_experiment_result
+union all
+select * exclude (failure_id) from cluster_tree_experiment_result
+where total_us is not null;
+
 create or replace view experiment_result as
 select
     res.id,
@@ -14,7 +21,10 @@ select
     cluster_id,
     null as pathway_id,
     false as is_single_pathway
-from multi_pathway_experiment_result;
+from multi_pathway_experiment_result
+union all
+select id, experiment_run_id, cluster_id, null as pathway_id, false as is_single_pathway
+from cluster_tree_experiment_result;
 
 create or replace view experiment_pathway_report as
 select
@@ -87,13 +97,13 @@ left join (
     union by name
     (
         select
-            multi_pathway_experiment_result.id as id,
+            multi_cluster_result.id as id,
             count as n_fragmented_pathway,
             n_escaped_total as n_escaped_cluster,
             * exclude (id, count, n_escaped_total)
-        from multi_pathway_experiment_result
+        from multi_cluster_result
         left join pathway_fragmentation
-        on pathway_fragmentation.experiment_result_id = multi_pathway_experiment_result.id
+        on pathway_fragmentation.experiment_result_id = multi_cluster_result.id
     )
     union by name
     select * from experiment_failure
@@ -135,7 +145,7 @@ with result_counts as (
         res.cluster_id,
         res.n_escaped_total as escaped,
         coalesce(sum(pf.count), 0) as fragmented
-    from multi_pathway_experiment_result res
+    from multi_cluster_result res
     left join pathway_fragmentation pf on pf.experiment_result_id = res.id
     group by res.id, res.experiment_run_id, res.cluster_id, res.n_escaped_total
     union all
@@ -189,7 +199,7 @@ select
         from (
             select * from single_pathway_experiment_result
             union by name
-            select * from multi_pathway_experiment_result
+            select * from multi_cluster_result
         ) as experiment_result
         where experiment_result.experiment_run_id = er.id
     ) as successes,
