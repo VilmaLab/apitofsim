@@ -528,3 +528,5 @@ except Exception as exc:
         save_external_diagnostics(diagnostics)
     raise
 ```
+
+`ExperimentRunner.iter_mass_spec(..., max_batch_items=512)` records available batches without waiting for them to fill and continues to yield individual items.

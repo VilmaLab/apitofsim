@@ -18,7 +18,11 @@ from apitofsim import ClusterData
 from apitofsim.api import Histogram
 
 from .base import SimulationMode
-from .db_utils import duckdb_connect_roview_cow, get_through_join_else
+from .db_utils import (
+    duckdb_connect_roview_cow,
+    get_through_join_else,
+    transaction_scope,
+)
 
 ureg = get_application_registry()
 Q_ = ureg.Quantity
@@ -1240,14 +1244,74 @@ class EventRecorder:
         assert isinstance(db, RealizationDatabase)
         self.realization_ids = {}
 
-    def _insert_event_info(self, state, realization_id, event_type):
+    def __call__(self, event):
+        self.record_batch([event])
+
+    def record_batch(self, events):
+        """Persist a bounded event batch atomically, without owning caller commits.
+
+        Owned batches commit all realization/event/subtype rows together. A
+        failed batch is rolled back and is never added to realization_ids.
+        In a caller transaction, failures require the caller to roll back and
+        discard this recorder; no caller commit/rollback is performed here.
+        """
+        from apitofsim.api import (
+            CollisionEvent,
+            EscapeEvent,
+            FragmentationEvent,
+            InitEvent,
+            PostCollisionEvent,
+        )
+
+        if not events:
+            return
+        event_types = {
+            InitEvent: "init",
+            CollisionEvent: "collision",
+            PostCollisionEvent: "postcollision",
+            FragmentationEvent: "fragmentation",
+            EscapeEvent: "escape",
+        }
+        # Validate before SQL and keep new ID associations private until commit.
+        kinds = [event_types[type(event)] for event in events]
+        unknown = list(
+            dict.fromkeys(
+                event.state.realization
+                for event in events
+                if event.state.realization not in self.realization_ids
+            )
+        )
+        conn = self.db.db
+        with transaction_scope(conn):
+            allocated = (
+                conn.execute(
+                    "insert into realization select nextval('realization_sequence'), NULL from range(?) returning id",
+                    [len(unknown)],
+                ).fetchall()
+                if unknown
+                else []
+            )
+            staged = dict(zip(unknown, (row[0] for row in allocated), strict=True))
+            if len(events) == 1:
+                event = events[0]
+                realization_id = self.realization_ids.get(
+                    event.state.realization, staged.get(event.state.realization)
+                )
+                self._insert_one(event, kinds[0], realization_id)
+            else:
+                self._insert_batch(events, kinds, staged)
+        self.realization_ids.update(staged)
+
+    def _insert_one(self, event, kind, realization_id):
+        # Sparse streams and the blocking callback API need no Arrow conversion.
+        state = event.state
         row = self.db.db.execute(
             "insert into event_info values (default, ?, ?, "
-            "{'x': ?, 'y': ?, 'z': ?, 't': ?}, "
-            "{'x': ?, 'y': ?, 'z': ?}, {'x': ?, 'y': ?, 'z': ?}, ?, ?, ?) returning id",
+            "{'x':?, 'y':?, 'z':?, 't':?}, "
+            "{'x':?, 'y':?, 'z':?}, {'x':?, 'y':?, 'z':?}, ?, ?, ?) returning id",
             (
                 realization_id,
-                event_type,
+                kind,
                 *state.postime,
                 *state.velocity,
                 *state.omega,
@@ -1257,46 +1321,108 @@ class EventRecorder:
             ),
         ).fetchone()
         assert row is not None
-        return row[0]
+        if kind == "collision":
+            self.db.db.execute(
+                "insert into collision_event values (?, ?, ?, ?)",
+                (row[0], event.theta, event.u_norm, event.accepted),
+            )
+        elif kind == "fragmentation":
+            self.db.db.execute(
+                "insert into fragmentation_event values (?, ?)",
+                (row[0], self.pathways[event.pathway_index]),
+            )
 
-    def __call__(self, event):
-        from apitofsim.api import (
-            CollisionEvent,
-            EscapeEvent,
-            FragmentationEvent,
-            InitEvent,
-            PostCollisionEvent,
+    def _insert_batch(self, events, kinds, staged):
+        import pyarrow as pa
+
+        conn = self.db.db
+        ids = conn.execute(
+            "select nextval('realization_event_sequence') from range(?)",
+            [len(events)],
+        ).fetchall()
+        rows = []
+        for (event_id,), event, kind in zip(ids, events, kinds, strict=True):
+            state = event.state
+            collision = kind == "collision"
+            fragmentation = kind == "fragmentation"
+            rows.append(
+                (
+                    event_id,
+                    self.realization_ids.get(
+                        state.realization, staged.get(state.realization)
+                    ),
+                    kind,
+                    *state.postime,
+                    *state.velocity,
+                    *state.omega,
+                    state.rot_energy,
+                    state.vibrational_energy,
+                    state.particle_index,
+                    event.theta if collision else None,
+                    event.u_norm if collision else None,
+                    event.accepted if collision else None,
+                    self.pathways[event.pathway_index] if fragmentation else None,
+                )
+            )
+        names = (
+            "id",
+            "realization_id",
+            "event_type",
+            "x",
+            "y",
+            "z",
+            "t",
+            "vx",
+            "vy",
+            "vz",
+            "ox",
+            "oy",
+            "oz",
+            "rot_energy",
+            "vibrational_energy",
+            "particle_index",
+            "theta",
+            "u_norm",
+            "accepted",
+            "pathway_id",
         )
+        integers = {"id", "realization_id", "particle_index", "pathway_id"}
+        arrays = []
+        for name, values in zip(names, zip(*rows), strict=True):
+            dtype = (
+                pa.string()
+                if name == "event_type"
+                else pa.bool_()
+                if name == "accepted"
+                else pa.int64()
+                if name in integers
+                else pa.float64()
+            )
+            arrays.append(pa.array(values, type=dtype))
+        self._insert_events(pa.Table.from_arrays(arrays, names=names))
 
-        event_type = {
-            InitEvent: "init",
-            CollisionEvent: "collision",
-            PostCollisionEvent: "postcollision",
-            FragmentationEvent: "fragmentation",
-            EscapeEvent: "escape",
-        }[type(event)]
-        state = event.state
-        if state.realization not in self.realization_ids:
-            self.realization_ids[state.realization] = self.db.insert_realization(None)
-        realization_id = self.realization_ids[state.realization]
-        self.db.db.execute("begin transaction")
-        try:
-            event_id = self._insert_event_info(state, realization_id, event_type)
-            if isinstance(event, CollisionEvent):
-                self.db.db.execute(
-                    "insert into collision_event values (?, ?, ?, ?)",
-                    (event_id, event.theta, event.u_norm, event.accepted),
+    def _insert_events(self, table):
+        # Relation-local Arrow scans avoid shadowing caller-registered names.
+        relation = self.db.db.from_arrow(table)
+        relation.project(
+            "id, realization_id, event_type, "
+            "{'x':x,'y':y,'z':z,'t':t}, "
+            "{'x':vx,'y':vy,'z':vz}, {'x':ox,'y':oy,'z':oz}, "
+            "rot_energy, vibrational_energy, particle_index"
+        ).insert_into("event_info")
+        for kind, columns in (
+            ("collision", "id, theta, u_norm, accepted"),
+            ("fragmentation", "id, pathway_id"),
+        ):
+            if kind in table.column("event_type").to_pylist():
+                relation.filter(f"event_type = '{kind}'").project(columns).insert_into(
+                    f"{kind}_event"
                 )
-            elif isinstance(event, FragmentationEvent):
-                self.db.db.execute(
-                    "insert into fragmentation_event values (?, ?)",
-                    (event_id, self.pathways[event.pathway_index]),
-                )
-            self.db.db.execute("commit")
-        except Exception:
-            self.db.db.execute("rollback")
-            raise
 
     def relate_realizations(self, experiment_result_id):
-        for realization_id in self.realization_ids.values():
-            self.db.update_realization_experiment(realization_id, experiment_result_id)
+        if self.realization_ids:
+            self.db.db.execute(
+                "update realization set experiment_result_id = ? "
+                "where id in (select unnest(?))",
+                [experiment_result_id, list(self.realization_ids.values())],
+            )

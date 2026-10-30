@@ -1,4 +1,35 @@
+from contextlib import contextmanager
+
 import duckdb
+
+
+@contextmanager
+def transaction_scope(conn):
+    """Commit/rollback only a transaction owned by this scope.
+
+    DuckDB has no nested transactions or savepoints. In autocommit, each SELECT
+    gets a new transaction ID; an explicit caller transaction keeps the same ID.
+    The connection must remain on its consuming thread. On caller-owned failure,
+    the caller must roll back and discard the recorder before continuing.
+    """
+
+    def transaction_id():
+        return conn.execute("select current_transaction_id()").fetchone()[0]
+
+    owns_transaction = transaction_id() != transaction_id()
+    if owns_transaction:
+        conn.execute("begin transaction")
+    try:
+        yield
+        if owns_transaction:
+            conn.execute("commit")
+    except BaseException as error:
+        if owns_transaction:
+            try:
+                conn.execute("rollback")
+            except BaseException as secondary:
+                error.add_note(f"Rolling back event batch: {secondary}")
+        raise
 
 
 def duckdb_connect_roview_cow(filename, *, config=None, fallback="copy"):
