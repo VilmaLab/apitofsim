@@ -750,7 +750,14 @@ SimulationResult apitof_mass_spec(
           }
         }
 
-        if (outcome == TimeNextCollOutcome::fragmentation)
+        if (outcome != TimeNextCollOutcome::fragmentation && !strict && overflow_exception.has_value())
+        {
+          // An out-of-range rate is only tolerated when fragmentation actually occurs.
+          throw *overflow_exception;
+        }
+        switch (outcome)
+        {
+        case TimeNextCollOutcome::fragmentation:
         {
           realization_counters[Counter::n_fragmented_total + effective_pathway_index]++;
           if (logconf.level >= LOGLEVEL_NORMAL)
@@ -766,62 +773,59 @@ SimulationResult apitof_mass_spec(
           }
           break;
         }
-        else
+        case TimeNextCollOutcome::gas_collision:
         {
-          if (!strict && overflow_exception.has_value())
+          // Keep track on number of collisions per realization
+          ncoll++;
+          if (ncoll > MAX_COLL)
           {
-            // We didn't fragment, which means it's particularly bad that that the rate constant was out of range => rethrow
-            throw *overflow_exception;
+            throw ApiTofMaxCollisions(MAX_COLL, ncoll);
           }
-          if (outcome == TimeNextCollOutcome::gas_collision)
-          {
-            // Keep track on number of collisions per realization
-            ncoll++;
-            if (ncoll > MAX_COLL)
-            {
-              throw ApiTofMaxCollisions(MAX_COLL, ncoll);
-            }
 
-            bool collision_accepted = process_collision(
-              gen, unif, local_gas_coll_sampler, local_vib_energy_sampler, ms, chamber, subs.gas, subs, subquants,
-              particle, warn,
-              LogHelper{result_queue, LogMessage::pinhole, &operation}, logconf.level,
-              [&](double theta, double u_norm, bool accepted, const ParticleState &before_collision)
-            {
-              if (logconf.log_events && operation.should_continue())
-              {
-                result_queue.enqueue(CollisionEvent{snapshot(j, before_collision, subquants.inertia), theta, u_norm, accepted});
-              }
-            });
-
-            if (collision_accepted)
-            {
-              if (logconf.log_events && operation.should_continue())
-              {
-                result_queue.enqueue(PostCollisionEvent{snapshot(j, particle, subquants.inertia)});
-              }
-            }
-            else
-            {
-              realization_counters[Counter::counter_collision_rejections]++;
-            }
-          }
-          else // outcome == TimeNextCollOutcome::escape
+          bool collision_accepted = process_collision(
+            gen, unif, local_gas_coll_sampler, local_vib_energy_sampler, ms, chamber, subs.gas, subs, subquants,
+            particle, warn,
+            LogHelper{result_queue, LogMessage::pinhole, &operation}, logconf.level,
+            [&](double theta, double u_norm, bool accepted, const ParticleState &before_collision)
           {
-            realization_counters[Counter::n_escaped_total]++;
-            if (logconf.level >= LOGLEVEL_NORMAL)
-            {
-              final_position([&](auto &final_position)
-              {
-                final_position << particle.position.x() << "\t" << particle.position.y() << endl;
-              });
-            }
             if (logconf.log_events && operation.should_continue())
             {
-              result_queue.enqueue(EscapeEvent{snapshot(j, particle, subquants.inertia)});
+              result_queue.enqueue(CollisionEvent{snapshot(j, before_collision, subquants.inertia), theta, u_norm, accepted});
+            }
+          });
+
+          if (collision_accepted)
+          {
+            if (logconf.log_events && operation.should_continue())
+            {
+              result_queue.enqueue(PostCollisionEvent{snapshot(j, particle, subquants.inertia)});
             }
           }
+          else
+          {
+            realization_counters[Counter::counter_collision_rejections]++;
+          }
+          continue;
         }
+        case TimeNextCollOutcome::escape:
+        {
+          realization_counters[Counter::n_escaped_total]++;
+          if (logconf.level >= LOGLEVEL_NORMAL)
+          {
+            final_position([&](auto &final_position)
+            {
+              final_position << particle.position.x() << "\t" << particle.position.y() << endl;
+            });
+          }
+          if (logconf.log_events && operation.should_continue())
+          {
+            result_queue.enqueue(EscapeEvent{snapshot(j, particle, subquants.inertia)});
+          }
+          break;
+        }
+        }
+        // Terminal outcomes finish this realization.
+        break;
       }
 
       if (operation.checkpoint())
@@ -983,7 +987,14 @@ SimulationResult apitof_mass_spec(
           }
         }
 
-        if (outcome == TimeNextCollOutcome::fragmentation)
+        if (outcome != TimeNextCollOutcome::fragmentation && !strict && overflow_exception.has_value())
+        {
+          // An out-of-range rate is only tolerated when fragmentation actually occurs.
+          throw *overflow_exception;
+        }
+        switch (outcome)
+        {
+        case TimeNextCollOutcome::fragmentation:
         {
           size_t tree_pathway_idx = subs.tree_nodes[subnode_index].pathway_indices[effective_pathway_index];
           std::optional<size_t> product_idx = subs.tree_pathways[tree_pathway_idx].product_idx;
@@ -1015,67 +1026,62 @@ SimulationResult apitof_mass_spec(
             {
               result_queue.enqueue(PostFragmentationEvent{snapshot(j, particle, all_subquants[subpayload_index].inertia, subnode_index)});
             }
+            continue;
+          }
+          break;
+        }
+        case TimeNextCollOutcome::gas_collision:
+        {
+          // Keep track on number of collisions per realization
+          ncoll++;
+          if (ncoll > MAX_COLL)
+          {
+            throw ApiTofMaxCollisions(MAX_COLL, ncoll);
+          }
+
+          bool collision_accepted = process_collision(
+            gen, unif, local_gas_coll_sampler, *vib_energy_sampler, ms, chamber, subs.gas, subpayload, subquants,
+            particle, warn,
+            LogHelper{result_queue, LogMessage::pinhole, &operation}, logconf.level,
+            [&](double theta, double u_norm, bool accepted, const ParticleState &before_collision)
+          {
+            if (logconf.log_events && operation.should_continue())
+            {
+              result_queue.enqueue(CollisionEvent{snapshot(j, before_collision, subquants.inertia, subnode_index), theta, u_norm, accepted});
+            }
+          });
+
+          if (collision_accepted)
+          {
+            if (logconf.log_events && operation.should_continue())
+            {
+              result_queue.enqueue(PostCollisionEvent{snapshot(j, particle, subquants.inertia, subnode_index)});
+            }
           }
           else
           {
-            break;
+            realization_counters[Counter::counter_collision_rejections]++;
           }
+          continue;
         }
-        else
+        case TimeNextCollOutcome::escape:
         {
-          if (!strict && overflow_exception.has_value())
+          if (logconf.level >= LOGLEVEL_NORMAL)
           {
-            // We didn't fragment, which means it's particularly bad that that the rate constant was out of range => rethrow
-            throw *overflow_exception;
-          }
-          if (outcome == TimeNextCollOutcome::gas_collision)
-          {
-            // Keep track on number of collisions per realization
-            ncoll++;
-            if (ncoll > MAX_COLL)
+            final_position([&](auto &final_position)
             {
-              throw ApiTofMaxCollisions(MAX_COLL, ncoll);
-            }
-
-            bool collision_accepted = process_collision(
-              gen, unif, local_gas_coll_sampler, *vib_energy_sampler, ms, chamber, subs.gas, subpayload, subquants,
-              particle, warn,
-              LogHelper{result_queue, LogMessage::pinhole, &operation}, logconf.level,
-              [&](double theta, double u_norm, bool accepted, const ParticleState &before_collision)
-            {
-              if (logconf.log_events && operation.should_continue())
-              {
-                result_queue.enqueue(CollisionEvent{snapshot(j, before_collision, subquants.inertia, subnode_index), theta, u_norm, accepted});
-              }
+              final_position << particle.position.x() << "\t" << particle.position.y() << endl;
             });
-
-            if (collision_accepted)
-            {
-              if (logconf.log_events && operation.should_continue())
-              {
-                result_queue.enqueue(PostCollisionEvent{snapshot(j, particle, subquants.inertia, subnode_index)});
-              }
-            }
-            else
-            {
-              realization_counters[Counter::counter_collision_rejections]++;
-            }
           }
-          else // outcome == TimeNextCollOutcome::escape
+          if (logconf.log_events && operation.should_continue())
           {
-            if (logconf.level >= LOGLEVEL_NORMAL)
-            {
-              final_position([&](auto &final_position)
-              {
-                final_position << particle.position.x() << "\t" << particle.position.y() << endl;
-              });
-            }
-            if (logconf.log_events && operation.should_continue())
-            {
-              result_queue.enqueue(EscapeEvent{snapshot(j, particle, subquants.inertia, subnode_index)});
-            }
+            result_queue.enqueue(EscapeEvent{snapshot(j, particle, subquants.inertia, subnode_index)});
           }
+          break;
         }
+        }
+        // Terminal outcomes finish this realization.
+        break;
       }
 
       if (operation.checkpoint())
