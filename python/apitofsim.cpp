@@ -858,19 +858,18 @@ NB_MODULE(apitofsimraw, m)
     .def_ro("realization", &ParticleStateMsg::realization)
     .def_prop_ro("postime", &ParticleStateMsg::postime)
     .def_prop_ro("velocity", [](const ParticleStateMsg &state) -> const Eigen::Vector3d &
-    {
-      return state.particle.velocity;
-    }, nb::rv_policy::reference_internal)
+  {
+    return state.particle.velocity;
+  }, nb::rv_policy::reference_internal)
     .def_prop_ro("omega", [](const ParticleStateMsg &state) -> const Eigen::Vector3d &
-    {
-      return state.particle.omega;
-    }, nb::rv_policy::reference_internal)
+  {
+    return state.particle.omega;
+  }, nb::rv_policy::reference_internal)
     .def_ro("rot_energy", &ParticleStateMsg::rot_energy)
     .def_prop_ro("vibrational_energy", [](const ParticleStateMsg &state)
-    {
-      return state.particle.vibrational_energy;
-    })
-    .def_ro("particle_index", &ParticleStateMsg::particle_index);
+  {
+    return state.particle.vibrational_energy;
+  }).def_ro("particle_index", &ParticleStateMsg::particle_index);
 
   nb::class_<InitEvent>(m, "InitEvent")
     .def_ro("state", &InitEvent::state);
