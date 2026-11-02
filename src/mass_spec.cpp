@@ -193,12 +193,25 @@ template <typename GenT>
 Eigen::Vector3d init_ang_vel(GenT &gen, normal_distribution<double> &gauss, double m, double kT, double R);
 template <typename GenT>
 double init_vib_energy(GenT &gen, uniform_real_distribution<double> &unif, double kT, const Histogram &density_cluster);
-double evaluate_rotational_energy(const Eigen::Vector3d &omega, double inertia);
-double evaluate_internal_energy(double vib_energy, double rot_energy);
 double evaluate_rate_const(const Histogram &rate_const, double energy);
-std::tuple<double, Eigen::Vector3d, double, double, double> get_quantities_for_collision(double z, const ChamberQuantities &chamber, double m_gas, const Eigen::Vector3d &v_cluster, double v_gas, double pressure, double temperature);
-std::tuple<double, double, double> update_physical_quantities(double z, const SkimmerData &skimmer, double mesh_skimmer, const ChamberQuantities &chamber, double T);
-void update_velocities(Eigen::Vector3d &v_cluster, double &v_cluster_norm, const Eigen::Vector3d &v_rel, double v_gas);
+struct GasState
+{
+  double axial_velocity;
+  double temperature;
+  double pressure;
+};
+
+struct CollisionQuantities
+{
+  double number_density;
+  Eigen::Vector3d relative_velocity;
+  double relative_speed;
+  double mobility;
+  double inverse_mobility;
+};
+
+CollisionQuantities get_quantities_for_collision(const ParticleState &particle, const ChamberQuantities &chamber, double m_gas, const GasState &gas);
+GasState update_physical_quantities(double z, const SkimmerData &skimmer, double mesh_skimmer, const ChamberQuantities &chamber, double T);
 void update_rot_vel(Eigen::Vector3d &omega, double rot_energy_old, double rot_energy);
 double boundary_vib_energy(double vib_energy_old, double reduced_mass, double u_norm, double v_cluster_norm, double theta);
 template <typename GenT, typename VibEnergySamplerT>
@@ -612,7 +625,7 @@ void print_initial_trace(
   });
 }
 
-// The callback observes the collision before accepted velocities and energies are updated.
+// The callback observes the particle before accepted collision updates are applied.
 template <typename GenT, typename GasCollSamplerT, typename VibEnergySamplerT, typename ClusterT, typename OnCollisionT>
 bool process_collision(
   GenT &gen,
@@ -624,35 +637,32 @@ bool process_collision(
   const Gas &gas,
   const ClusterT &cluster,
   const SubstanceQuantities &subquants,
-  double x, double y, double z,
-  Eigen::Vector3d &v_cluster,
-  double &v_cluster_norm,
-  Eigen::Vector3d &omega,
-  double &vib_energy,
-  double &rot_energy,
+  ParticleState &particle,
   WarningHelper &warn,
   LogHelper pinhole_logger,
   int loglevel,
   const OnCollisionT &on_collision)
 {
-  auto [v_gas, temperature, pressure] = update_physical_quantities(z, ms.skimmer, ms.mesh_skimmer, chamber, ms.T);
-  auto [effective_n, v_rel, v_rel_norm, effective_mobility_gas, effective_mobility_gas_inv] = get_quantities_for_collision(z, chamber, gas.mass, v_cluster, v_gas, pressure, temperature);
-  auto [theta, u_norm] = gas_coll_sampler.sample(gen, effective_n, v_rel_norm, effective_mobility_gas, effective_mobility_gas_inv, cluster.R_cluster + gas.radius, warn);
+  const auto local_gas = update_physical_quantities(particle.position.z(), ms.skimmer, ms.mesh_skimmer, chamber, ms.T);
+  auto collision = get_quantities_for_collision(particle, chamber, gas.mass, local_gas);
+  auto [theta, u_norm] = gas_coll_sampler.sample(gen, collision.number_density, collision.relative_speed, collision.mobility, collision.inverse_mobility, cluster.R_cluster + gas.radius, warn);
 
-  double vib_energy_new = vib_energy_sampler.sample(gen, boundary_vib_energy(vib_energy, subquants.reduced_mass, u_norm, v_rel_norm, theta));
-  const Eigen::Vector3d omega_before_collision = omega;
-  bool collision_accepted = eval_collision(gen, unif, chamber.gas_mean_free_paths[1], x, y, z, chamber.clens.total_length, ms.radius_pinhole, chamber.clens.quadrupole_end, v_rel, omega, u_norm, theta, cluster.R_cluster, vib_energy_new, vib_energy, cluster.m_ion, gas.mass, temperature, pinhole_logger, loglevel);
+  double vib_energy_new = vib_energy_sampler.sample(gen, boundary_vib_energy(particle.vibrational_energy, subquants.reduced_mass, u_norm, collision.relative_speed, theta));
+  Eigen::Vector3d omega = particle.omega;
+  bool collision_accepted = eval_collision(gen, unif, chamber.gas_mean_free_paths[1], particle.position.x(), particle.position.y(), particle.position.z(), chamber.clens.total_length, ms.radius_pinhole, chamber.clens.quadrupole_end, collision.relative_velocity, omega, u_norm, theta, cluster.R_cluster, vib_energy_new, particle.vibrational_energy, cluster.m_ion, gas.mass, local_gas.temperature, pinhole_logger, loglevel);
 
-  on_collision(theta, u_norm, collision_accepted, omega_before_collision);
+  on_collision(theta, u_norm, collision_accepted, particle);
 
   if (collision_accepted)
   {
-    vib_energy = vib_energy_new;
-    update_velocities(v_cluster, v_cluster_norm, v_rel, v_gas);
-    rot_energy = evaluate_rotational_energy(omega, subquants.inertia);
-    double rot_energy_old = rot_energy;
-    std::tie(vib_energy, rot_energy) = redistribute_internal_energy(gen, vib_energy_sampler, vib_energy, rot_energy);
-    update_rot_vel(omega, rot_energy_old, rot_energy);
+    particle.vibrational_energy = vib_energy_new;
+    particle.velocity = collision.relative_velocity;
+    particle.velocity.z() += local_gas.axial_velocity;
+    particle.omega = omega;
+    double rot_energy_old = particle.rotational_energy(subquants.inertia);
+    double rot_energy;
+    std::tie(particle.vibrational_energy, rot_energy) = redistribute_internal_energy(gen, vib_energy_sampler, particle.vibrational_energy, rot_energy_old);
+    update_rot_vel(particle.omega, rot_energy_old, rot_energy);
   }
   return collision_accepted;
 }
@@ -706,42 +716,37 @@ SimulationResult apitof_mass_spec(
       // Define normal (gaussian) distribution with 0 mean and 1 standard deviation
       normal_distribution<double> gauss = normal_distribution<>(0.0, 1.0);
 
-      double t = 0.0;
-      double x = 0.0;
-      double y = 0.0;
-      double z = 0.0;
+      // Draw initial random velocity from Maxwell-Boltzmann distribution
+      ParticleState particle{
+        .velocity = init_vel(gen, gauss, subs.m_ion, chamber.kT),
+        .omega = init_ang_vel(gen, gauss, subs.m_ion, chamber.kT, subs.R_cluster),
+        .vibrational_energy = init_vib_energy(gen, unif, chamber.kT, subs.density_cluster),
+      };
       int ncoll = 0;
       double coll_z = 0.0;
 
-      // Draw initial random velocity from Maxwell-Boltzmann distribution
-      Eigen::Vector3d v_cluster = init_vel(gen, gauss, subs.m_ion, chamber.kT);
-      Eigen::Vector3d omega = init_ang_vel(gen, gauss, subs.m_ion, chamber.kT, subs.R_cluster);
-      double vib_energy = init_vib_energy(gen, unif, chamber.kT, subs.density_cluster);
-
       if (logconf.log_events && operation.should_continue())
       {
-        result_queue.enqueue(InitEvent{ParticleStateMsg{j, {x, y, z, t}, v_cluster, omega, evaluate_rotational_energy(omega, subquants.inertia), vib_energy}});
+        result_queue.enqueue(InitEvent{snapshot(j, particle, subquants.inertia)});
       }
 
-      while (z < chamber.clens.total_length && operation.checkpoint()) // single realization // TO BE CHANGED IN SECOND CHAMBER!!!!!!!!!!!
+      while (particle.position.z() < chamber.clens.total_length && operation.checkpoint()) // single realization // TO BE CHANGED IN SECOND CHAMBER!!!!!!!!!!!
       {
-        double v_cluster_norm = v_cluster.norm();
-        double rot_energy = evaluate_rotational_energy(omega, subquants.inertia);
-        double internal_energy = evaluate_internal_energy(vib_energy, rot_energy);
+        double internal_energy = particle.internal_energy(subquants.inertia);
 
         auto [effective_pathway_index, t_fragmentation, overflow_exception] = next_fragmentation_time_multi(gen, unif, subs.pathways, internal_energy, strict);
 
-        double old_t = t;
-        TimeNextCollOutcome outcome = time_next_coll_quadrupole(unif(gen), v_cluster, v_cluster_norm, chamber, subs.gas.radius + subs.R_cluster, subquants.dts, z, x, y, t_fragmentation, subquants.acc, t, subs.gas.mass, ms.skimmer, ms.mesh_skimmer, ms.quadrupole);
+        double old_t = particle.time;
+        TimeNextCollOutcome outcome = time_next_coll_quadrupole(unif(gen), particle, chamber, subs.gas.radius + subs.R_cluster, subquants.dts, t_fragmentation, subquants.acc, subs.gas.mass, ms.skimmer, ms.mesh_skimmer, ms.quadrupole);
 
         if (logconf.level >= LOGLEVEL_NORMAL)
         {
-          if (z < chamber.clens.first_chamber_end)
+          if (particle.position.z() < chamber.clens.first_chamber_end)
           {
             LogHelper tmp_evolution = LogHelper{result_queue, LogMessage::tmp_evolution, &operation};
             tmp_evolution([&](auto &tmp_evolution)
             {
-              tmp_evolution << z << " " << t - old_t << " " << v_cluster_norm << " " << endl;
+              tmp_evolution << particle.position.z() << " " << particle.time - old_t << " " << particle.velocity.norm() << " " << endl;
             });
           }
         }
@@ -753,12 +758,12 @@ SimulationResult apitof_mass_spec(
           {
             fragments([&](auto &fragments)
             {
-              fragments << j + 1 << "\t" << t << "\t" << z << "\t" << zone(z, chamber.clens) << "\t" << coll_z << "\t" << zone(coll_z, chamber.clens) << endl;
+              fragments << j + 1 << "\t" << particle.time << "\t" << particle.position.z() << "\t" << zone(particle.position.z(), chamber.clens) << "\t" << coll_z << "\t" << zone(coll_z, chamber.clens) << endl;
             });
           }
           if (logconf.log_events && operation.should_continue())
           {
-            result_queue.enqueue(FragmentationEvent{ParticleStateMsg{j, {x, y, z, t}, v_cluster, omega, rot_energy, vib_energy}, effective_pathway_index});
+            result_queue.enqueue(FragmentationEvent{snapshot(j, particle, subquants.inertia), effective_pathway_index});
           }
           break;
         }
@@ -780,13 +785,13 @@ SimulationResult apitof_mass_spec(
 
             bool collision_accepted = process_collision(
               gen, unif, local_gas_coll_sampler, local_vib_energy_sampler, ms, chamber, subs.gas, subs, subquants,
-              x, y, z, v_cluster, v_cluster_norm, omega, vib_energy, rot_energy, warn,
+              particle, warn,
               LogHelper{result_queue, LogMessage::pinhole, &operation}, logconf.level,
-              [&](double theta, double u_norm, bool accepted, const Eigen::Vector3d &omega_before_collision)
+              [&](double theta, double u_norm, bool accepted, const ParticleState &before_collision)
             {
               if (logconf.log_events && operation.should_continue())
               {
-                result_queue.enqueue(CollisionEvent{ParticleStateMsg{j, {x, y, z, t}, v_cluster, omega_before_collision, rot_energy, vib_energy}, theta, u_norm, accepted});
+                result_queue.enqueue(CollisionEvent{snapshot(j, before_collision, subquants.inertia), theta, u_norm, accepted});
               }
             });
 
@@ -794,7 +799,7 @@ SimulationResult apitof_mass_spec(
             {
               if (logconf.log_events && operation.should_continue())
               {
-                result_queue.enqueue(PostCollisionEvent{ParticleStateMsg{j, {x, y, z, t}, v_cluster, omega, rot_energy, vib_energy}});
+                result_queue.enqueue(PostCollisionEvent{snapshot(j, particle, subquants.inertia)});
               }
             }
             else
@@ -809,12 +814,12 @@ SimulationResult apitof_mass_spec(
             {
               final_position([&](auto &final_position)
               {
-                final_position << x << "\t" << y << endl;
+                final_position << particle.position.x() << "\t" << particle.position.y() << endl;
               });
             }
             if (logconf.log_events && operation.should_continue())
             {
-              result_queue.enqueue(EscapeEvent{ParticleStateMsg{j, {x, y, z, t}, v_cluster, omega, rot_energy, vib_energy}});
+              result_queue.enqueue(EscapeEvent{snapshot(j, particle, subquants.inertia)});
             }
           }
         }
@@ -939,47 +944,42 @@ SimulationResult apitof_mass_spec(
       // Define normal (gaussian) distribution with 0 mean and 1 standard deviation
       normal_distribution<double> gauss = normal_distribution<>(0.0, 1.0);
 
-      double t = 0.0;
-      double x = 0.0;
-      double y = 0.0;
-      double z = 0.0;
+      // Draw initial random velocity from Maxwell-Boltzmann distribution
+      ParticleState particle{
+        .velocity = init_vel(gen, gauss, subpayload.m_ion, chamber.kT),
+        .omega = init_ang_vel(gen, gauss, subpayload.m_ion, chamber.kT, subpayload.R_cluster),
+        .vibrational_energy = init_vib_energy(gen, unif, chamber.kT, subpayload.density_cluster),
+      };
       int ncoll = 0;
       double coll_z = 0.0;
-
-      // Draw initial random velocity from Maxwell-Boltzmann distribution
-      Eigen::Vector3d v_cluster = init_vel(gen, gauss, subpayload.m_ion, chamber.kT);
-      Eigen::Vector3d omega = init_ang_vel(gen, gauss, subpayload.m_ion, chamber.kT, subpayload.R_cluster);
-      double vib_energy = init_vib_energy(gen, unif, chamber.kT, subpayload.density_cluster);
       auto vib_energy_sampler = std::unique_ptr<VibEnergySamplerT>(new VibEnergySamplerT(subpayload.density_cluster));
       int last_pathway_index = -1;
 
       if (logconf.log_events && operation.should_continue())
       {
-        result_queue.enqueue(InitEvent{ParticleStateMsg{j, {x, y, z, t}, v_cluster, omega, evaluate_rotational_energy(omega, all_subquants[subpayload_index].inertia), vib_energy, subnode_index}});
+        result_queue.enqueue(InitEvent{snapshot(j, particle, all_subquants[subpayload_index].inertia, subnode_index)});
       }
 
-      while (z < chamber.clens.total_length && operation.checkpoint()) // single realization // TO BE CHANGED IN SECOND CHAMBER!!!!!!!!!!!
+      while (particle.position.z() < chamber.clens.total_length && operation.checkpoint()) // single realization // TO BE CHANGED IN SECOND CHAMBER!!!!!!!!!!!
       {
         const MSSubstanceTreeCluster &subpayload = subs.cluster_payloads[subpayload_index];
         const SubstanceQuantities &subquants = all_subquants[subpayload_index];
 
-        double v_cluster_norm = v_cluster.norm();
-        double rot_energy = evaluate_rotational_energy(omega, subquants.inertia);
-        double internal_energy = evaluate_internal_energy(vib_energy, rot_energy);
+        double internal_energy = particle.internal_energy(subquants.inertia);
 
         auto [effective_pathway_index, t_fragmentation, overflow_exception] = next_fragmentation_time_multi(gen, unif, pathways, internal_energy, strict);
 
-        double old_t = t;
-        TimeNextCollOutcome outcome = time_next_coll_quadrupole(unif(gen), v_cluster, v_cluster_norm, chamber, subs.gas.radius + subpayload.R_cluster, subquants.dts, z, x, y, t_fragmentation, subquants.acc, t, subs.gas.mass, ms.skimmer, ms.mesh_skimmer, ms.quadrupole);
+        double old_t = particle.time;
+        TimeNextCollOutcome outcome = time_next_coll_quadrupole(unif(gen), particle, chamber, subs.gas.radius + subpayload.R_cluster, subquants.dts, t_fragmentation, subquants.acc, subs.gas.mass, ms.skimmer, ms.mesh_skimmer, ms.quadrupole);
 
         if (logconf.level >= LOGLEVEL_NORMAL)
         {
-          if (z < chamber.clens.first_chamber_end)
+          if (particle.position.z() < chamber.clens.first_chamber_end)
           {
             LogHelper tmp_evolution = LogHelper{result_queue, LogMessage::tmp_evolution, &operation};
             tmp_evolution([&](auto &tmp_evolution)
             {
-              tmp_evolution << z << " " << t - old_t << " " << v_cluster_norm << " " << endl;
+              tmp_evolution << particle.position.z() << " " << particle.time - old_t << " " << particle.velocity.norm() << " " << endl;
             });
           }
         }
@@ -993,13 +993,13 @@ SimulationResult apitof_mass_spec(
           {
             fragments([&](auto &fragments)
             {
-              fragments << j + 1 << "\t" << t << "\t" << z << "\t" << zone(z, chamber.clens) << "\t" << coll_z << "\t" << zone(coll_z, chamber.clens) << endl;
+              fragments << j + 1 << "\t" << particle.time << "\t" << particle.position.z() << "\t" << zone(particle.position.z(), chamber.clens) << "\t" << coll_z << "\t" << zone(coll_z, chamber.clens) << endl;
             });
           }
           if (logconf.log_events && operation.should_continue())
           {
             int next_particle_index = product_idx ? *product_idx : -1;
-            result_queue.enqueue(FragmentationEvent{ParticleStateMsg{j, {x, y, z, t}, v_cluster, omega, rot_energy, vib_energy, subnode_index}, static_cast<int>(tree_pathway_idx), next_particle_index});
+            result_queue.enqueue(FragmentationEvent{snapshot(j, particle, subquants.inertia, subnode_index), static_cast<int>(tree_pathway_idx), next_particle_index});
           }
           if (product_idx)
           {
@@ -1008,13 +1008,13 @@ SimulationResult apitof_mass_spec(
             prepare_pathways_from_tree(pathways, subs, subnode_index);
 
             // Assumption: All energy was used up in the fragmentation so we zero everything out.
-            v_cluster = Eigen::Vector3d::Zero();
-            omega = Eigen::Vector3d::Zero();
-            vib_energy = 0;
+            particle.velocity = Eigen::Vector3d::Zero();
+            particle.omega = Eigen::Vector3d::Zero();
+            particle.vibrational_energy = 0;
             vib_energy_sampler = std::unique_ptr<VibEnergySamplerT>(new VibEnergySamplerT(subs.cluster_payloads[subpayload_index].density_cluster));
             if (logconf.log_events && operation.should_continue())
             {
-              result_queue.enqueue(PostFragmentationEvent{ParticleStateMsg{j, {x, y, z, t}, v_cluster, omega, evaluate_rotational_energy(omega, all_subquants[subpayload_index].inertia), vib_energy, subnode_index}});
+              result_queue.enqueue(PostFragmentationEvent{snapshot(j, particle, all_subquants[subpayload_index].inertia, subnode_index)});
             }
           }
           else
@@ -1040,13 +1040,13 @@ SimulationResult apitof_mass_spec(
 
             bool collision_accepted = process_collision(
               gen, unif, local_gas_coll_sampler, *vib_energy_sampler, ms, chamber, subs.gas, subpayload, subquants,
-              x, y, z, v_cluster, v_cluster_norm, omega, vib_energy, rot_energy, warn,
+              particle, warn,
               LogHelper{result_queue, LogMessage::pinhole, &operation}, logconf.level,
-              [&](double theta, double u_norm, bool accepted, const Eigen::Vector3d &omega_before_collision)
+              [&](double theta, double u_norm, bool accepted, const ParticleState &before_collision)
             {
               if (logconf.log_events && operation.should_continue())
               {
-                result_queue.enqueue(CollisionEvent{ParticleStateMsg{j, {x, y, z, t}, v_cluster, omega_before_collision, rot_energy, vib_energy, subnode_index}, theta, u_norm, accepted});
+                result_queue.enqueue(CollisionEvent{snapshot(j, before_collision, subquants.inertia, subnode_index), theta, u_norm, accepted});
               }
             });
 
@@ -1054,7 +1054,7 @@ SimulationResult apitof_mass_spec(
             {
               if (logconf.log_events && operation.should_continue())
               {
-                result_queue.enqueue(PostCollisionEvent{ParticleStateMsg{j, {x, y, z, t}, v_cluster, omega, rot_energy, vib_energy, subnode_index}});
+                result_queue.enqueue(PostCollisionEvent{snapshot(j, particle, subquants.inertia, subnode_index)});
               }
             }
             else
@@ -1068,12 +1068,12 @@ SimulationResult apitof_mass_spec(
             {
               final_position([&](auto &final_position)
               {
-                final_position << x << "\t" << y << endl;
+                final_position << particle.position.x() << "\t" << particle.position.y() << endl;
               });
             }
             if (logconf.log_events && operation.should_continue())
             {
-              result_queue.enqueue(EscapeEvent{ParticleStateMsg{j, {x, y, z, t}, v_cluster, omega, rot_energy, vib_energy, subnode_index}});
+              result_queue.enqueue(EscapeEvent{snapshot(j, particle, subquants.inertia, subnode_index)});
             }
           }
         }
@@ -1210,7 +1210,7 @@ double evaluate_rate_const(const Histogram &rate_const, double energy)
 }
 
 
-std::tuple<double, double, double> update_skimmer_quantities(const SkimmerData &skimmer, double z, double first_chamber_end, double mesh_skimmer)
+GasState update_skimmer_quantities(const SkimmerData &skimmer, double z, double first_chamber_end, double mesh_skimmer)
 {
   int m;
   double coeff1;
@@ -1237,60 +1237,45 @@ std::tuple<double, double, double> update_skimmer_quantities(const SkimmerData &
     pressure = (coeff2 * skimmer(m, PRESSURE_SKIMMER)) + (coeff1 * skimmer(m + 1, PRESSURE_SKIMMER));
   }
   // density=coeff2*density_skimmer[m]+coeff1*density_skimmer[m+1];
-  return std::make_tuple(v_gas, temp, pressure);
+  return {v_gas, temp, pressure};
 }
 
-std::tuple<double, Eigen::Vector3d, double, double, double> get_quantities_for_collision(double z, const ChamberQuantities &chamber, double m_gas, const Eigen::Vector3d &v_cluster, double v_gas, double pressure, double temperature)
+CollisionQuantities get_quantities_for_collision(const ParticleState &particle, const ChamberQuantities &chamber, double m_gas, const GasState &gas)
 {
-  using consts::boltzmann;
   double n;
-  double v_rel_norm;
-  Eigen::Vector3d v_rel = v_cluster;
+  Eigen::Vector3d v_rel = particle.velocity;
   double mobility_gas = chamber.mobility_gas;
   double mobility_gas_inv = chamber.mobility_gas_inv;
-  if (z < chamber.clens.first_chamber_end)
+  if (particle.position.z() < chamber.clens.first_chamber_end)
   {
     n = chamber.pressures.n[0];
   }
-  else if (z < chamber.clens.second_chamber_end)
+  else if (particle.position.z() < chamber.clens.second_chamber_end)
   {
-    v_rel[2] = v_rel[2] - v_gas;
-    double kT = boltzmann * temperature;
+    v_rel.z() -= gas.axial_velocity;
+    double kT = boltzmann * gas.temperature;
     mobility_gas = kT / m_gas;
     mobility_gas_inv = m_gas / kT;
-    n = particle_density(pressure, kT);
+    n = particle_density(gas.pressure, kT);
   }
   else
   {
     n = chamber.pressures.n[1];
   }
-  v_rel_norm = v_rel.norm();
-  return std::make_tuple(n, v_rel, v_rel_norm, mobility_gas, mobility_gas_inv);
+  return {n, v_rel, v_rel.norm(), mobility_gas, mobility_gas_inv};
 }
 
-std::tuple<double, double, double> update_physical_quantities(double z, const SkimmerData &skimmer, double mesh_skimmer, const ChamberQuantities &chamber, double T)
+GasState update_physical_quantities(double z, const SkimmerData &skimmer, double mesh_skimmer, const ChamberQuantities &chamber, double T)
 {
-  double v_gas;
-  double temperature;
-  double pressure;
-
   if (z < chamber.clens.first_chamber_end)
   {
-    pressure = chamber.pressures.P[0];
-    temperature = T;
-    v_gas = 0;
+    return {0.0, T, chamber.pressures.P[0]};
   }
-  else if (z < chamber.clens.sk_end)
+  if (z < chamber.clens.sk_end)
   {
-    std::tie(v_gas, temperature, pressure) = update_skimmer_quantities(skimmer, z, chamber.clens.first_chamber_end, mesh_skimmer);
+    return update_skimmer_quantities(skimmer, z, chamber.clens.first_chamber_end, mesh_skimmer);
   }
-  else
-  {
-    pressure = chamber.pressures.P[1];
-    temperature = T;
-    v_gas = 0;
-  }
-  return std::make_tuple(v_gas, temperature, pressure);
+  return {0.0, T, chamber.pressures.P[1]};
 }
 
 // Draw initial vibrational energy
@@ -1334,11 +1319,11 @@ double collision_frequency(double z, const Eigen::Vector3d &velocity, const Cham
     return coll_freq(chamber.pressures.n[0], chamber.mobility_gas, chamber.mobility_gas_inv, R, velocity.norm());
   if (z > chamber.clens.sk_end)
     return coll_freq(chamber.pressures.n[1], chamber.mobility_gas, chamber.mobility_gas_inv, R, velocity.norm());
-  auto [v_gas, temperature, pressure] = update_skimmer_quantities(skimmer, z, chamber.clens.first_chamber_end, mesh_skimmer);
-  double kT = consts::boltzmann * temperature;
+  const auto gas = update_skimmer_quantities(skimmer, z, chamber.clens.first_chamber_end, mesh_skimmer);
+  double kT = consts::boltzmann * gas.temperature;
   Eigen::Vector3d relative_velocity = velocity;
-  relative_velocity[2] -= v_gas;
-  return coll_freq(particle_density(pressure, kT), kT / m_gas, m_gas / kT, R, relative_velocity.norm());
+  relative_velocity[2] -= gas.axial_velocity;
+  return coll_freq(particle_density(gas.pressure, kT), kT / m_gas, m_gas / kT, R, relative_velocity.norm());
 }
 
 CollisionProfile::CollisionProfile(const MassSpectrometer &ms, const Gas &gas, double cluster_radius)
@@ -1361,7 +1346,7 @@ Eigen::ArrayXd CollisionProfile::frequency(const Eigen::ArrayXd &z, const Eigen:
 }
 
 // Evaluate time to next collision
-TimeNextCollOutcome time_next_coll_quadrupole(double collision_quantile, Eigen::Vector3d &v_cluster, double &v_cluster_norm, const ChamberQuantities &chamber, double R, Eigen::Array2d dts, double &z, double &x, double &y, double &t_fragmentation, const Eigen::Array4d &acc, double &t, double m_gas, const SkimmerData &skimmer, double mesh_skimmer, const std::optional<Quadrupole> quadrupole)
+TimeNextCollOutcome time_next_coll_quadrupole(double collision_quantile, ParticleState &particle, const ChamberQuantities &chamber, double R, Eigen::Array2d dts, double t_fragmentation, const Eigen::Array4d &acc, double m_gas, const SkimmerData &skimmer, double mesh_skimmer, const std::optional<Quadrupole> quadrupole)
 {
   using namespace consts;
   double integral = 0.0;
@@ -1369,40 +1354,35 @@ TimeNextCollOutcome time_next_coll_quadrupole(double collision_quantile, Eigen::
   double c1;
   double c2;
   double v1;
-  double v_cluster_norm_xy = (v_cluster[0] * v_cluster[0]) + (v_cluster[1] * v_cluster[1]);
+  double v_cluster_norm_xy = (particle.velocity[0] * particle.velocity[0]) + (particle.velocity[1] * particle.velocity[1]);
   const double r = collision_quantile;
   double mobility_gas_skimmer;
   double mobility_gas_inv_skimmer;
-  double T_skimmer;
   double kT_skimmer;
-  double P_skimmer;
   double n_skimmer = NAN;
-  double v_gas = NAN;
   double v_rel_norm;
   double v1x;
   double v1y;
   double accx;
   double accy;
   double delta_t = 0.0;
-  v_cluster_norm = v_cluster.norm();
 
-  c1 = collision_frequency(z, v_cluster, chamber, m_gas, R, skimmer, mesh_skimmer);
+  c1 = collision_frequency(particle.position.z(), particle.velocity, chamber, m_gas, R, skimmer, mesh_skimmer);
 
   // tmp_evolution << z << " " << c1 << endl;
   // if(z<first_chamber_end) tmp_evolution << z << " " << c1 << endl;
 
   while (true)
   {
-    if (z < 0 || (z == 0 && (v_cluster[2] < 0 || (v_cluster[2] == 0 && acc[0] < 0))))
+    if (particle.position.z() < 0 || (particle.position.z() == 0 && (particle.velocity[2] < 0 || (particle.velocity[2] == 0 && acc[0] < 0))))
     {
-      bool fragmented = upstream::advance(v_cluster, z, x, y, acc[0],
-                                          std::max(0.0, t_fragmentation - delta_t), t, delta_t);
-      v_cluster_norm = v_cluster.norm();
+      bool fragmented = upstream::advance(particle.velocity, particle.position.z(), particle.position.x(), particle.position.y(), acc[0],
+                                          std::max(0.0, t_fragmentation - delta_t), particle.time, delta_t);
       if (fragmented)
         return TimeNextCollOutcome::fragmentation;
-      c1 = collision_frequency(z, v_cluster, chamber, m_gas, R, skimmer, mesh_skimmer);
+      c1 = collision_frequency(particle.position.z(), particle.velocity, chamber, m_gas, R, skimmer, mesh_skimmer);
     }
-    if (z >= chamber.clens.second_chamber_end)
+    if (particle.position.z() >= chamber.clens.second_chamber_end)
     {
       return TimeNextCollOutcome::escape;
     }
@@ -1414,116 +1394,116 @@ TimeNextCollOutcome time_next_coll_quadrupole(double collision_quantile, Eigen::
     {
       return TimeNextCollOutcome::gas_collision;
     }
-    v1 = v_cluster[2];
-    v1x = v_cluster[0];
-    v1y = v_cluster[1];
+    v1 = particle.velocity[2];
+    v1x = particle.velocity[0];
+    v1y = particle.velocity[1];
 
     double first_dt = dts[0];
     double outward_time = std::numeric_limits<double>::infinity();
-    if (z < chamber.clens.first_chamber_end)
+    if (particle.position.z() < chamber.clens.first_chamber_end)
     {
-      outward_time = upstream::crossing_time(z, v1, acc[0], false);
+      outward_time = upstream::crossing_time(particle.position.z(), v1, acc[0], false);
       first_dt = std::min({first_dt, outward_time, t_fragmentation - delta_t});
-      v_cluster[2] += acc[0] * first_dt;
+      particle.velocity[2] += acc[0] * first_dt;
     }
 
-    else if (z >= chamber.clens.sk_end and z < chamber.clens.quadrupole_start)
+    else if (particle.position.z() >= chamber.clens.sk_end and particle.position.z() < chamber.clens.quadrupole_start)
     {
-      v_cluster[2] += acc[1] * dts[1];
+      particle.velocity[2] += acc[1] * dts[1];
     }
 
-    else if (z >= chamber.clens.quadrupole_start and z < chamber.clens.quadrupole_end)
+    else if (particle.position.z() >= chamber.clens.quadrupole_start and particle.position.z() < chamber.clens.quadrupole_end)
     {
       if (quadrupole)
       {
-        accx = quadrupole->mathieu_factor * (-quadrupole->dc_field + (quadrupole->ac_field * cos(quadrupole->angular_velocity * t))) * (x + (v_cluster[0] * dts[1] / 2.0));
-        accy = quadrupole->mathieu_factor * (quadrupole->dc_field - (quadrupole->ac_field * cos(quadrupole->angular_velocity * t))) * (y + (v_cluster[1] * dts[1] / 2.0));
-        v_cluster[0] += accx * dts[1];
-        v_cluster[1] += accy * dts[1];
+        accx = quadrupole->mathieu_factor * (-quadrupole->dc_field + (quadrupole->ac_field * cos(quadrupole->angular_velocity * particle.time))) * (particle.position.x() + (particle.velocity[0] * dts[1] / 2.0));
+        accy = quadrupole->mathieu_factor * (quadrupole->dc_field - (quadrupole->ac_field * cos(quadrupole->angular_velocity * particle.time))) * (particle.position.y() + (particle.velocity[1] * dts[1] / 2.0));
+        particle.velocity[0] += accx * dts[1];
+        particle.velocity[1] += accy * dts[1];
       }
-      v_cluster[2] += acc[2] * dts[1];
+      particle.velocity[2] += acc[2] * dts[1];
     }
 
-    else if (z >= chamber.clens.quadrupole_end)
+    else if (particle.position.z() >= chamber.clens.quadrupole_end)
     {
-      v_cluster[2] += acc[3] * dts[1];
+      particle.velocity[2] += acc[3] * dts[1];
     }
 
     // XXX: This takes a bunch of time
-    v_cluster_norm = v_cluster.norm();
+    double v_cluster_norm = particle.velocity.norm();
 
-    if (z < chamber.clens.first_chamber_end) // Dynamics in the 1st chamber
+    if (particle.position.z() < chamber.clens.first_chamber_end) // Dynamics in the 1st chamber
     {
       c2 = coll_freq(chamber.pressures.P[0], chamber.mobility_gas, chamber.mobility_gas_inv, R, v_cluster_norm);
       integral += (c1 + c2) * first_dt / 2.0;
       P = exp(-integral);
       delta_t += first_dt;
-      x += v1x * first_dt;
-      y += v1y * first_dt;
-      z += (v1 + v_cluster[2]) * first_dt / 2.0;
-      t += first_dt;
+      particle.position.x() += v1x * first_dt;
+      particle.position.y() += v1y * first_dt;
+      particle.position.z() += (v1 + particle.velocity[2]) * first_dt / 2.0;
+      particle.time += first_dt;
       if (first_dt == outward_time)
       {
-        z = 0;
+        particle.position.z() = 0;
         // Resolve a collision accumulated inside the chamber before entering vacuum.
         if (r >= P && delta_t < t_fragmentation)
           return TimeNextCollOutcome::gas_collision;
       }
     }
 
-    else if (z > chamber.clens.sk_end and z < chamber.clens.quadrupole_start) // Dynamics in the 2nd chamber
+    else if (particle.position.z() > chamber.clens.sk_end and particle.position.z() < chamber.clens.quadrupole_start) // Dynamics in the 2nd chamber
     {
       c2 = coll_freq(chamber.pressures.P[1], chamber.mobility_gas, chamber.mobility_gas_inv, R, v_cluster_norm);
       integral += (c1 + c2) * dts[1] / 2.0;
       P = exp(-integral);
       delta_t += dts[1];
-      x += v1x * dts[1];
-      y += v1y * dts[1];
-      z += (v1 + v_cluster[2]) * dts[1] / 2.0;
-      t += dts[1];
+      particle.position.x() += v1x * dts[1];
+      particle.position.y() += v1y * dts[1];
+      particle.position.z() += (v1 + particle.velocity[2]) * dts[1] / 2.0;
+      particle.time += dts[1];
     }
 
-    else if (z >= chamber.clens.quadrupole_start and z < chamber.clens.quadrupole_end) // Dynamics in the 2nd chamber
+    else if (particle.position.z() >= chamber.clens.quadrupole_start and particle.position.z() < chamber.clens.quadrupole_end) // Dynamics in the 2nd chamber
     {
       c2 = coll_freq(chamber.pressures.P[1], chamber.mobility_gas, chamber.mobility_gas_inv, R, v_cluster_norm);
       integral += (c1 + c2) * dts[1] / 2.0;
       P = exp(-integral);
       delta_t += dts[1];
-      x += (v1x + v_cluster[0]) * dts[1] / 2.0;
-      y += (v1y + v_cluster[1]) * dts[1] / 2.0;
-      z += (v1 + v_cluster[2]) * dts[1] / 2.0;
-      t += dts[1];
+      particle.position.x() += (v1x + particle.velocity[0]) * dts[1] / 2.0;
+      particle.position.y() += (v1y + particle.velocity[1]) * dts[1] / 2.0;
+      particle.position.z() += (v1 + particle.velocity[2]) * dts[1] / 2.0;
+      particle.time += dts[1];
     }
-    else if (z >= chamber.clens.quadrupole_end) // Dynamics in the 2nd chamber
+    else if (particle.position.z() >= chamber.clens.quadrupole_end) // Dynamics in the 2nd chamber
     {
       c2 = coll_freq(chamber.pressures.P[1], chamber.mobility_gas, chamber.mobility_gas_inv, R, v_cluster_norm);
       integral += (c1 + c2) * dts[1] / 2.0;
       P = exp(-integral);
       delta_t += dts[1];
-      x += v1x * dts[1];
-      y += v1y * dts[1];
-      z += (v1 + v_cluster[2]) * dts[1] / 2.0;
-      t += dts[1];
+      particle.position.x() += v1x * dts[1];
+      particle.position.y() += v1y * dts[1];
+      particle.position.z() += (v1 + particle.velocity[2]) * dts[1] / 2.0;
+      particle.time += dts[1];
     }
 
     else // Dynamics in the skimmer
     {
       double dt;
-      std::tie(v_gas, T_skimmer, P_skimmer) = update_skimmer_quantities(skimmer, z, chamber.clens.first_chamber_end, mesh_skimmer);
-      kT_skimmer = boltzmann * T_skimmer;
-      mobility_gas_skimmer = boltzmann * T_skimmer / m_gas;
+      const auto gas = update_skimmer_quantities(skimmer, particle.position.z(), chamber.clens.first_chamber_end, mesh_skimmer);
+      kT_skimmer = boltzmann * gas.temperature;
+      mobility_gas_skimmer = boltzmann * gas.temperature / m_gas;
       mobility_gas_inv_skimmer = 1.0 / mobility_gas_skimmer;
-      n_skimmer = particle_density(P_skimmer, kT_skimmer);
-      v_rel_norm = sqrt(v_cluster_norm_xy + pow(v_cluster[2] - v_gas, 2));
+      n_skimmer = particle_density(gas.pressure, kT_skimmer);
+      v_rel_norm = sqrt(v_cluster_norm_xy + pow(particle.velocity[2] - gas.axial_velocity, 2));
       c2 = coll_freq(n_skimmer, mobility_gas_skimmer, mobility_gas_inv_skimmer, R, v_rel_norm);
       dt = 1.0e-3 / c2;
       integral += (c1 + c2) * dt / 2.0;
       P = exp(-integral);
       delta_t += dt;
-      x += v1x * dt;
-      y += v1y * dt;
-      z += v1 * dt;
-      t += dt;
+      particle.position.x() += v1x * dt;
+      particle.position.y() += v1y * dt;
+      particle.position.z() += v1 * dt;
+      particle.time += dt;
     }
     c1 = c2;
 
@@ -1559,32 +1539,11 @@ void update_rot_vel(Eigen::Vector3d &omega, double rot_energy_old, double rot_en
   omega[2] = omega[2] * sqrt(rot_energy / rot_energy_old);
 }
 
-// Evaluate internal energy (rotational+vibrational)
-double evaluate_internal_energy(double vib_energy, double rot_energy)
-{
-  return rot_energy + vib_energy;
-}
-
-// Evaluate rotational energy
-double evaluate_rotational_energy(const Eigen::Vector3d &omega, double inertia)
-{
-  return 0.5 * inertia * omega.squaredNorm();
-}
-
 // Mean free path
 double mean_free_path(double R, double kT, double pressure)
 {
   using consts::pi;
   return kT / (std::numbers::sqrt2 * pi * 4.0 * R * R * pressure);
-}
-
-
-void update_velocities(Eigen::Vector3d &v_cluster, double &v_cluster_norm, const Eigen::Vector3d &v_rel, double v_gas)
-{
-  v_cluster[0] = v_rel[0];
-  v_cluster[1] = v_rel[1];
-  v_cluster[2] = v_rel[2] + v_gas;
-  v_cluster_norm = v_cluster.norm();
 }
 
 

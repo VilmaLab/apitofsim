@@ -1,6 +1,7 @@
 #pragma once
 
 #include "messages.h"
+#include "particle_state.h"
 #include "operation_context.h"
 
 #include <fstream>
@@ -42,13 +43,20 @@ struct PartialResult
 struct ParticleStateMsg
 {
   int realization;
-  Eigen::Array4d postime;
-  Eigen::Array3d velocity;
-  Eigen::Array3d omega;
+  ParticleState particle;
   double rot_energy;
-  double vibrational_energy;
   int particle_index = 0;
+
+  Eigen::Array4d postime() const
+  {
+    return {particle.position.x(), particle.position.y(), particle.position.z(), particle.time};
+  }
 };
+
+inline ParticleStateMsg snapshot(int realization, const ParticleState &particle, double inertia, int particle_index = 0)
+{
+  return {realization, particle, particle.rotational_energy(inertia), particle_index};
+}
 
 struct InitEvent
 {
