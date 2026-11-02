@@ -1142,6 +1142,7 @@ def test_bulk_events_and_caller_transaction(prepared_case, tmp_path, attached):
         api.InitEvent: "init",
         api.CollisionEvent: "collision",
         api.PostCollisionEvent: "postcollision",
+        api.PostFragmentationEvent: "postfragmentation",
         api.EscapeEvent: "escape",
         api.FragmentationEvent: "fragmentation",
     }

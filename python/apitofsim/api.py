@@ -31,6 +31,7 @@ from .apitofsimraw import (
     MSSubstanceTreePathway,
     ParticleState,
     PostCollisionEvent,
+    PostFragmentationEvent,
     SampleMode,
 )
 from .apitofsimraw import (
@@ -129,6 +130,7 @@ __all__ = [
     "InitEvent",
     "CollisionEvent",
     "PostCollisionEvent",
+    "PostFragmentationEvent",
     "FragmentationEvent",
     "EscapeEvent",
     # Enums
@@ -823,6 +825,7 @@ def mass_spec(
             | CollisionEvent
             | PostCollisionEvent
             | FragmentationEvent
+            | PostFragmentationEvent
             | EscapeEvent
         ],
         None,
@@ -838,6 +841,10 @@ def mass_spec(
     the sampled particle state, including its vibrational_energy. CollisionEvent
     captures the pre-collision state; accepted collisions also emit a
     PostCollisionEvent after velocity updates and internal-energy redistribution.
+    Continuing cluster-tree fragmentations emit a PostFragmentationEvent after
+    switching to the product node and resetting its motion and internal energy.
+    It shares the preceding FragmentationEvent's realization and position/time;
+    terminal fragmentations have no after-event.
 
     Initial axial velocity is folded positive. Negative-z excursions have no gas
     collisions and use chamber 1's field. A particle with no finite return raises
@@ -931,6 +938,7 @@ class MassSpecIterator(_MassSpecIterator):
         | CollisionEvent
         | PostCollisionEvent
         | FragmentationEvent
+        | PostFragmentationEvent
         | EscapeEvent
     ):
         return self._convert_item(super().__next__())

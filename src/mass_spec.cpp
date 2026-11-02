@@ -981,6 +981,10 @@ SimulationResult apitof_mass_spec(
             omega = Eigen::Vector3d::Zero();
             vib_energy = 0;
             vib_energy_sampler = std::unique_ptr<VibEnergySamplerT>(new VibEnergySamplerT(subs.cluster_payloads[subpayload_index].density_cluster));
+            if (logconf.log_events && operation.should_continue())
+            {
+              result_queue.enqueue(PostFragmentationEvent{ParticleStateMsg{j, {x, y, z, t}, v_cluster, omega, evaluate_rotational_energy(omega, all_subquants[subpayload_index].inertia), vib_energy, subnode_index}});
+            }
           }
           else
           {
