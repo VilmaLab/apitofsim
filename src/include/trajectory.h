@@ -16,4 +16,4 @@ TimeNextCollOutcome time_next_coll_quadrupole(double collision_quantile, Particl
 int zone(double z, const CumulativeLengths &clens);
 
 // Columns are collision-frame axes expressed in lab coordinates.
-Eigen::Matrix3d collision_frame(const Eigen::Vector3d &velocity, double theta, double phi, double alpha);
+Eigen::Matrix3d collision_frame(const Eigen::Vector3d &v_cluster, double theta, double phi, double alpha);

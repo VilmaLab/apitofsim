@@ -222,7 +222,7 @@ struct VibEnergySamplerBase
 
   // Draw translational energy of cluster after the impact with carrier gas
   // Here we are considering a constant density of states for vibrational mode, i.e. a single vibration (simplified model)
-  double normalization(double E)
+  double normalization(double E) const
   {
     using consts::boltzmann;
 
