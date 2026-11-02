@@ -454,7 +454,7 @@ std::tuple<double, std::optional<ApiTofRateConstantOverflow>> next_fragmentation
 
 template <typename GenT, typename PathwaysT>
 std::tuple<int, double, std::optional<ApiTofRateConstantOverflow>> next_fragmentation_time_multi(
-  GenT &gen, uniform_real_distribution<double> &unif, PathwaysT pathways, double internal_energy, bool strict = true)
+  GenT &gen, uniform_real_distribution<double> &unif, const PathwaysT &pathways, double internal_energy, bool strict = true)
 {
   int effective_pathway_index = 0;
   double t_next_fragmentation = std::numeric_limits<double>::infinity();
