@@ -521,6 +521,44 @@ def assert_event_row(connection, event, pathway_id=None):
         assert row[12:] == (None,) * 4
 
 
+def test_particle_snapshot_properties_and_array_lifetimes():
+    import gc
+
+    import numpy as np
+    from apitofsim import apitofsimraw as raw
+
+    ms = raw.MassSpectrometer(
+        np.array([[0, 300, 1e-12], [0, 300, 1e-12]]),
+        0.0005,
+        np.full(5, 0.001),
+        np.zeros(5),
+        300,
+        np.full(2, 1e-12),
+        radius_pinhole=None,
+    )
+    density = raw.Histogram(1e-21, 32, np.ones(32))
+    subs = raw.MassSpecSubstanceSingleInput(
+        -1, 1e-25, 5e-10, density, [], raw.Gas(2e-10, 4.8e-26, 1.4)
+    )
+    events = []
+    raw.mass_spec(ms, subs, 2, seed=42, logconf=(0, True), event_callback=events.append)
+    states = [event.state for event in events if isinstance(event, raw.InitEvent)]
+    assert len(states) == 2
+    arrays = []
+    for state in states:
+        np.testing.assert_array_equal(state.postime, np.zeros(4))
+        assert state.velocity.shape == state.omega.shape == (3,)
+        for attribute in ("postime", "velocity", "omega", "vibrational_energy"):
+            with pytest.raises(AttributeError):
+                setattr(state, attribute, getattr(state, attribute))
+        arrays.extend((state.postime, state.velocity, state.omega))
+    expected = [array.copy() for array in arrays]
+    del state, states, events
+    gc.collect()
+    for array, values in zip(arrays, expected):
+        np.testing.assert_array_equal(array, values)
+
+
 @pytest.mark.parametrize("mode", ["SINGLE_CLUSTER", "CLUSTER_TREE"])
 def test_init_events_workflow(tmp_path, monkeypatch, mode):
     import apitofsim.api as api

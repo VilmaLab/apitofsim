@@ -72,6 +72,26 @@ TEST_CASE_TEMPLATE("vibrational energy sampling handles cold clusters", Sampler,
   CHECK_THROWS_AS(sampler.sample(gen, 20 * consts::boltzmann), ApiTofDosOverflow);
 }
 
+TEST_CASE_TEMPLATE("vibrational sampler assignment rebinds density and resets distribution", Sampler,
+                   VibEnergyNormSampler, VibEnergyUnnormSampler)
+{
+  Eigen::ArrayXd energies(4);
+  energies << 2, 6, 10, 14;
+  energies *= consts::boltzmann;
+  Histogram first(energies, Eigen::Array4d{0, 0, 1, 0});
+  Histogram second(energies, Eigen::Array4d{0, 1, 0, 0});
+  Sampler sampler(first);
+  std::mt19937 gen(1);
+  CHECK(sampler.sample(gen, 11 * consts::boltzmann) == energies[2]);
+
+  sampler.unif = std::uniform_real_distribution<double>{0.25, 0.75};
+  sampler = Sampler(second);
+  CHECK(&sampler.density() == &second);
+  CHECK(sampler.unif.a() == 0.0);
+  CHECK(sampler.unif.b() == 1.0);
+  CHECK(sampler.sample(gen, 11 * consts::boltzmann) == energies[1]);
+}
+
 TEST_CASE("operation context restores handlers across nested scopes")
 {
   const auto previous_int = std::signal(SIGINT, test_signal_handler);
@@ -391,6 +411,90 @@ TEST_CASE("k total batch reports every completed item in order")
   }
 }
 
+TEST_CASE("particle snapshots own physical state and capture the current inertia")
+{
+  ParticleState particle{
+    .position = {1, 2, 3},
+    .time = 4,
+    .velocity = {3, 4, 0},
+    .omega = {1, 2, 2},
+    .vibrational_energy = 5,
+  };
+  CHECK(particle.rotational_energy(2) == 9);
+  CHECK(particle.internal_energy(2) == 14);
+
+  StreamingResultQueue queue;
+  queue.enqueue(InitEvent{snapshot(7, particle, 2, 11)});
+  CHECK(snapshot(7, particle, 4).rot_energy == 18);
+  CHECK(snapshot(7, particle, 4).particle_index == 0);
+
+  particle.position.setZero();
+  particle.time = 0;
+  particle.velocity.setZero();
+  particle.omega.setZero();
+  particle.vibrational_energy = 0;
+
+  StreamingResultElement result;
+  REQUIRE(queue.try_dequeue(result));
+  const auto &state = std::get<InitEvent>(std::get<EventMessage>(result)).state;
+  CHECK(state.realization == 7);
+  CHECK(state.particle_index == 11);
+  CHECK((state.postime() == Eigen::Array4d{1, 2, 3, 4}).all());
+  CHECK(state.particle.velocity == Eigen::Vector3d{3, 4, 0});
+  CHECK(state.particle.omega == Eigen::Vector3d{1, 2, 2});
+  CHECK(state.particle.vibrational_energy == 5);
+  CHECK(state.rot_energy == 9);
+}
+
+TEST_CASE("collision frames preserve orientation and vector norms")
+{
+  const double pi = consts::pi;
+  for (const Eigen::Vector3d &velocity : {Eigen::Vector3d{0, 0, 0}, Eigen::Vector3d{1, 0, 0}, Eigen::Vector3d{-1, 0, 0}, Eigen::Vector3d{0, 0, 1}, Eigen::Vector3d{3, -4, 2}})
+  {
+    for (double theta : {0.0, 0.3, pi / 2, pi})
+    {
+      for (double phi : {0.0, 0.7})
+      {
+        for (double alpha : {0.0, 0.8})
+        {
+          CAPTURE(velocity);
+          CAPTURE(theta);
+          CAPTURE(phi);
+          CAPTURE(alpha);
+          const Eigen::Matrix3d frame = collision_frame(velocity, theta, phi, alpha);
+          CHECK((frame.transpose() * frame).isApprox(Eigen::Matrix3d::Identity(), 1e-12));
+          CHECK(frame.determinant() == doctest::Approx(1).epsilon(1e-12));
+          const Eigen::Vector3d vector{2, -3, 5};
+          const Eigen::Vector3d local = frame.transpose() * vector;
+          CHECK(local.squaredNorm() == doctest::Approx(vector.squaredNorm()).epsilon(1e-12));
+          CHECK((frame * local).isApprox(vector, 1e-12));
+          if (theta == 0.0 || theta == pi)
+          {
+            Eigen::Vector3d expected = Eigen::Vector3d::UnitZ();
+            if (velocity.norm() > 0)
+              expected = velocity.normalized();
+            if (theta == pi)
+              expected = -expected;
+            CHECK(frame.col(2).isApprox(expected, 1e-12));
+          }
+        }
+      }
+    }
+  }
+
+  // For an axial incident velocity, check the original collision-axis convention.
+  const double theta = 0.3, phi = 0.7, alpha = 0.8;
+  const Eigen::Matrix3d frame = collision_frame(Eigen::Vector3d::UnitZ(), theta, phi, alpha);
+  const Eigen::Vector3d x2{sin(phi), -cos(phi), 0};
+  const Eigen::Vector3d y2{cos(theta) * cos(phi), cos(theta) * sin(phi), -sin(theta)};
+  const Eigen::Vector3d z2{sin(theta) * cos(phi), sin(theta) * sin(phi), cos(theta)};
+  CHECK(frame.col(0).isApprox(cos(alpha) * x2 + sin(alpha) * y2, 1e-12));
+  CHECK(frame.col(1).isApprox(-sin(alpha) * x2 + cos(alpha) * y2, 1e-12));
+  CHECK(frame.col(2).isApprox(z2, 1e-12));
+  CHECK_THROWS_AS(collision_frame(Eigen::Vector3d::UnitZ(), -0.1, phi, alpha), ApiTofUnexpectedNumericalError);
+  CHECK_THROWS_AS(collision_frame(Eigen::Vector3d::UnitZ(), pi + 0.1, phi, alpha), ApiTofUnexpectedNumericalError);
+}
+
 TEST_CASE("apitof pinhole smoke tests")
 {
   namespace fs = std::filesystem;
@@ -505,23 +609,23 @@ TEST_CASE("apitof pinhole smoke tests")
         REQUIRE(state.realization < 5);
         auto &pending = pending_collisions[state.realization];
         if constexpr (std::is_same_v<std::decay_t<decltype(event)>, InitEvent>)
-          CHECK(state.velocity[2] >= 0);
+          CHECK(state.particle.velocity[2] >= 0);
         constexpr bool is_post_collision = std::is_same_v<std::decay_t<decltype(event)>, PostCollisionEvent>;
         CHECK(pending.has_value() == is_post_collision);
         if constexpr (is_post_collision)
         {
           REQUIRE(pending.has_value());
-          CHECK((state.postime == pending->postime).all());
+          CHECK((state.postime() == pending->postime()).all());
           CHECK(state.particle_index == pending->particle_index);
-          CHECK(state.velocity.isFinite().all());
-          CHECK(state.omega.isFinite().all());
-          CHECK(state.rot_energy == doctest::Approx(0.5 * inertia * state.omega.square().sum()).epsilon(1e-12));
+          CHECK(state.particle.velocity.allFinite());
+          CHECK(state.particle.omega.allFinite());
+          CHECK(state.rot_energy == doctest::Approx(0.5 * inertia * state.particle.omega.squaredNorm()).epsilon(1e-12));
           pending.reset();
           post_collisions++;
         }
         else if constexpr (std::is_same_v<std::decay_t<decltype(event)>, CollisionEvent>)
         {
-          CHECK(state.rot_energy == doctest::Approx(0.5 * inertia * state.omega.square().sum()).epsilon(1e-12));
+          CHECK(state.rot_energy == doctest::Approx(0.5 * inertia * state.particle.omega.squaredNorm()).epsilon(1e-12));
           if (event.accepted)
           {
             pending = state;
@@ -531,11 +635,11 @@ TEST_CASE("apitof pinhole smoke tests")
         {
           CHECK_FALSE(initialized[state.realization]);
           initialized[state.realization] = true;
-          CHECK(state.postime.isZero());
-          CHECK(state.velocity.isFinite().all());
-          CHECK(state.omega.isFinite().all());
+          CHECK(state.postime().isZero());
+          CHECK(state.particle.velocity.allFinite());
+          CHECK(state.particle.omega.allFinite());
           CHECK(state.rot_energy >= 0.0);
-          CHECK(state.vibrational_energy >= 0.0);
+          CHECK(state.particle.vibrational_energy >= 0.0);
           CHECK(state.particle_index == 0);
         }
         else
@@ -626,15 +730,15 @@ TEST_CASE("tree fragmentation events keep pathway and particle indices separate"
   REQUIRE(after_events.size() == 1);
   const auto &after = after_events[0].state;
   CHECK(after.realization == events[0].state.realization);
-  CHECK((after.postime == events[0].state.postime).all());
+  CHECK((after.postime() == events[0].state.postime()).all());
   CHECK(after.particle_index == events[0].next_particle_index);
-  CHECK(after.velocity.isZero());
-  CHECK(after.omega.isZero());
+  CHECK(after.particle.velocity.isZero());
+  CHECK(after.particle.omega.isZero());
   CHECK(after.rot_energy == 0);
-  CHECK(after.vibrational_energy == 0);
-  CHECK((events[1].state.velocity == after.velocity).all());
+  CHECK(after.particle.vibrational_energy == 0);
+  CHECK((events[1].state.particle.velocity.array() == after.particle.velocity.array()).all());
   CHECK(events[1].state.rot_energy == after.rot_energy);
-  CHECK(events[1].state.vibrational_energy == after.vibrational_energy);
+  CHECK(events[1].state.particle.vibrational_energy == after.particle.vibrational_energy);
 }
 
 TEST_CASE("collision profile shares instantaneous simulator frequency")
@@ -776,46 +880,95 @@ TEST_CASE("trajectory sampler preserves fragmentation time across upstream produ
   ChamberQuantities chamber(ms, gas);
   Eigen::Array2d dts = Eigen::Array2d::Constant(0.125);
   Eigen::Array4d acc = Eigen::Array4d::Constant(2);
-  Eigen::Vector3d velocity{3, 4, -2};
-  double norm = velocity.norm();
-  double z = -3, x = 0, y = 0, time = 0, fragmentation = 1;
+  ParticleState particle{
+    .position = {0, 0, -3},
+    .velocity = {3, 4, -2},
+  };
+  double fragmentation = 1;
   auto next_event = [&]
   {
-    return time_next_coll_quadrupole(0.5, velocity, norm, chamber, 7e-10, dts, z, x, y,
-                                     fragmentation, acc, time, gas.mass, skimmer, ms.mesh_skimmer, ms.quadrupole);
+    return time_next_coll_quadrupole(0.5, particle, chamber, 7e-10, dts,
+                                     fragmentation, acc, gas.mass, skimmer, ms.mesh_skimmer, ms.quadrupole);
   };
   REQUIRE(next_event() == TimeNextCollOutcome::fragmentation);
-  REQUIRE(z == doctest::Approx(-4));
-  CHECK(zone(z, chamber.clens) == 0);
-  CHECK(time == doctest::Approx(1));
-  CHECK(norm == doctest::Approx(5));
-  CHECK(x == doctest::Approx(3));
-  CHECK(y == doctest::Approx(4));
+  REQUIRE(particle.position.z() == doctest::Approx(-4));
+  CHECK(zone(particle.position.z(), chamber.clens) == 0);
+  CHECK(particle.time == doctest::Approx(1));
+  CHECK(particle.velocity.norm() == doctest::Approx(5));
+  CHECK(particle.position.x() == doctest::Approx(3));
+  CHECK(particle.position.y() == doctest::Approx(4));
 
   // Tree products start at rest. Changing mass changes acceleration, while the
   // same explicit fragmentation deadline falls before or after return.
-  velocity.setZero();
+  particle.velocity.setZero();
   fragmentation = 1.5;
   SUBCASE("heavier product fragments upstream")
   {
     acc[0] = 2; // return takes 2 seconds
     REQUIRE(next_event() == TimeNextCollOutcome::fragmentation);
-    CHECK(z == doctest::Approx(-1.75));
-    CHECK(zone(z, chamber.clens) == 0);
-    CHECK(velocity[2] == doctest::Approx(3));
+    CHECK(particle.position.z() == doctest::Approx(-1.75));
+    CHECK(zone(particle.position.z(), chamber.clens) == 0);
+    CHECK(particle.velocity[2] == doctest::Approx(3));
   }
   SUBCASE("lighter product returns before fragmentation")
   {
     acc[0] = 8; // return takes 1 second
     REQUIRE(next_event() == TimeNextCollOutcome::fragmentation);
-    CHECK(z == doctest::Approx(5));
-    CHECK(zone(z, chamber.clens) == 1);
-    CHECK(velocity[2] == doctest::Approx(12));
+    CHECK(particle.position.z() == doctest::Approx(5));
+    CHECK(zone(particle.position.z(), chamber.clens) == 1);
+    CHECK(particle.velocity[2] == doctest::Approx(12));
   }
-  CHECK(time == doctest::Approx(2.5));
-  CHECK(norm == doctest::Approx(velocity.norm()));
-  CHECK(x == doctest::Approx(3));
-  CHECK(y == doctest::Approx(4));
+  CHECK(particle.time == doctest::Approx(2.5));
+  CHECK(particle.position.x() == doctest::Approx(3));
+  CHECK(particle.position.y() == doctest::Approx(4));
+}
+
+TEST_CASE("trajectory steps retain regional integration rules")
+{
+  SkimmerData skimmer(2, 3);
+  skimmer << 0.5, 300, 100, 0.5, 300, 100;
+  Quadrupole quadrupole{2, 3, 1, 0.01};
+  quadrupole.mathieu_factor = 0.5;
+  MassSpectrometer ms{skimmer, 5, InstrumentDims::Constant(10), InstrumentVoltages::Zero(), 300, InstrumentPressures{100, 2}, quadrupole};
+  Gas gas{2e-10, 4.8e-26, 1.4};
+  ChamberQuantities chamber(ms, gas);
+  const Eigen::Array2d dts{0.1, 0.2};
+  const Eigen::Array4d acceleration{1, 2, 3, 4};
+  struct Step
+  {
+    double z;
+    Eigen::Vector3d velocity;
+    Eigen::Vector3d position;
+    double dt;
+  };
+  for (const auto &step : {
+         Step{5, {2, 3, 4.1}, {1.2, 2.3, 5.405}, 0.1},
+         Step{25, {2, 3, 4.4}, {1.4, 2.6, 25.84}, 0.2},
+         Step{35, {2.12, 2.77, 4.6}, {1.412, 2.577, 35.86}, 0.2},
+         Step{45, {2, 3, 4.8}, {1.4, 2.6, 45.88}, 0.2},
+       })
+  {
+    CAPTURE(step.z);
+    ParticleState particle{.position = {1, 2, step.z}, .velocity = {2, 3, 4}};
+    CHECK(time_next_coll_quadrupole(0, particle, chamber, 7e-10, dts, step.dt, acceleration, gas.mass, skimmer, ms.mesh_skimmer, ms.quadrupole) == TimeNextCollOutcome::fragmentation);
+    CHECK(particle.time == doctest::Approx(step.dt));
+    CHECK(particle.velocity.isApprox(step.velocity, 1e-12));
+    CHECK(particle.position.isApprox(step.position, 1e-12));
+  }
+
+  // The exact skimmer exit retains the chamber kick but uses skimmer timing and Euler position updates.
+  for (double z : {15.0, 20.0})
+  {
+    CAPTURE(z);
+    ParticleState particle{.position = {1, 2, z}, .velocity = {2, 3, 4}};
+    Eigen::Vector3d expected_velocity{2, 3, z == 20 ? 4.4 : 4};
+    double dt = 1e-3 / collision_frequency(z, expected_velocity, chamber, gas.mass, 7e-10, skimmer, ms.mesh_skimmer);
+    Eigen::Vector3d expected_position = particle.position + particle.velocity * dt;
+    CHECK(time_next_coll_quadrupole(0, particle, chamber, 7e-10, dts, 1e-100, acceleration, gas.mass, skimmer, ms.mesh_skimmer, ms.quadrupole) == TimeNextCollOutcome::fragmentation);
+    CHECK(particle.time == doctest::Approx(dt).epsilon(1e-12));
+    CHECK(particle.velocity.isApprox(expected_velocity, 1e-12));
+    CHECK(particle.position.isApprox(expected_position, 1e-12));
+  }
 }
 
 TEST_CASE("trajectory sampler suppresses gas collisions upstream")
@@ -825,15 +978,17 @@ TEST_CASE("trajectory sampler suppresses gas collisions upstream")
   MassSpectrometer ms{skimmer, 0.5, InstrumentDims::Constant(10), InstrumentVoltages::Zero(), 300, InstrumentPressures::Constant(100)};
   Gas gas{2e-10, 4.8e-26, 1.4};
   ChamberQuantities chamber(ms, gas);
-  Eigen::Vector3d velocity{0, 0, -2};
-  double norm = velocity.norm();
-  double z = -3, x = 0, y = 0, time = 0, fragmentation = 1;
+  ParticleState particle{
+    .position = {0, 0, -3},
+    .velocity = {0, 0, -2},
+  };
+  double fragmentation = 1;
   // At this pressure, ordinary chamber motion would produce a collision almost
   // immediately at this threshold. Upstream motion must fragment instead.
-  auto outcome = time_next_coll_quadrupole(std::nextafter(1.0, 0.0), velocity, norm, chamber, 7e-10,
-                                           Eigen::Array2d::Constant(0.125), z, x, y, fragmentation,
-                                           Eigen::Array4d::Constant(2), time, gas.mass, skimmer, ms.mesh_skimmer, ms.quadrupole);
+  auto outcome = time_next_coll_quadrupole(std::nextafter(1.0, 0.0), particle, chamber, 7e-10,
+                                           Eigen::Array2d::Constant(0.125), fragmentation,
+                                           Eigen::Array4d::Constant(2), gas.mass, skimmer, ms.mesh_skimmer, ms.quadrupole);
   CHECK(outcome == TimeNextCollOutcome::fragmentation);
-  CHECK(z == doctest::Approx(-4));
-  CHECK(time == doctest::Approx(1));
+  CHECK(particle.position.z() == doctest::Approx(-4));
+  CHECK(particle.time == doctest::Approx(1));
 }

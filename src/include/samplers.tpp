@@ -1,5 +1,6 @@
 #include <Eigen/Dense>
 #include <cmath>
+#include <functional>
 #include <iostream>
 #include <random>
 #include "consts.h"
@@ -207,16 +208,21 @@ struct GasCollRejectionSampler
 
 struct VibEnergySamplerBase
 {
-  const Histogram &density_cluster;
+  std::reference_wrapper<const Histogram> density_cluster;
   std::uniform_real_distribution<double> unif = std::uniform_real_distribution<>(0.0, 1.0);
 
   VibEnergySamplerBase(const Histogram &density_cluster) : density_cluster(density_cluster)
   {
   }
 
+  const Histogram &density() const
+  {
+    return density_cluster.get();
+  }
+
   // Draw translational energy of cluster after the impact with carrier gas
   // Here we are considering a constant density of states for vibrational mode, i.e. a single vibration (simplified model)
-  double normalization(double E)
+  double normalization(double E) const
   {
     using consts::boltzmann;
 
@@ -229,17 +235,17 @@ struct VibEnergySamplerBase
       return 0;
     }
 
-    if (E > density_cluster.x_max())
+    if (E > density().x_max())
     {
-      throw ApiTofDosOverflow(density_cluster.x_max(), E / boltzmann);
+      throw ApiTofDosOverflow(density().x_max(), E / boltzmann);
     }
 
     // 1st step: I evaluate the integral (normalization)
     double normalization = 0.0;
     int m = 0;
-    while (density_cluster.x()[m] < E)
+    while (density().x()[m] < E)
     {
-      normalization += sqrt(E - density_cluster.x()[m]) * density_cluster.y()[m];
+      normalization += sqrt(E - density().x()[m]) * density().y()[m];
       m++;
     }
     return normalization;
@@ -266,10 +272,10 @@ struct VibEnergyNormSampler : VibEnergySamplerBase
     int m = 0;
     while (integral < r)
     {
-      integral += sqrt(E - density_cluster.x()[m]) * density_cluster.y()[m] / nc;
+      integral += sqrt(E - density().x()[m]) * density().y()[m] / nc;
       m++;
     }
-    return density_cluster.x()[m - 1];
+    return density().x()[m - 1];
   }
 };
 
@@ -292,9 +298,9 @@ struct VibEnergyUnnormSampler : VibEnergySamplerBase
     int m = 0;
     while (integral_unnorm < r_unnorm)
     {
-      integral_unnorm += sqrt(E - density_cluster.x()[m]) * density_cluster.y()[m];
+      integral_unnorm += sqrt(E - density().x()[m]) * density().y()[m];
       m++;
     }
-    return density_cluster.x()[m - 1];
+    return density().x()[m - 1];
   }
 };
