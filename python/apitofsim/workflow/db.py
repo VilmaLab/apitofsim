@@ -903,6 +903,13 @@ class ExperimentDatabase(SuperClusterDatabase):
         cluster_ids maps payload indices to database IDs; pathway_ids maps native
         transition indices to database pathway IDs. Node indices are result-local.
         """
+        import pyarrow as pa
+
+        topology = substance.topology_columns()
+        node_count = len(topology["node_payload"])
+        transition_count = len(topology["transition_source"])
+        if len(pathway_ids) != transition_count:
+            raise ValueError("Expected one pathway ID per tree transition")
         with transaction_scope(self.db):
             row = self.db.execute(
                 "insert into cluster_tree_experiment_result (experiment_run_id, cluster_id) values (?, ?) returning id",
@@ -910,29 +917,37 @@ class ExperimentDatabase(SuperClusterDatabase):
             ).fetchone()
             assert row is not None
             result_id = row[0]
-            self.db.executemany(
-                "insert into cluster_tree_node values (?, ?, ?)",
-                [
-                    (result_id, i, cluster_ids[node.payload_idx])
-                    for i, node in enumerate(substance.tree_nodes)
-                ],
+            nodes = pa.table(
+                {
+                    "experiment_result_id": numpy.full(
+                        node_count, result_id, dtype=numpy.int64
+                    ),
+                    "node_index": numpy.arange(node_count, dtype=numpy.int64),
+                    "cluster_id": pa.array(
+                        [cluster_ids[i] for i in topology["node_payload"]],
+                        type=pa.int64(),
+                    ),
+                }
             )
-            transitions = [
-                (
-                    result_id,
-                    i,
-                    source,
-                    pathway_ids[i],
-                    substance.tree_pathways[i].product_idx,
+            self.db.from_arrow(nodes).insert_into("cluster_tree_node")
+            if transition_count:
+                destinations = topology["transition_destination"]
+                transitions = pa.table(
+                    {
+                        "experiment_result_id": numpy.full(
+                            transition_count, result_id, dtype=numpy.int64
+                        ),
+                        "transition_index": numpy.arange(
+                            transition_count, dtype=numpy.int64
+                        ),
+                        "source_node_index": topology["transition_source"],
+                        "pathway_id": pa.array(pathway_ids, type=pa.int64()),
+                        "destination_node_index": pa.array(
+                            destinations, mask=destinations < 0
+                        ),
+                    }
                 )
-                for source, node in enumerate(substance.tree_nodes)
-                for i in node.pathway_indices
-            ]
-            if transitions:
-                self.db.executemany(
-                    "insert into cluster_tree_transition values (?, ?, ?, ?, ?)",
-                    transitions,
-                )
+                self.db.from_arrow(transitions).insert_into("cluster_tree_transition")
         return result_id
 
     def record_result(
