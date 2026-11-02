@@ -1764,7 +1764,47 @@ double eval_solid_angle_stokes(double R, double L, double xx, double yy, double 
   return sum * dphi;
 }
 
-//
+bool gas_from_pinhole(const Eigen::Vector3d &velocity_gas, double x, double y, double z, double L, double radius_pinhole)
+{
+  if (velocity_gas[2] >= 0.0)
+  {
+    return false;
+  }
+  Eigen::Vector2d target;
+  target[0] = (velocity_gas[0] * (L - z) / velocity_gas[2]) + x;
+  target[1] = (velocity_gas[1] * (L - z) / velocity_gas[2]) + y;
+  return (target[0] * target[0]) + (target[1] * target[1]) < radius_pinhole * radius_pinhole;
+}
+
+double pinhole_collision_probability(double gas_mean_free_path, double x, double y, double z, double L, double radius_pinhole)
+{
+  double distance = sqrt((x * x) + (y * y) + ((L - z) * (L - z)));
+  return (1.0 - exp(-distance / gas_mean_free_path)) * (1.0 - (eval_solid_angle_stokes(radius_pinhole, L, x, y, z) / (2.0 * consts::pi)));
+}
+
+template <typename GenT>
+bool accept_pinhole_collision(GenT &gen, uniform_real_distribution<double> &unif, double gas_mean_free_path, double x, double y, double z, double L, double radius_pinhole, const Eigen::Vector3d &velocity_gas, LogHelper pinhole_logger, int loglevel)
+{
+  bool inside_target = gas_from_pinhole(velocity_gas, x, y, z, L, radius_pinhole);
+  if (loglevel >= LOGLEVEL_MIN)
+  {
+    pinhole_logger([&](auto &pinhole_logger)
+    {
+      pinhole_logger << x << " " << y << " " << z << " " << velocity_gas[0] << " " << velocity_gas[1] << " " << velocity_gas[2] << " " << inside_target << endl;
+    });
+  }
+  if (inside_target)
+  {
+    double r = unif(gen);
+    double prob_coll = pinhole_collision_probability(gas_mean_free_path, x, y, z, L, radius_pinhole);
+    if (r > prob_coll)
+    {
+      return false;
+    }
+  }
+  return true;
+}
+
 template <typename GenT>
 bool eval_collision(GenT &gen, uniform_real_distribution<double> &unif, double gas_mean_free_path, double x, double y, double z, double L, std::optional<double> pinhole, double quadrupole_end, Eigen::Vector3d &v_cluster, Eigen::Vector3d &omega, double u_norm, double theta, double R_cluster, double vib_energy, double vib_energy_old, double m_ion, double m_gas, double temperature, LogHelper pinhole_logger, int loglevel)
 {
@@ -1775,11 +1815,6 @@ bool eval_collision(GenT &gen, uniform_real_distribution<double> &unif, double g
   double alpha = 2.0 * pi * unif(gen);
   double kT = boltzmann * temperature;
   Eigen::Vector2d u;
-  Eigen::Vector3d velocity_gas;
-  Eigen::Vector2d target;
-  bool inside_target = false;
-  double prob_coll = 1.0;
-  double distance;
 
   bool collision_accepted = true;
   auto [x3, y3, z3] = change_coord(v_cluster, theta, phi, alpha);
@@ -1808,53 +1843,15 @@ bool eval_collision(GenT &gen, uniform_real_distribution<double> &unif, double g
     });
   }
 
-  if (pinhole)
+  // Check whether the gas molecule comes from the pinhole.
+  if (pinhole && z > quadrupole_end && z < L)
   {
-    double radius_pinhole = *pinhole;
-    // Check if the gas particle comes from the pinhole
-    if (z > quadrupole_end and z < L)
+    Eigen::Vector3d velocity_gas;
+    for (int i = 0; i < 3; i++)
     {
-      // Evaluate gas molecule velocity
-      for (int i = 0; i < 3; i++)
-      {
-        velocity_gas[i] = (u[1] * y3[i]) + (u[0] * z3[i]);
-      }
-      // Check if the gas molecule comes from the pinhole
-      if (velocity_gas[2] < 0.0)
-      {
-        target[0] = (velocity_gas[0] * (L - z) / velocity_gas[2]) + x;
-        target[1] = (velocity_gas[1] * (L - z) / velocity_gas[2]) + y;
-        if ((target[0] * target[0]) + (target[1] * target[1]) < radius_pinhole * radius_pinhole)
-          inside_target = true;
-      }
-      else
-      {
-        inside_target = false;
-      }
-      if (loglevel >= LOGLEVEL_MIN)
-      {
-        pinhole_logger([&](auto &pinhole_logger)
-        {
-          pinhole_logger << x << " " << y << " " << z << " " << velocity_gas[0] << " " << velocity_gas[1] << " " << velocity_gas[2] << " " << inside_target << endl;
-        });
-      }
-      if (inside_target)
-      {
-        double r = unif(gen);
-        distance = sqrt((x * x) + (y * y) + ((L - z) * (L - z)));
-        // Probability to accept the collision prob_coll
-        prob_coll = (1.0 - exp(-distance / gas_mean_free_path)) * (1.0 - (eval_solid_angle_stokes(radius_pinhole, L, x, y, z) / (2.0 * pi)));
-
-        // prob_coll=1.0-eval_solid_angle(radius_pinhole, L, x, y, z)/(2.0*pi);
-        // prob_coll=1.0;
-        // prob_coll=0.0;
-        if (r > prob_coll)
-        {
-          collision_accepted = false;
-          // cout << "Rejected collision close to pinhole" << endl;
-        }
-      }
+      velocity_gas[i] = (u[1] * y3[i]) + (u[0] * z3[i]);
     }
+    collision_accepted = accept_pinhole_collision(gen, unif, gas_mean_free_path, x, y, z, L, *pinhole, velocity_gas, pinhole_logger, loglevel);
   }
 
   if (collision_accepted) // Normal procedure
