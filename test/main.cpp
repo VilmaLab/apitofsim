@@ -426,6 +426,55 @@ TEST_CASE("particle snapshots own physical state and capture the current inertia
   CHECK(state.rot_energy == 9);
 }
 
+TEST_CASE("collision frames preserve orientation and vector norms")
+{
+  const double pi = consts::pi;
+  for (const Eigen::Vector3d &velocity : {Eigen::Vector3d{0, 0, 0}, Eigen::Vector3d{1, 0, 0}, Eigen::Vector3d{-1, 0, 0}, Eigen::Vector3d{0, 0, 1}, Eigen::Vector3d{3, -4, 2}})
+  {
+    for (double theta : {0.0, 0.3, pi / 2, pi})
+    {
+      for (double phi : {0.0, 0.7})
+      {
+        for (double alpha : {0.0, 0.8})
+        {
+          CAPTURE(velocity);
+          CAPTURE(theta);
+          CAPTURE(phi);
+          CAPTURE(alpha);
+          const Eigen::Matrix3d frame = collision_frame(velocity, theta, phi, alpha);
+          CHECK((frame.transpose() * frame).isApprox(Eigen::Matrix3d::Identity(), 1e-12));
+          CHECK(frame.determinant() == doctest::Approx(1).epsilon(1e-12));
+          const Eigen::Vector3d vector{2, -3, 5};
+          const Eigen::Vector3d local = frame.transpose() * vector;
+          CHECK(local.squaredNorm() == doctest::Approx(vector.squaredNorm()).epsilon(1e-12));
+          CHECK((frame * local).isApprox(vector, 1e-12));
+          if (theta == 0.0 || theta == pi)
+          {
+            Eigen::Vector3d expected = Eigen::Vector3d::UnitZ();
+            if (velocity.norm() > 0)
+              expected = velocity.normalized();
+            if (theta == pi)
+              expected = -expected;
+            CHECK(frame.col(2).isApprox(expected, 1e-12));
+          }
+        }
+      }
+    }
+  }
+
+  // For an axial incident velocity, check the original collision-axis convention.
+  const double theta = 0.3, phi = 0.7, alpha = 0.8;
+  const Eigen::Matrix3d frame = collision_frame(Eigen::Vector3d::UnitZ(), theta, phi, alpha);
+  const Eigen::Vector3d x2{sin(phi), -cos(phi), 0};
+  const Eigen::Vector3d y2{cos(theta) * cos(phi), cos(theta) * sin(phi), -sin(theta)};
+  const Eigen::Vector3d z2{sin(theta) * cos(phi), sin(theta) * sin(phi), cos(theta)};
+  CHECK(frame.col(0).isApprox(cos(alpha) * x2 + sin(alpha) * y2, 1e-12));
+  CHECK(frame.col(1).isApprox(-sin(alpha) * x2 + cos(alpha) * y2, 1e-12));
+  CHECK(frame.col(2).isApprox(z2, 1e-12));
+  CHECK_THROWS_AS(collision_frame(Eigen::Vector3d::UnitZ(), -0.1, phi, alpha), ApiTofUnexpectedNumericalError);
+  CHECK_THROWS_AS(collision_frame(Eigen::Vector3d::UnitZ(), pi + 0.1, phi, alpha), ApiTofUnexpectedNumericalError);
+}
+
 TEST_CASE("apitof pinhole smoke tests")
 {
   namespace fs = std::filesystem;

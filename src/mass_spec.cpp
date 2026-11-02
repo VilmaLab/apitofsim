@@ -217,7 +217,6 @@ double boundary_vib_energy(double vib_energy_old, double reduced_mass, double u_
 template <typename GenT, typename VibEnergySamplerT>
 std::tuple<double, double> redistribute_internal_energy(GenT &gen, VibEnergySamplerT &sampler, double vib_energy, double rot_energy);
 std::tuple<Eigen::Vector3d, Eigen::Vector3d> eval_velocities(const Eigen::Vector3d &v, const Eigen::Vector3d &omega, const Eigen::Vector2d &u, double vib_energy, double vib_energy_old, double M, double m, double R_cluster);
-std::tuple<Eigen::Vector3d, Eigen::Vector3d, Eigen::Vector3d> change_coord(const Eigen::Vector3d &v_cluster, double theta, double phi, double alpha);
 template <typename GenT>
 bool eval_collision(GenT &gen, uniform_real_distribution<double> &unif, double gas_mean_free_path, double x, double y, double z, double L, std::optional<double> pinhole, double quadrupole_end, Eigen::Vector3d &v_cluster, Eigen::Vector3d &omega, double u_norm, double theta, double R_cluster, double vib_energy, double vib_energy_old, double m_ion, double m_gas, double temperature, LogHelper pinhole_logger, int loglevel);
 template <typename GenT>
@@ -1534,9 +1533,7 @@ std::tuple<double, double> redistribute_internal_energy(GenT &gen, VibEnergySamp
 // Update angular velocity after redistribution of vibrational and rotational energy
 void update_rot_vel(Eigen::Vector3d &omega, double rot_energy_old, double rot_energy)
 {
-  omega[0] = omega[0] * sqrt(rot_energy / rot_energy_old);
-  omega[1] = omega[1] * sqrt(rot_energy / rot_energy_old);
-  omega[2] = omega[2] * sqrt(rot_energy / rot_energy_old);
+  omega *= sqrt(rot_energy / rot_energy_old);
 }
 
 // Mean free path
@@ -1597,8 +1594,8 @@ std::tuple<Eigen::Vector3d, Eigen::Vector3d> eval_velocities(const Eigen::Vector
 }
 
 
-// Change of coordinates routine
-std::tuple<Eigen::Vector3d, Eigen::Vector3d, Eigen::Vector3d> change_coord(const Eigen::Vector3d &v_cluster, double theta, double phi, double alpha)
+// Collision-frame axes expressed in lab coordinates.
+Eigen::Matrix3d collision_frame(const Eigen::Vector3d &v_cluster, double theta, double phi, double alpha)
 {
   using consts::pi;
   auto x = Eigen::Vector3d(1.0, 0.0, 0.0);
@@ -1634,28 +1631,19 @@ std::tuple<Eigen::Vector3d, Eigen::Vector3d, Eigen::Vector3d> change_coord(const
   // build reference of system centered in point of collision (x2,y2,z2)
   if (theta > 0 and theta < pi)
   {
-    for (int i = 0; i < 3; i++)
-    {
-      z2[i] = (sin(theta) * cos(phi) * x1[i]) + (sin(theta) * sin(phi) * y1[i]) + (cos(theta) * z1[i]);
-    }
+    z2 = (sin(theta) * cos(phi) * x1) + (sin(theta) * sin(phi) * y1) + (cos(theta) * z1);
     x2 = cross_norm(z2, z1);
     y2 = cross_norm(z2, x2);
   }
   else if (theta == 0.0)
   {
-    for (int i = 0; i < 3; i++)
-    {
-      z2[i] = z1[i];
-    }
+    z2 = z1;
     y2 = cross_norm(z2, x1);
     x2 = cross_norm(y2, z2);
   }
   else if (theta == pi)
   {
-    for (int i = 0; i < 3; i++)
-    {
-      z2[i] = -z1[i];
-    }
+    z2 = -z1;
     y2 = cross_norm(z2, x1);
     x2 = cross_norm(y2, z2);
   }
@@ -1667,17 +1655,12 @@ std::tuple<Eigen::Vector3d, Eigen::Vector3d, Eigen::Vector3d> change_coord(const
     });
   }
 
-  Eigen::Vector3d x3;
-  Eigen::Vector3d y3;
-  Eigen::Vector3d z3;
-  // find versor of tangential velocity
-  for (int i = 0; i < 3; i++)
-  {
-    z3[i] = z2[i];
-    x3[i] = (cos(alpha) * x2[i]) + (sin(alpha) * y2[i]);
-    y3[i] = (-sin(alpha) * x2[i]) + (cos(alpha) * y2[i]);
-  }
-  return std::make_tuple(x3, y3, z3);
+  Eigen::Matrix3d frame;
+  // Find the direction of tangential velocity.
+  frame.col(0) = (cos(alpha) * x2) + (sin(alpha) * y2);
+  frame.col(1) = (-sin(alpha) * x2) + (cos(alpha) * y2);
+  frame.col(2) = z2;
+  return frame;
 }
 
 // Evaluate solid angle using Stokes theorem (1d integral) (REF: Eq 32, Conway, Nuclear Instruments and Methods in Physics Research A 614, 2010)
@@ -1768,26 +1751,15 @@ template <typename GenT>
 bool eval_collision(GenT &gen, uniform_real_distribution<double> &unif, double gas_mean_free_path, double x, double y, double z, double L, std::optional<double> pinhole, double quadrupole_end, Eigen::Vector3d &v_cluster, Eigen::Vector3d &omega, double u_norm, double theta, double R_cluster, double vib_energy, double vib_energy_old, double m_ion, double m_gas, double temperature, LogHelper pinhole_logger, int loglevel)
 {
   using namespace consts;
-  Eigen::Vector3d v2;
-  Eigen::Vector3d omega2;
   double phi = 2.0 * pi * unif(gen);
   double alpha = 2.0 * pi * unif(gen);
   double kT = boltzmann * temperature;
   Eigen::Vector2d u;
 
   bool collision_accepted = true;
-  auto [x3, y3, z3] = change_coord(v_cluster, theta, phi, alpha);
-
-
-  v2[0] = v_cluster.dot(x3);
-  v2[1] = v_cluster.dot(y3);
-  v2[2] = v_cluster.dot(z3);
-
-
-  omega2[0] = omega.dot(x3);
-  omega2[1] = omega.dot(y3);
-  omega2[2] = omega.dot(z3);
-
+  const Eigen::Matrix3d frame = collision_frame(v_cluster, theta, phi, alpha);
+  Eigen::Vector3d v2 = frame.transpose() * v_cluster;
+  Eigen::Vector3d omega2 = frame.transpose() * omega;
 
   // Normal component of air molecule velocity
   u[0] = -u_norm;
@@ -1805,11 +1777,7 @@ bool eval_collision(GenT &gen, uniform_real_distribution<double> &unif, double g
   // Check whether the gas molecule comes from the pinhole.
   if (pinhole && z > quadrupole_end && z < L)
   {
-    Eigen::Vector3d velocity_gas;
-    for (int i = 0; i < 3; i++)
-    {
-      velocity_gas[i] = (u[1] * y3[i]) + (u[0] * z3[i]);
-    }
+    Eigen::Vector3d velocity_gas = (u[1] * frame.col(1)) + (u[0] * frame.col(2));
     collision_accepted = accept_pinhole_collision(gen, unif, gas_mean_free_path, x, y, z, L, *pinhole, velocity_gas, pinhole_logger, loglevel);
   }
 
@@ -1817,11 +1785,8 @@ bool eval_collision(GenT &gen, uniform_real_distribution<double> &unif, double g
   {
     std::tie(v2, omega2) = eval_velocities(v2, omega2, u, vib_energy, vib_energy_old, m_ion, m_gas, R_cluster);
     // Express new velocities in lab reference system
-    for (int i = 0; i < 3; i++)
-    {
-      v_cluster[i] = (v2[0] * x3[i]) + (v2[1] * y3[i]) + (v2[2] * z3[i]);
-      omega[i] = (omega2[0] * x3[i]) + (omega2[1] * y3[i]) + (omega2[2] * z3[i]);
-    }
+    v_cluster = frame * v2;
+    omega = frame * omega2;
   }
   return collision_accepted;
 }
