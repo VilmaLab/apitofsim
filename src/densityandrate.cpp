@@ -354,7 +354,9 @@ void compute_density_of_states(const Eigen::ArrayXd &frequencies, Eigen::Ref<Eig
     rho[frequency_bin]++;
     int frequency_shift = static_cast<int>(frequency_bin_float + 0.5);
 #ifdef NDEBUG
-#pragma omp simd
+    // Concurrent iterations must not read bins written by the same SIMD chunk.
+    constexpr int simd_width = 4;
+#pragma omp simd if(frequency_shift >= simd_width) safelen(simd_width)
 #endif
     for (m = frequency_bin + 1; m < m_max; m++)
     {
