@@ -30,6 +30,7 @@
 #include "consts.h"
 #include "warnlogcount.h"
 #include "operation_context.h"
+#include "tree_bindings.h"
 
 using namespace std;
 
@@ -712,6 +713,12 @@ NB_MODULE(apitofsimraw, m)
     .def_ro("pathways", &MassSpecSubstanceSingleInput::pathways)
     .def_ro("gas", &MassSpecSubstanceSingleInput::gas);
 
+  tree_bindings::bind_vector_view<size_t>(m, "IndexView");
+  tree_bindings::bind_vector_view<MSSubstanceTreeNode>(m, "TreeNodeView");
+  tree_bindings::bind_vector_view<MSSubstanceTreePathway>(m, "TreePathwayView");
+  tree_bindings::bind_vector_view<MSSubstanceTreeCluster>(m, "TreeClusterView");
+  tree_bindings::bind_vector_view<MassSpecInputFragmentationPathway>(m, "FragmentationPathwayView");
+
   nb::class_<MSSubstanceTreeCluster>(m, "MSSubstanceTreeCluster")
     .def(nb::init<double, double, const Histogram>(),
          "m_ion"_a,
@@ -729,7 +736,7 @@ NB_MODULE(apitofsimraw, m)
          "payload_idx"_a,
          "pathway_indices"_a)
     .def_ro("payload_idx", &MSSubstanceTreeNode::payload_idx)
-    .def_ro("pathway_indices", &MSSubstanceTreeNode::pathway_indices);
+    .def_prop_ro("pathway_indices", tree_bindings::vector_property(&MSSubstanceTreeNode::pathway_indices));
 
   nb::class_<MSSubstanceTreePathway>(m, "MSSubstanceTreePathway")
     .def(nb::init<size_t, std::optional<size_t>>(),
@@ -748,10 +755,12 @@ NB_MODULE(apitofsimraw, m)
          "tree_pathways"_a)
     .def_ro("cluster_charge_sign", &MassSpecSubstanceTreeInput::cluster_charge_sign)
     .def_ro("gas", &MassSpecSubstanceTreeInput::gas)
-    .def_ro("cluster_payloads", &MassSpecSubstanceTreeInput::cluster_payloads)
-    .def_ro("pathway_payloads", &MassSpecSubstanceTreeInput::pathway_payloads)
-    .def_ro("tree_nodes", &MassSpecSubstanceTreeInput::tree_nodes)
-    .def_ro("tree_pathways", &MassSpecSubstanceTreeInput::tree_pathways);
+    .def_prop_ro("cluster_payloads", tree_bindings::vector_property(&MassSpecSubstanceTreeInput::cluster_payloads))
+    .def_prop_ro("pathway_payloads", tree_bindings::vector_property(&MassSpecSubstanceTreeInput::pathway_payloads))
+    .def_prop_ro("tree_nodes", tree_bindings::vector_property(&MassSpecSubstanceTreeInput::tree_nodes))
+    .def_prop_ro("tree_pathways", tree_bindings::vector_property(&MassSpecSubstanceTreeInput::tree_pathways))
+    .def("topology_columns", &tree_bindings::topology_columns,
+         "Return owned int64 topology columns; destination -1 denotes a terminal transition.");
 
   m.def("validate_max_energies", static_cast<void (*)(double, double, double, double)>(validate_max_energies),
         "fragmentation_energy"_a,

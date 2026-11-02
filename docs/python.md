@@ -539,6 +539,30 @@ except Exception as exc:
 
 `ExperimentRunner.iter_mass_spec(..., max_batch_items=512)` records available batches without waiting for them to fill and continues to yield individual items.
 
+### Native tree inspection
+
+`MassSpecSubstanceTreeInput.tree_nodes`, `tree_pathways`, `cluster_payloads`
+and `pathway_payloads`, and each node's `pathway_indices`, are read-only views
+of native vectors. Indexing and iteration do not copy the vector. Negative
+indices are supported; slicing returns an independent Python list. Retaining a
+view, element or iterator keeps its native owner alive. Constructors still
+accept Python sequences.
+
+`substance.topology_columns()` returns owned NumPy `int64` snapshots:
+
+| Column | Indexed by | Meaning |
+| --- | --- | --- |
+| `node_payload` | Node index | Cluster payload index |
+| `transition_source` | Transition index | Source node index |
+| `transition_payload` | Transition index | Pathway payload index |
+| `transition_destination` | Transition index | Destination node, or `-1` for a terminal transition |
+
+The arrays survive deletion of the tree, and changing an array does not change
+the tree. Export traverses the native topology once and validates that every
+transition has exactly one source and an in-range destination. Database tree
+persistence uses these columns and bulk Arrow insertion in one transaction;
+terminal destinations are stored as SQL NULL.
+
 ### Cluster-tree fragmentation histories
 
 New tree executions persist `cluster_tree_experiment_result`, `cluster_tree_node`

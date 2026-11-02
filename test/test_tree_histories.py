@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import duckdb
 import pytest
+from apitofsim import apitofsimraw as raw
 from apitofsim.workflow import (
     ExperimentRunner,
     RealizationDatabase,
@@ -21,16 +22,19 @@ def populate(db):
     )
 
 
-def tree():
+def tree(nodes=None, destinations=None):
     # Two routes to species 40 retain separate occurrences, 3 and 4.
-    return SimpleNamespace(
-        tree_nodes=[
-            SimpleNamespace(payload_idx=p, pathway_indices=indices)
-            for p, indices in [(0, [0, 1]), (1, [2]), (2, [3]), (3, [4]), (3, [5])]
-        ],
-        tree_pathways=[
-            SimpleNamespace(product_idx=i) for i in [1, 2, 3, 4, None, None]
-        ],
+    if nodes is None:
+        nodes = [(0, [0, 1]), (1, [2]), (2, [3]), (3, [4]), (3, [5])]
+    if destinations is None:
+        destinations = [1, 2, 3, 4, None, None]
+    return raw.MassSpecSubstanceTreeInput(
+        -1,
+        raw.Gas(1e-10, 1e-26, 1.4),
+        [],
+        [],
+        [raw.MSSubstanceTreeNode(p, indices) for p, indices in nodes],
+        [raw.MSSubstanceTreePathway(0, i) for i in destinations],
     )
 
 
@@ -268,10 +272,7 @@ def test_tree_completion_and_distinct_roots():
     other = db.start_tree_result(
         1,
         20,
-        SimpleNamespace(
-            tree_nodes=[SimpleNamespace(payload_idx=0, pathway_indices=[])],
-            tree_pathways=[],
-        ),
+        tree(nodes=[(0, [])], destinations=[]),
         {0: 20},
         [],
     )
@@ -406,3 +407,43 @@ def test_native_postfragmentation_persistence(batch_size):
             assert (
                 values["fragmentation_event_id"] is values["collision_event_id"] is None
             )
+
+
+def test_tree_persistence_rolls_back_bulk_insert_failure():
+    db = RealizationDatabase(":memory:")
+    db.create_tables()
+    populate(db.db)
+    db.db.execute("insert into experiment_config (id) values (1)")
+    db.db.execute(
+        "insert into experiment_run (id, experiment_config_id, simulation_mode) values (1, 1, 'CLUSTER_TREE')"
+    )
+    # Node rows are inserted first; the transition FK fails afterward.
+    with pytest.raises(duckdb.ConstraintException):
+        db.start_tree_result(1, 10, tree(), {0: 10, 1: 20, 2: 30, 3: 40}, [999] * 6)
+    for table in [
+        "cluster_tree_experiment_result",
+        "cluster_tree_node",
+        "cluster_tree_transition",
+    ]:
+        assert db.db.table(table).count("*").fetchone() == (0,)
+    # A subsequent complete run still records the exact tree.
+    start(db)
+    assert db.db.table("cluster_tree_transition").count("*").fetchone() == (6,)
+    db.close()
+
+
+def test_tree_persistence_empty_and_caller_transaction():
+    db = RealizationDatabase(":memory:")
+    db.create_tables()
+    populate(db.db)
+    db.db.execute("insert into experiment_config (id) values (1)")
+    db.db.execute(
+        "insert into experiment_run (id, experiment_config_id, simulation_mode) values (1, 1, 'CLUSTER_TREE')"
+    )
+    db.db.execute("begin transaction")
+    db.start_tree_result(1, 10, tree(nodes=[], destinations=[]), {}, [])
+    start(db)
+    db.db.execute("rollback")
+    assert db.db.table("cluster_tree_experiment_result").count("*").fetchone() == (0,)
+    assert db.db.table("cluster_tree_node").count("*").fetchone() == (0,)
+    db.close()
