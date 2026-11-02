@@ -672,7 +672,7 @@ TEST_CASE("apitof pinhole smoke tests")
   { return value; }));
   CHECK((streamed_counters == counters).all());
   Eigen::ArrayXi expected_counters(6);
-  expected_counters << 0, 15, 0, 5, 5, 0;
+  expected_counters << 0, 5008, 0, 5, 4, 1;
   if (test_rejections)
   {
     CHECK(counters[Counter::counter_collision_rejections] > 0);
@@ -921,6 +921,28 @@ TEST_CASE("trajectory sampler preserves fragmentation time across upstream produ
   CHECK(particle.time == doctest::Approx(2.5));
   CHECK(particle.position.x() == doctest::Approx(3));
   CHECK(particle.position.y() == doctest::Approx(4));
+}
+
+TEST_CASE("trajectory collision timing uses number density in both chambers")
+{
+  SkimmerData skimmer(2, 3);
+  skimmer << 0, 300, 100, 0, 300, 100;
+  MassSpectrometer ms{skimmer, 5, InstrumentDims::Constant(10), InstrumentVoltages::Zero(), 300, InstrumentPressures{100, 2}};
+  Gas gas{2e-10, 4.8e-26, 1.4};
+  ChamberQuantities chamber(ms, gas);
+  for (double z : {5.0, 25.0, 35.0, 45.0})
+  {
+    CAPTURE(z);
+    ParticleState particle{.position = {0, 0, z}, .velocity = Eigen::Vector3d::Zero()};
+    const double frequency = collision_frequency(z, particle.velocity, chamber, gas.mass, 7e-10, skimmer, ms.mesh_skimmer);
+    const double dt = 0.1 / frequency;
+    // A stationary particle has constant hazard: 0.25 is crossed on step three.
+    auto outcome = time_next_coll_quadrupole(std::exp(-0.25), particle, chamber, 7e-10,
+                                             Eigen::Array2d::Constant(dt), 10 * dt, Eigen::Array4d::Zero(),
+                                             gas.mass, skimmer, ms.mesh_skimmer, ms.quadrupole);
+    CHECK(outcome == TimeNextCollOutcome::gas_collision);
+    CHECK(particle.time / dt == doctest::Approx(3));
+  }
 }
 
 TEST_CASE("trajectory steps retain regional integration rules")

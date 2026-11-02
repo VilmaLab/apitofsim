@@ -1435,7 +1435,7 @@ TimeNextCollOutcome time_next_coll_quadrupole(double collision_quantile, Particl
     }
     else
     {
-      c2 = coll_freq(chamber.pressures.P[first_chamber ? 0 : 1], chamber.mobility_gas, chamber.mobility_gas_inv, R, particle.velocity.norm());
+      c2 = coll_freq(chamber.pressures.n[first_chamber ? 0 : 1], chamber.mobility_gas, chamber.mobility_gas_inv, R, particle.velocity.norm());
     }
 
     integral += (c1 + c2) * dt / 2.0;
