@@ -612,6 +612,51 @@ void print_initial_trace(
   });
 }
 
+// The callback observes the collision before accepted velocities and energies are updated.
+template <typename GenT, typename GasCollSamplerT, typename VibEnergySamplerT, typename ClusterT, typename OnCollisionT>
+bool process_collision(
+  GenT &gen,
+  uniform_real_distribution<double> &unif,
+  GasCollSamplerT &gas_coll_sampler,
+  VibEnergySamplerT &vib_energy_sampler,
+  const MassSpectrometer &ms,
+  const ChamberQuantities &chamber,
+  const Gas &gas,
+  const ClusterT &cluster,
+  const SubstanceQuantities &subquants,
+  double x, double y, double z,
+  Eigen::Vector3d &v_cluster,
+  double &v_cluster_norm,
+  Eigen::Vector3d &omega,
+  double &vib_energy,
+  double &rot_energy,
+  WarningHelper &warn,
+  LogHelper pinhole_logger,
+  int loglevel,
+  const OnCollisionT &on_collision)
+{
+  auto [v_gas, temperature, pressure] = update_physical_quantities(z, ms.skimmer, ms.mesh_skimmer, chamber, ms.T);
+  auto [effective_n, v_rel, v_rel_norm, effective_mobility_gas, effective_mobility_gas_inv] = get_quantities_for_collision(z, chamber, gas.mass, v_cluster, v_gas, pressure, temperature);
+  auto [theta, u_norm] = gas_coll_sampler.sample(gen, effective_n, v_rel_norm, effective_mobility_gas, effective_mobility_gas_inv, cluster.R_cluster + gas.radius, warn);
+
+  double vib_energy_new = vib_energy_sampler.sample(gen, boundary_vib_energy(vib_energy, subquants.reduced_mass, u_norm, v_rel_norm, theta));
+  const Eigen::Vector3d omega_before_collision = omega;
+  bool collision_accepted = eval_collision(gen, unif, chamber.gas_mean_free_paths[1], x, y, z, chamber.clens.total_length, ms.radius_pinhole, chamber.clens.quadrupole_end, v_rel, omega, u_norm, theta, cluster.R_cluster, vib_energy_new, vib_energy, cluster.m_ion, gas.mass, temperature, pinhole_logger, loglevel);
+
+  on_collision(theta, u_norm, collision_accepted, omega_before_collision);
+
+  if (collision_accepted)
+  {
+    vib_energy = vib_energy_new;
+    update_velocities(v_cluster, v_cluster_norm, v_rel, v_gas);
+    rot_energy = evaluate_rotational_energy(omega, subquants.inertia);
+    double rot_energy_old = rot_energy;
+    std::tie(vib_energy, rot_energy) = redistribute_internal_energy(gen, vib_energy_sampler, vib_energy, rot_energy);
+    update_rot_vel(omega, rot_energy_old, rot_energy);
+  }
+  return collision_accepted;
+}
+
 template <typename GasCollSamplerT, typename VibEnergySamplerT>
 SimulationResult apitof_mass_spec(
   const MassSpectrometer &ms,
@@ -733,34 +778,20 @@ SimulationResult apitof_mass_spec(
               throw ApiTofMaxCollisions(MAX_COLL, ncoll);
             }
 
-            auto [v_gas, temperature, pressure] = update_physical_quantities(z, ms.skimmer, ms.mesh_skimmer, chamber, ms.T);
-
-            auto [effective_n, v_rel, v_rel_norm, effective_mobility_gas, effective_mobility_gas_inv] = get_quantities_for_collision(z, chamber, subs.gas.mass, v_cluster, v_gas, pressure, temperature);
-            // normal velocity of colliding gas molecule
-            auto [theta, u_norm] = local_gas_coll_sampler.sample(gen, effective_n, v_rel_norm, effective_mobility_gas, effective_mobility_gas_inv, subs.R_cluster + subs.gas.radius, warn);
-
-            // Evaluate the dissipated energy in the collision (energy that goes to vibrational modes)
-            double vib_energy_new = local_vib_energy_sampler.sample(gen, boundary_vib_energy(vib_energy, subquants.reduced_mass, u_norm, v_rel_norm, theta));
-
-            const Eigen::Vector3d omega_before_collision = omega;
-            bool collision_accepted = eval_collision(gen, unif, chamber.gas_mean_free_paths[1], x, y, z, chamber.clens.total_length, ms.radius_pinhole, chamber.clens.quadrupole_end, v_rel, omega, u_norm, theta, subs.R_cluster, vib_energy_new, vib_energy, subs.m_ion, subs.gas.mass, temperature, LogHelper{result_queue, LogMessage::pinhole, &operation}, logconf.level);
-
-            if (logconf.log_events && operation.should_continue())
+            bool collision_accepted = process_collision(
+              gen, unif, local_gas_coll_sampler, local_vib_energy_sampler, ms, chamber, subs.gas, subs, subquants,
+              x, y, z, v_cluster, v_cluster_norm, omega, vib_energy, rot_energy, warn,
+              LogHelper{result_queue, LogMessage::pinhole, &operation}, logconf.level,
+              [&](double theta, double u_norm, bool accepted, const Eigen::Vector3d &omega_before_collision)
             {
-              result_queue.enqueue(CollisionEvent{ParticleStateMsg{j, {x, y, z, t}, v_cluster, omega_before_collision, rot_energy, vib_energy}, theta, u_norm, collision_accepted});
-            }
+              if (logconf.log_events && operation.should_continue())
+              {
+                result_queue.enqueue(CollisionEvent{ParticleStateMsg{j, {x, y, z, t}, v_cluster, omega_before_collision, rot_energy, vib_energy}, theta, u_norm, accepted});
+              }
+            });
 
             if (collision_accepted)
             {
-              vib_energy = vib_energy_new;
-              update_velocities(v_cluster, v_cluster_norm, v_rel, v_gas);
-              // tmp << kin_energy << endl;
-
-              rot_energy = evaluate_rotational_energy(omega, subquants.inertia);
-              double rot_energy_old = rot_energy;
-              std::tie(vib_energy, rot_energy) = redistribute_internal_energy(gen, local_vib_energy_sampler, vib_energy, rot_energy);
-              update_rot_vel(omega, rot_energy_old, rot_energy);
-
               if (logconf.log_events && operation.should_continue())
               {
                 result_queue.enqueue(PostCollisionEvent{ParticleStateMsg{j, {x, y, z, t}, v_cluster, omega, rot_energy, vib_energy}});
@@ -1007,34 +1038,20 @@ SimulationResult apitof_mass_spec(
               throw ApiTofMaxCollisions(MAX_COLL, ncoll);
             }
 
-            auto [v_gas, temperature, pressure] = update_physical_quantities(z, ms.skimmer, ms.mesh_skimmer, chamber, ms.T);
-
-            auto [effective_n, v_rel, v_rel_norm, effective_mobility_gas, effective_mobility_gas_inv] = get_quantities_for_collision(z, chamber, subs.gas.mass, v_cluster, v_gas, pressure, temperature);
-            // normal velocity of colliding gas molecule
-            auto [theta, u_norm] = local_gas_coll_sampler.sample(gen, effective_n, v_rel_norm, effective_mobility_gas, effective_mobility_gas_inv, subpayload.R_cluster + subs.gas.radius, warn);
-
-            // Evaluate the dissipated energy in the collision (energy that goes to vibrational modes)
-            double vib_energy_new = vib_energy_sampler->sample(gen, boundary_vib_energy(vib_energy, subquants.reduced_mass, u_norm, v_rel_norm, theta));
-
-            const Eigen::Vector3d omega_before_collision = omega;
-            bool collision_accepted = eval_collision(gen, unif, chamber.gas_mean_free_paths[1], x, y, z, chamber.clens.total_length, ms.radius_pinhole, chamber.clens.quadrupole_end, v_rel, omega, u_norm, theta, subpayload.R_cluster, vib_energy_new, vib_energy, subpayload.m_ion, subs.gas.mass, temperature, LogHelper{result_queue, LogMessage::pinhole, &operation}, logconf.level);
-
-            if (logconf.log_events && operation.should_continue())
+            bool collision_accepted = process_collision(
+              gen, unif, local_gas_coll_sampler, *vib_energy_sampler, ms, chamber, subs.gas, subpayload, subquants,
+              x, y, z, v_cluster, v_cluster_norm, omega, vib_energy, rot_energy, warn,
+              LogHelper{result_queue, LogMessage::pinhole, &operation}, logconf.level,
+              [&](double theta, double u_norm, bool accepted, const Eigen::Vector3d &omega_before_collision)
             {
-              result_queue.enqueue(CollisionEvent{ParticleStateMsg{j, {x, y, z, t}, v_cluster, omega_before_collision, rot_energy, vib_energy, subnode_index}, theta, u_norm, collision_accepted});
-            }
+              if (logconf.log_events && operation.should_continue())
+              {
+                result_queue.enqueue(CollisionEvent{ParticleStateMsg{j, {x, y, z, t}, v_cluster, omega_before_collision, rot_energy, vib_energy, subnode_index}, theta, u_norm, accepted});
+              }
+            });
 
             if (collision_accepted)
             {
-              vib_energy = vib_energy_new;
-              update_velocities(v_cluster, v_cluster_norm, v_rel, v_gas);
-              // tmp << kin_energy << endl;
-
-              rot_energy = evaluate_rotational_energy(omega, subquants.inertia);
-              double rot_energy_old = rot_energy;
-              std::tie(vib_energy, rot_energy) = redistribute_internal_energy(gen, *vib_energy_sampler, vib_energy, rot_energy);
-              update_rot_vel(omega, rot_energy_old, rot_energy);
-
               if (logconf.log_events && operation.should_continue())
               {
                 result_queue.enqueue(PostCollisionEvent{ParticleStateMsg{j, {x, y, z, t}, v_cluster, omega, rot_energy, vib_energy, subnode_index}});
