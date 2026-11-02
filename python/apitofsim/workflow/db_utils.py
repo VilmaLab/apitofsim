@@ -44,6 +44,9 @@ def duckdb_connect_roview_cow(filename, *, config=None, fallback="copy"):
 
     if config is None:
         config = {}
+    # reflink's CFFI backend accepts only str/bytes, unlike the os.path,
+    # shutil and duckdb calls around it, which all take path-likes.
+    filename = os.fspath(filename)
     path, base = psplit(filename)
     base, ext = splitext(base)
     rnd = uuid4().hex
