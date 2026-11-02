@@ -1350,26 +1350,10 @@ TimeNextCollOutcome time_next_coll_quadrupole(double collision_quantile, Particl
   using namespace consts;
   double integral = 0.0;
   double P = 1.0;
-  double c1;
-  double c2;
-  double v1;
-  double v_cluster_norm_xy = (particle.velocity[0] * particle.velocity[0]) + (particle.velocity[1] * particle.velocity[1]);
+  const double v_cluster_norm_xy = (particle.velocity[0] * particle.velocity[0]) + (particle.velocity[1] * particle.velocity[1]);
   const double r = collision_quantile;
-  double mobility_gas_skimmer;
-  double mobility_gas_inv_skimmer;
-  double kT_skimmer;
-  double n_skimmer = NAN;
-  double v_rel_norm;
-  double v1x;
-  double v1y;
-  double accx;
-  double accy;
   double delta_t = 0.0;
-
-  c1 = collision_frequency(particle.position.z(), particle.velocity, chamber, m_gas, R, skimmer, mesh_skimmer);
-
-  // tmp_evolution << z << " " << c1 << endl;
-  // if(z<first_chamber_end) tmp_evolution << z << " " << c1 << endl;
+  double c1 = collision_frequency(particle.position.z(), particle.velocity, chamber, m_gas, R, skimmer, mesh_skimmer);
 
   while (true)
   {
@@ -1393,123 +1377,85 @@ TimeNextCollOutcome time_next_coll_quadrupole(double collision_quantile, Particl
     {
       return TimeNextCollOutcome::gas_collision;
     }
-    v1 = particle.velocity[2];
-    v1x = particle.velocity[0];
-    v1y = particle.velocity[1];
-
-    double first_dt = dts[0];
+    const Eigen::Vector3d old_velocity = particle.velocity;
+    const double z = particle.position.z();
+    const bool first_chamber = z < chamber.clens.first_chamber_end;
+    const bool in_quadrupole = z >= chamber.clens.quadrupole_start && z < chamber.clens.quadrupole_end;
+    // Preserve skimmer integration at z == sk_end, including its chamber velocity kick.
+    const bool second_chamber = (z > chamber.clens.sk_end && z < chamber.clens.quadrupole_start) ||
+                                in_quadrupole || z >= chamber.clens.quadrupole_end;
+    const bool skimmer_step = !first_chamber && !second_chamber;
+    double dt = dts[first_chamber ? 0 : 1];
     double outward_time = std::numeric_limits<double>::infinity();
-    if (particle.position.z() < chamber.clens.first_chamber_end)
-    {
-      outward_time = upstream::crossing_time(particle.position.z(), v1, acc[0], false);
-      first_dt = std::min({first_dt, outward_time, t_fragmentation - delta_t});
-      particle.velocity[2] += acc[0] * first_dt;
-    }
 
-    else if (particle.position.z() >= chamber.clens.sk_end and particle.position.z() < chamber.clens.quadrupole_start)
+    if (first_chamber)
     {
-      particle.velocity[2] += acc[1] * dts[1];
+      outward_time = upstream::crossing_time(z, old_velocity[2], acc[0], false);
+      dt = std::min({dt, outward_time, t_fragmentation - delta_t});
+      particle.velocity[2] += acc[0] * dt;
     }
-
-    else if (particle.position.z() >= chamber.clens.quadrupole_start and particle.position.z() < chamber.clens.quadrupole_end)
+    else if (z >= chamber.clens.sk_end && z < chamber.clens.quadrupole_start)
+    {
+      particle.velocity[2] += acc[1] * dt;
+    }
+    else if (in_quadrupole)
     {
       if (quadrupole)
       {
-        accx = quadrupole->mathieu_factor * (-quadrupole->dc_field + (quadrupole->ac_field * cos(quadrupole->angular_velocity * particle.time))) * (particle.position.x() + (particle.velocity[0] * dts[1] / 2.0));
-        accy = quadrupole->mathieu_factor * (quadrupole->dc_field - (quadrupole->ac_field * cos(quadrupole->angular_velocity * particle.time))) * (particle.position.y() + (particle.velocity[1] * dts[1] / 2.0));
-        particle.velocity[0] += accx * dts[1];
-        particle.velocity[1] += accy * dts[1];
+        double accx = quadrupole->mathieu_factor * (-quadrupole->dc_field + (quadrupole->ac_field * cos(quadrupole->angular_velocity * particle.time))) * (particle.position.x() + (particle.velocity[0] * dt / 2.0));
+        double accy = quadrupole->mathieu_factor * (quadrupole->dc_field - (quadrupole->ac_field * cos(quadrupole->angular_velocity * particle.time))) * (particle.position.y() + (particle.velocity[1] * dt / 2.0));
+        particle.velocity[0] += accx * dt;
+        particle.velocity[1] += accy * dt;
       }
-      particle.velocity[2] += acc[2] * dts[1];
+      particle.velocity[2] += acc[2] * dt;
+    }
+    else if (z >= chamber.clens.quadrupole_end)
+    {
+      particle.velocity[2] += acc[3] * dt;
     }
 
-    else if (particle.position.z() >= chamber.clens.quadrupole_end)
+    double c2;
+    if (skimmer_step)
     {
-      particle.velocity[2] += acc[3] * dts[1];
+      const auto gas = update_skimmer_quantities(skimmer, z, chamber.clens.first_chamber_end, mesh_skimmer);
+      double kT = boltzmann * gas.temperature;
+      double mobility_gas = boltzmann * gas.temperature / m_gas;
+      double mobility_gas_inv = 1.0 / mobility_gas;
+      double n = particle_density(gas.pressure, kT);
+      double v_rel_norm = sqrt(v_cluster_norm_xy + pow(particle.velocity[2] - gas.axial_velocity, 2));
+      c2 = coll_freq(n, mobility_gas, mobility_gas_inv, R, v_rel_norm);
+      dt = DT_MULTIPLIER / c2;
+    }
+    else
+    {
+      c2 = coll_freq(chamber.pressures.P[first_chamber ? 0 : 1], chamber.mobility_gas, chamber.mobility_gas_inv, R, particle.velocity.norm());
     }
 
-    // XXX: This takes a bunch of time
-    double v_cluster_norm = particle.velocity.norm();
-
-    if (particle.position.z() < chamber.clens.first_chamber_end) // Dynamics in the 1st chamber
+    integral += (c1 + c2) * dt / 2.0;
+    P = exp(-integral);
+    delta_t += dt;
+    if (!first_chamber && in_quadrupole)
     {
-      c2 = coll_freq(chamber.pressures.P[0], chamber.mobility_gas, chamber.mobility_gas_inv, R, v_cluster_norm);
-      integral += (c1 + c2) * first_dt / 2.0;
-      P = exp(-integral);
-      delta_t += first_dt;
-      particle.position.x() += v1x * first_dt;
-      particle.position.y() += v1y * first_dt;
-      particle.position.z() += (v1 + particle.velocity[2]) * first_dt / 2.0;
-      particle.time += first_dt;
-      if (first_dt == outward_time)
-      {
-        particle.position.z() = 0;
-        // Resolve a collision accumulated inside the chamber before entering vacuum.
-        if (r >= P && delta_t < t_fragmentation)
-          return TimeNextCollOutcome::gas_collision;
-      }
+      particle.position.x() += (old_velocity[0] + particle.velocity[0]) * dt / 2.0;
+      particle.position.y() += (old_velocity[1] + particle.velocity[1]) * dt / 2.0;
     }
-
-    else if (particle.position.z() > chamber.clens.sk_end and particle.position.z() < chamber.clens.quadrupole_start) // Dynamics in the 2nd chamber
+    else
     {
-      c2 = coll_freq(chamber.pressures.P[1], chamber.mobility_gas, chamber.mobility_gas_inv, R, v_cluster_norm);
-      integral += (c1 + c2) * dts[1] / 2.0;
-      P = exp(-integral);
-      delta_t += dts[1];
-      particle.position.x() += v1x * dts[1];
-      particle.position.y() += v1y * dts[1];
-      particle.position.z() += (v1 + particle.velocity[2]) * dts[1] / 2.0;
-      particle.time += dts[1];
+      particle.position.x() += old_velocity[0] * dt;
+      particle.position.y() += old_velocity[1] * dt;
     }
+    particle.position.z() += skimmer_step ? old_velocity[2] * dt : (old_velocity[2] + particle.velocity[2]) * dt / 2.0;
+    particle.time += dt;
 
-    else if (particle.position.z() >= chamber.clens.quadrupole_start and particle.position.z() < chamber.clens.quadrupole_end) // Dynamics in the 2nd chamber
+    if (first_chamber && dt == outward_time)
     {
-      c2 = coll_freq(chamber.pressures.P[1], chamber.mobility_gas, chamber.mobility_gas_inv, R, v_cluster_norm);
-      integral += (c1 + c2) * dts[1] / 2.0;
-      P = exp(-integral);
-      delta_t += dts[1];
-      particle.position.x() += (v1x + particle.velocity[0]) * dts[1] / 2.0;
-      particle.position.y() += (v1y + particle.velocity[1]) * dts[1] / 2.0;
-      particle.position.z() += (v1 + particle.velocity[2]) * dts[1] / 2.0;
-      particle.time += dts[1];
-    }
-    else if (particle.position.z() >= chamber.clens.quadrupole_end) // Dynamics in the 2nd chamber
-    {
-      c2 = coll_freq(chamber.pressures.P[1], chamber.mobility_gas, chamber.mobility_gas_inv, R, v_cluster_norm);
-      integral += (c1 + c2) * dts[1] / 2.0;
-      P = exp(-integral);
-      delta_t += dts[1];
-      particle.position.x() += v1x * dts[1];
-      particle.position.y() += v1y * dts[1];
-      particle.position.z() += (v1 + particle.velocity[2]) * dts[1] / 2.0;
-      particle.time += dts[1];
-    }
-
-    else // Dynamics in the skimmer
-    {
-      double dt;
-      const auto gas = update_skimmer_quantities(skimmer, particle.position.z(), chamber.clens.first_chamber_end, mesh_skimmer);
-      kT_skimmer = boltzmann * gas.temperature;
-      mobility_gas_skimmer = boltzmann * gas.temperature / m_gas;
-      mobility_gas_inv_skimmer = 1.0 / mobility_gas_skimmer;
-      n_skimmer = particle_density(gas.pressure, kT_skimmer);
-      v_rel_norm = sqrt(v_cluster_norm_xy + pow(particle.velocity[2] - gas.axial_velocity, 2));
-      c2 = coll_freq(n_skimmer, mobility_gas_skimmer, mobility_gas_inv_skimmer, R, v_rel_norm);
-      dt = 1.0e-3 / c2;
-      integral += (c1 + c2) * dt / 2.0;
-      P = exp(-integral);
-      delta_t += dt;
-      particle.position.x() += v1x * dt;
-      particle.position.y() += v1y * dt;
-      particle.position.z() += v1 * dt;
-      particle.time += dt;
+      particle.position.z() = 0;
+      // Resolve a collision accumulated inside the chamber before entering vacuum.
+      if (r >= P && delta_t < t_fragmentation)
+        return TimeNextCollOutcome::gas_collision;
     }
     c1 = c2;
-
-    // if(z>quadrupole_start and z<quadrupole_end) tmp_evolution << t << "\t" << x << "\t" << y << "\t" << z << "\t" << v_cluster[0] << "\t" << v_cluster[1] << "\t" << v_cluster[2] << endl;
-    // positionz << t << " " << z << " " << c1 << " " << c2 << " " << v1 << " " << v_cluster[2] << " " << P << " " << r << endl;
   }
-  // if(z<first_chamber_end) tmp_evolution << z << " " << c1 << " " << n_skimmer << " " << mobility_gas_skimmer << " " << mobility_gas_inv_skimmer << " " << R << " " << v_rel_norm << endl;
 }
 
 double boundary_vib_energy(double vib_energy_old, double reduced_mass, double u_norm, double v_cluster_norm, double theta)

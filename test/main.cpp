@@ -903,6 +903,54 @@ TEST_CASE("trajectory sampler preserves fragmentation time across upstream produ
   CHECK(particle.position.y() == doctest::Approx(4));
 }
 
+TEST_CASE("trajectory steps retain regional integration rules")
+{
+  SkimmerData skimmer(2, 3);
+  skimmer << 0.5, 300, 100, 0.5, 300, 100;
+  Quadrupole quadrupole{2, 3, 1, 0.01};
+  quadrupole.mathieu_factor = 0.5;
+  MassSpectrometer ms{skimmer, 5, InstrumentDims::Constant(10), InstrumentVoltages::Zero(), 300, InstrumentPressures{100, 2}, quadrupole};
+  Gas gas{2e-10, 4.8e-26, 1.4};
+  ChamberQuantities chamber(ms, gas);
+  const Eigen::Array2d dts{0.1, 0.2};
+  const Eigen::Array4d acceleration{1, 2, 3, 4};
+  struct Step
+  {
+    double z;
+    Eigen::Vector3d velocity;
+    Eigen::Vector3d position;
+    double dt;
+  };
+  for (const auto &step : {
+         Step{5, {2, 3, 4.1}, {1.2, 2.3, 5.405}, 0.1},
+         Step{25, {2, 3, 4.4}, {1.4, 2.6, 25.84}, 0.2},
+         Step{35, {2.12, 2.77, 4.6}, {1.412, 2.577, 35.86}, 0.2},
+         Step{45, {2, 3, 4.8}, {1.4, 2.6, 45.88}, 0.2},
+       })
+  {
+    CAPTURE(step.z);
+    ParticleState particle{.position = {1, 2, step.z}, .velocity = {2, 3, 4}};
+    CHECK(time_next_coll_quadrupole(0, particle, chamber, 7e-10, dts, step.dt, acceleration, gas.mass, skimmer, ms.mesh_skimmer, ms.quadrupole) == TimeNextCollOutcome::fragmentation);
+    CHECK(particle.time == doctest::Approx(step.dt));
+    CHECK(particle.velocity.isApprox(step.velocity, 1e-12));
+    CHECK(particle.position.isApprox(step.position, 1e-12));
+  }
+
+  // The exact skimmer exit retains the chamber kick but uses skimmer timing and Euler position updates.
+  for (double z : {15.0, 20.0})
+  {
+    CAPTURE(z);
+    ParticleState particle{.position = {1, 2, z}, .velocity = {2, 3, 4}};
+    Eigen::Vector3d expected_velocity{2, 3, z == 20 ? 4.4 : 4};
+    double dt = 1e-3 / collision_frequency(z, expected_velocity, chamber, gas.mass, 7e-10, skimmer, ms.mesh_skimmer);
+    Eigen::Vector3d expected_position = particle.position + particle.velocity * dt;
+    CHECK(time_next_coll_quadrupole(0, particle, chamber, 7e-10, dts, 1e-100, acceleration, gas.mass, skimmer, ms.mesh_skimmer, ms.quadrupole) == TimeNextCollOutcome::fragmentation);
+    CHECK(particle.time == doctest::Approx(dt).epsilon(1e-12));
+    CHECK(particle.velocity.isApprox(expected_velocity, 1e-12));
+    CHECK(particle.position.isApprox(expected_position, 1e-12));
+  }
+}
+
 TEST_CASE("trajectory sampler suppresses gas collisions upstream")
 {
   SkimmerData skimmer(2, 3);
