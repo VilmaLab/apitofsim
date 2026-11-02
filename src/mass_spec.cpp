@@ -1270,10 +1270,6 @@ std::tuple<double, Eigen::Vector3d, double, double, double> get_quantities_for_c
 
 std::tuple<double, double, double> update_physical_quantities(double z, const SkimmerData &skimmer, double mesh_skimmer, const ChamberQuantities &chamber, double T)
 {
-  int m;
-  double coeff1;
-  double coeff2;
-  double position;
   double v_gas;
   double temperature;
   double pressure;
@@ -1286,22 +1282,7 @@ std::tuple<double, double, double> update_physical_quantities(double z, const Sk
   }
   else if (z < chamber.clens.sk_end)
   {
-    position = z - chamber.clens.first_chamber_end;
-    m = static_cast<int>(position / mesh_skimmer);
-    if (m == skimmer.rows() - 1)
-    {
-      v_gas = skimmer(m, VEL_SKIMMER);
-      temperature = skimmer(m, TEMP_SKIMMER);
-      pressure = skimmer(m, PRESSURE_SKIMMER);
-    }
-    else
-    {
-      coeff1 = (position - (m * mesh_skimmer)) / mesh_skimmer;
-      coeff2 = 1.0 - coeff1;
-      v_gas = (coeff2 * skimmer(m, VEL_SKIMMER)) + (coeff1 * skimmer(m + 1, VEL_SKIMMER));
-      temperature = (coeff2 * skimmer(m, TEMP_SKIMMER)) + (coeff1 * skimmer(m + 1, TEMP_SKIMMER));
-      pressure = (coeff2 * skimmer(m, PRESSURE_SKIMMER)) + (coeff1 * skimmer(m + 1, PRESSURE_SKIMMER));
-    }
+    std::tie(v_gas, temperature, pressure) = update_skimmer_quantities(skimmer, z, chamber.clens.first_chamber_end, mesh_skimmer);
   }
   else
   {
