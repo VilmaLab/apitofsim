@@ -44,7 +44,7 @@ void bind_vector_view(nb::module_ &m, const char *name)
   {
     auto [start, stop, step, length] = slice.compute(v.values->size());
     (void)stop;
-    nb::list out;
+    nb::typed<nb::list, T> out;
     for (size_t i = 0; i < length; ++i, start += step)
       out.append(nb::cast((*v.values)[start], nb::rv_policy::copy));
     return out;
@@ -65,14 +65,17 @@ auto vector_property(std::vector<T> Owner::*member)
   };
 }
 
-inline nb::dict topology_columns(const MassSpecSubstanceTreeInput &tree)
+using TopologyColumn = nb::ndarray<nb::numpy, int64_t, nb::ndim<1>>;
+using TopologyColumns = nb::typed<nb::dict, nb::str, TopologyColumn>;
+
+inline TopologyColumns topology_columns(const MassSpecSubstanceTreeInput &tree)
 {
   auto column = [](size_t count)
   {
     auto *data = new int64_t[count];
     nb::capsule owner(data, [](void *p) noexcept
     { delete[] static_cast<int64_t *>(p); });
-    return nb::ndarray<nb::numpy, int64_t, nb::ndim<1>>(data, {count}, owner);
+    return TopologyColumn(data, {count}, owner);
   };
   auto index = [](size_t value) -> int64_t
   {
@@ -105,7 +108,7 @@ inline nb::dict topology_columns(const MassSpecSubstanceTreeInput &tree)
     payloads.data()[i] = index(pathway.payload_idx);
     destinations.data()[i] = pathway.product_idx ? static_cast<int64_t>(*pathway.product_idx) : -1;
   }
-  nb::dict out;
+  TopologyColumns out;
   out["node_payload"] = nodes;
   out["transition_source"] = sources;
   out["transition_payload"] = payloads;
