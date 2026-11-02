@@ -1397,6 +1397,7 @@ class EventRecorder:
             FragmentationEvent,
             InitEvent,
             PostCollisionEvent,
+            PostFragmentationEvent,
         )
 
         if not events:
@@ -1405,6 +1406,7 @@ class EventRecorder:
             InitEvent: "init",
             CollisionEvent: "collision",
             PostCollisionEvent: "postcollision",
+            PostFragmentationEvent: "postfragmentation",
             FragmentationEvent: "fragmentation",
             EscapeEvent: "escape",
         }

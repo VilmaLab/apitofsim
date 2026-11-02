@@ -100,6 +100,8 @@ def test_tree_history_reader(tmp_path, attached):
             event(
                 conn, realization, "fragmentation", node, transition, destination, path
             )
+            if destination >= 0:
+                event(conn, realization, "postfragmentation", destination)
     event(conn, 3, "init", 0)
     event(conn, 3, "fragmentation", 0, 1, 2, 2)
     event(conn, 3, "escape", 2)
@@ -122,8 +124,8 @@ def test_tree_history_reader(tmp_path, attached):
         ]
         events = database.tree_events_query(result_id=first)
         assert events.aggregate("count(*), count(distinct event_id)").fetchone() == (
-            20,
-            20,
+            24,
+            24,
         )
         assert (
             events.filter(
@@ -131,6 +133,9 @@ def test_tree_history_reader(tmp_path, attached):
             ).fetchall()
             == []
         )
+        assert events.filter("event_type = 'postfragmentation'").select(
+            "realization_id, particle_index, current_cluster_id"
+        ).fetchall() == [(1, 1, 20), (1, 3, 40), (2, 2, 30), (2, 4, 40)]
         assert database.tree_events_query(run_id=1, result_id=second).fetchall() == []
         assert database.tree_events_query(parent=20).fetchall() == []
         assert database.tree_events_query(run_id=2).aggregate(
@@ -309,3 +314,95 @@ def test_tree_completion_and_distinct_roots():
     assert db.report_df("experiment_cluster_report").survival_rate.tolist() == [1.0]
     assert len(db.report_df("experiment_pathway_report")) == 5
     db.close()
+
+
+@pytest.mark.parametrize("batch_size", [1, 100])
+def test_native_postfragmentation_persistence(batch_size):
+    import numpy as np
+    from apitofsim import api
+    from apitofsim.workflow.db import EventRecorder, connection_scope
+
+    raw = api.apitofsimraw
+    energies = np.arange(0.5, 32) * 1e-21
+    density = raw.Histogram(energies, np.ones(32))
+    rate = raw.Histogram(energies, np.full(32, 1e30))
+    subs = raw.MassSpecSubstanceTreeInput(
+        -1,
+        raw.Gas(2e-10, 4.8e-26, 1.4),
+        [
+            raw.MSSubstanceTreeCluster(mass, 5e-10, density)
+            for mass in [3e-25, 2e-25, 1e-25]
+        ],
+        [raw.MassSpecInputFragmentationPathway(rate, -1e-21)],
+        [raw.MSSubstanceTreeNode(i, [path]) for i, path in enumerate([2, 0, 1])],
+        [raw.MSSubstanceTreePathway(0, destination) for destination in [2, None, 1]],
+    )
+    ms = raw.MassSpectrometer(
+        np.array([[100, 300, 100], [100, 300, 100]], dtype=float),
+        0.0005,
+        np.full(5, 0.001),
+        np.zeros(5),
+        300,
+        np.array([100, 2], dtype=float),
+        None,
+        None,
+    )
+    with api.MassSpecIterator(ms, subs, 1, logconf=(0, True)) as stream:
+        events = [item for item in stream if hasattr(item, "state")]
+    assert [type(e) for e in events] == [
+        api.InitEvent,
+        api.FragmentationEvent,
+        api.PostFragmentationEvent,
+        api.FragmentationEvent,
+        api.PostFragmentationEvent,
+        api.FragmentationEvent,
+    ]
+    for before, after in [(events[1], events[2]), (events[3], events[4])]:
+        np.testing.assert_array_equal(before.state.postime, after.state.postime)
+        assert before.state.realization == after.state.realization
+        assert after.state.particle_index == before.next_particle_index
+        np.testing.assert_array_equal(after.state.velocity, np.zeros(3))
+        np.testing.assert_array_equal(after.state.omega, np.zeros(3))
+        assert after.state.rot_energy == after.state.vibrational_energy == 0
+    assert events[-1].next_particle_index == -1
+
+    with connection_scope(RealizationDatabase, ":memory:") as db:
+        db.create_tables()
+        populate(db.db)
+        db.db.execute("insert into experiment_config (id) values (1)")
+        db.db.execute(
+            "insert into experiment_run (id, experiment_config_id, simulation_mode) values (1, 1, 'CLUSTER_TREE')"
+        )
+        paths = [3, 5, 1]
+        result_id = db.start_tree_result(1, 10, subs, {0: 10, 1: 20, 2: 40}, paths)
+        recorder = EventRecorder(db, paths, result_id=result_id)
+        for offset in range(0, len(events), batch_size):
+            recorder.record_batch(events[offset : offset + batch_size])
+        rows = db.tree_events_query(result_id=result_id)
+        assert rows.aggregate("count(*), count(distinct event_id)").fetchone() == (6, 6)
+        assert (
+            rows.filter("not continuity_valid or provenance != 'persisted'").fetchall()
+            == []
+        )
+        after_rows = rows.filter("event_type = 'postfragmentation'")
+        assert after_rows.select("particle_index, current_cluster_id").fetchall() == [
+            (1, 20),
+            (2, 40),
+        ]
+        for row, native in zip(
+            after_rows.fetchall(), [events[2], events[4]], strict=True
+        ):
+            values = dict(zip(after_rows.columns, row, strict=True))
+            state = native.state
+            np.testing.assert_array_equal(
+                list(values["postime"].values()), state.postime
+            )
+            np.testing.assert_array_equal(
+                list(values["velocity"].values()), state.velocity
+            )
+            np.testing.assert_array_equal(list(values["omega"].values()), state.omega)
+            assert values["rot_energy"] == state.rot_energy
+            assert values["vibrational_energy"] == state.vibrational_energy
+            assert (
+                values["fragmentation_event_id"] is values["collision_event_id"] is None
+            )

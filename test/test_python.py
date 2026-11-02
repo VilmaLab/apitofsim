@@ -569,6 +569,21 @@ def test_init_events_workflow(tmp_path, monkeypatch, mode):
                 assert not any(
                     hasattr(event, field) for field in ("theta", "u_norm", "accepted")
                 )
+            expects_post_fragmentation = (
+                isinstance(previous, api.FragmentationEvent)
+                and previous.next_particle_index >= 0
+            )
+            assert (
+                isinstance(event, api.PostFragmentationEvent)
+                == expects_post_fragmentation
+            )
+            if isinstance(event, api.PostFragmentationEvent):
+                assert mode == "CLUSTER_TREE"
+                np.testing.assert_array_equal(state.postime, previous.state.postime)
+                assert state.particle_index == previous.next_particle_index
+                np.testing.assert_array_equal(state.velocity, np.zeros(3))
+                np.testing.assert_array_equal(state.omega, np.zeros(3))
+                assert state.rot_energy == state.vibrational_energy == 0
             if isinstance(event, (api.CollisionEvent, api.PostCollisionEvent)):
                 particle = (
                     subs
@@ -708,6 +723,7 @@ def test_init_events_workflow(tmp_path, monkeypatch, mode):
                         api.CollisionEvent,
                         api.PostCollisionEvent,
                         api.FragmentationEvent,
+                        api.PostFragmentationEvent,
                         api.EscapeEvent,
                     ),
                 ):

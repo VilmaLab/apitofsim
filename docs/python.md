@@ -204,6 +204,14 @@ the preceding `collision` row within the realization by particle index and
 position/time, and have null collision-detail fields. `collision` rows contain
 the pre-collision state, including for rejected attempts.
 
+`postfragmentation` rows record the continuing cluster-tree product's state
+immediately after the simulator resets its motion and internal energy. They share
+position/time with the preceding `fragmentation` row within the realization and
+use its `next_particle_index` as their `particle_index`. Pair by realization and
+stream order. Terminal splits have no after-row. These rows have null collision
+and fragmentation details and are included in `events_query()` and
+`tree_events_query()`.
+
 New databases receive these views through `create_tables()`. For existing
 writable files, use `refresh_views()` or `apitofsim refresh-views DATABASE`.
 The SQL continues to resolve tables through the connection's search path,

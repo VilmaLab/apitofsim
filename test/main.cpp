@@ -600,6 +600,7 @@ TEST_CASE("tree fragmentation events keep pathway and particle indices separate"
   StreamingResultQueue queue;
   apitof_mass_spec(ms, subs, 1, 42, queue, SampleMode::dss_normalized, true, MassSpecLogConf{0, true});
   std::vector<FragmentationEvent> events;
+  std::vector<PostFragmentationEvent> after_events;
   StreamingResultElement result;
   while (queue.try_dequeue(result))
   {
@@ -608,6 +609,10 @@ TEST_CASE("tree fragmentation events keep pathway and particle indices separate"
       if (auto *fragmentation = std::get_if<FragmentationEvent>(event))
       {
         events.push_back(*fragmentation);
+      }
+      if (auto *after = std::get_if<PostFragmentationEvent>(event))
+      {
+        after_events.push_back(*after);
       }
     }
   }
@@ -618,6 +623,18 @@ TEST_CASE("tree fragmentation events keep pathway and particle indices separate"
   CHECK(events[1].state.particle_index == 1);
   CHECK(events[1].pathway_index == 0);
   CHECK(events[1].next_particle_index == -1);
+  REQUIRE(after_events.size() == 1);
+  const auto &after = after_events[0].state;
+  CHECK(after.realization == events[0].state.realization);
+  CHECK((after.postime == events[0].state.postime).all());
+  CHECK(after.particle_index == events[0].next_particle_index);
+  CHECK(after.velocity.isZero());
+  CHECK(after.omega.isZero());
+  CHECK(after.rot_energy == 0);
+  CHECK(after.vibrational_energy == 0);
+  CHECK((events[1].state.velocity == after.velocity).all());
+  CHECK(events[1].state.rot_energy == after.rot_energy);
+  CHECK(events[1].state.vibrational_energy == after.vibrational_energy);
 }
 
 TEST_CASE("collision profile shares instantaneous simulator frequency")

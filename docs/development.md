@@ -154,12 +154,12 @@ uv run meson test --benchmark --num-processes 1 -C build
 ### Realization event storage
 
 Each recorded event has one `event_info` row containing its realization ID, event type
-(`init`, `collision`, `postcollision`, `fragmentation`, or `escape`), position/time, velocity, angular
+(`init`, `collision`, `postcollision`, `fragmentation`, `postfragmentation`, or `escape`), position/time, velocity, angular
 velocity, energies, and particle index. State uses double precision and records
 `rot_energy` and `vibrational_energy` separately. Events retain the snapshots emitted by the simulator.
 
 `collision_event` adds `theta`, `u_norm`, and `accepted`; `fragmentation_event` adds
-`pathway_id`. Their primary keys reference `event_info.id`. Init, post-collision, and escape events
+`pathway_id`. Their primary keys reference `event_info.id`. Init, post-collision, post-fragmentation, and escape events
 have no separate tables. The recorder inserts shared state and detail rows atomically.
 
 `event_report` joins these tables with realization and experiment information. It keeps
@@ -172,6 +172,14 @@ the final state after velocity updates and internal-energy redistribution. Rejec
 collisions have no post-collision event. Correlate pairs by realization, particle
 index, position/time, and stream order; collision details belong only to the
 pre-collision event. Both require event logging to be enabled.
+
+Continuing cluster-tree fragmentations similarly emit a `PostFragmentationEvent`
+(`postfragmentation`) after switching to the product node and resetting velocity,
+angular velocity, and internal energy. It records the actual product state at the
+same position/time as the preceding `FragmentationEvent`, with its
+`next_particle_index` as the new `particle_index`. Pair by realization and stream
+order. Terminal fragmentations emit no after-event. Other simulation modes emit
+no post-fragmentation events; fragmentation physics is unchanged.
 
 This schema replaces the previous event tables; existing databases require recreation.
 There is no migration or compatibility query layer. Consumers needing updates include:

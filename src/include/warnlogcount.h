@@ -75,12 +75,17 @@ struct FragmentationEvent
   int next_particle_index = -1;
 };
 
+struct PostFragmentationEvent
+{
+  ParticleStateMsg state;
+};
+
 struct EscapeEvent
 {
   ParticleStateMsg state;
 };
 
-using EventMessage = std::variant<InitEvent, CollisionEvent, PostCollisionEvent, FragmentationEvent, EscapeEvent>;
+using EventMessage = std::variant<InitEvent, CollisionEvent, PostCollisionEvent, FragmentationEvent, PostFragmentationEvent, EscapeEvent>;
 
 struct LogMessage
 {

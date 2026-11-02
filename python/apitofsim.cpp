@@ -880,6 +880,9 @@ NB_MODULE(apitofsimraw, m)
     .def_ro("pathway_index", &FragmentationEvent::pathway_index)
     .def_ro("next_particle_index", &FragmentationEvent::next_particle_index);
 
+  nb::class_<PostFragmentationEvent>(m, "PostFragmentationEvent")
+    .def_ro("state", &PostFragmentationEvent::state);
+
   nb::class_<EscapeEvent>(m, "EscapeEvent")
     .def_ro("state", &EscapeEvent::state);
 
