@@ -72,6 +72,26 @@ TEST_CASE_TEMPLATE("vibrational energy sampling handles cold clusters", Sampler,
   CHECK_THROWS_AS(sampler.sample(gen, 20 * consts::boltzmann), ApiTofDosOverflow);
 }
 
+TEST_CASE_TEMPLATE("vibrational sampler assignment rebinds density and resets distribution", Sampler,
+                   VibEnergyNormSampler, VibEnergyUnnormSampler)
+{
+  Eigen::ArrayXd energies(4);
+  energies << 2, 6, 10, 14;
+  energies *= consts::boltzmann;
+  Histogram first(energies, Eigen::Array4d{0, 0, 1, 0});
+  Histogram second(energies, Eigen::Array4d{0, 1, 0, 0});
+  Sampler sampler(first);
+  std::mt19937 gen(1);
+  CHECK(sampler.sample(gen, 11 * consts::boltzmann) == energies[2]);
+
+  sampler.unif = std::uniform_real_distribution<double>{0.25, 0.75};
+  sampler = Sampler(second);
+  CHECK(&sampler.density() == &second);
+  CHECK(sampler.unif.a() == 0.0);
+  CHECK(sampler.unif.b() == 1.0);
+  CHECK(sampler.sample(gen, 11 * consts::boltzmann) == energies[1]);
+}
+
 TEST_CASE("operation context restores handlers across nested scopes")
 {
   const auto previous_int = std::signal(SIGINT, test_signal_handler);

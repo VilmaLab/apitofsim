@@ -6,6 +6,7 @@
 #include <chrono>
 #include <cmath>
 #include <numbers>
+#include <optional>
 #include <variant>
 #include <vector>
 #include "apitofsim.h"
@@ -955,7 +956,7 @@ SimulationResult apitof_mass_spec(
       };
       int ncoll = 0;
       double coll_z = 0.0;
-      auto vib_energy_sampler = std::unique_ptr<VibEnergySamplerT>(new VibEnergySamplerT(subpayload.density_cluster));
+      VibEnergySamplerT vib_energy_sampler{subpayload.density_cluster};
       int last_pathway_index = -1;
 
       if (logconf.log_events && operation.should_continue())
@@ -1021,7 +1022,7 @@ SimulationResult apitof_mass_spec(
             particle.velocity = Eigen::Vector3d::Zero();
             particle.omega = Eigen::Vector3d::Zero();
             particle.vibrational_energy = 0;
-            vib_energy_sampler = std::unique_ptr<VibEnergySamplerT>(new VibEnergySamplerT(subs.cluster_payloads[subpayload_index].density_cluster));
+            vib_energy_sampler = VibEnergySamplerT(subs.cluster_payloads[subpayload_index].density_cluster);
             if (logconf.log_events && operation.should_continue())
             {
               result_queue.enqueue(PostFragmentationEvent{snapshot(j, particle, all_subquants[subpayload_index].inertia, subnode_index)});
@@ -1040,7 +1041,7 @@ SimulationResult apitof_mass_spec(
           }
 
           bool collision_accepted = process_collision(
-            gen, unif, local_gas_coll_sampler, *vib_energy_sampler, ms, chamber, subs.gas, subpayload, subquants,
+            gen, unif, local_gas_coll_sampler, vib_energy_sampler, ms, chamber, subs.gas, subpayload, subquants,
             particle, warn,
             LogHelper{result_queue, LogMessage::pinhole, &operation}, logconf.level,
             [&](double theta, double u_norm, bool accepted, const ParticleState &before_collision)
