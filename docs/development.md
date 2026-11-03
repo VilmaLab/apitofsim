@@ -149,6 +149,21 @@ uv run meson test --print-errorlogs -C build
 uv run meson test --benchmark --num-processes 1 -C build
 ```
 
+### Native recording batches
+
+The Python iterator now returns Arrow-backed batches instead of individual event
+objects. The C++ drainer fills reusable numeric columns while the GIL is released;
+Python shares them with Arrow and inserts batches into the existing DuckDB schema.
+There is no IPC file and no new Arrow C++ build dependency. Retained tables own
+buffer lifetimes; only unreferenced buffers can be reused. The producer queue
+remains independent of the two cached output buffers and can still grow if the
+consumer falls behind. See [Consuming simulation events](python.md#consuming-simulation-events).
+
+Foreign-key creation options are tracked in [issue #149](https://github.com/VilmaLab/apitofsim/issues/149);
+this change retains the current constraints. Downstream consumers reading the
+existing result schema need no changes. Callers of `MassSpecIterator` and
+`EventRecorder.record_batch` must consume/pass Arrow batches instead of events.
+
 ### Realization event storage
 
 Each recorded event has one `event_info` row containing its realization ID, event type

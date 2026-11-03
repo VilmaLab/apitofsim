@@ -4,6 +4,7 @@ from dataclasses import KW_ONLY, MISSING, dataclass
 from typing import Any, Callable, List, Optional, Tuple, cast, overload
 
 import numpy
+import pyarrow
 from pandas import NA as pandas_NA
 from pandas import DataFrame
 from pint import Quantity, get_application_registry
@@ -896,76 +897,80 @@ class MassSpecFinalResult:
     cancelled: bool = False
 
 
-class MassSpecIterator(_MassSpecIterator):
-    """Streaming simulation with per-iterator cooperative cancellation.
+@dataclass
+class MassSpecBatch:
+    """A read-only Arrow event table and control items from one native drain.
 
-    ``request_cancel()`` is thread-safe, idempotent and non-blocking. Continue
-    iterating afterwards to drain queued items and receive a final result with
-    completed-realization counters and a ``cancelled`` flag. The iterator's
-    ``cancelled`` property is updated when that final result is yielded. Cancellation may
-    interrupt active realizations, so streamed events can include unfinished
-    realizations that are absent from the counters. It does not raise
-    KeyboardInterrupt or affect other iterators; actual Ctrl-C is unchanged.
-
-    ApiTofParticleEscapeError invalidates the entire run if a particle cannot
-    return from upstream. Previously streamed events then belong to an invalid run;
-    no successful final result is yielded.
-
-    Exiting the context manager joins the worker; it does not request cancellation.
+    Retained tables remain valid after subsequent reads and iterator destruction.
+    Events use local realization indices and numeric event_kind codes in the order
+    init, collision, postcollision, fragmentation, postfragmentation, escape.
     """
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    events: "pyarrow.Table"
+    items: list[MassSpecIntermediateCounter | MassSpecLogItem | MassSpecFinalResult]
+
+
+class MassSpecIterator(_MassSpecIterator):
+    """Adaptive columnar simulation stream with cooperative cancellation.
+
+    The first batch drains up to initial_batch_size items; subsequent batches
+    drain whatever is available up to max_batch_size. A read waits for one item,
+    never for a full batch. Exiting the context joins, without cancelling.
+    Continue draining after request_cancel() to retain partial events and receive
+    the final completed-realization counters. Native failures follow all events
+    already drained; no successful final result is yielded for an invalid run.
+    """
+
+    def __init__(self, *args, initial_batch_size=4096, max_batch_size=262144, **kwargs):
+        from operator import index
+
+        initial_batch_size = index(initial_batch_size)
+        max_batch_size = index(max_batch_size)
+        if initial_batch_size <= 0 or max_batch_size <= 0:
+            raise ValueError("Batch sizes must be positive")
+        if initial_batch_size > max_batch_size:
+            raise ValueError("initial_batch_size must not exceed max_batch_size")
+        super().__init__(
+            *args,
+            initial_batch_size=initial_batch_size,
+            max_batch_size=max_batch_size,
+            **kwargs,
+        )
 
     def __iter__(self):
         return self
 
-    def __next__(  # pyright: ignore [reportIncompatibleMethodOverride]
-        self,
-    ) -> (
-        MassSpecLogItem
-        | MassSpecFinalResult
-        | MassSpecIntermediateCounter
-        | InitEvent
-        | CollisionEvent
-        | PostCollisionEvent
-        | FragmentationEvent
-        | PostFragmentationEvent
-        | EscapeEvent
-    ):
-        return self._convert_item(super().__next__())
+    def __next__(self) -> MassSpecBatch:  # pyright: ignore [reportIncompatibleMethodOverride]
+        return self._convert_batch(super().__next__())
 
-    def read_batch(  # pyright: ignore [reportIncompatibleMethodOverride]
-        self, max_items: int = 512
-    ):
-        """Wait for one item, then drain available items up to ``max_items``.
-
-        Never waits to fill a batch. Returns existing stream item types in queue
-        order; terminal completion/errors follow previously collected items.
-        Like next(), this advances the same single-consumer stream.
-        """
+    def read_batch(self, max_items: int = 262144) -> MassSpecBatch:  # pyright: ignore [reportIncompatibleMethodOverride]
         if max_items <= 0:
             raise ValueError("max_items must be positive")
-        return [self._convert_item(item) for item in super().read_batch(max_items)]
+        return self._convert_batch(super().read_batch(max_items))
+
+    def _convert_batch(self, batch):
+        return MassSpecBatch(
+            pyarrow.table(batch.columns),
+            [self._convert_item(item) for item in batch.items],
+        )
 
     def _convert_item(self, val):
         if isinstance(val, tuple):
             if len(val) == 2:
                 return MassSpecLogItem(*val)
             elif isinstance(val[0], numpy.ndarray):
+                counters, loop_time, total_time = val
                 return MassSpecFinalResult(
-                    counters=counters_named_tuple(val[0]),
-                    timings=Timings(*val[1:]),
+                    counters_named_tuple(counters),
+                    Timings(loop_time, total_time),
                     cancelled=self.cancelled,
                 )
-            else:
-                raise ValueError(f"Unexpected tuple value from MassSpecIterator: {val}")
-        elif isinstance(val, numpy.ndarray):
+            raise ValueError(f"Unexpected tuple value from MassSpecIterator: {val}")
+        if isinstance(val, numpy.ndarray):
             return MassSpecIntermediateCounter(counters_named_tuple(val))
-        else:
-            return val
+        raise ValueError(f"Unexpected control item from MassSpecIterator: {val}")
 
-    def __enter__(self):  # pyright: ignore [reportMissingSuperCall]
+    def __enter__(self):
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):  # pyright: ignore [reportMissingSuperCall]
@@ -982,6 +987,8 @@ def mass_spec_iter(
     strict=True,
     logconf: Tuple[int, bool] = (DEFAULT_LOGLEVEL, False),
     seed: int = 42,
+    initial_batch_size: int = 4096,
+    max_batch_size: int = 262144,
 ):
     return MassSpecIterator(
         mass_spec.into_cpp(),
@@ -992,6 +999,8 @@ def mass_spec_iter(
         strict=strict,
         logconf=logconf,
         seed=seed,
+        initial_batch_size=initial_batch_size,
+        max_batch_size=max_batch_size,
     )
 
 

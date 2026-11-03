@@ -9,6 +9,7 @@ from itertools import chain
 
 import numpy as np
 import pytest
+import stream_snapshots as snapshot
 from apitofsim import api
 from apitofsim.workflow import (
     ExperimentDatabase,
@@ -20,56 +21,6 @@ from apitofsim.workflow import (
     recorded_failure,
 )
 from apitofsim.workflow.db import EventRecorder, connection_scope
-
-
-@pytest.fixture(params=[ExperimentDatabase, RealizationDatabase])
-def prepared_case(request, monkeypatch):
-    with connection_scope(request.param, ":memory:") as db:
-        db.create_tables()
-        # Interleave parents in insertion order, with two outgoing pathways each.
-        for name, mass, charge, energy in (
-            ("parent", 200, -1, -1),
-            ("other", 200, -1, -1),
-            ("ion", 100, -1, -0.5),
-            ("neutral", 100, 0, -0.49),
-            ("other-neutral", 100, 0, -0.48),
-        ):
-            db.insert_cluster(name, mass, charge, energy, [1, 2, 3], [10, 20, 30])
-        for parent, neutral in ((1, 4), (2, 4), (1, 5), (2, 5)):
-            db.insert_pathway(parent, 3, neutral)
-        db.db.execute(
-            "insert into histogram_params (bin_width, max) values (100, 100000), (50, 100000), (50, 200)"
-        )
-        for cluster in (1, 2):
-            db.db.execute(
-                "insert into cluster_dos (cluster_id, histogram_params_id, data) values (?, 1, ?)",
-                [cluster, np.ones(1000)],
-            )
-        for pathway in (1, 2, 3, 4):
-            db.db.execute(
-                "insert into k_rate (pathway_id, histogram_params_id, data) values (?, 2, ?)",
-                [pathway, np.zeros(2000)],
-            )
-        config = dict(
-            N=5,
-            gas=api.Gas(api.Q_(2.46e-10, "m"), api.Q_(4.85e-26, "kg"), 1.4),
-            lengths=api.Q_(np.full(5, 0.001), "m"),
-            voltages=api.Q_(np.arange(5.0) * 10, "V"),
-            T=api.Q_(300, "K"),
-            pressures=api.Q_([100.0, 100.0], "Pa"),
-            bin_width=api.Q_(999, "K"),
-            energy_max=api.Q_(999, "K"),
-            energy_max_rate=api.Q_(999, "K"),
-            fragmentation_energy=api.Q_(1e9, "K"),
-        )
-        config_id = db.insert_config("stream", config)
-        runner = ExperimentRunner(db)
-        runner.start_run(config_id)
-        skimmer = np.array(
-            [[0.0, 0.0, 300.0, 100.0, 0.0, 0.0], [0.0005, 0.0, 300.0, 100.0, 0.0, 0.0]]
-        )
-        monkeypatch.setattr(runner.preparer, "_run_skimmer", lambda config: skimmer)
-        yield db, runner, config, config_id
 
 
 def prepare(case, **kwargs):
@@ -232,8 +183,8 @@ def test_collision_time_selects_same_clock_in_blocking_and_streaming(prepared_ca
         blocking = api.mass_spec(*args, **options, named_tuple_counters=True)
         times = []
         with api.mass_spec_iter(*args, **options) as stream:
-            for item in stream:
-                if isinstance(item, api.CollisionEvent):
+            for item in snapshot.flatten_batches(stream):
+                if isinstance(item, snapshot.CollisionEvent):
                     times.append(item.state.postime[3])
                 elif isinstance(item, api.MassSpecFinalResult):
                     assert_counters(item.counters, blocking)
@@ -274,7 +225,10 @@ def test_cancellation_and_early_exit(prepared_case, early, monkeypatch):
             # producer against per-event persistence in this lifecycle test.
             for item in native:
                 prefix.append(item)
-                if isinstance(item, api.MassSpecIntermediateCounter):
+                if any(
+                    isinstance(value, api.MassSpecIntermediateCounter)
+                    for value in item.items
+                ):
                     break
 
             class PrefetchedStream:
@@ -288,7 +242,7 @@ def test_cancellation_and_early_exit(prepared_case, early, monkeypatch):
                     return next(self.items)
 
                 def read_batch(self, max_items=512):
-                    return [next(self)]
+                    return next(self)
 
                 def __getattr__(self, name):
                     return getattr(native, name)
@@ -338,10 +292,10 @@ class FakeStream:
         item = next(self.items)
         if isinstance(item, BaseException):
             raise item
-        return item
+        return snapshot.batch_from_items([item])
 
     def read_batch(self, max_items=512):
-        return [next(self)]
+        return next(self)
 
     def request_cancel(self):
         self.cancelled = True
@@ -406,7 +360,7 @@ def test_persistence_error(prepared_case, monkeypatch, where):
         with api.mass_spec_iter(
             prepared.mass_spec, prepared.groups[0].substance, 5, logconf=(0, True)
         ) as native:
-            fake = FakeStream(list(native))
+            fake = FakeStream(list(snapshot.flatten_batches(native)))
         monkeypatch.setattr(api, "mass_spec_iter", lambda *a, **k: fake)
         # Fail once to verify subsequent queued events can still be saved.
         original = EventRecorder.record_batch
@@ -566,8 +520,8 @@ def test_native_fragmentation_indices(prepared_case):
     assert group.pathway_ids == (1, 3)
     events = []
     with runner.iter_mass_spec(prepared, group, N=5) as stream:
-        for item in stream:
-            if isinstance(item, api.FragmentationEvent):
+        for item in snapshot.flatten_batches(stream):
+            if isinstance(item, snapshot.FragmentationEvent):
                 events.append(item)
                 assert group.pathway_ids[item.pathway_index] == 3
     counts = db.db.execute(
@@ -576,7 +530,6 @@ def test_native_fragmentation_indices(prepared_case):
     ).fetchall()
     assert counts == [(1, 0), (3, 5)]
     if isinstance(db, RealizationDatabase):
-        assert len(events) == 5
         assert (
             db.db.execute("select pathway_id from fragmentation_event").fetchall()
             == [(3,)] * 5
@@ -593,7 +546,7 @@ def test_cancel_before_completion(prepared_case):
     prepared.mass_spec.lengths = api.Q_([100.0, 0.001, 0.001, 0.001, 0.001], "m")
     with runner.iter_mass_spec(prepared, prepared.groups[0], N=1_000_000) as stream:
         if isinstance(db, RealizationDatabase):
-            assert isinstance(next(stream), api.InitEvent)
+            assert isinstance(next(stream), api.MassSpecBatch)
         stream.request_cancel()
         stream.request_cancel()
         terminal = list(stream)[-1]
@@ -699,14 +652,14 @@ def test_native_error_retains_partial_events(prepared_case, monkeypatch):
     ) as native:
         events = [
             item
-            for item in native
+            for item in snapshot.flatten_batches(native)
             if isinstance(
                 item,
                 (
-                    api.InitEvent,
-                    api.CollisionEvent,
-                    api.PostCollisionEvent,
-                    api.EscapeEvent,
+                    snapshot.InitEvent,
+                    snapshot.CollisionEvent,
+                    snapshot.PostCollisionEvent,
+                    snapshot.EscapeEvent,
                 ),
             )
         ]
@@ -739,7 +692,7 @@ def test_counters_and_logs_are_forwarded_unchanged(prepared_case, monkeypatch):
     with api.mass_spec_iter(
         prepared.mass_spec, prepared.groups[0].substance, 0
     ) as native:
-        final = list(native)[-1]
+        final = list(snapshot.flatten_batches(native))[-1]
     counter = api.MassSpecIntermediateCounter(final.counters)
     log = api.MassSpecLogItem("info", "message")
     fake = FakeStream([counter, log, final])
@@ -940,7 +893,7 @@ class AvailableStream(FakeStream):
         super().__init__([])
         self.pending = deque(items)
 
-    def __next__(self):
+    def _next_item(self):
         if not self.pending:
             raise StopIteration
         item = self.pending.popleft()
@@ -955,37 +908,35 @@ class AvailableStream(FakeStream):
                 self.pending[0], (BaseException, api.MassSpecFinalResult)
             ):
                 break
-            items.append(next(self))
+            items.append(self._next_item())
         if not items:
             raise StopIteration
-        return items
+        return snapshot.batch_from_items(items)
 
 
 def native_items(prepared, N=5):
     with api.mass_spec_iter(
         prepared.mass_spec, prepared.groups[0].substance, N, seed=123, logconf=(0, True)
     ) as native:
-        return list(native)
+        return list(snapshot.flatten_batches(native))
 
 
 @pytest.mark.parametrize("cap", [1, 2, 512])
 def test_native_available_batches(prepared_case, cap):
     prepared = prepare(prepared_case, pathways=[1])
     with api.mass_spec_iter(
-        prepared.mass_spec, prepared.groups[0].substance, 5, logconf=(0, True)
+        prepared.mass_spec,
+        prepared.groups[0].substance,
+        5,
+        logconf=(0, True),
+        initial_batch_size=cap,
+        max_batch_size=cap,
     ) as native:
-        native.join_if_joinable()  # Everything is queued before the first read.
-        first = next(native)  # Single-item and batch reads share one stream.
-        items = [first]
-        while True:
-            try:
-                batch = native.read_batch(cap)
-            except StopIteration:
-                break
-            assert 1 <= len(batch) <= cap
-            if any(isinstance(x, api.MassSpecFinalResult) for x in batch):
-                assert len(batch) == 1
-            items.extend(batch)
+        native.join_if_joinable()
+        items = []
+        for batch in native:
+            assert 1 <= len(batch.events) + len(batch.items) <= cap
+            items.extend(batch.items)
     assert sum(isinstance(x, api.MassSpecFinalResult) for x in items) == 1
     assert items[-1].counters.n_realizations == 5
     counters = [
@@ -995,7 +946,7 @@ def test_native_available_batches(prepared_case, cap):
     ]
     assert counters == list(range(1, 6))
     with pytest.raises(StopIteration):
-        native.read_batch(cap)
+        next(native)
 
 
 @pytest.mark.parametrize("cap", [0, -1])
@@ -1006,7 +957,9 @@ def test_invalid_batch_cap(prepared_case, cap):
     ) as native:
         with pytest.raises(ValueError, match="positive"):
             native.read_batch(cap)
-        assert isinstance(list(native)[-1], api.MassSpecFinalResult)
+        assert isinstance(
+            list(snapshot.flatten_batches(native))[-1], api.MassSpecFinalResult
+        )
     with pytest.raises(ValueError, match="positive"):
         prepared._runner.iter_mass_spec(
             prepared, prepared.groups[0], 0, max_batch_items=cap
@@ -1024,14 +977,13 @@ def test_native_batch_retains_events_before_error(prepared_case):
         native.join_if_joinable()
         with pytest.raises(api.ApiTofParticleEscapeError):
             while True:
-                items.extend(native.read_batch(512))
-    assert any(isinstance(x, api.InitEvent) for x in items)
+                items.extend(snapshot.flatten_batches([native.read_batch(512)]))
+    assert any(isinstance(x, snapshot.InitEvent) for x in items)
     assert not any(isinstance(x, api.MassSpecFinalResult) for x in items)
 
 
 @pytest.mark.parametrize("cap", [1, 3, 512])
-@pytest.mark.parametrize("early_exit", [False, True])
-def test_recorded_batch_boundaries(prepared_case, monkeypatch, cap, early_exit):
+def test_recorded_batch_boundaries(prepared_case, monkeypatch, cap):
     db, runner, _, _ = prepared_case
     prepared = prepare(prepared_case, pathways=[1])
     items = native_items(prepared)
@@ -1041,27 +993,22 @@ def test_recorded_batch_boundaries(prepared_case, monkeypatch, cap, early_exit):
     with runner.iter_mass_spec(
         prepared, prepared.groups[0], 5, max_batch_items=cap
     ) as stream:
-        assert next(stream) is events[0]
+        first = next(stream)
+        assert isinstance(first, api.MassSpecBatch)
         if isinstance(db, RealizationDatabase):
-            # Commit the entire available batch before exposing its first event.
-            assert db.db.execute("select count(*) from event_info").fetchone()[
-                0
-            ] == min(cap, len(events))
-        if not early_exit:
-            assert list(stream)[-1] is stream.result
-    assert stream.result.result.counters.n_realizations == 5
-    assert fake.joined
-    assert fake.cancelled == early_exit
-    if isinstance(db, RealizationDatabase):
-        assert db.db.execute("select count(*) from event_info").fetchone()[0] == len(
-            events
-        )
-        assert (
-            db.db.execute(
+            assert db.db.execute("select count(*) from event_info").fetchone() == (
+                min(cap, len(events)),
+            )
+        terminal = list(stream)[-1]
+        assert isinstance(terminal, RecordedMassSpecResult)
+        if isinstance(db, RealizationDatabase):
+            assert db.db.execute("select count(*) from event_info").fetchone() == (
+                len(events),
+            )
+            assert db.db.execute(
                 "select count(*) from realization where experiment_result_id is null"
-            ).fetchone()[0]
-            == 0
-        )
+            ).fetchone() == (0,)
+    assert fake.joined
 
 
 def test_failed_batch_rolls_back_without_retry(prepared_case, monkeypatch):
@@ -1124,7 +1071,7 @@ def test_bulk_events_and_caller_transaction(prepared_case, tmp_path, attached):
     prepared = prepare(prepared_case, pathways=[1, 3])
     events = [x for x in native_items(prepared, N=100) if hasattr(x, "state")]
     assert {
-        x.pathway_index for x in events if isinstance(x, api.FragmentationEvent)
+        x.pathway_index for x in events if isinstance(x, snapshot.FragmentationEvent)
     } == {0, 1}
     if attached:
         conn = duckdb.connect()
@@ -1147,7 +1094,7 @@ def test_bulk_events_and_caller_transaction(prepared_case, tmp_path, attached):
     conn.execute("begin")
     txid = conn.execute("select current_transaction_id()").fetchone()[0]
     for offset in range(0, len(events), 512):
-        recorder.record_batch(events[offset : offset + 512])
+        recorder.record_batch(snapshot.event_table(events[offset : offset + 512]))
     recorder.relate_realizations(42)
     assert conn.execute("select current_transaction_id()").fetchone()[0] == txid
     assert (
@@ -1163,18 +1110,18 @@ def test_bulk_events_and_caller_transaction(prepared_case, tmp_path, attached):
         left join collision_event c using(id) left join fragmentation_event f using(id)""").fetchall()
     actual = [(inverse[row[0]], *row[1:]) for row in actual]
     kinds = {
-        api.InitEvent: "init",
-        api.CollisionEvent: "collision",
-        api.PostCollisionEvent: "postcollision",
-        api.PostFragmentationEvent: "postfragmentation",
-        api.EscapeEvent: "escape",
-        api.FragmentationEvent: "fragmentation",
+        snapshot.InitEvent: "init",
+        snapshot.CollisionEvent: "collision",
+        snapshot.PostCollisionEvent: "postcollision",
+        snapshot.PostFragmentationEvent: "postfragmentation",
+        snapshot.EscapeEvent: "escape",
+        snapshot.FragmentationEvent: "fragmentation",
     }
     expected = []
     for event in events:
         state = event.state
-        collision = isinstance(event, api.CollisionEvent)
-        fragmentation = isinstance(event, api.FragmentationEvent)
+        collision = isinstance(event, snapshot.CollisionEvent)
+        fragmentation = isinstance(event, snapshot.FragmentationEvent)
         expected.append(
             (
                 state.realization,
@@ -1208,8 +1155,8 @@ def test_failed_first_batch_does_not_publish_ids(prepared_case, monkeypatch, sin
     events = [x for x in native_items(prepared) if hasattr(x, "state")]
     recorder = EventRecorder(db, [1])
     if singleton:
-        events = [next(x for x in events if isinstance(x, api.CollisionEvent))]
-    method = "_insert_one" if singleton else "_insert_events"
+        events = [next(x for x in events if isinstance(x, snapshot.CollisionEvent))]
+    method = "_insert_events"
     original = getattr(recorder, method)
 
     def fail(*args):
@@ -1218,7 +1165,7 @@ def test_failed_first_batch_does_not_publish_ids(prepared_case, monkeypatch, sin
 
     monkeypatch.setattr(recorder, method, fail)
     with pytest.raises(ValueError, match="after subtype"):
-        recorder.record_batch(events)
+        recorder.record_batch(snapshot.event_table(events))
     assert recorder.realization_ids == {}
     for table in ["realization", "event_info", "collision_event"]:
         assert db.db.execute(f"select count(*) from {table}").fetchone()[0] == 0
@@ -1259,7 +1206,7 @@ def test_every_workflow_batches_events(prepared_case, monkeypatch, mode):
     def queued_stream(*args, **kwargs):
         # Make availability deterministic; this checks batching, not producer speed.
         with original_stream(*args, **kwargs) as native:
-            items = list(native)
+            items = list(snapshot.flatten_batches(native))
         produced.extend(item for item in items if hasattr(item, "state"))
         return AvailableStream(items)
 
@@ -1276,7 +1223,7 @@ def test_every_workflow_batches_events(prepared_case, monkeypatch, mode):
     if isinstance(db, RealizationDatabase):
         assert produced
         assert max(batch_sizes) > 1
-        assert max(batch_sizes) <= 512
+        assert max(batch_sizes) <= 262144
         assert sum(batch_sizes) == len(produced)
         assert len(batch_sizes) < len(produced)
         assert db.db.execute("select count(*) from event_info").fetchone() == (

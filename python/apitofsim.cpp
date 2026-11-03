@@ -31,6 +31,7 @@
 #include "warnlogcount.h"
 #include "operation_context.h"
 #include "tree_bindings.h"
+#include "event_batch.h"
 
 using namespace std;
 
@@ -219,7 +220,7 @@ std::jthread run_mass_spec_in_thread(
 }
 
 using PumpedMassSpecItem = std::variant<std::tuple<const std::string, const std::string>, Eigen::ArrayXi, EventMessage, std::monostate>;
-using MassSpecItem = std::variant<std::tuple<const std::string, const std::string>, Eigen::ArrayXi, EventMessage, SimulationResult>;
+using MassSpecItem = std::variant<std::tuple<const std::string, const std::string>, Eigen::ArrayXi, SimulationResult>;
 
 PumpedMassSpecItem convert_mass_spec_item(StreamingResultElement &result, Eigen::ArrayXi &partial_counters)
 {
@@ -297,7 +298,7 @@ mass_spec(
     }
     else if (std::holds_alternative<EventMessage>(result))
     {
-      // Consume events without persistence; use MassSpecIterator to inspect them.
+      // Event inspection uses the columnar iterator.
     }
     else if (std::holds_alternative<std::monostate>(result))
     {
@@ -313,6 +314,12 @@ mass_spec(
   return result;
 }
 
+struct MassSpecBatch
+{
+  std::shared_ptr<event_batch::Columns> events;
+  std::vector<MassSpecItem> items;
+};
+
 struct MassSpecIterator
 {
   DrainingStreamingResultQueue result_queue;
@@ -327,7 +334,19 @@ struct MassSpecIterator
   bool cancelled{false};
   int requested_realizations;
   std::mutex join_mutex;
+  std::array<std::shared_ptr<event_batch::Columns>, 2> buffers;
+  std::vector<StreamingResultElement> raw_buffer;
+  size_t initial_batch_size;
+  size_t max_batch_size;
+  bool first_batch{true};
   std::jthread execution_thread;
+
+  static size_t validate_batch_size(size_t initial, size_t maximum)
+  {
+    if (initial == 0 || maximum == 0 || initial > maximum)
+      throw std::invalid_argument("Batch sizes must be positive and initial must not exceed maximum");
+    return initial;
+  }
 
   template <typename MassSpecSubstanceT>
   MassSpecIterator(
@@ -338,31 +357,26 @@ struct MassSpecIterator
     SampleMode sample_mode = SampleMode::rejection,
     bool strict = true,
     std::tuple<int, bool> logconf = DEFAULT_LOGCONF_TUPLE,
-    std::optional<CollisionTimeOptions> collision_time = std::nullopt) : result_queue(),
-                                                                         partial_counters(mk_partial_counters(*subs)),
-                                                                         ms(ms),
-                                                                         subs(std::shared_ptr<const void>(subs)),
-                                                                         exception_transport(),
-                                                                         requested_realizations(N),
-                                                                         execution_thread(run_mass_spec_in_thread<MassSpecSubstanceT>(final_result, operation, exception_transport, *ms, *subs, N, seed, result_queue.queue, sample_mode, strict, logconf, collision_time.value_or(CollisionTimeOptions{}), [this]
+    std::optional<CollisionTimeOptions> collision_time = std::nullopt,
+    size_t initial_batch_size = 4096,
+    size_t max_batch_size = 262144) : result_queue(),
+                                      partial_counters(mk_partial_counters(*subs)),
+                                      ms(ms),
+                                      subs(std::shared_ptr<const void>(subs)),
+                                      exception_transport(),
+                                      requested_realizations(N),
+                                      initial_batch_size(validate_batch_size(initial_batch_size, max_batch_size)),
+                                      max_batch_size(max_batch_size),
+                                      execution_thread(run_mass_spec_in_thread<MassSpecSubstanceT>(final_result, operation, exception_transport, *ms, *subs, N, seed, result_queue.queue, sample_mode, strict, logconf, collision_time.value_or(CollisionTimeOptions{}), [this]
   {
     completed = true;
   }))
   {
   }
 
-  MassSpecItem __next__()
+  MassSpecBatch __next__()
   {
-    if (finished)
-    {
-      throw nb::stop_iteration();
-    }
-    auto result = [&]
-    {
-      nb::gil_scoped_release release;
-      return pump_mass_spec_queue(result_queue, partial_counters);
-    }();
-    return decode_result(result);
+    return read_batch(max_batch_size);
   }
 
   MassSpecItem decode_result(PumpedMassSpecItem &result)
@@ -386,10 +400,6 @@ struct MassSpecIterator
     {
       return std::get<Eigen::ArrayXi>(result);
     }
-    else if (std::holds_alternative<EventMessage>(result))
-    {
-      return std::get<EventMessage>(result);
-    }
     else if (std::holds_alternative<std::tuple<const std::string, const std::string>>(result))
     {
       return std::get<std::tuple<const std::string, const std::string>>(result);
@@ -400,7 +410,7 @@ struct MassSpecIterator
     }
   }
 
-  std::vector<MassSpecItem> read_batch(size_t max_items = 512)
+  MassSpecBatch read_batch(size_t max_items)
   {
     if (max_items == 0)
     {
@@ -410,7 +420,10 @@ struct MassSpecIterator
     {
       throw nb::stop_iteration();
     }
-    std::vector<StreamingResultElement> raw;
+    max_items = std::min(max_items, first_batch ? initial_batch_size : max_batch_size);
+    first_batch = false;
+    auto &raw = raw_buffer;
+    raw.clear();
     raw.reserve(max_items);
     {
       nb::gil_scoped_release release;
@@ -437,12 +450,38 @@ struct MassSpecIterator
         }
       }
     }
-    std::vector<MassSpecItem> output;
-    output.reserve(raw.size());
+    std::shared_ptr<event_batch::Columns> columns;
+    for (auto &buffer : buffers)
+    {
+      if (!buffer)
+        buffer = std::make_shared<event_batch::Columns>();
+      if (buffer.use_count() == 1)
+      {
+        columns = buffer;
+        break;
+      }
+    }
+    // User-retained batches may occupy both reusable buffers. Their ownership
+    // takes precedence over reuse; only two idle buffers are retained here.
+    if (!columns)
+      columns = std::make_shared<event_batch::Columns>();
+    MassSpecBatch output{columns, {}};
+    {
+      nb::gil_scoped_release release;
+      columns->clear(raw.size());
+      for (const auto &item : raw)
+      {
+        if (const auto *event = std::get_if<EventMessage>(&item))
+          columns->append(*event);
+      }
+    }
     for (auto &item : raw)
     {
-      auto converted = convert_mass_spec_item(item, partial_counters);
-      output.push_back(decode_result(converted));
+      if (!std::holds_alternative<EventMessage>(item))
+      {
+        auto converted = convert_mass_spec_item(item, partial_counters);
+        output.items.push_back(decode_result(converted));
+      }
     }
     return output;
   }
@@ -910,8 +949,13 @@ NB_MODULE(apitofsimraw, m)
   nb::class_<EscapeEvent>(m, "EscapeEvent")
     .def_ro("state", &EscapeEvent::state);
 
+  nb::class_<MassSpecBatch>(m, "MassSpecBatch")
+    .def_prop_ro("columns", [](const MassSpecBatch &batch)
+  { return event_batch::export_columns(batch.events); })
+    .def_ro("items", &MassSpecBatch::items);
+
   nb::class_<MassSpecIterator>(m, "MassSpecIterator")
-    .def(nb::init<std::shared_ptr<const MassSpectrometer>, std::shared_ptr<const MassSpecSubstanceSingleInput>, int, unsigned long long, SampleMode, bool, std::tuple<int, bool>, std::optional<CollisionTimeOptions>>(),
+    .def(nb::init<std::shared_ptr<const MassSpectrometer>, std::shared_ptr<const MassSpecSubstanceSingleInput>, int, unsigned long long, SampleMode, bool, std::tuple<int, bool>, std::optional<CollisionTimeOptions>, size_t, size_t>(),
          nb::call_guard<nb::gil_scoped_release>(),
          "ms"_a,
          "subs"_a,
@@ -920,8 +964,10 @@ NB_MODULE(apitofsimraw, m)
          "sample_mode"_a = SampleMode::rejection,
          "strict"_a = true,
          "logconf"_a = DEFAULT_LOGCONF_TUPLE,
-         "collision_time"_a = std::nullopt)
-    .def(nb::init<std::shared_ptr<const MassSpectrometer>, std::shared_ptr<const MassSpecSubstanceTreeInput>, int, unsigned long long, SampleMode, bool, std::tuple<int, bool>, std::optional<CollisionTimeOptions>>(),
+         "collision_time"_a = std::nullopt,
+         "initial_batch_size"_a = 4096,
+         "max_batch_size"_a = 262144)
+    .def(nb::init<std::shared_ptr<const MassSpectrometer>, std::shared_ptr<const MassSpecSubstanceTreeInput>, int, unsigned long long, SampleMode, bool, std::tuple<int, bool>, std::optional<CollisionTimeOptions>, size_t, size_t>(),
          nb::call_guard<nb::gil_scoped_release>(),
          "ms"_a,
          "subs"_a,
@@ -930,9 +976,11 @@ NB_MODULE(apitofsimraw, m)
          "sample_mode"_a = SampleMode::rejection,
          "strict"_a = true,
          "logconf"_a = DEFAULT_LOGCONF_TUPLE,
-         "collision_time"_a = std::nullopt)
+         "collision_time"_a = std::nullopt,
+         "initial_batch_size"_a = 4096,
+         "max_batch_size"_a = 262144)
     .def("__next__", &MassSpecIterator::__next__)
-    .def("read_batch", &MassSpecIterator::read_batch, "max_items"_a = 512)
+    .def("read_batch", &MassSpecIterator::read_batch, "max_items"_a = 262144)
     .def("join_if_joinable", &MassSpecIterator::join_if_joinable, nb::call_guard<nb::gil_scoped_release>())
     .def("request_cancel", &MassSpecIterator::request_cancel)
     .def_ro("cancelled", &MassSpecIterator::cancelled);
