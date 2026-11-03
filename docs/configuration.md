@@ -38,7 +38,7 @@ type = "csv"
 
 Next is a section `[pathways.clusters]` consisting firstly of top level keys referencing one or more sources by their name, each of which is specified secondly as `[pathways.clusters.sources.SOURCE_NAME]` where `SOURCE_NAME` is a name of your choice.
 
-#### [pathways.clusters.source.SOURCE_NAME]
+#### [pathways.clusters.sources.SOURCE_NAME]
 
 The `SOURCE_NAME` will be used as the name of a column of the clusters CSV file given by `clusters_path` which will contain for each cluster the location of the file to import its data from. Alternatively in case several sources have a common prefix, a `prefix` column can be given and each starting with the prefix can specify and extension with `append_to_common_prefix`.
 
@@ -49,7 +49,7 @@ The `SOURCE_NAME` will be used as the name of a column of the clusters CSV file 
 | ignore_unicode_errors | This can be set to `true` to skip over invalid characters in poorly encoded or corrupted files |
 
 Types `"csv"` and `"map"` allow setting specific values inline, which can be useful, e.g. for overriding specific quantities.
-For `"map"` cluster names can be given as keys of `[[pathways.clusters.source.SOURCE_NAME]]` and values can be given inline.
+For `"map"` cluster names can be given as keys of `[pathways.clusters.sources.SOURCE_NAME]` and values can be given inline.
 For `"csv"`, new columns can be added to the clusters CSV named after the corresponding `"ATTRIBUTE"`.
 
 #### [pathways.clusters.ATTRIBUTE]
@@ -63,7 +63,7 @@ For `"csv"`, new columns can be added to the clusters CSV named after the corres
 | electronic_energy        | The electronic energy of the compound. |
 | atomic_mass              | The atomic mass of the compound. |
 | charge                   | The charge of the compound. |
-| ase                      | Where to obtain the ASE `Atoms` object from the cluster to insert into an ASE database. Needed only if `--ase` is specified when running `[apitofsim db prepare][apitofsim-db-prepare]`. |
+| ase                      | Where to obtain the ASE `Atoms` object from the cluster to insert into an ASE database. Needed only if `--ase` is specified when running [apitofsim db prepare][apitofsim-db-prepare]. |
 
 Each of these attributes can be either as `"SOURCE_NAME"` or as an arithmetic expression (using Python syntax) e.g. `"SOURCE_NAME.attribute1 + SOURCE_NAME.attribute2"`.
 
@@ -141,7 +141,7 @@ cache entries are reused.
 | alpha_factor    | halfturn     | Angle of skimmer |
 | T               | kelvin       | Temperature inside the mass spectrometer |
 | dc              | meter        | Radius at smallest cross section of skimmer |
-| radius_pinhole  | meter        | Radius of the pinhole at the end of the mass spectrometer. This is optional and if ommited, this part to the simulation will be ignored, i.e. collisions with gas molecules will not undergo extra checks. |
+| radius_pinhole  | meter        | Radius of the pinhole at the end of the mass spectrometer. This is optional and if omitted, this part of the simulation will be ignored, i.e. collisions with gas molecules will not undergo extra checks. |
 
 ### Top level arrays
 
@@ -220,6 +220,6 @@ This format is order dependent and its usage is not recommended.
 An example is reproduced here for reference:
 
 ``` title="config.in"
---8<-- "inputs/example/config.in"
+--8<-- "examples/legacy_cli/inputs/config.in"
 ```
 

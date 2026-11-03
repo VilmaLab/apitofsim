@@ -56,10 +56,10 @@ ln -sf build/compile_commands.json compile_commands.json
 ### Meson native files
 
 Meson can be configured through so-called ["native build configuration" native files](https://mesonbuild.com/Native-environments.html).
-A number of these are provided, with many based on Clang and tested on Linux, with `/meson/test` containing configurations for automated tests and `/meson/pkg` having configurations for building packages, both of which are run in continuous integration with GitHub Actions.
+A number of these are provided, with many based on Clang and tested on Linux, with `meson/test` containing configurations for automated tests and `meson/pkg` having configurations for building packages, both of which are run in continuous integration with GitHub Actions.
 Use the platform-default C++ standard library so it matches the installed oneTBB package: normally libstdc++ on Linux and libc++ on macOS.
 
-The directory `/meson/dev` contains a number of configurations including `clangrelease.ini` which builds the fastest configuration for running locally, `clangprofile.ini`, which includes minimal debugging symbols and no asserts for profiling, `clangdebug.ini` an optimized debug with asserts build for debugging with `gdb` or `lldb`, `clangsingle.ini` a fast single-threaded build which can be run deterministically, and `clangslow.ini`, which is a single threaded unoptimized build, providing the most deterministic and debug-friendly build.
+The directory `meson/dev` contains a number of configurations including `clangrelease.ini` which builds the fastest configuration for running locally, `clangprofile.ini`, which includes minimal debugging symbols and no asserts for profiling, `clangdebug.ini` an optimized debug with asserts build for debugging with `gdb` or `lldb`, `clangsingle.ini` a fast single-threaded build which can be run deterministically, and `clangslow.ini`, which is a single threaded unoptimized build, providing the most deterministic and debug-friendly build.
 
 Parallel work is scheduled by oneTBB. Applications that need a scoped limit should use `oneapi::tbb::global_control` or `oneapi::tbb::task_arena`; the single-threaded native files use the same `global_control` mechanism internally. `OMP_NUM_THREADS` is no longer read, and the removed `openmp` Meson option has no replacement.
 
@@ -81,7 +81,7 @@ uv sync
 uv pip install --no-build-isolation -e .
 ```
 
-During development you can use a native file, and add options to enable get compiler errors on recompile-triggered-by-import.
+During development you can use a native file, and add options to show compiler errors when imports trigger recompilation.
 If you are using uv.toml, this can all be specified in `uv.toml`.
 For example:
 

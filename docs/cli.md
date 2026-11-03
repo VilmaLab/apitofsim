@@ -39,7 +39,7 @@ from `apitofsim.plotting.events`. It returns a Matplotlib figure;
 These tools are not recommended for new users, and kept available to support existing workflows.
 
 If you have installed via Conda, and activated the relevant environment, the legacy command line tools `apitofsim-skimmer`, `apitofsim-densityandrate` and `apitofsim-mass-spec` should be installed and in your path.
-If you have compiled the sources yourself, you will need to add build/src to your path for the following example to work.
+If you have compiled the sources yourself, you will need to add `build/src/cli` to your path for the following example to work.
 
 An example is then available at `examples/legacy_cli`.
 First `cd` to that directory, and then follow the instructions in the `README.md` file, included below:

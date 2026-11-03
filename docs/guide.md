@@ -106,8 +106,8 @@ Another option is to have one column per source file type, and have the file nam
 
 ```
 name,orca,gaussian
-2_2SA_negative,orca1.log,gaussian1.out
-2A_1SA_neutral,orca2.log,gaussian2.out
+2_2SA_negative,orca1.out,gaussian1.log
+2A_1SA_neutral,orca2.out,gaussian2.log
 
 ...
 ```
@@ -128,7 +128,7 @@ The command needs only the information from an XYZ file, but can attempt to retr
 So for example, if you have a directory like [Figure 2][directory-listing-2] you could run:
 
 <code>
-<a href="cli.md#apitofsim-generate-pathways">apitofsim generate pathways</a> --guess-prefix xyz pathways.csv clusters.csv *.xyz
+<a href="../cli/#apitofsim-generate-pathways">apitofsim generate pathways</a> --guess-prefix xyz pathways.csv clusters.csv *.xyz
 </code>
 
 And it would generate a `prefix`-based clusters CSV and a pathways CSV with all possible pathways based on the atom counts and charges of the clusters/molecules in the XYZ files.
@@ -136,7 +136,7 @@ And it would generate a `prefix`-based clusters CSV and a pathways CSV with all 
 Alternatively if you had a directory like [Figure 1][directory-listing-1] and wanted a non-prefix based `clusters.csv`, you could run:
 
 <code>
-<a href="cli.md#apitofsim-generate-pathways">apitofsim generate pathways</a> orca pathways.csv clusters.csv *.out
+<a href="../cli/#apitofsim-generate-pathways">apitofsim generate pathways</a> orca pathways.csv clusters.csv *.out
 </code>
 
 Nested directories are also supported, with the directory name being appended to the name of the cluster in order to prevent ambiguities.
@@ -145,7 +145,7 @@ In Bash 4+ this can be enabled with `shopt -s globstar` (it is enabled by defaul
 For example:
 
 <code>
-<a href="cli.md#apitofsim-generate-pathways">apitofsim generate pathways</a> --guess-prefix orca pathways.csv clusters.csv **/*.out
+<a href="../cli/#apitofsim-generate-pathways">apitofsim generate pathways</a> --guess-prefix orca pathways.csv clusters.csv **/*.out
 </code>
 
 The next stage is typically to inspect and modify the pathways CSV in case some pathways are not wanted.
@@ -242,7 +242,7 @@ r_quadrupole = "6.0e-3 meter"
 Once these are all prepared you can go ahead and create a database:
 
 <code>
-<a href="cli.md#apitofsim-db-prepare">apitofsim db prepare</a> create config.toml database.db
+<a href="../cli/#apitofsim-db-prepare">apitofsim db prepare</a> create config.toml database.db
 </code>
 
 ## Running the simulation
@@ -254,7 +254,7 @@ Everything needed is contained in the database, so if you decide to do this, it'
 Then you are ready to run:
 
 <code>
-<a href="cli.md#apitofsim-db-run">apitofsim db run</a> database.db
+<a href="../cli/#apitofsim-db-run">apitofsim db run</a> database.db
 </code>
 
 There are various options to the [`apitofsim db run`][apitofsim-db-run] command to filter what to run, however the most important option at the moment is `--pathway-at-a-time` which switches between two modes of operation.
@@ -287,14 +287,14 @@ You can also generate plots directly from the database file.
 As a summary, you can plot a bar chart of the survival probability of each cluster:
 
 <code>
-<a href="cli.md#apitofsim-db-plot-survival">apitofsim db plot survival</a> database.db survival.png
+<a href="../cli/#apitofsim-db-plot-survival">apitofsim db plot survival</a> database.db survival.png
 </code>
 
 You can also generate spectrograms.
 For example:
 
 <code>
-<a href="cli.md#apitofsim-db-plot-spectrogram-many">apitofsim db plot spectrogram-many</a> database.db spectrograms
+<a href="../cli/#apitofsim-db-plot-spectrogram-many">apitofsim db plot spectrogram-many</a> database.db spectrograms
 </code>
 
 This will create a directory called `spectrograms` containing a spectrogram for each cluster.
@@ -313,5 +313,5 @@ They correspond to particular instrument settings, and are expected to be even l
 You can use these models for plotting spectrograms like so:
 
 <code>
-<a href="cli.md#apitofsim-db-plot-spectrogram-many">apitofsim db plot spectrogram-many</a> --model-transmission=new_neg database.db spectrograms
+<a href="../cli/#apitofsim-db-plot-spectrogram-many">apitofsim db plot spectrogram-many</a> --model-transmission=new_neg database.db spectrograms
 </code>
