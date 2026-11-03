@@ -102,7 +102,7 @@ name = "example"
 
 [configs.simulation]
 N = 2000
-simulation_mode = "SINGLE_CLUSTER"
+simulation_mode = "single-cluster"
 sample_mode = "rejection"
 use_old_dos_impl = false
 k_total_mesh_mode = "compute_mesh_diagonal_multithreaded"
@@ -115,7 +115,7 @@ normalized when loaded. Do not specify a setting both at top level and inside
 
 | Name | Default | Description |
 | ---- | ------- | ----------- |
-| simulation_mode | `SINGLE_CLUSTER` | `PATHWAY_AT_A_TIME`, `SINGLE_CLUSTER`, or `CLUSTER_TREE`. `db run --simulation-mode` overrides the config. |
+| simulation_mode | `single-cluster` | `pathway-at-a-time`, `single-cluster`, or `cluster-tree` (same spellings as the CLI flag). `db run --simulation-mode` overrides the config. |
 | sample_mode | `rejection` | `rejection`, `dss_normalized`, or `dss_unnormalized`. |
 | use_old_dos_impl | `false` | Use the legacy density of states implementation for uncached calculations. |
 | k_total_mesh_mode | `compute_mesh_diagonal_multithreaded` | `no_mesh`, `compute_mesh_single_threaded`, `compute_mesh_diagonal_single_threaded`, `compute_mesh_multithreaded`, or `compute_mesh_diagonal_multithreaded`. |

@@ -134,12 +134,17 @@ def simulation_option(config, field) -> Any:
     value = config.get(field, default)
     if isinstance(value, cls):
         return value
+    members = cls.__members__
+    if field == "simulation_mode":
+        members = {
+            name.replace("_", "-").lower(): mode for name, mode in members.items()
+        }
+        if isinstance(value, str):
+            value = value.replace("_", "-").lower()
     try:
-        return cls.__members__[value]
+        return members[value]
     except (KeyError, TypeError) as exc:
-        raise ValueError(
-            f"{field}: expected one of {', '.join(cls.__members__)}"
-        ) from exc
+        raise ValueError(f"{field}: expected one of {', '.join(members)}") from exc
 
 
 @dataclass(frozen=True)
@@ -216,7 +221,8 @@ def _check_components(values, names, field):
 def _config_value(value, field, *, strict=False):
     """Decode stored values, or normalize and validate a builder input."""
     if field in ("simulation_mode", "sample_mode", "k_total_mesh_mode"):
-        return simulation_option({field: value}, field).name
+        name = simulation_option({field: value}, field).name
+        return name.replace("_", "-").lower() if field == "simulation_mode" else name
     if field == "use_old_dos_impl":
         if not isinstance(value, bool):
             raise ValueError(f"{field}: expected a boolean")
