@@ -379,6 +379,30 @@ TEST_CASE("density recurrence agrees with state enumeration across SIMD shifts")
   }
 }
 
+TEST_CASE("density rejects modes outside the histogram range")
+{
+  for (double bin_width : {1.0, 4.0})
+  {
+    // The allocated range excludes the fractional remainder of energy_max.
+    const double energy_max = 10.5 * bin_width;
+    Eigen::ArrayXd rho(10);
+    for (double frequency : {10 * bin_width, 10.25 * bin_width, 11 * bin_width, 1e100})
+    {
+      CAPTURE(bin_width);
+      CAPTURE(frequency);
+      Eigen::ArrayXd frequencies(2);
+      frequencies << 2 * bin_width, frequency;
+      CHECK_THROWS_AS(compute_density_of_states(frequencies, rho, energy_max, bin_width), ApiTofArgumentError);
+      CHECK_THROWS_AS(compute_density_of_states_batch({frequencies}, energy_max, bin_width), ApiTofArgumentError);
+    }
+
+    Eigen::ArrayXd frequencies(1);
+    frequencies << 9.75 * bin_width;
+    CHECK_NOTHROW(compute_density_of_states(frequencies, rho, energy_max, bin_width));
+    CHECK(rho[9] == doctest::Approx(1 / bin_width));
+  }
+}
+
 TEST_CASE("density batch handles empty and single-item inputs")
 {
   const auto empty = compute_density_of_states_batch({}, 16.0, 1.0);
