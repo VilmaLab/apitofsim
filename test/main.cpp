@@ -1004,6 +1004,11 @@ TEST_CASE("trajectory collision timing uses number density in both chambers")
                              gas.mass, skimmer, ms.mesh_skimmer, ms.quadrupole);
     CHECK(outcome == TimeNextCollOutcome::gas_collision);
     CHECK(particle.time / dt == doctest::Approx(2.5));
+    particle.time = 0;
+    CHECK(next_coll(std::exp(-0.25), particle, chamber, 7e-10, Eigen::Array2d::Constant(dt), 10 * dt,
+                    Eigen::Array4d::Zero(), gas.mass, skimmer, ms.mesh_skimmer, ms.quadrupole,
+                    {CollisionTimeMethod::legacy, 0.1, 0.1}) == TimeNextCollOutcome::gas_collision);
+    CHECK(particle.time / dt == doctest::Approx(3));
   }
 }
 
@@ -1088,11 +1093,18 @@ TEST_CASE("next_coll integrates the skimmer gas profile across knots")
   // T and relative velocity are constant, so the rate is linear in pressure.
   // Integrated pressure to z=11.5 is 2 + 0.5*(3+2.5)/2 = 3.375 Pa s.
   double unit = collision_frequency(10, p.velocity, chamber, gas.mass, 2e-12, skimmer, 1);
-  auto event = next_coll(std::exp(-3.375 * unit), p, chamber, 2e-12, Eigen::Array2d::Ones(), 10,
-                         Eigen::Array4d::Zero(), gas.mass, skimmer, 1, ms.quadrupole);
-  REQUIRE(event == TimeNextCollOutcome::gas_collision);
-  CHECK(p.time == doctest::Approx(1.5).epsilon(1e-9));
-  CHECK(p.position.z() == doctest::Approx(11.5).epsilon(1e-10));
+  auto collision_time = [&](const CollisionTimeOptions &options)
+  {
+    ParticleState ion = p;
+    REQUIRE(next_coll(std::exp(-3.375 * unit), ion, chamber, 2e-12, Eigen::Array2d::Ones(), 10,
+                      Eigen::Array4d::Zero(), gas.mass, skimmer, 1, ms.quadrupole, options) == TimeNextCollOutcome::gas_collision);
+    CHECK(ion.position.z() == doctest::Approx(10 + ion.time));
+    return ion.time;
+  };
+  CHECK(collision_time({}) == doctest::Approx(1.5).epsilon(1e-9));
+  for (const auto &loose : {CollisionTimeOptions{CollisionTimeMethod::integrated_hazard, 1.0, 1e-9},
+                            CollisionTimeOptions{CollisionTimeMethod::integrated_hazard, 1e-12, 1.0}})
+    CHECK(std::abs(collision_time(loose) - 1.5) > 1e-5);
 }
 
 TEST_CASE("next_coll resolves interfaces in either direction and escape at a deadline")
@@ -1149,7 +1161,13 @@ TEST_CASE("RF flight converges to independent trajectory at nonzero entry phase"
   // Integrating H'=collision_frequency along the same reference flight gives
   // exp(-H(0.24)) below. The deadline deliberately falls after the collision.
   ParticleState p{.position = {1, 2, 35}, .time = 0.13, .velocity = {2, 3, 4}};
-  CHECK(next_coll(0.6001412074736865, p, chamber, 2e-11, Eigen::Array2d::Constant(0.00075), 0.3,
-                  Eigen::Array4d::Zero(), gas.mass, skimmer, 5, q) == TimeNextCollOutcome::gas_collision);
-  CHECK(p.time == doctest::Approx(0.37).epsilon(1e-7));
+  auto collision_time = [&](const CollisionTimeOptions &options)
+  {
+    ParticleState ion = p;
+    REQUIRE(next_coll(0.6001412074736865, ion, chamber, 2e-11, Eigen::Array2d::Constant(0.00075), 0.3,
+                      Eigen::Array4d::Zero(), gas.mass, skimmer, 5, q, options) == TimeNextCollOutcome::gas_collision);
+    return ion.time;
+  };
+  CHECK(collision_time({}) == doctest::Approx(0.37).epsilon(1e-7));
+  CHECK(std::abs(collision_time({CollisionTimeMethod::integrated_hazard, 1, 1e-9}) - 0.37) > 1e-5);
 }

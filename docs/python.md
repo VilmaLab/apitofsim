@@ -302,6 +302,11 @@ count a realization with multiple terminal events only once.
 
 The individual simulation functions are the low level interface to the simulation.
 
+Both `mass_spec` and `mass_spec_iter` accept the same optional `collision_time`
+argument. For example, pass `CollisionTimeOptions(hazard_atol=1e-11, hazard_rtol=1e-8)`
+or `CollisionTimeOptions(method=CollisionTimeMethod.legacy)` from `apitofsim`.
+Prepared streaming groups inherit these options from their run configuration.
+
 ::: apitofsim.mass_spec
     options:
       heading_level: 3

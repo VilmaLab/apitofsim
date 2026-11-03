@@ -21,6 +21,8 @@ from .apitofsimraw import (
     ApiTofRateConstantOverflow,
     ApiTofUnexpectedNumericalError,
     CollisionEvent,
+    CollisionTimeMethod,
+    CollisionTimeOptions,
     EscapeEvent,
     FragmentationEvent,
     FragmentationPathway,
@@ -136,6 +138,8 @@ __all__ = [
     # Enums
     "MeshMode",
     "SampleMode",
+    "CollisionTimeMethod",
+    "CollisionTimeOptions",
     # Defaults
     "defaults",
 ]
@@ -813,6 +817,7 @@ def mass_spec(
     N: int,
     *,
     sample_mode: SampleMode = SampleMode.rejection,
+    collision_time: CollisionTimeOptions | None = None,
     strict=True,
     logconf: Tuple[int, bool] = (DEFAULT_LOGLEVEL, False),
     seed: int = 42,
@@ -875,6 +880,7 @@ def mass_spec(
         result_callback=wrap_callback(result_callback),
         event_callback=event_callback,
         sample_mode=sample_mode,
+        collision_time=collision_time,
         strict=strict,
         logconf=logconf,
     )
@@ -986,6 +992,7 @@ def mass_spec_iter(
     N: int,
     *,
     sample_mode: SampleMode = SampleMode.rejection,
+    collision_time: CollisionTimeOptions | None = None,
     strict=True,
     logconf: Tuple[int, bool] = (DEFAULT_LOGLEVEL, False),
     seed: int = 42,
@@ -995,6 +1002,7 @@ def mass_spec_iter(
         subs,
         N,
         sample_mode=sample_mode,
+        collision_time=collision_time,
         strict=strict,
         logconf=logconf,
         seed=seed,

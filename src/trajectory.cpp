@@ -7,8 +7,6 @@
 namespace
 {
 constexpr double infinity = std::numeric_limits<double>::infinity();
-constexpr double hazard_rtol = 1e-9;
-constexpr double hazard_atol = 1e-12;
 
 struct Estimate
 {
@@ -44,13 +42,13 @@ Estimate panel(const Rate &rate, double lo, double hi)
 // Consume accepted panels from the left. Only subdivide an accurate panel
 // further if it contains the collision, or its error might change that decision.
 template <typename Rate>
-std::optional<double> consume(const Rate &rate, double lo, double hi, double &remaining, double atol, double event_tol, int depth = 0)
+std::optional<double> consume(const Rate &rate, double lo, double hi, double &remaining, double atol, double rtol, double event_tol, int depth = 0)
 {
   auto [value, error] = panel(rate, lo, hi);
   double roundoff = 16 * std::numeric_limits<double>::epsilon() * value;
   if (!std::isfinite(value) || !std::isfinite(error))
     throw ApiTofUnexpectedNumericalError("Nonfinite collision hazard integral");
-  if (error <= atol + (hazard_rtol * value))
+  if (error <= atol + (rtol * value))
   {
     if (value <= remaining && (remaining - value >= error || error <= roundoff))
     {
@@ -63,13 +61,13 @@ std::optional<double> consume(const Rate &rate, double lo, double hi, double &re
       return lo + ((hi - lo) * remaining / value);
   }
   double mid = std::midpoint(lo, hi);
-  if (error <= atol + (hazard_rtol * value) && value > remaining)
+  if (error <= atol + (rtol * value) && value > remaining)
     mid = lo + ((hi - lo) * std::clamp(remaining / value, 0.1, 0.9));
   if (depth >= 100 || mid == lo || mid == hi)
     throw ApiTofUnexpectedNumericalError("Collision hazard refinement failed to converge");
-  if (auto event = consume(rate, lo, mid, remaining, atol / 2, event_tol, depth + 1))
+  if (auto event = consume(rate, lo, mid, remaining, atol / 2, rtol, event_tol, depth + 1))
     return event;
-  return consume(rate, mid, hi, remaining, atol / 2, event_tol, depth + 1);
+  return consume(rate, mid, hi, remaining, atol / 2, rtol, event_tol, depth + 1);
 }
 
 ParticleState drift(const ParticleState &start, double dt, double az)
@@ -128,7 +126,7 @@ struct RFPanel
 };
 
 template <typename Rate>
-bool rf_step(ParticleState &particle, double &dt, double &remaining, double az, const Quadrupole &q, double max_step, const Rate &rate)
+bool rf_step(ParticleState &particle, double &dt, double &remaining, double az, const Quadrupole &q, double max_step, const Rate &rate, const CollisionTimeOptions &options)
 {
   double field_scale = std::sqrt(std::abs(q.mathieu_factor) * (std::abs(q.dc_field) + std::abs(q.ac_field)));
   dt = std::min({dt, 2 * max_step, 0.02 / field_scale, 0.02 / std::abs(q.angular_velocity)});
@@ -144,10 +142,11 @@ bool rf_step(ParticleState &particle, double &dt, double &remaining, double az, 
     return RFPanel{end, simpson, std::abs(simpson - trapezoid)};
   };
   RFPanel panel = propagate(dt);
-  // Near a collision/deadline decision, shorten the interval if even the
-  // embedded trapezoid disagrees about which side of the threshold we are on.
-  while (panel.error > 16 * std::numeric_limits<double>::epsilon() * panel.hazard &&
-         std::abs(panel.hazard - remaining) <= panel.error)
+  // Refine for hazard accuracy, and also when the estimated error could
+  // change which event occurs first. The Verlet stability cap still applies.
+  while (std::isfinite(remaining) && panel.error > 16 * std::numeric_limits<double>::epsilon() * panel.hazard &&
+         (panel.error > options.hazard_atol + (options.hazard_rtol * panel.hazard) ||
+          std::abs(panel.hazard - remaining) <= panel.error))
   {
     dt /= 2;
     panel = propagate(dt);
@@ -162,7 +161,7 @@ bool rf_step(ParticleState &particle, double &dt, double &remaining, double az, 
     {
       double mid = std::midpoint(lo, hi);
       double trial = propagate(mid).hazard;
-      if (std::abs(trial - remaining) <= 1e-10 * remaining || mid == lo || mid == hi)
+      if (std::abs(trial - remaining) <= options.hazard_atol + (options.hazard_rtol * remaining) || mid == lo || mid == hi)
       {
         lo = hi = mid;
         break;
@@ -234,10 +233,21 @@ Flight flight(const ParticleState &p, const CumulativeLengths &l, const Eigen::A
 }
 } // namespace
 
-TimeNextCollOutcome next_coll(double collision_quantile, ParticleState &particle, const ChamberQuantities &chamber, double R, Eigen::Array2d dts, double t_fragmentation, const Eigen::Array4d &acc, double m_gas, const SkimmerData &skimmer, double mesh_skimmer, const std::optional<Quadrupole> quadrupole)
+CollisionTimeOptions::CollisionTimeOptions(CollisionTimeMethod method, double hazard_atol, double hazard_rtol)
+    : method(method), hazard_atol(hazard_atol), hazard_rtol(hazard_rtol)
 {
+  if (!std::isfinite(hazard_atol) || hazard_atol <= 0)
+    throw std::invalid_argument("hazard_atol must be finite and positive");
+  if (!std::isfinite(hazard_rtol) || hazard_rtol <= 0)
+    throw std::invalid_argument("hazard_rtol must be finite and positive");
+}
+
+TimeNextCollOutcome next_coll(double collision_quantile, ParticleState &particle, const ChamberQuantities &chamber, double R, Eigen::Array2d dts, double t_fragmentation, const Eigen::Array4d &acc, double m_gas, const SkimmerData &skimmer, double mesh_skimmer, const std::optional<Quadrupole> quadrupole, const CollisionTimeOptions &options)
+{
+  if (options.method == CollisionTimeMethod::legacy)
+    return next_coll_old(collision_quantile, particle, chamber, R, dts, t_fragmentation, acc, m_gas, skimmer, mesh_skimmer, quadrupole);
   double remaining = collision_quantile == 0 ? infinity : -std::log(collision_quantile);
-  const double event_tol = hazard_atol + (hazard_rtol * remaining);
+  const double event_tol = options.hazard_atol + (options.hazard_rtol * remaining);
   double elapsed = 0;
   while (true)
   {
@@ -273,7 +283,7 @@ TimeNextCollOutcome next_coll(double collision_quantile, ParticleState &particle
     bool rf = field && quadrupole->ac_field != 0 && quadrupole->angular_velocity != 0;
     if (rf)
     {
-      collision = rf_step(particle, dt, remaining, az, *quadrupole, dts[1], rate);
+      collision = rf_step(particle, dt, remaining, az, *quadrupole, dts[1], rate, options);
     }
     else
     {
@@ -304,8 +314,8 @@ TimeNextCollOutcome next_coll(double collision_quantile, ParticleState &particle
         // A local horizon avoids integrating far beyond the likely event.
         double h0 = h(0);
         if (h0 > 0)
-          dt = std::min(dt, 2 * std::max(remaining, hazard_atol) / h0);
-        if (auto event = consume(h, 0, dt, remaining, hazard_atol, event_tol))
+          dt = std::min(dt, 2 * std::max(remaining, options.hazard_atol) / h0);
+        if (auto event = consume(h, 0, dt, remaining, options.hazard_atol, options.hazard_rtol, event_tol))
         {
           dt = *event;
           collision = true;

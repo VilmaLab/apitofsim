@@ -252,12 +252,16 @@ def test_nested_simulation_defaults_and_database_roundtrip():
     source = tomllib.loads("""
 [default_config.simulation]
 N = 10
+hazard_atol = 1e-8
+hazard_rtol = 1e-6
 energy_max = "200 kK"
 energy_max_rate = "100 kK"
 
 [[configs]]
 name = "custom"
 [configs.simulation]
+collision_time_method = "legacy"
+hazard_rtol = 1e-4
 N = 20
 simulation_mode = "cluster-tree"
 sample_mode = "dss_normalized"
@@ -275,6 +279,9 @@ k_total_mesh_mode = "no_mesh"
     assert row.config["energy_max"].to("K").magnitude == 200_000
     assert row.config["N"] == 20
     assert row.config["use_old_dos_impl"] is True
+    assert row.config["collision_time_method"] == "legacy"
+    assert row.config["hazard_atol"] == 1e-8
+    assert row.config["hazard_rtol"] == 1e-4
     assert (
         simulation_option(row.config, "simulation_mode") == SimulationMode.CLUSTER_TREE
     )
@@ -295,6 +302,12 @@ k_total_mesh_mode = "no_mesh"
             {"simulation": {"k_total_mesh_mode": "invalid"}},
             "k_total_mesh_mode.*expected",
         ),
+        (
+            {"simulation": {"collision_time_method": "invalid"}},
+            "collision_time_method.*expected",
+        ),
+        ({"simulation": {"hazard_atol": 0}}, "hazard_atol.*positive"),
+        ({"simulation": {"hazard_rtol": float("nan")}}, "hazard_rtol.*finite"),
         ({"simulation": {"use_old_dos_impl": "false"}}, "expected a boolean"),
     ],
 )
@@ -305,11 +318,22 @@ def test_invalid_simulation_settings(raw, match):
         import_raw_config(raw)
 
 
+@pytest.mark.parametrize("kwargs", [{"hazard_atol": 0}, {"hazard_rtol": float("inf")}])
+def test_native_collision_time_rejects_invalid_tolerances(kwargs):
+    from apitofsim import CollisionTimeMethod, CollisionTimeOptions
+
+    with pytest.raises(ValueError, match=next(iter(kwargs))):
+        CollisionTimeOptions(CollisionTimeMethod.legacy, **kwargs)
+
+
 def test_builder_simulation_options(inputs):
     config = build_config(
         **inputs,
         simulation_mode="pathway-at-a-time",
         sample_mode="dss_unnormalized",
+        collision_time_method="integrated-hazard",
+        hazard_atol=2e-10,
+        hazard_rtol=3e-5,
         use_old_dos_impl=True,
         k_total_mesh_mode="compute_mesh_single_threaded",
     )
@@ -363,13 +387,16 @@ def test_preparation_uses_simulation_options(inputs, monkeypatch, mesh_mode):
     "mode", ["single-cluster", "pathway-at-a-time", "cluster-tree"]
 )
 def test_runner_uses_configured_mode_and_sampling(inputs, monkeypatch, mode):
-    from apitofsim.api import SampleMode
+    from apitofsim.api import CollisionTimeMethod, SampleMode
     from apitofsim.workflow.base import SimulationMode
 
     config = build_config(
         **{**inputs, "N": 1, "bin_width": Q_(1000, "K")},
         simulation_mode=mode,
         sample_mode="dss_normalized",
+        collision_time_method="legacy",
+        hazard_atol=4e-8,
+        hazard_rtol=2e-6,
     )
     monkeypatch.delenv("N_OVERRIDE", raising=False)
     with closing(ExperimentDatabase(":memory:")) as db:
@@ -388,12 +415,26 @@ def test_runner_uses_configured_mode_and_sampling(inputs, monkeypatch, mode):
         original = getattr(runner, method)
 
         def run(*args, **kwargs):
-            calls.append(kwargs["sample_mode"])
+            options = (
+                args[0].collision_time
+                if method == "iter_mass_spec"
+                else kwargs["collision_time"]
+            )
+            calls.append(
+                (
+                    kwargs["sample_mode"],
+                    options.method,
+                    options.hazard_atol,
+                    options.hazard_rtol,
+                )
+            )
             return original(*args, **kwargs)
 
         monkeypatch.setattr(runner, method, run)
         runner.run_prepared_config(name="configured")
-        assert calls == [SampleMode.dss_normalized]
+        assert calls == [
+            (SampleMode.dss_normalized, CollisionTimeMethod.legacy, 4e-8, 2e-6)
+        ]
         assert db.db.execute(
             "select experiment_config_id, simulation_mode from experiment_run"
         ).fetchall() == [(config_id, mode.replace("-", "_").upper())]
