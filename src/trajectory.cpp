@@ -33,7 +33,7 @@ Estimate panel(const Rate &rate, double lo, double hi)
   double g = 0.4179591836734694 * center;
   for (size_t i = 0; i < nodes.size(); ++i)
   {
-    double pair = rate(mid - half * nodes[i]) + rate(mid + half * nodes[i]);
+    double pair = rate(mid - (half * nodes[i])) + rate(mid + (half * nodes[i]));
     k += kronrod[i] * pair;
     if (i % 2 == 1)
       g += gauss[i / 2] * pair;
@@ -50,7 +50,7 @@ std::optional<double> consume(const Rate &rate, double lo, double hi, double &re
   double roundoff = 16 * std::numeric_limits<double>::epsilon() * value;
   if (!std::isfinite(value) || !std::isfinite(error))
     throw ApiTofUnexpectedNumericalError("Nonfinite collision hazard integral");
-  if (error <= atol + hazard_rtol * value)
+  if (error <= atol + (hazard_rtol * value))
   {
     if (value <= remaining && (remaining - value >= error || error <= roundoff))
     {
@@ -60,11 +60,11 @@ std::optional<double> consume(const Rate &rate, double lo, double hi, double &re
     // Localize within the final panel when its hazard, or the residual at
     // the right endpoint, is already within the event tolerance.
     if (value > remaining && (value <= event_tol || (value - remaining <= event_tol && error < value - remaining)) && error <= atol + roundoff)
-      return lo + (hi - lo) * remaining / value;
+      return lo + ((hi - lo) * remaining / value);
   }
   double mid = std::midpoint(lo, hi);
-  if (error <= atol + hazard_rtol * value && value > remaining)
-    mid = lo + (hi - lo) * std::clamp(remaining / value, 0.1, 0.9);
+  if (error <= atol + (hazard_rtol * value) && value > remaining)
+    mid = lo + ((hi - lo) * std::clamp(remaining / value, 0.1, 0.9));
   if (depth >= 100 || mid == lo || mid == hi)
     throw ApiTofUnexpectedNumericalError("Collision hazard refinement failed to converge");
   if (auto event = consume(rate, lo, mid, remaining, atol / 2, event_tol, depth + 1))
@@ -94,8 +94,8 @@ ParticleState static_field(const ParticleState &start, double s, double az, doub
       double coeff = axis == 0 ? k : -k;
       double c = coeff > 0 ? std::cosh(w * s) : std::cos(w * s);
       double b = (coeff > 0 ? std::sinh(w * s) : std::sin(w * s)) / w;
-      end.position[axis] = c * start.position[axis] + b * start.velocity[axis];
-      end.velocity[axis] = coeff * b * start.position[axis] + c * start.velocity[axis];
+      end.position[axis] = (c * start.position[axis]) + (b * start.velocity[axis]);
+      end.velocity[axis] = (coeff * b * start.position[axis]) + (c * start.velocity[axis]);
     }
   }
   return end;
@@ -103,7 +103,7 @@ ParticleState static_field(const ParticleState &start, double s, double az, doub
 
 double rf_factor(const Quadrupole &q, double time)
 {
-  return q.mathieu_factor * (q.ac_field * std::cos(q.angular_velocity * time) - q.dc_field);
+  return q.mathieu_factor * ((q.ac_field * std::cos(q.angular_velocity * time)) - q.dc_field);
 }
 
 ParticleState verlet(const ParticleState &start, double dt, double az, const Quadrupole &q)
@@ -139,7 +139,7 @@ bool rf_step(ParticleState &particle, double &dt, double &remaining, double az, 
     auto end = verlet(mid, duration / 2, az, q);
     double midpoint_rate = rate(mid);
     double end_rate = rate(end);
-    double simpson = duration / 6 * (initial_rate + 4 * midpoint_rate + end_rate);
+    double simpson = duration / 6 * (initial_rate + (4 * midpoint_rate) + end_rate);
     double trapezoid = duration / 2 * (initial_rate + end_rate);
     return RFPanel{end, simpson, std::abs(simpson - trapezoid)};
   };
@@ -197,8 +197,7 @@ Flight flight(const ParticleState &p, const CumulativeLengths &l, const Eigen::A
   const std::array edges{0.0, l.first_chamber_end, l.sk_end, l.quadrupole_start, l.quadrupole_end, l.second_chamber_end};
   const std::array acceleration{acc[0], 0.0, acc[1], acc[2], acc[3]};
   double z = p.position.z();
-  const auto *it = std::ranges::upper_bound(edges, z);
-  int region = static_cast<int>(it - edges.begin()) - 1;
+  int region = static_cast<int>(std::ranges::upper_bound(edges, z) - edges.begin()) - 1;
   bool at_rest = p.velocity.z() == 0;
   double az = acceleration[region];
   if (z == edges[region] && (p.velocity.z() < 0 || (at_rest && az < 0)))
@@ -222,7 +221,7 @@ Flight flight(const ParticleState &p, const CumulativeLengths &l, const Eigen::A
     auto cell = static_cast<Eigen::Index>((z - low) / mesh);
     for (Eigen::Index i = std::max<Eigen::Index>(1, cell - 1); i <= std::min(rows - 1, cell + 2); ++i)
     {
-      double knot = edges[1] + static_cast<double>(i) * mesh;
+      double knot = edges[1] + (static_cast<double>(i) * mesh);
       if (knot < z)
         low = std::max(low, knot);
       if (knot > z)
@@ -238,7 +237,7 @@ Flight flight(const ParticleState &p, const CumulativeLengths &l, const Eigen::A
 TimeNextCollOutcome next_coll(double collision_quantile, ParticleState &particle, const ChamberQuantities &chamber, double R, Eigen::Array2d dts, double t_fragmentation, const Eigen::Array4d &acc, double m_gas, const SkimmerData &skimmer, double mesh_skimmer, const std::optional<Quadrupole> quadrupole)
 {
   double remaining = collision_quantile == 0 ? infinity : -std::log(collision_quantile);
-  const double event_tol = hazard_atol + hazard_rtol * remaining;
+  const double event_tol = hazard_atol + (hazard_rtol * remaining);
   double elapsed = 0;
   while (true)
   {
@@ -295,7 +294,7 @@ TimeNextCollOutcome next_coll(double collision_quantile, ParticleState &particle
         }
         else if (std::isfinite(dt))
         {
-          remaining = std::max(0.0, remaining - h * dt);
+          remaining = std::max(0.0, remaining - (h * dt));
         }
       }
       else if (std::isfinite(remaining))
