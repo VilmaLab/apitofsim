@@ -25,6 +25,7 @@ from apitofsim.api import (
     scaled_density,
     scaled_rate_const,
 )
+from apitofsim.config import simulation_option
 
 from .base import SimulationMode
 from .db import (
@@ -350,6 +351,7 @@ class DerivedDataPreparer:
         energy_max,
         pathway_lookup,
         status_table=None,
+        use_old_impl=False,
     ):
         import pyarrow as pa
 
@@ -391,6 +393,7 @@ class DerivedDataPreparer:
                 density_of_states_inputs,
                 energy_max=energy_max,
                 bin_width=bin_width,
+                use_old_impl=use_old_impl,
             )
             assert density_of_states.flags.f_contiguous
             if num_clusters_missed > 0:
@@ -617,6 +620,7 @@ class DerivedDataPreparer:
             config["energy_max"],
             pathway_lookup=pathway_lookup,
             status_table=table,
+            use_old_impl=config.get("use_old_dos_impl", False),
         )
 
         if table is not None and pbar is not None:
@@ -633,10 +637,15 @@ class DerivedDataPreparer:
             mesh_points = config["energy_max_rate"] / config["bin_width"]
             table["Description"] = f"Mesh of {mesh_points} pts"
 
-        mesh = precompute_mesh(
-            energy_max_rate=config["energy_max_rate"],
-            bin_width=config["bin_width"],
-            mesh_mode=MeshMode.compute_mesh_diagonal_multithreaded,
+        mesh_mode = simulation_option(config, "k_total_mesh_mode")
+        mesh = (
+            None
+            if mesh_mode == MeshMode.no_mesh
+            else precompute_mesh(
+                energy_max_rate=config["energy_max_rate"],
+                bin_width=config["bin_width"],
+                mesh_mode=mesh_mode,
+            )
         )
         if table is not None and pbar is not None:
             table["Time (s)"] = f"{(timer() - start):.2f}"
@@ -1027,12 +1036,15 @@ class ExperimentRunner:
         config,
         run_started=False,
         strict_dos=True,
-        mode=SimulationMode.SINGLE_CLUSTER,
+        mode=None,
         parent=None,
         pathways=None,
         verbose=False,
         cached_densityandrate=None,
     ):
+        mode = (
+            mode if mode is not None else simulation_option(config, "simulation_mode")
+        )
         if not run_started:
             config_id = self.db.insert_config(None, config)
             self.start_run(config_id, simulation_mode=mode)
@@ -1197,7 +1209,7 @@ class ExperimentRunner:
                 subs,
                 realizations,
                 pathway_id=pathway_id,
-                sample_mode=SampleMode.rejection,
+                sample_mode=simulation_option(config, "sample_mode"),
                 loglevel=1 if verbose else 0,
                 strict="STRICT" in environ,
                 strict_dos=strict_dos,
@@ -1312,7 +1324,7 @@ class ExperimentRunner:
                     prepared,
                     group,
                     realizations,
-                    sample_mode=SampleMode.rejection,
+                    sample_mode=simulation_option(config, "sample_mode"),
                     loglevel=1 if verbose else 0,
                     strict_dos=strict_dos,
                 ) as stream:
@@ -1566,7 +1578,7 @@ class ExperimentRunner:
                     inv_pathway_lookup[pathway.payload_idx]
                     for pathway in subs.tree_pathways
                 ],
-                sample_mode=SampleMode.rejection,
+                sample_mode=simulation_option(config, "sample_mode"),
                 loglevel=1 if verbose else 0,
                 strict="STRICT" in environ,
                 strict_dos=strict_dos,
@@ -1606,7 +1618,8 @@ class ExperimentRunner:
             print()
             self.start_run(
                 row.id,
-                simulation_mode=kwargs.get("mode", SimulationMode.SINGLE_CLUSTER),
+                simulation_mode=kwargs.get("mode")
+                or simulation_option(row.config, "simulation_mode"),
             )
             self.run_from_config(row.config, run_started=True, **kwargs)
             print()

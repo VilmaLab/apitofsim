@@ -40,7 +40,6 @@ The following examples given only as an indication of settings which have been u
 Once you have run your analysis, you should have a directory with files named after the related cluster.
 For example: [](){ #directory-listing-1 }
 
-
 <figure markdown="span">
 <div style="text-align: left;">
 ```
@@ -206,14 +205,6 @@ However, the example below should be help with getting started:
 ```toml
 [[configs]]
 name = "myconfig"
-N_iter = 1_000
-M_iter = 1_000
-tolerance = 1e-8
-resolution = 1_000
-N = 1_000
-bin_width = "1.0 kelvin"
-energy_max = "2.0e5 kelvin"
-energy_max_rate = "1.0e5 kelvin"
 alpha_factor = "0.25 halfturn"
 T = "300.0 kelvin"
 dc = "0.0005 meter"
@@ -221,6 +212,20 @@ radius_pinhole = "1 mm"
 lengths = [ [ 0.001, 0.00244, 0.101, 0.00448, 0.0005 ], "meter" ]
 pressures = [ [ 194.0, 3.88 ], "pascal"]
 voltages = [ [ -19, -9, -7, -6, 11 ], "volt" ]
+
+[configs.simulation]
+N_iter = 1_000
+M_iter = 1_000
+tolerance = 1e-8
+simulation_mode = "SINGLE_CLUSTER"
+sample_mode = "rejection"
+use_old_dos_impl = false
+k_total_mesh_mode = "compute_mesh_diagonal_multithreaded"
+resolution = 1_000
+N = 1_000
+bin_width = "1.0 kelvin"
+energy_max = "2.0e5 kelvin"
+energy_max_rate = "1.0e5 kelvin"
 
 [configs.gas]
 radius = "1.84e-10 meter"

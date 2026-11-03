@@ -19,21 +19,27 @@ append_to_common_prefix = ".xyz"
 
 [[configs]]
 name = "config"
+T = "300.0 kelvin"
+alpha_factor = "0.25 halfturn"
+dc = "0.0005 meter"
+lengths = [ [ 0.001, 0.00244, 0.101, 0.00448, 0.0005 ], "meter" ]
+pressures = [ [ 194.0, 3.88 ], "pascal"]
+voltages = [ [ -19, -9, -7, -6, 11 ], "volt" ]
+radius_pinhole = "1 mm"
+
+[configs.simulation]
 M_iter = 1_000
 N = 1_000
 N_iter = 1_000
-T = "300.0 kelvin"
-alpha_factor = "0.25 halfturn"
 bin_width = "4.0 kelvin"
-dc = "0.0005 meter"
 energy_max = "1.0e5 kelvin"
 energy_max_rate = "3.0e4 kelvin"
-lengths = [ [ 0.001, 0.00244, 0.101, 0.00448, 0.0005 ], "meter" ]
-pressures = [ [ 194.0, 3.88 ], "pascal"]
 resolution = 1_000
 tolerance = 1e-8
-voltages = [ [ -19, -9, -7, -6, 11 ], "volt" ]
-radius_pinhole = "1 mm"
+simulation_mode = "SINGLE_CLUSTER"
+sample_mode = "rejection"
+use_old_dos_impl = false
+k_total_mesh_mode = "compute_mesh_diagonal_multithreaded"
 
 [configs.gas]
 radius = "1.84e-10 meter"
