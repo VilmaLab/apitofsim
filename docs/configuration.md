@@ -12,7 +12,7 @@ You will probably want to skim this, but can come back after reading the section
 
 Note there are two main things configured in this file.
 The first is how to ingest things, as given by one or more `[[pathways]]` sections.
-The second is how to run the simulation, as given by the `[default_config]` section and one or more `[[config]]` sections.
+The second is how to run the simulation, as given by the `[default_config]` section and one or more `[[configs]]` sections.
 
 ## Ingestion configuration
 
@@ -85,7 +85,43 @@ For the following example, say we have a start a simulation parameters section l
 name = "myconfig"
 ```
 
-### Top level scalars
+### Simulation settings
+
+Put numerical settings in `[configs.simulation]` and shared defaults in
+`[default_config.simulation]`. Each config inherits individual simulation defaults,
+so overriding `N` retains the default energy mesh and tolerances.
+`bin_width` belongs here too. The key is spelled `tolerance`.
+
+```toml
+[default_config.simulation]
+N = 1000
+energy_max = "2.0e5 kelvin"
+
+[[configs]]
+name = "example"
+
+[configs.simulation]
+N = 2000
+simulation_mode = "SINGLE_CLUSTER"
+sample_mode = "rejection"
+use_old_dos_impl = false
+k_total_mesh_mode = "compute_mesh_diagonal_multithreaded"
+```
+
+Older flat files and stored databases remain readable. The Python builder and
+runner dictionaries retain their flat structure; nested file settings are
+normalized when loaded. Do not specify a setting both at top level and inside
+`simulation`.
+
+| Name | Default | Description |
+| ---- | ------- | ----------- |
+| simulation_mode | `SINGLE_CLUSTER` | `PATHWAY_AT_A_TIME`, `SINGLE_CLUSTER`, or `CLUSTER_TREE`. `db run --simulation-mode` overrides the config. |
+| sample_mode | `rejection` | `rejection`, `dss_normalized`, or `dss_unnormalized`. |
+| use_old_dos_impl | `false` | Use the legacy density of states implementation for uncached calculations. |
+| k_total_mesh_mode | `compute_mesh_diagonal_multithreaded` | `no_mesh`, `compute_mesh_single_threaded`, `compute_mesh_diagonal_single_threaded`, `compute_mesh_multithreaded`, or `compute_mesh_diagonal_multithreaded`. |
+
+The selected DOS implementation affects newly computed entries; existing DOS
+cache entries are reused.
 
 | Name            | Typical unit | Description                          |
 | --------------- | -------------|--------------------------------------|
@@ -97,6 +133,11 @@ name = "myconfig"
 | bin_width       | kelvin       | Bin width for histogramming density of states and k_total |
 | energy_max      | kelvin       | Maximum energy to consider when histogramming density of states. The density of states must be evaluated up to an energy equal or greater to the to the sum of energy_max_rate and the maximum fragmentation energy you will simulate a pathway for. |
 | energy_max_rate | kelvin       | Maximum energy to consider when histogramming k_total |
+
+### Top level scalars
+
+| Name | Typical unit | Description |
+| ---- | ------------ | ----------- |
 | alpha_factor    | halfturn     | Angle of skimmer |
 | T               | kelvin       | Temperature inside the mass spectrometer |
 | dc              | meter        | Radius at smallest cross section of skimmer |
@@ -139,10 +180,10 @@ name = "myconfig"
 For example:
 
 ```toml
-[[configs.gas]]
+[configs.gas]
 radius = "1.84e-10 meter"
 mass = "4.65e-26 kilogram"
-= 1.4
+adiabatic_index = 1.4
 ```
 
 | Name            | Typical unit | Description                          |

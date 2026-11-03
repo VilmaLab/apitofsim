@@ -82,10 +82,64 @@ class SimulationConfig(TypedDict):
     bin_width: Quantity
     energy_max: Quantity
     energy_max_rate: Quantity
+    simulation_mode: NotRequired[str]
+    sample_mode: NotRequired[str]
+    use_old_dos_impl: NotRequired[bool]
+    k_total_mesh_mode: NotRequired[str]
     quadrupole: NotRequired[Quadrupole]
     radius_pinhole: NotRequired[Quantity]
     bonding_energy: NotRequired[Quantity]
     fragmentation_energy: NotRequired[Quantity]
+
+
+# File-only grouping; the Python/runner API and legacy databases remain flat.
+SIMULATION_FIELDS = (
+    "M_iter",
+    "N",
+    "N_iter",
+    "resolution",
+    "tolerance",
+    "bin_width",
+    "energy_max",
+    "energy_max_rate",
+    "simulation_mode",
+    "sample_mode",
+    "use_old_dos_impl",
+    "k_total_mesh_mode",
+)
+
+
+def merge_config(defaults, config):
+    """Merge file defaults, inheriting simulation settings individually."""
+    result = {**defaults, **config}
+    if "simulation" in defaults or "simulation" in config:
+        result["simulation"] = {
+            **defaults.get("simulation", {}),
+            **config.get("simulation", {}),
+        }
+    return result
+
+
+def simulation_option(config, field) -> Any:
+    """Resolve the string representation used in files and stored configs."""
+    from .api import MeshMode, SampleMode
+    from .workflow.base import SimulationMode
+
+    enums = {
+        "simulation_mode": (SimulationMode, SimulationMode.SINGLE_CLUSTER),
+        "sample_mode": (SampleMode, SampleMode.rejection),
+        "k_total_mesh_mode": (MeshMode, MeshMode.compute_mesh_diagonal_multithreaded),
+    }
+    cls, default = enums[field]
+    value = config.get(field, default)
+    if isinstance(value, cls):
+        return value
+    try:
+        return cls.__members__[value]
+    except (KeyError, TypeError) as exc:
+        raise ValueError(
+            f"{field}: expected one of {', '.join(cls.__members__)}"
+        ) from exc
 
 
 @dataclass(frozen=True)
@@ -161,6 +215,12 @@ def _check_components(values, names, field):
 
 def _config_value(value, field, *, strict=False):
     """Decode stored values, or normalize and validate a builder input."""
+    if field in ("simulation_mode", "sample_mode", "k_total_mesh_mode"):
+        return simulation_option({field: value}, field).name
+    if field == "use_old_dos_impl":
+        if not isinstance(value, bool):
+            raise ValueError(f"{field}: expected a boolean")
+        return value
     if field in _OBJECT_TYPES:
         cls = _OBJECT_TYPES[field]
         if not strict and (value is None or isinstance(value, cls)):
@@ -250,6 +310,10 @@ def build_config(
     bin_width: Quantity,
     energy_max: Quantity,
     energy_max_rate: Quantity,
+    simulation_mode: str | None = None,
+    sample_mode: str | None = None,
+    use_old_dos_impl: bool | None = None,
+    k_total_mesh_mode: str | None = None,
     quadrupole: QuadrupoleComponents | Quadrupole | None = None,
     radius_pinhole: Quantity | None = None,
     bonding_energy: Quantity | None = None,
@@ -645,6 +709,18 @@ def into_quantity_obj(obj, key):
 
 
 def import_raw_config(config):
+    simulation = config.pop("simulation", {})
+    if not isinstance(simulation, Mapping):
+        raise ValueError("simulation: expected a table")
+    unknown = simulation.keys() - set(SIMULATION_FIELDS)
+    if unknown:
+        raise ValueError(f"simulation: unknown settings {sorted(unknown)}")
+    duplicates = simulation.keys() & config.keys()
+    if duplicates:
+        raise ValueError(
+            f"simulation: settings also present at top level: {sorted(duplicates)}"
+        )
+    config.update(simulation)
     for key, value in config.items():
         config[key] = _config_value(value, key)
     check_for_deprecated_keys(config)

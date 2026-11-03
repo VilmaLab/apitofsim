@@ -147,20 +147,26 @@ def prepare(mode, config, database, db_type, ase, warm):
     \b
     ```toml
     [default_config]
+    T = "300.0 kelvin"
+    alpha_factor = "0.25 halfturn"
+    dc = "0.0005 meter"
+    lengths = [ [ 0.001, 0.00244, 0.101, 0.00448, 0.0005 ], "meter" ]
+    pressures = [ [ 194.0, 3.88 ], "pascal"]
+    voltages = [ [ -19, -9, -7, -6, 11 ], "volt" ]
+    \b
+    [default_config.simulation]
     M_iter = 1_000
     N = 1_000
     N_iter = 1_000
-    T = "300.0 kelvin"
-    alpha_factor = "0.25 halfturn"
     bin_width = "1.0 kelvin"
-    dc = "0.0005 meter"
     energy_max = "2.0e5 kelvin"
     energy_max_rate = "1.0e5 kelvin"
-    lengths = [ [ 0.001, 0.00244, 0.101, 0.00448, 0.0005 ], "meter" ]
-    pressures = [ [ 194.0, 3.88 ], "pascal"]
     resolution = 1_000
     tolerance = 1e-8
-    voltages = [ [ -19, -9, -7, -6, 11 ], "volt" ]
+    simulation_mode = "SINGLE_CLUSTER"
+    sample_mode = "rejection"
+    use_old_dos_impl = false
+    k_total_mesh_mode = "compute_mesh_diagonal_multithreaded"
     \b
     [default_config.gas]
     radius = "1.84e-10 meter"
@@ -187,7 +193,7 @@ def prepare(mode, config, database, db_type, ase, warm):
 
     from tomlkit_extras import TOMLDocumentDescriptor, load_toml_file
 
-    from apitofsim.config import check_for_deprecated_keys, import_raw_config
+    from apitofsim.config import import_raw_config, merge_config
     from apitofsim.ingest.common import CombineError
     from apitofsim.workflow import (
         ClusterDatabase,
@@ -200,7 +206,10 @@ def prepare(mode, config, database, db_type, ase, warm):
 
     def iter_raw_configs(config_root):
         for config in config_root.get("configs", []):
-            yield config["name"], {**config_root.get("default_config", {}), **config}
+            yield (
+                config["name"],
+                merge_config(config_root.get("default_config", {}), config),
+            )
 
     if ase:
         ase_path = guess_ase_db_filename(database)
@@ -285,7 +294,7 @@ def prepare(mode, config, database, db_type, ase, warm):
         if db_type in ("experiment", "realization"):
             assert isinstance(db, ExperimentDatabase)
             for name, config_dict in iter_raw_configs(source.unwrap()):
-                check_for_deprecated_keys(config_dict)
+                import_raw_config(deepcopy(config_dict))
                 db.insert_config(name, config_dict)
                 if warm:
                     print("Warming up density and rate for config:", name)
@@ -329,9 +338,9 @@ def prepare(mode, config, database, db_type, ase, warm):
 )
 @click.option(
     "--simulation-mode",
-    default=SimulationMode.SINGLE_CLUSTER,
+    default=None,
     type=click.Choice(SimulationMode, case_sensitive=False),
-    help="Simulation mode",
+    help="Override the configured simulation mode",
 )
 @click.option("--verbose", default=False, is_flag=True)
 def run(

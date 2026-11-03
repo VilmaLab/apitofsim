@@ -1,3 +1,4 @@
+from contextlib import closing
 from copy import deepcopy
 from pathlib import Path
 
@@ -240,3 +241,162 @@ def test_partial_stored_config_decoding():
     gas = decoded["gas"]
     assert import_raw_config(decoded)["gas"] is gas
     assert quadrupole_components.keys() == {"radiofrequency", "r_quadrupole"}
+
+
+def test_nested_simulation_defaults_and_database_roundtrip():
+    import tomllib
+
+    from apitofsim.config import import_raw_config, merge_config, simulation_option
+    from apitofsim.workflow.base import SimulationMode
+
+    source = tomllib.loads("""
+[default_config.simulation]
+N = 10
+energy_max = "200 kK"
+energy_max_rate = "100 kK"
+
+[[configs]]
+name = "custom"
+[configs.simulation]
+N = 20
+simulation_mode = "CLUSTER_TREE"
+sample_mode = "dss_normalized"
+use_old_dos_impl = true
+k_total_mesh_mode = "no_mesh"
+""")
+    config = merge_config(source["default_config"], source["configs"][0])
+    assert config["simulation"]["N"] == 20
+    assert source["default_config"]["simulation"]["N"] == 10
+    with closing(ExperimentDatabase(":memory:")) as db:
+        db.create_tables()
+        db.insert_config("custom", config)
+        (row,) = db.iter_configs()
+    assert "simulation" not in row.config
+    assert row.config["energy_max"].to("K").magnitude == 200_000
+    assert row.config["N"] == 20
+    assert row.config["use_old_dos_impl"] is True
+    assert (
+        simulation_option(row.config, "simulation_mode") == SimulationMode.CLUSTER_TREE
+    )
+    assert simulation_option(row.config, "sample_mode").name == "dss_normalized"
+    assert simulation_option(row.config, "k_total_mesh_mode").name == "no_mesh"
+    assert import_raw_config(deepcopy(row.config)) == row.config
+
+
+@pytest.mark.parametrize(
+    "raw,match",
+    [
+        ({"simulation": {"tolerence": 1e-8}}, "unknown.*tolerence"),
+        ({"N": 1, "simulation": {"N": 2}}, "also present.*N"),
+        ({"simulation": []}, "expected a table"),
+        ({"simulation": {"simulation_mode": "invalid"}}, "simulation_mode.*expected"),
+        ({"simulation": {"sample_mode": "invalid"}}, "sample_mode.*expected"),
+        (
+            {"simulation": {"k_total_mesh_mode": "invalid"}},
+            "k_total_mesh_mode.*expected",
+        ),
+        ({"simulation": {"use_old_dos_impl": "false"}}, "expected a boolean"),
+    ],
+)
+def test_invalid_simulation_settings(raw, match):
+    from apitofsim.config import import_raw_config
+
+    with pytest.raises(ValueError, match=match):
+        import_raw_config(raw)
+
+
+def test_builder_simulation_options(inputs):
+    config = build_config(
+        **inputs,
+        simulation_mode="PATHWAY_AT_A_TIME",
+        sample_mode="dss_unnormalized",
+        use_old_dos_impl=True,
+        k_total_mesh_mode="compute_mesh_single_threaded",
+    )
+    assert_same(build_config(**config), config)
+
+
+@pytest.mark.parametrize("mesh_mode", ["compute_mesh_single_threaded", "no_mesh"])
+def test_preparation_uses_simulation_options(inputs, monkeypatch, mesh_mode):
+    import apitofsim.api as api
+    from apitofsim.api import MeshMode
+    from apitofsim.workflow import DerivedDataPreparer
+
+    calls = {}
+    real_dos = api.compute_density_of_states_batch
+    real_mesh = api.precompute_mesh
+
+    def dos(*args, **kwargs):
+        calls["dos"] = kwargs["use_old_impl"]
+        return real_dos(*args, **kwargs)
+
+    def mesh(*args, **kwargs):
+        calls["mesh"] = kwargs["mesh_mode"]
+        return real_mesh(*args, **kwargs)
+
+    monkeypatch.setattr(api, "compute_density_of_states_batch", dos)
+    monkeypatch.setattr("apitofsim.precompute_mesh", mesh)
+    config = build_config(
+        **{
+            **inputs,
+            "bin_width": Q_(1, "K"),
+            "energy_max": Q_(1999, "K"),
+            "energy_max_rate": Q_(1000, "K"),
+        },
+        use_old_dos_impl=True,
+        k_total_mesh_mode=mesh_mode,
+    )
+    with closing(ExperimentDatabase(":memory:")) as db:
+        db.create_tables()
+        db.insert_cluster("parent", 200, -1, -1, [1, 2, 3], [10, 20, 30])
+        clusters, names, pathways = db.get_all_lookups()
+        DerivedDataPreparer(db).run_densityandrate(
+            config, clusters, pathways, name_lookup=names, show_progress=False
+        )
+    expected = {"dos": True}
+    if mesh_mode != "no_mesh":
+        expected["mesh"] = MeshMode.compute_mesh_single_threaded
+    assert calls == expected
+
+
+@pytest.mark.parametrize(
+    "mode", ["SINGLE_CLUSTER", "PATHWAY_AT_A_TIME", "CLUSTER_TREE"]
+)
+def test_runner_uses_configured_mode_and_sampling(inputs, monkeypatch, mode):
+    from apitofsim.api import SampleMode
+    from apitofsim.workflow.base import SimulationMode
+
+    config = build_config(
+        **{**inputs, "N": 1, "bin_width": Q_(1000, "K")},
+        simulation_mode=mode,
+        sample_mode="dss_normalized",
+    )
+    monkeypatch.delenv("N_OVERRIDE", raising=False)
+    with closing(ExperimentDatabase(":memory:")) as db:
+        db.create_tables()
+        for name, mass, charge, energy in (
+            ("parent", 200, -1, -1),
+            ("ion", 100, -1, -0.5),
+            ("neutral", 100, 0, -0.49),
+        ):
+            db.insert_cluster(name, mass, charge, energy, [1, 2, 3], [10, 20, 30])
+        db.insert_pathway(1, 2, 3)
+        config_id = db.insert_config("configured", config)
+        runner = ExperimentRunner(db)
+        calls = []
+        method = "iter_mass_spec" if mode == "SINGLE_CLUSTER" else "run_mass_spec"
+        original = getattr(runner, method)
+
+        def run(*args, **kwargs):
+            calls.append(kwargs["sample_mode"])
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(runner, method, run)
+        runner.run_prepared_config(name="configured")
+        assert calls == [SampleMode.dss_normalized]
+        assert db.db.execute(
+            "select experiment_config_id, simulation_mode from experiment_run"
+        ).fetchall() == [(config_id, mode)]
+        # An explicit run argument overrides the stored mode.
+        runner.run_from_config(config, mode=SimulationMode.SINGLE_CLUSTER)
+        assert runner._simulation_mode == SimulationMode.SINGLE_CLUSTER
