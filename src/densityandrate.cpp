@@ -350,6 +350,14 @@ void compute_density_of_states(const Eigen::ArrayXd &frequencies, Eigen::Ref<Eig
   {
     double frequency = frequencies[i];
     double frequency_bin_float = frequency / bin_width;
+    if (frequency_bin_float >= m_max)
+    {
+      throw ApiTofArgumentError([&](auto &msg)
+      {
+        msg << "Vibrational temperature " << frequency << " K is outside the DOS histogram range [0, "
+            << m_max * bin_width << " K). Increase energy_max.";
+      });
+    }
     int frequency_bin = static_cast<int>(frequency_bin_float);
     rho[frequency_bin]++;
     int frequency_shift = static_cast<int>(frequency_bin_float + 0.5);
