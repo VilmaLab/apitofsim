@@ -131,7 +131,7 @@ Eigen::ArrayXd compute_mesh_rearranged_presqrt(double bin_width, int m_max_rate)
   {
     double mesh_i_p_j = 0;
 #pragma omp simd reduction(+ : mesh_i_p_j)
-    for (int j = 0; j < i_p_j; j++)
+    for (int j = 0; j <= i_p_j; j++)
     {
       int i = i_p_j - j;
       double rotational_energy_sqrt = rot_energy_sqrts[i];
@@ -192,7 +192,7 @@ Eigen::ArrayXd compute_mesh_rearranged_presqrt_tbb(double bin_width, int m_max_r
     {
       double mesh_i_p_j = 0;
 #pragma omp simd reduction(+ : mesh_i_p_j)
-      for (int j = 0; j < i_p_j; j++)
+      for (int j = 0; j <= i_p_j; j++)
       {
         int i = i_p_j - j;
         double rotational_energy_sqrt = rot_energy_sqrts[i];
