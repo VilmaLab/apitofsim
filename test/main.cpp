@@ -349,6 +349,36 @@ TEST_CASE("parallel APIs support concurrent callers")
   CHECK(second.isApprox(diagonal_expected, 1.0e-12));
 }
 
+TEST_CASE("density recurrence agrees with state enumeration across SIMD shifts")
+{
+  constexpr int bins = 64;
+  for (double bin_width : {1.0, 4.0})
+  {
+    for (int shift : {1, 2, 3, 4, 5, 7, 8})
+    {
+      CAPTURE(bin_width);
+      CAPTURE(shift);
+      Eigen::ArrayXd frequencies(2);
+      frequencies << 3 * bin_width, shift * bin_width;
+      Eigen::ArrayXd expected = Eigen::ArrayXd::Zero(bins);
+      for (int first = 0; 3 * first < bins; ++first)
+      {
+        for (int second = 0; 3 * first + shift * second < bins; ++second)
+        {
+          expected[3 * first + shift * second] += 1;
+        }
+      }
+      // The current DOS API reports positive-energy states only.
+      expected[0] = 0;
+      expected /= bin_width;
+
+      Eigen::ArrayXd actual(bins);
+      compute_density_of_states(frequencies, actual, bins * bin_width, bin_width);
+      CHECK(actual.isApprox(expected, 1.0e-12));
+    }
+  }
+}
+
 TEST_CASE("density batch handles empty and single-item inputs")
 {
   const auto empty = compute_density_of_states_batch({}, 16.0, 1.0);
