@@ -7,10 +7,15 @@ from apitofsim.workflow import ExperimentDatabase, ExperimentRunner, Realization
 from apitofsim.workflow.db import connection_scope
 
 
+@pytest.fixture(params=[True, False], ids=["fk", "nofk"])
+def foreign_keys(request):
+    return request.param
+
+
 @pytest.fixture(params=[ExperimentDatabase, RealizationDatabase])
-def prepared_case(request, monkeypatch):
+def prepared_case(request, monkeypatch, foreign_keys):
     with connection_scope(request.param, ":memory:") as db:
-        db.create_tables()
+        db.create_tables(foreign_keys=foreign_keys)
         # Interleave parents in insertion order, with two outgoing pathways each.
         for name, mass, charge, energy in (
             ("parent", 200, -1, -1),
