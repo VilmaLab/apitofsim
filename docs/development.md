@@ -206,24 +206,3 @@ cd ../apitofsim-web
 A `.toml` file counts as a uv project, so the `uv.lock` next to it is rewritten as well and
 `uv lock --check` verifies both. A `.yaml` file is a conda environment. Add `--dry-run` to see
 the changes without writing them.
-
-### Bulk event ingestion constraints benchmark
-
-`uv run python test/bench/ingest_events.py --rows 661468 --repeat 3` compares
-prebuilt Arrow insertion in one transaction, using one DuckDB thread and an
-in-memory database. It inserts shared event state plus collision and fragmentation
-details, excluding simulation, Arrow construction, schema creation and integrity
-checks from the timer. It checks row counts and foreign-key integrity afterward.
-
-The three variants isolate FK enforcement/index work (PK + FK versus PK only)
-and event/realization PK/index work (PK only versus no event PK/FK). The final
-variant is a benchmark control only; production creation always retains PKs.
-On a local DuckDB 1.5.6 run, three-repeat medians were 3.90 s, 1.50 s and 0.54 s
-respectively. This synthetic mix is not a Besel2020 recording replay; timings
-vary with event mix, hardware, load and storage. Use the benchmark to measure
-locally before choosing to omit FKs.
-
-`apitofsim-web` already uses `sql_files_nofk` for its split cluster/result
-databases, since DuckDB cannot enforce cross-database FKs. This helper remains
-unchanged. `apitofsim-resultviewer` consumes the same tables and report views in
-both creation modes. Neither consumer needs a schema update for this option.
