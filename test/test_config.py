@@ -485,3 +485,39 @@ def test_vibrational_index_dynamic_range():
     tree = DerivedDataPreparer._build_vib_index(VibEnergyMode.group_dos, density, 17)
     assert tree[1] == pytest.approx(np.log(1e308) + np.log(2))
     assert tree[5] == tree[7] == -np.inf
+
+
+def test_sampler_preparation_with_partly_warmed_dos(inputs):
+    from apitofsim.workflow import DerivedDataPreparer
+
+    config = build_config(
+        **{
+            **inputs,
+            "bin_width": Q_(1, "K"),
+            "energy_max": Q_(1999, "K"),
+            "energy_max_rate": Q_(1000, "K"),
+        },
+        vib_energy_sampler="group-dos",
+    )
+    with closing(ExperimentDatabase(":memory:")) as db:
+        db.create_tables()
+        for name, energy, charge in (
+            ("parent", -1, -1),
+            ("ion", -0.5, -1),
+            ("neutral", -0.499, 0),
+            ("neutral2", -0.498, 0),
+        ):
+            db.insert_cluster(name, 100, charge, energy, [1, 2, 3], [10, 20, 30])
+        db.insert_pathway(1, 2, 3)
+        preparer = DerivedDataPreparer(db)
+        for i in (1, 2):
+            clusters, names, paths = db.get_all_lookups()
+            preparer.run_densityandrate(
+                config, clusters, paths, name_lookup=names, show_progress=False
+            )
+            assert db.db.execute("select count(*) from products_dos").fetchone() == (i,)
+            assert db.db.execute(
+                "select count(*) from vib_energy_index"
+            ).fetchone() == (1,)
+            if i == 1:
+                db.insert_pathway(1, 2, 4)

@@ -147,6 +147,8 @@ cache entries are reused.
 The workflow prepares the requested vibrational index alongside the DOS and rate
 curves and caches it per source cluster DOS in DuckDB. Direct sampling needs no
 index. DOS-only sampling stores one cumulative sum in the original DOS units.
+The sum must be finite, and small increments can disappear at floating-point
+precision.
 Group-DOS sampling stores a flat binary tree of log masses and bounds the square
 root of residual energy separately in each group. On the uniform DOS grid each
 proposal has at least $1/\sqrt{2}$ probability of acceptance. Each cluster in a

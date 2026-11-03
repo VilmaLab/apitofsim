@@ -50,6 +50,8 @@ def test_cached_arrays_follow_requested_cluster_ids():
         conn.execute(
             "create table curves as select i as id, [i::double] as data from range(40) a(i)"
         )
+        # Older caches may contain duplicate rows for a shared pair of products.
+        conn.execute("insert into curves select * from curves where id = 1")
         cached = {}
         missing = list(
             get_through_join_else(

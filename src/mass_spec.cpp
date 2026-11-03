@@ -321,13 +321,10 @@ SimulationResult apitof_mass_spec(
     return dispatch.template operator()<VibEnergyUnnormSampler>(GasCollCondUnnormHistDSSSampler(dtheta, du, boundary_u));
   if (sample_mode == SampleMode::rejection)
     return dispatch.template operator()<VibEnergyNormSampler>(GasCollRejectionSampler(boundary_u));
-  else
+  throw ApiTofArgumentError([&](auto &msg)
   {
-    throw ApiTofArgumentError([&](auto &msg)
-    {
-      msg << "Unknown sampling mode: " << static_cast<int>(sample_mode) << std::endl;
-    });
-  }
+    msg << "Unknown sampling mode: " << static_cast<int>(sample_mode) << std::endl;
+  });
 }
 
 SimulationResult apitof_mass_spec(

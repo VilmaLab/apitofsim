@@ -463,18 +463,19 @@ class DerivedDataPreparer:
             density_of_states_inputs.append(cluster)
             num_clusters_missed += 1
 
-        wanted_p1 = []
-        wanted_p2 = []
-        for _, product1_id, product2_id in pathway_lookup.values():
-            product1_id, product2_id = sorted((product1_id, product2_id))
-            wanted_p1.append(product1_id)
-            wanted_p2.append(product2_id)
-
         density_of_states_inputs.extend(
             self.db.get_product_dos_through_join_else(
                 cluster_indexed, histogram_id, cluster_dos_dict, pathway_lookup
             )
         )
+
+        wanted_p1 = []
+        wanted_p2 = []
+        for _, product1_id, product2_id in pathway_lookup.values():
+            product1_id, product2_id = sorted((product1_id, product2_id))
+            if (product1_id, product2_id) not in cluster_dos_dict:
+                wanted_p1.append(product1_id)
+                wanted_p2.append(product2_id)
 
         if status_table is not None:
             status_table["Description"] = (
