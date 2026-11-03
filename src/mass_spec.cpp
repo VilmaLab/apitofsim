@@ -737,7 +737,7 @@ SimulationResult apitof_mass_spec(
         auto [effective_pathway_index, t_fragmentation, overflow_exception] = next_fragmentation_time_multi(gen, unif, subs.pathways, internal_energy, strict);
 
         double old_t = particle.time;
-        TimeNextCollOutcome outcome = time_next_coll_quadrupole(unif(gen), particle, chamber, subs.gas.radius + subs.R_cluster, subquants.dts, t_fragmentation, subquants.acc, subs.gas.mass, ms.skimmer, ms.mesh_skimmer, ms.quadrupole);
+        TimeNextCollOutcome outcome = next_coll(unif(gen), particle, chamber, subs.gas.radius + subs.R_cluster, subquants.dts, t_fragmentation, subquants.acc, subs.gas.mass, ms.skimmer, ms.mesh_skimmer, ms.quadrupole);
 
         if (logconf.level >= LOGLEVEL_NORMAL)
         {
@@ -974,7 +974,7 @@ SimulationResult apitof_mass_spec(
         auto [effective_pathway_index, t_fragmentation, overflow_exception] = next_fragmentation_time_multi(gen, unif, pathways, internal_energy, strict);
 
         double old_t = particle.time;
-        TimeNextCollOutcome outcome = time_next_coll_quadrupole(unif(gen), particle, chamber, subs.gas.radius + subpayload.R_cluster, subquants.dts, t_fragmentation, subquants.acc, subs.gas.mass, ms.skimmer, ms.mesh_skimmer, ms.quadrupole);
+        TimeNextCollOutcome outcome = next_coll(unif(gen), particle, chamber, subs.gas.radius + subpayload.R_cluster, subquants.dts, t_fragmentation, subquants.acc, subs.gas.mass, ms.skimmer, ms.mesh_skimmer, ms.quadrupole);
 
         if (logconf.level >= LOGLEVEL_NORMAL)
         {
@@ -1352,7 +1352,7 @@ Eigen::ArrayXd CollisionProfile::frequency(const Eigen::ArrayXd &z, const Eigen:
 }
 
 // Evaluate time to next collision
-TimeNextCollOutcome time_next_coll_quadrupole(double collision_quantile, ParticleState &particle, const ChamberQuantities &chamber, double R, Eigen::Array2d dts, double t_fragmentation, const Eigen::Array4d &acc, double m_gas, const SkimmerData &skimmer, double mesh_skimmer, const std::optional<Quadrupole> quadrupole)
+TimeNextCollOutcome next_coll_old(double collision_quantile, ParticleState &particle, const ChamberQuantities &chamber, double R, Eigen::Array2d dts, double t_fragmentation, const Eigen::Array4d &acc, double m_gas, const SkimmerData &skimmer, double mesh_skimmer, const std::optional<Quadrupole> quadrupole)
 {
   using namespace consts;
   double integral = 0.0;

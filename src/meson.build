@@ -2,7 +2,7 @@ inc_src = include_directories('.')
 
 subdir('include')
 
-libapitofsim_files = ['apitofsim.cpp', 'skimmer.cpp', 'densityandrate.cpp', 'mass_spec.cpp', 'samplers.cpp', 'operation_context.cpp']
+libapitofsim_files = ['apitofsim.cpp', 'skimmer.cpp', 'densityandrate.cpp', 'mass_spec.cpp', 'trajectory.cpp', 'samplers.cpp', 'operation_context.cpp']
 
 libapitofsim = static_library(
   'apitofsim',
