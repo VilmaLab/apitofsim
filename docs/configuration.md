@@ -144,20 +144,6 @@ cache entries are reused.
 | energy_max      | kelvin       | Maximum energy to consider when histogramming density of states. The density of states must be evaluated up to an energy equal to or greater than the sum of energy_max_rate and the maximum fragmentation energy you will simulate a pathway for. |
 | energy_max_rate | kelvin       | Maximum energy to consider when histogramming k_total |
 
-The workflow prepares the requested vibrational index alongside the DOS and rate
-curves and caches it per source cluster DOS in DuckDB. Direct sampling needs no
-index. DOS-only sampling stores one cumulative sum in the original DOS units.
-The sum must be finite, and small increments can disappear at floating-point
-precision.
-Group-DOS sampling stores a flat binary tree of log masses and bounds the square
-root of residual energy separately in each group. On the uniform DOS grid each
-proposal has at least $1/\sqrt{2}$ probability of acceptance. Each cluster in a
-fragmentation tree uses its own DOS index. These options apply to the Python
-workflow. The legacy native CLI uses direct vibrational sampling.
-
-When attaching a read-only cluster database, warm the selected index in the
-source database before loading it for simulation.
-
 ### Top level scalars
 
 | Name | Typical unit | Description |
