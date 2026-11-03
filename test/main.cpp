@@ -288,7 +288,7 @@ TEST_CASE("k total smoke tests")
   CHECK(is_increasing(k0));
 }
 
-TEST_CASE("parallel mesh implementations match serial implementations")
+TEST_CASE("all mesh implementations match the serial reference")
 {
   constexpr double energy_max_rate = 64.0;
   constexpr double bin_width = 0.5;
@@ -311,7 +311,8 @@ TEST_CASE("parallel mesh implementations match serial implementations")
     MeshMode::compute_mesh_diagonal_multithreaded);
 
   CHECK(parallel.isApprox(serial, 1.0e-12));
-  CHECK(diagonal_parallel.isApprox(diagonal_serial, 1.0e-12));
+  CHECK(diagonal_serial.isApprox(serial, 1.0e-12));
+  CHECK(diagonal_parallel.isApprox(serial, 1.0e-12));
 }
 
 TEST_CASE("parallel APIs support concurrent callers")
@@ -1050,3 +1051,4 @@ TEST_CASE("trajectory sampler suppresses gas collisions upstream")
   CHECK(particle.position.z() == doctest::Approx(-4));
   CHECK(particle.time == doctest::Approx(1));
 }
+
