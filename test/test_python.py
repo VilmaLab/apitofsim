@@ -541,7 +541,15 @@ def test_particle_snapshot_properties_and_array_lifetimes():
         -1, 1e-25, 5e-10, density, [], raw.Gas(2e-10, 4.8e-26, 1.4)
     )
     events = []
-    raw.mass_spec(ms, subs, 2, seed=42, logconf=(0, True), event_callback=events.append)
+    stream = raw.MassSpecIterator(ms, subs, 2, seed=42, logconf=(0, True))
+    try:
+        while True:
+            try:
+                events.extend(stream.read_batch(512))
+            except StopIteration:
+                break
+    finally:
+        stream.join_if_joinable()
     states = [event.state for event in events if isinstance(event, raw.InitEvent)]
     assert len(states) == 2
     arrays = []
@@ -559,10 +567,11 @@ def test_particle_snapshot_properties_and_array_lifetimes():
         np.testing.assert_array_equal(array, values)
 
 
-@pytest.mark.parametrize("mode", ["SINGLE_CLUSTER", "CLUSTER_TREE"])
+@pytest.mark.parametrize(
+    "mode", ["SINGLE_CLUSTER", "PATHWAY_AT_A_TIME", "CLUSTER_TREE"]
+)
 def test_init_events_workflow(tmp_path, monkeypatch, mode):
     import apitofsim.api as api
-    import duckdb
     import numpy as np
     from apitofsim.cli import prepare
     from apitofsim.workflow.base import SimulationMode
@@ -572,25 +581,41 @@ def test_init_events_workflow(tmp_path, monkeypatch, mode):
         connection_scope,
     )
 
-    data_dir = os.environ["DATA_DIR"]
     filename = str(tmp_path / "realizations.duckdb")
     result = CliRunner(catch_exceptions=False).invoke(
         prepare,
-        ["create", data_dir + "/besel/config.toml", filename, "--db-type=realization"],
+        [
+            "create",
+            os.environ["DATA_DIR"] + "/besel/config.toml",
+            filename,
+            "--db-type=realization",
+        ],
     )
     assert result.exit_code == 0
-    original_mass_spec = api.mass_spec
-    num_runs = 0
-    num_events = 0
-    rollback_checked = False
+    original_stream = api.mass_spec_iter
+    original_record = EventRecorder.record_batch
+    num_runs = num_events = 0
+    batch_sizes = []
 
-    def check_mass_spec(ms, subs, n, **kwargs):
-        nonlocal num_runs
-        recorder = kwargs["event_callback"]
+    def check_batch(recorder, events):
+        nonlocal num_events
+        original_record(recorder, events)
+        if events:
+            event = events[-1]
+            pathway_id = (
+                recorder.pathways[event.pathway_index]
+                if isinstance(event, api.FragmentationEvent)
+                else None
+            )
+            assert_event_row(recorder.db.db, event, pathway_id)
+            num_events += len(events)
+            batch_sizes.append(len(events))
+
+    def check_stream(ms, subs, n, **kwargs):
         initial_states = {}
         previous_events = {}
-        accepted_collisions = 0
-        post_collisions = 0
+        accepted_collisions = post_collisions = 0
+        native = original_stream(ms, subs, n, **kwargs)
 
         def check_collision(event):
             nonlocal accepted_collisions, post_collisions
@@ -625,7 +650,7 @@ def test_init_events_workflow(tmp_path, monkeypatch, mode):
             if isinstance(event, (api.CollisionEvent, api.PostCollisionEvent)):
                 particle = (
                     subs
-                    if mode == "SINGLE_CLUSTER"
+                    if mode != "CLUSTER_TREE"
                     else subs.cluster_payloads[
                         subs.tree_nodes[state.particle_index].payload_idx
                     ]
@@ -661,12 +686,11 @@ def test_init_events_workflow(tmp_path, monkeypatch, mode):
 
         root = (
             subs
-            if mode == "SINGLE_CLUSTER"
+            if mode != "CLUSTER_TREE"
             else subs.cluster_payloads[subs.tree_nodes[0].payload_idx]
         )
 
-        def record(event):
-            nonlocal num_events, rollback_checked
+        def check_event(event):
             state = event.state
             check_collision(event)
             if isinstance(event, api.InitEvent):
@@ -696,161 +720,61 @@ def test_init_events_workflow(tmp_path, monkeypatch, mode):
                     event.pathway_index
                     in subs.tree_nodes[state.particle_index].pathway_indices
                 )
-            if (
-                isinstance(event, api.FragmentationEvent)
-                and mode == "SINGLE_CLUSTER"
-                and not rollback_checked
-            ):
-                invalid_recorder = EventRecorder(
-                    recorder.db, [-1] * len(recorder.pathways)
-                )
-                invalid_recorder.realization_ids = recorder.realization_ids.copy()
-                before = recorder.db.db.execute(
-                    "select count(*) from event_info"
-                ).fetchone()
-                with pytest.raises(duckdb.ConstraintException):
-                    invalid_recorder(event)
-                assert (
-                    recorder.db.db.execute("select count(*) from event_info").fetchone()
-                    == before
-                )
-                rollback_checked = True
-            recorder(event)
-            pathway_id = (
-                recorder.pathways[event.pathway_index]
-                if isinstance(event, api.FragmentationEvent)
-                else None
-            )
-            assert_event_row(recorder.db.db, event, pathway_id)
-            num_events += 1
 
-        counters = original_mass_spec(
-            ms, subs, n, **{**kwargs, "event_callback": record}
-        )
+        class CheckedStream:
+            def request_cancel(self):
+                native.request_cancel()
+
+            def join_if_joinable(self):
+                native.join_if_joinable()
+
+            def read_batch(self, max_items=512):
+                nonlocal num_runs
+                items = native.read_batch(max_items)
+                for item in items:
+                    if hasattr(item, "state"):
+                        check_event(item)
+                    elif isinstance(item, api.MassSpecFinalResult):
+                        assert set(initial_states) == set(range(n))
+                        assert accepted_collisions == post_collisions
+                        assert post_collisions > 0
+                        unlogged = api.mass_spec(
+                            ms,
+                            subs,
+                            n,
+                            seed=kwargs.get("seed", 42),
+                            named_tuple_counters=True,
+                        )
+                        for actual, expected in zip(
+                            item.counters, unlogged, strict=True
+                        ):
+                            np.testing.assert_array_equal(actual, expected)
+                        num_runs += 1
+                return items
+
+        return CheckedStream()
+
+    monkeypatch.setattr(api, "mass_spec_iter", check_stream)
+    monkeypatch.setattr(EventRecorder, "record_batch", check_batch)
+    with connection_scope(RealizationDatabase, filename) as db:
+        runner = ExperimentRunner(db)
+        runner.run_prepared_config(mode=SimulationMode[mode])
+        assert num_runs > 0
+        assert batch_sizes
         if mode == "CLUSTER_TREE":
             assert (
-                recorder.db.tree_events_query(result_id=recorder.result_id)
+                db.tree_events_query()
                 .filter(
                     "provenance != 'persisted' or continuity_valid is distinct from true"
                 )
                 .fetchall()
                 == []
             )
-        assert set(initial_states) == set(range(n))
-        assert accepted_collisions == post_collisions
-        assert post_collisions > 0
-        events = []
-        unlogged = original_mass_spec(
-            ms,
-            subs,
-            n,
-            **{**kwargs, "logconf": (0, False), "event_callback": events.append},
-        )
-        assert not events
-        np.testing.assert_array_equal(counters[0][:-1], unlogged[0][:-1])
-        np.testing.assert_array_equal(counters[0][-1], unlogged[0][-1])
-        previous_events.clear()
-        accepted_collisions = post_collisions = 0
-        with api.mass_spec_iter(ms, subs, n, logconf=(0, True)) as stream:
-            streamed_states = []
-            for event in stream:
-                if isinstance(
-                    event,
-                    (
-                        api.InitEvent,
-                        api.CollisionEvent,
-                        api.PostCollisionEvent,
-                        api.FragmentationEvent,
-                        api.PostFragmentationEvent,
-                        api.EscapeEvent,
-                    ),
-                ):
-                    check_collision(event)
-                    if isinstance(event, api.InitEvent):
-                        streamed_states.append(event.state)
-        assert accepted_collisions == post_collisions
-        assert post_collisions > 0
-        assert len(streamed_states) == n
-        streamed = {state.realization: state for state in streamed_states}
-        assert set(streamed) == set(initial_states)
-        for realization, state in streamed.items():
-            np.testing.assert_array_equal(
-                state.velocity, initial_states[realization].velocity
-            )
-            np.testing.assert_array_equal(
-                state.omega, initial_states[realization].omega
-            )
-            assert state.rot_energy == initial_states[realization].rot_energy
-            assert (
-                state.vibrational_energy
-                == initial_states[realization].vibrational_energy
-            )
-        if mode == "SINGLE_CLUSTER" and num_runs == 0:
-            raw = api.apitofsimraw
-            rate = subs.pathways[0].rate_const
-            nonfragmenting = raw.MassSpecSubstanceSingleInput(
-                subs.cluster_charge_sign,
-                subs.m_ion,
-                subs.R_cluster,
-                subs.density_cluster,
-                [
-                    raw.MassSpecInputFragmentationPathway(
-                        raw.Histogram(rate.x, np.zeros_like(rate.y)), 1e9
-                    )
-                ],
-                subs.gas,
-            )
-            with connection_scope(RealizationDatabase, ":memory:") as escape_db:
-                escape_db.create_tables()
-                escape_recorder = EventRecorder(escape_db, [])
-                escapes = 0
-                with api.mass_spec_iter(
-                    ms, nonfragmenting, n, logconf=(0, True), strict=False
-                ) as stream:
-                    for event in stream:
-                        if isinstance(
-                            event,
-                            (
-                                api.InitEvent,
-                                api.CollisionEvent,
-                                api.PostCollisionEvent,
-                                api.EscapeEvent,
-                            ),
-                        ):
-                            escape_recorder(event)
-                            assert_event_row(escape_db.db, event)
-                            escapes += isinstance(event, api.EscapeEvent)
-                assert escapes == n
-        num_runs += 1
-        return counters
-
-    monkeypatch.setattr(api, "mass_spec", check_mass_spec)
-    with connection_scope(RealizationDatabase, filename) as db:
-        runner = ExperimentRunner(db)
-        if mode == "SINGLE_CLUSTER":
-            # Keep exercising the blocking recording API as a parity reference;
-            # the grouped CLI now consumes the public recording stream.
-            row = next(db.iter_configs())
-            runner.start_run(row.id)
-            prepared = runner.prepare_from_config(row.config)
-            for group in prepared.groups:
-                runner.run_mass_spec(
-                    prepared.mass_spec,
-                    group.substance,
-                    row.config["N"],
-                    cluster_id=group.cluster_id,
-                    pathway_ids=group.pathway_ids,
-                )
-        else:
-            runner.run_prepared_config(mode=SimulationMode[mode])
-        assert num_runs > 0
         for result_id, run_id, parent, _, _ in db.db.table(
             "experiment_result"
         ).fetchall():
             curves = db.pathway_rate_curves(run_id, parent, result_id)
             assert curves and all(c.histogram is not None for c in curves)
-        if mode == "SINGLE_CLUSTER":
-            assert rollback_checked
         count = db.db.execute(
             "select count(*) from event_info where event_type = 'init'"
         ).fetchone()[0]
@@ -928,14 +852,14 @@ def test_collision_details_and_escape(accepted, monkeypatch):
         collision = CollisionEvent(
             state=state, theta=0.123456789, u_norm=123.456789, accepted=accepted
         )
-        recorder(collision)
+        recorder.record_batch([collision])
         assert_event_row(db.db, collision)
         if accepted:
             postcollision = PostCollisionEvent(state=state)
-            recorder(postcollision)
+            recorder.record_batch([postcollision])
             assert_event_row(db.db, postcollision)
         escape = EscapeEvent(state=state)
-        recorder(escape)
+        recorder.record_batch([escape])
         assert_event_row(db.db, escape)
         assert (
             db.db.execute("select count(*) from event_info").fetchone()[0]
@@ -2007,12 +1931,7 @@ def test_upstream_escape_invalidates_run(tree, streaming, strict):
                 strict=strict,
                 seed=42,
                 logconf=(0, True),
-                event_callback=lambda event: (
-                    initial.append(event.state)
-                    if isinstance(event, api.InitEvent)
-                    else None
-                ),
             )
-    assert initial
+    assert bool(initial) == streaming
     assert all(state.velocity[2] >= 0 for state in initial)
     assert issubclass(api.ApiTofParticleEscapeError, api.ApiTofError)

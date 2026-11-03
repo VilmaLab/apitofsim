@@ -208,3 +208,13 @@ cd ../apitofsim-web
 A `.toml` file counts as a uv project, so the `uv.lock` next to it is rewritten as well and
 `uv lock --check` verifies both. A `.yaml` file is a conda environment. Add `--dry-run` to see
 the changes without writing them.
+
+### Event recording API change
+
+The per-event `event_callback` argument to `mass_spec` (including native bindings)
+and `EventRecorder.__call__` have been removed. Consume events with
+`mass_spec_iter`/`read_batch` or use the database workflow's recording iterator.
+Blocking workflow runs now use that same batched recorder for every simulation
+mode. Tree identities, transitions and failure links retain their existing schema.
+The sibling web runner already uses `iter_mass_spec`; the result viewer reads the
+unchanged result schema. External callback consumers must migrate to iteration.

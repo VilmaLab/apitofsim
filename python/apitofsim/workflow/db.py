@@ -1395,9 +1395,6 @@ class EventRecorder:
         assert isinstance(db, RealizationDatabase)
         self.realization_ids = {}
 
-    def __call__(self, event):
-        self.record_batch([event])
-
     def record_batch(self, events):
         """Persist a bounded event batch atomically, without owning caller commits.
 

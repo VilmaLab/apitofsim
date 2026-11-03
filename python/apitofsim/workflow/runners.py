@@ -72,7 +72,7 @@ class RecordedMassSpecResult:
     """Completion exposed only after result and event associations are saved."""
 
     run_id: int
-    cluster_id: int
+    cluster_id: int | None
     pathway_ids: tuple[int, ...]
     result_id: int
     result: MassSpecFinalResult
@@ -84,7 +84,7 @@ class RecordedFailure:
 
     failure_id: int
     run_id: int
-    cluster_id: int
+    cluster_id: int | None
     pathway_ids: tuple[int, ...]
 
 
@@ -110,7 +110,21 @@ class RecordingMassSpecIterator:
     Consumers own diagnostics for errors in their own processing code.
     """
 
-    def __init__(self, db, prepared, group, N, *, max_batch_items=512, **options):
+    def __init__(
+        self,
+        db,
+        run_id,
+        mass_spec,
+        substance,
+        N,
+        *,
+        cluster_id=None,
+        pathway_id=None,
+        pathway_ids=(),
+        tree_cluster_ids=None,
+        max_batch_items=512,
+        **options,
+    ):
         from apitofsim.api import mass_spec_iter
 
         self.max_batch_items = index(max_batch_items)
@@ -118,21 +132,30 @@ class RecordingMassSpecIterator:
             raise ValueError("max_batch_items must be positive")
         self._ready = deque()
         self.db = db
-        self.prepared = prepared
-        self.group = group
+        self.run_id = run_id
+        self.cluster_id = cluster_id
+        self.pathway_id = pathway_id
+        self.pathway_ids = tuple(pathway_ids)
+        self.tree_result_id = None
+        if hasattr(substance, "tree_nodes") and tree_cluster_ids is None:
+            raise ValueError(
+                "Tree execution requires tree_cluster_ids (payload index to cluster ID)"
+            )
+        if tree_cluster_ids is not None:
+            self.tree_result_id = db.start_tree_result(
+                run_id, cluster_id, substance, tree_cluster_ids, self.pathway_ids
+            )
         self.result = None
         self.failure: RecordedFailure | None = None
         self._done = False
         self._stream = None
         self._recorder = (
-            EventRecorder(db, group.pathway_ids)
+            EventRecorder(db, self.pathway_ids, result_id=self.tree_result_id)
             if isinstance(db, RealizationDatabase)
             else None
         )
         try:
-            self._stream = mass_spec_iter(
-                prepared.mass_spec, group.substance, N, **options
-            )
+            self._stream = mass_spec_iter(mass_spec, substance, N, **options)
         except BaseException as error:
             self._abort(error)
             raise
@@ -177,18 +200,20 @@ class RecordingMassSpecIterator:
                 raise RuntimeError("Simulation ended without a final result") from None
             if isinstance(item, MassSpecFinalResult):
                 result_id = self.db.record_result(
-                    self.prepared.run_id,
+                    self.run_id,
                     item.counters,
                     item.timings,
-                    cluster_id=self.group.cluster_id,
-                    pathway_ids=self.group.pathway_ids,
+                    cluster_id=self.cluster_id,
+                    pathway_id=self.pathway_id,
+                    pathway_ids=self.pathway_ids,
+                    tree_result_id=self.tree_result_id,
                 )
                 if self._recorder is not None:
                     self._recorder.relate_realizations(result_id)
                 self.result = RecordedMassSpecResult(
-                    self.prepared.run_id,
-                    self.group.cluster_id,
-                    self.group.pathway_ids,
+                    self.run_id,
+                    self.cluster_id,
+                    self.pathway_ids,
                     result_id,
                     item,
                 )
@@ -231,25 +256,39 @@ class RecordingMassSpecIterator:
         failure_id = self._cleanup_step(
             error,
             lambda: self.db.record_failure(
-                self.prepared.run_id,
+                self.run_id,
                 type(error).__name__,
                 str(error),
                 error.current if isinstance(error, ApiTofOverflowError) else None,  # pyright: ignore [reportAttributeAccessIssue]
-                cluster_id=self.group.cluster_id,
+                cluster_id=self.cluster_id,
+                pathway_id=self.pathway_id,
             ),
         )
         if failure_id is not None:
+            if self.tree_result_id is not None:
+                self._cleanup_step(
+                    error,
+                    lambda: self.db.db.execute(
+                        "update cluster_tree_experiment_result set failure_id = ? where id = ?",
+                        [failure_id, self.tree_result_id],
+                    ),
+                )
             self.failure = RecordedFailure(
                 failure_id,
-                self.prepared.run_id,
-                self.group.cluster_id,
-                self.group.pathway_ids,
+                self.run_id,
+                self.cluster_id,
+                self.pathway_ids,
             )
             error.__dict__["_apitofsim_recorded_failure"] = self.failure
             if self._recorder is not None:
                 recorder = self._recorder
                 self._cleanup_step(
-                    error, lambda: recorder.relate_realizations(failure_id)
+                    error,
+                    lambda: recorder.relate_realizations(
+                        self.tree_result_id
+                        if self.tree_result_id is not None
+                        else failure_id
+                    ),
                 )
 
     def __enter__(self):
@@ -863,9 +902,12 @@ class ExperimentRunner:
             raise ValueError("Prepared inputs/group must belong to this runner")
         return RecordingMassSpecIterator(
             self.db,
-            prepared,
-            group,
+            prepared.run_id,
+            prepared.mass_spec,
+            group.substance,
             N,
+            cluster_id=group.cluster_id,
+            pathway_ids=group.pathway_ids,
             max_batch_items=max_batch_items,
             sample_mode=sample_mode,
             strict=strict_dos,
@@ -877,92 +919,56 @@ class ExperimentRunner:
         self,
         mass_spec,
         subs,
-        *args,
+        N,
+        *,
         pathway_id=None,
         cluster_id=None,
         pathway_ids=None,
-        product_ids=None,
         tree_cluster_ids=None,
         strict=False,
         strict_dos=True,
         loglevel=0,
-        **kwargs,
+        sample_mode=SampleMode.rejection,
+        seed=42,
+        max_batch_items=512,
+        result_callback=None,
+        log_callback=None,
     ):
+        """Run to completion using the same batched recorder as streaming runs."""
         self._guard_run_started()
         if pathway_id is None and cluster_id is None:
             raise ValueError("Either pathway_id or cluster_id must be provided")
-        from apitofsim.api import mass_spec as _mass_spec
-
-        if hasattr(subs, "tree_nodes") and tree_cluster_ids is None:
-            raise ValueError(
-                "Tree execution requires tree_cluster_ids (payload index to cluster ID)"
-            )
-        tree_result_id = None
-        if tree_cluster_ids is not None:
-            tree_result_id = self.db.start_tree_result(
-                self.current_run_id, cluster_id, subs, tree_cluster_ids, pathway_ids
-            )
-        event_recorder = None
-
-        if isinstance(self.db, RealizationDatabase):
-            event_recorder = EventRecorder(
-                self.db,
-                pathway_ids if pathway_ids is not None else [pathway_id],
-                result_id=tree_result_id,
-            )
-            logconf = (loglevel, True)
-        else:
-            logconf = (loglevel, False)
-
-        counters = None
         try:
-            counters, timings = _mass_spec(
+            with RecordingMassSpecIterator(
+                self.db,
+                self.current_run_id,
                 mass_spec,
                 subs,
-                *args,
-                **kwargs,
-                logconf=logconf,
-                event_callback=event_recorder,
-                named_tuple_counters=True,
-                output_timings=True,
+                N,
+                cluster_id=cluster_id,
+                pathway_id=pathway_id,
+                pathway_ids=pathway_ids if pathway_ids is not None else (pathway_id,),
+                tree_cluster_ids=tree_cluster_ids,
+                max_batch_items=max_batch_items,
+                sample_mode=sample_mode,
+                seed=seed,
                 strict=strict_dos,
-            )
-        except BaseException as e:
-            if tree_result_id is None and (strict or not isinstance(e, ApiTofError)):
+                logconf=(loglevel, isinstance(self.db, RealizationDatabase)),
+            ) as stream:
+                for item in stream:
+                    if (
+                        isinstance(item, MassSpecIntermediateCounter)
+                        and result_callback
+                    ):
+                        result_callback(item.counters)
+                    elif isinstance(item, MassSpecLogItem) and log_callback:
+                        log_callback(item.type, item.name)
+                    elif isinstance(item, RecordedMassSpecResult):
+                        return item.result.counters
+        except ApiTofError:
+            if strict:
                 raise
-            overflow_requested = None
-            if isinstance(e, ApiTofOverflowError):
-                overflow_requested = e.current  # pyright: ignore [reportAttributeAccessIssue]
-            experiment_result_id = self.db.record_failure(
-                self.current_run_id,
-                type(e).__name__,
-                str(e),
-                overflow_requested,
-                pathway_id=pathway_id,
-                cluster_id=cluster_id,
-            )
-            if tree_result_id is not None:
-                self.db.db.execute(
-                    "update cluster_tree_experiment_result set failure_id = ? where id = ?",
-                    [experiment_result_id, tree_result_id],
-                )
-                if strict or not isinstance(e, ApiTofError):
-                    raise
-        else:
-            experiment_result_id = self.db.record_result(
-                self.current_run_id,
-                counters,
-                timings,
-                pathway_id=pathway_id,
-                pathway_ids=pathway_ids,
-                cluster_id=cluster_id,
-                tree_result_id=tree_result_id,
-            )
-        if event_recorder is not None:
-            event_recorder.relate_realizations(
-                tree_result_id if tree_result_id is not None else experiment_result_id
-            )
-        return counters
+        return None
 
     def _prepare_from_config(
         self,
