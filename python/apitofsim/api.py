@@ -36,6 +36,8 @@ from .apitofsimraw import (
     PostCollisionEvent,
     PostFragmentationEvent,
     SampleMode,
+    VibEnergyIndex,
+    VibEnergyMode,
 )
 from .apitofsimraw import (
     AtomLikeCluster as _AtomLikeCluster,
@@ -139,6 +141,8 @@ __all__ = [
     # Enums
     "MeshMode",
     "SampleMode",
+    "VibEnergyIndex",
+    "VibEnergyMode",
     "CollisionTimeMethod",
     "CollisionTimeOptions",
     # Defaults
@@ -697,6 +701,7 @@ def MassSpecSubstanceSingleInput(*args, **kwargs):
                 ),
                 rate_const=get("rate_const", 5).into_cpp(mass_spec_stage=True),
                 fragmentation_energy=fragmentation_energy,
+                vib_index=kwargs.get("vib_index"),
                 cluster_charge_sign=get(
                     "cluster_charge_sign", 7, defaults.cluster_charge_sign
                 ),
@@ -704,6 +709,7 @@ def MassSpecSubstanceSingleInput(*args, **kwargs):
         else:
             return _MassSpecSubstanceSingleInput(
                 cluster_0=get("cluster_0", 0).into_cpp(),
+                vib_index=kwargs.get("vib_index"),
                 pathways=get("pathways", 1),
                 gas=get("gas", 2).into_cpp(),
                 density_cluster=get("density_cluster", 3).into_cpp(
@@ -719,7 +725,8 @@ def MassSpecSubstanceSingleInput(*args, **kwargs):
             m_ion=get("m_ion", 1),
             R_cluster=get("R_cluster", 2),
             density_cluster=get("density_cluster", 3).into_cpp(mass_spec_stage=True),
-            pathway=get("pathway", 4),
+            pathways=get("pathways", 4),
+            vib_index=kwargs.get("vib_index"),
             gas=get("gas", 5).into_cpp(),
         )
 
@@ -750,6 +757,7 @@ def MSSubstanceTreeCluster(*args, **kwargs):
         return _MSSubstanceTreeCluster(
             cluster_0.into_cpp(),
             density_cluster.into_cpp(mass_spec_stage=True),
+            vib_index=kwargs.get("vib_index"),
         )
     else:
         m_ion = get("m_ion", 0)
@@ -759,6 +767,7 @@ def MSSubstanceTreeCluster(*args, **kwargs):
             m_ion,
             R_cluster,
             density_cluster.into_cpp(mass_spec_stage=True),
+            vib_index=kwargs.get("vib_index"),
         )
 
 

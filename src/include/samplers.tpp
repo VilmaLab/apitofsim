@@ -4,6 +4,9 @@
 #include <iostream>
 #include <random>
 #include "consts.h"
+#include "vib_index.h"
+#include <algorithm>
+#include <vector>
 #include "exceptions.h"
 
 
@@ -211,7 +214,7 @@ struct VibEnergySamplerBase
   std::reference_wrapper<const Histogram> density_cluster;
   std::uniform_real_distribution<double> unif = std::uniform_real_distribution<>(0.0, 1.0);
 
-  VibEnergySamplerBase(const Histogram &density_cluster) : density_cluster(density_cluster)
+  VibEnergySamplerBase(const Histogram &density_cluster, const VibIndexPtr & /*unused*/ = {}) : density_cluster(density_cluster)
   {
   }
 
@@ -220,30 +223,26 @@ struct VibEnergySamplerBase
     return density_cluster.get();
   }
 
-  // Draw translational energy of cluster after the impact with carrier gas
-  // Here we are considering a constant density of states for vibrational mode, i.e. a single vibration (simplified model)
-  double normalization(double E) const
+  void check_energy(double E) const
   {
-    using consts::boltzmann;
-
     if (!std::isfinite(E) || E < 0)
     {
       throw ApiTofArgumentError("Available vibrational energy must be finite and nonnegative");
     }
-    if (E == 0)
-    {
-      return 0;
-    }
 
     if (E > density().x_max())
     {
-      throw ApiTofDosOverflow(density().x_max(), E / boltzmann);
+      throw ApiTofDosOverflow(density().x_max(), E / consts::boltzmann);
     }
+  }
 
+  double normalization(double E) const
+  {
+    check_energy(E);
     // 1st step: I evaluate the integral (normalization)
     double normalization = 0.0;
     int m = 0;
-    while (density().x()[m] < E)
+    while (m < density().length() && density().x()[m] < E)
     {
       normalization += sqrt(E - density().x()[m]) * density().y()[m];
       m++;
@@ -269,13 +268,17 @@ struct VibEnergyNormSampler : VibEnergySamplerBase
     // 2nd step: I evaluate the random transferred energy to the cluster
     double r = unif(gen);
     double integral = 0.0;
-    int m = 0;
-    while (integral < r)
+    double last = 0;
+    for (int m = 0; m < density().length() && density().x()[m] < E; ++m)
     {
-      integral += sqrt(E - density().x()[m]) * density().y()[m] / nc;
-      m++;
+      if (density().y()[m] == 0)
+        continue;
+      last = density().x()[m];
+      integral += sqrt(E - last) * density().y()[m] / nc;
+      if (integral >= r)
+        break;
     }
-    return density().x()[m - 1];
+    return last;
   }
 };
 
@@ -295,12 +298,118 @@ struct VibEnergyUnnormSampler : VibEnergySamplerBase
     // 2nd step: I evaluate the random transferred energy to the cluster
     double r_unnorm = unif(gen) * nc;
     double integral_unnorm = 0.0;
-    int m = 0;
-    while (integral_unnorm < r_unnorm)
+    double last = 0;
+    for (int m = 0; m < density().length() && density().x()[m] < E; ++m)
     {
-      integral_unnorm += sqrt(E - density().x()[m]) * density().y()[m];
-      m++;
+      if (density().y()[m] == 0)
+        continue;
+      last = density().x()[m];
+      integral_unnorm += sqrt(E - last) * density().y()[m];
+      if (integral_unnorm >= r_unnorm)
+        break;
     }
-    return density().x()[m - 1];
+    return last;
+  }
+};
+
+struct VibEnergyDosSampler : VibEnergySamplerBase
+{
+  const Eigen::ArrayXd *cdf;
+  Eigen::Index first;
+
+  VibEnergyDosSampler(const Histogram &density, const VibIndexPtr &index) : VibEnergySamplerBase(density), cdf(&index->data),
+                                                                            first(std::upper_bound(cdf->data(), cdf->data() + cdf->size(), 0.) - cdf->data())
+  {
+  }
+
+  template <typename GenT>
+  double sample(GenT &gen, double E)
+  {
+    check_energy(E);
+    const auto x = density().x();
+    const auto count = std::lower_bound(x.data(), x.data() + x.size(), E) - x.data();
+    if (first >= count)
+      return 0;
+    const double total = (*cdf)[count - 1];
+    while (true)
+    {
+      double draw = std::min(unif(gen) * total, std::nextafter(total, 0.));
+      auto bin = std::upper_bound(cdf->data(), cdf->data() + count, draw) - cdf->data();
+      double u = unif(gen);
+      if (u * u * (E - x[first]) < E - x[bin])
+        return x[bin];
+    }
+  }
+};
+
+struct VibEnergyGroupSampler : VibEnergySamplerBase
+{
+  struct Group
+  {
+    Eigen::Index node;
+    double residual;
+    double weight;
+  };
+  const Eigen::ArrayXd *tree;
+  std::vector<Group> groups;
+
+  VibEnergyGroupSampler(const Histogram &density, const VibIndexPtr &index) : VibEnergySamplerBase(density), tree(&index->data)
+  {
+  }
+
+  void cover(Eigen::Index node, Eigen::Index lo, Eigen::Index hi, double E)
+  {
+    const auto x = density().x();
+    if (lo >= x.size() || E <= x[lo] || !std::isfinite((*tree)[node]))
+      return;
+    double residual = E - x[lo];
+    if (hi <= x.size() && residual <= 2 * (E - x[hi - 1]))
+    {
+      groups.push_back({node, residual, (*tree)[node] + (0.5 * std::log(residual))});
+      return;
+    }
+    const auto mid = lo + ((hi - lo) / 2);
+    cover(2 * node, lo, mid, E);
+    cover((2 * node) + 1, mid, hi, E);
+  }
+
+  template <typename GenT>
+  double sample(GenT &gen, double E)
+  {
+    check_energy(E);
+    groups.clear();
+    auto leaves = tree->size() / 2;
+    cover(1, 0, leaves, E);
+    if (groups.empty())
+      return 0;
+    // Scale only the current cover before forming its small proposal CDF.
+    const double peak = std::ranges::max_element(groups, {}, &Group::weight)->weight;
+    double total = 0;
+    for (auto &group : groups)
+    {
+      total += std::exp(group.weight - peak);
+      group.weight = total;
+    }
+    while (true)
+    {
+      double draw = std::min(unif(gen) * total, std::nextafter(total, 0.));
+      const auto &group = *std::ranges::upper_bound(groups, draw, {}, &Group::weight);
+      auto node = group.node;
+      while (node < leaves)
+      {
+        auto left = 2 * node;
+        auto right = left + 1;
+        // Test the lighter child directly: the heavier probability may round to one.
+        bool left_lighter = (*tree)[left] <= (*tree)[right];
+        auto lighter = left_lighter ? left : right;
+        auto heavier = left_lighter ? right : left;
+        double prob_lighter = std::exp((*tree)[lighter] - (*tree)[node]);
+        node = unif(gen) < prob_lighter ? lighter : heavier;
+      }
+      double x = density().x()[node - leaves];
+      double u = unif(gen);
+      if (u * u * group.residual < E - x)
+        return x;
+    }
   }
 };

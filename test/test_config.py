@@ -299,6 +299,10 @@ k_total_mesh_mode = "no_mesh"
         ({"simulation": {"simulation_mode": "invalid"}}, "simulation_mode.*expected"),
         ({"simulation": {"sample_mode": "invalid"}}, "sample_mode.*expected"),
         (
+            {"simulation": {"vib_energy_sampler": "invalid"}},
+            "vib_energy_sampler.*expected",
+        ),
+        (
             {"simulation": {"k_total_mesh_mode": "invalid"}},
             "k_total_mesh_mode.*expected",
         ),
@@ -386,7 +390,8 @@ def test_preparation_uses_simulation_options(inputs, monkeypatch, mesh_mode):
 @pytest.mark.parametrize(
     "mode", ["single-cluster", "pathway-at-a-time", "cluster-tree"]
 )
-def test_runner_uses_configured_mode_and_sampling(inputs, monkeypatch, mode):
+@pytest.mark.parametrize("vib_mode", ["direct", "dos-only", "group-dos"])
+def test_runner_uses_configured_mode_and_sampling(inputs, monkeypatch, mode, vib_mode):
     from apitofsim.api import CollisionTimeMethod, SampleMode
     from apitofsim.workflow.base import SimulationMode
 
@@ -394,6 +399,7 @@ def test_runner_uses_configured_mode_and_sampling(inputs, monkeypatch, mode):
         **{**inputs, "N": 1, "bin_width": Q_(1000, "K")},
         simulation_mode=mode,
         sample_mode="dss_normalized",
+        vib_energy_sampler=vib_mode,
         collision_time_method="legacy",
         hazard_atol=4e-8,
         hazard_rtol=2e-6,
@@ -467,3 +473,15 @@ def test_simulation_mode_matches_cli(inputs, value):
     assert import_raw_config({"simulation": {"simulation_mode": value}}) == {
         "simulation_mode": config["simulation_mode"]
     }
+
+
+def test_vibrational_index_dynamic_range():
+    from apitofsim.api import VibEnergyMode
+    from apitofsim.workflow import DerivedDataPreparer
+
+    density = np.array([1e308, 0.0, 1e308])
+    with pytest.raises(ValueError, match="overflow for cluster 17"):
+        DerivedDataPreparer._build_vib_index(VibEnergyMode.dos_only, density, 17)
+    tree = DerivedDataPreparer._build_vib_index(VibEnergyMode.group_dos, density, 17)
+    assert tree[1] == pytest.approx(np.log(1e308) + np.log(2))
+    assert tree[5] == tree[7] == -np.inf

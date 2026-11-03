@@ -1,3 +1,6 @@
+#include "vib_index.h"
+#include <algorithm>
+#include <utility>
 #include <Eigen/Dense>
 #include "consts.h"
 
@@ -42,4 +45,37 @@ double distr_theta(double theta, double n, double mobility_gas, double mobility_
 double distr_u(double u, double theta, double n, double mobility_gas, double mobility_gas_inv, double R, double v)
 {
   return coll_freq_theta_u(u, theta, n, mobility_gas_inv, R, v) / coll_freq_theta(theta, n, mobility_gas, mobility_gas_inv, R, v);
+}
+
+VibEnergyIndex::VibEnergyIndex(VibEnergyMode mode, Eigen::ArrayXd values)
+    : mode(mode), data(std::move(values))
+{
+  if (mode == VibEnergyMode::dos_only && data.size() != 0 && data.allFinite() && data[0] >= 0 &&
+      std::is_sorted(data.data(), data.data() + data.size()))
+  {
+    return;
+  }
+  if (mode == VibEnergyMode::group_dos && data.size() >= 4 && std::has_single_bit(static_cast<size_t>(data.size())) &&
+      !data.isNaN().any() && (data < std::numeric_limits<double>::infinity()).all())
+  {
+    for (Eigen::Index node = 1; node < data.size() / 2; ++node)
+    {
+      bool has_child = std::isfinite(data[2 * node]) || std::isfinite(data[(2 * node) + 1]);
+      if (has_child != std::isfinite(data[node]))
+      {
+        throw ApiTofArgumentError("DOS tree contains inconsistent empty nodes");
+      }
+    }
+    return;
+  }
+  throw ApiTofArgumentError("Invalid prepared vibrational DOS index");
+}
+
+void VibEnergyIndex::check_length(int bins) const
+{
+  size_t expected = mode == VibEnergyMode::dos_only ? static_cast<size_t>(bins) : 2 * std::bit_ceil(static_cast<size_t>(bins));
+  if (std::cmp_not_equal(data.size(), expected))
+  {
+    throw ApiTofArgumentError("Vibrational DOS index length does not match histogram");
+  }
 }

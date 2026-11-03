@@ -436,6 +436,7 @@ class SuperClusterDatabase(ClusterDatabase):
     TABLES = [
         sql_files.pathway,
         sql_files.histograms,
+        sql_files.vib_energy_index,
     ]
     VIEWS = [
         sql_files.pathway_report,
@@ -443,6 +444,13 @@ class SuperClusterDatabase(ClusterDatabase):
 
     def __init__(self, filename, **kwargs):
         super().__init__(filename, **kwargs)
+
+    def ensure_vib_index_cache(self):
+        # Existing read-only databases can serve warmed indexes without any DDL.
+        try:
+            self.db.table("vib_energy_index")
+        except duckdb.CatalogException:
+            self.db.execute(sql_files.vib_energy_index)
 
     def get_histogram_params(self, histogram_id):
         row = (
@@ -615,6 +623,7 @@ class ExperimentDatabase(SuperClusterDatabase):
     TABLES = [
         sql_files.pathway,
         sql_files.histograms,
+        sql_files.vib_energy_index,
         sql_files.experiment,
     ]
     VIEWS = [
@@ -1143,6 +1152,8 @@ class ExperimentDatabase(SuperClusterDatabase):
                 self.db.execute(f"truncate {tbl}")
 
         if derived:
+            if "vib_energy_index" in self.db.sql("show tables").fetchnumpy()["name"]:
+                self.db.execute("truncate vib_energy_index")
             for tbl in ["cluster_dos", "products_dos", "k_rate"]:
                 self.db.execute(f"truncate {tbl}")
 
@@ -1163,6 +1174,7 @@ class RealizationDatabase(ExperimentDatabase):
     TABLES = [
         sql_files.pathway,
         sql_files.histograms,
+        sql_files.vib_energy_index,
         sql_files.experiment,
         sql_files.realizations,
     ]

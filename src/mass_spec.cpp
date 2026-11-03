@@ -98,11 +98,11 @@ MassSpecSubstanceSingleInput::MassSpecSubstanceSingleInput(
   const Histogram &density_cluster,
   const Histogram &rate_const,
   std::optional<double> fragmentation_energy,
-  int cluster_charge_sign) : MassSpecSubstanceSingleInput(compute_derived(cluster_0),
-                                                          cluster_charge_sign,
-                                                          density_cluster,
-                                                          {MassSpecInputFragmentationPathway(cluster_0, cluster_1, cluster_2, rate_const, fragmentation_energy)},
-                                                          gas)
+  int cluster_charge_sign, VibIndexPtr vib_index) : MassSpecSubstanceSingleInput(compute_derived(cluster_0),
+                                                                                 cluster_charge_sign,
+                                                                                 density_cluster,
+                                                                                 {MassSpecInputFragmentationPathway(cluster_0, cluster_1, cluster_2, rate_const, fragmentation_energy)},
+                                                                                 gas, std::move(vib_index))
 {
 }
 
@@ -111,12 +111,13 @@ MassSpecSubstanceSingleInput::MassSpecSubstanceSingleInput(
   int cluster_charge_sign,
   const Histogram &density_cluster,
   std::vector<MassSpecInputFragmentationPathway> pathways,
-  Gas gas) : cluster_charge_sign(cluster_charge_sign),
-             m_ion(derived.mass),
-             R_cluster(derived.radius),
-             density_cluster(density_cluster),
-             pathways(pathways),
-             gas(gas)
+  Gas gas, VibIndexPtr vib_index) : cluster_charge_sign(cluster_charge_sign),
+                                    m_ion(derived.mass),
+                                    R_cluster(derived.radius),
+                                    density_cluster(density_cluster),
+                                    vib_index(std::move(vib_index)),
+                                    pathways(pathways),
+                                    gas(gas)
 {
 }
 
@@ -126,12 +127,13 @@ MassSpecSubstanceSingleInput::MassSpecSubstanceSingleInput(
   double R_cluster,
   const Histogram density_cluster,
   const std::vector<MassSpecInputFragmentationPathway> pathways,
-  const Gas gas) : cluster_charge_sign(cluster_charge_sign),
-                   m_ion(m_ion),
-                   R_cluster(R_cluster),
-                   density_cluster(density_cluster),
-                   pathways(pathways),
-                   gas(gas)
+  const Gas gas, VibIndexPtr vib_index) : cluster_charge_sign(cluster_charge_sign),
+                                          m_ion(m_ion),
+                                          R_cluster(R_cluster),
+                                          density_cluster(density_cluster),
+                                          vib_index(std::move(vib_index)),
+                                          pathways(pathways),
+                                          gas(gas)
 {
 }
 
@@ -140,34 +142,34 @@ MassSpecSubstanceSingleInput::MassSpecSubstanceSingleInput(
   const std::vector<MassSpecInputFragmentationPathway> pathways,
   Gas gas,
   const Histogram &density_cluster,
-  int cluster_charge_sign) : MassSpecSubstanceSingleInput(compute_derived(cluster_0),
-                                                          cluster_charge_sign,
-                                                          density_cluster,
-                                                          pathways,
-                                                          gas)
+  int cluster_charge_sign, VibIndexPtr vib_index) : MassSpecSubstanceSingleInput(compute_derived(cluster_0),
+                                                                                 cluster_charge_sign,
+                                                                                 density_cluster,
+                                                                                 pathways,
+                                                                                 gas, std::move(vib_index))
 {
 }
 
 MSSubstanceTreeCluster::MSSubstanceTreeCluster(
   double m_ion,
   double R_cluster,
-  const Histogram density_cluster) : m_ion(m_ion),
-                                     R_cluster(R_cluster),
-                                     density_cluster(density_cluster)
+  const Histogram density_cluster, VibIndexPtr vib_index) : m_ion(m_ion),
+                                                            R_cluster(R_cluster),
+                                                            density_cluster(density_cluster), vib_index(std::move(vib_index))
 {
 }
 
 MSSubstanceTreeCluster::MSSubstanceTreeCluster(
   const MolecularCluster &cluster_0,
-  const Histogram density_cluster) : MSSubstanceTreeCluster(compute_derived(cluster_0), density_cluster)
+  const Histogram density_cluster, VibIndexPtr vib_index) : MSSubstanceTreeCluster(compute_derived(cluster_0), density_cluster, std::move(vib_index))
 {
 }
 
 MSSubstanceTreeCluster::MSSubstanceTreeCluster(
   const ClusterDerived &derived,
-  const Histogram density_cluster) : m_ion(derived.mass),
-                                     R_cluster(derived.radius),
-                                     density_cluster(density_cluster)
+  const Histogram density_cluster, VibIndexPtr vib_index) : m_ion(derived.mass),
+                                                            R_cluster(derived.radius),
+                                                            density_cluster(density_cluster), vib_index(std::move(vib_index))
 {
 }
 
@@ -246,11 +248,35 @@ SimulationResult apitof_mass_spec(
   const unsigned long long root_seed,
   StreamingResultQueue &result_queue,
   GasCollSamplerT gas_coll_sampler,
-  // VibEnergySamplerT vib_energy_sampler,
   const bool strict,
   const MassSpecLogConf logconf,
   OperationContext &operation,
   const CollisionTimeOptions &collision_time);
+
+template <typename Cluster>
+static VibEnergyMode cluster_vib_mode(const Cluster &cluster)
+{
+  if (!cluster.vib_index)
+    return VibEnergyMode::direct;
+  cluster.vib_index->check_length(cluster.density_cluster.length());
+  return cluster.vib_index->mode;
+}
+
+static VibEnergyMode vibrational_mode(const MassSpecSubstanceSingleInput &subs)
+{
+  return cluster_vib_mode(subs);
+}
+
+static VibEnergyMode vibrational_mode(const MassSpecSubstanceTreeInput &subs)
+{
+  if (subs.cluster_payloads.empty())
+    throw ApiTofArgumentError("Missing tree cluster payloads");
+  const auto mode = cluster_vib_mode(subs.cluster_payloads.front());
+  for (const auto &cluster : subs.cluster_payloads)
+    if (cluster_vib_mode(cluster) != mode)
+      throw ApiTofArgumentError("Tree cluster payloads must use the same vibrational sampler");
+  return mode;
+}
 
 template <typename MassSpecSubstanceT>
 SimulationResult apitof_mass_spec(
@@ -272,48 +298,29 @@ SimulationResult apitof_mass_spec(
   double boundary_u = 5.0 * sqrt(mobility_gas);
   const double du = 1.0e-4 * sqrt(mobility_gas);
   const double dtheta = 1.0e-3;
+  const auto vib_mode = vibrational_mode(subs);
+  auto dispatch = [&]<typename DirectSampler, typename GasSampler>(GasSampler gas_sampler)
+  {
+    auto run = [&]<typename VibSampler>()
+    {
+      return apitof_mass_spec<GasSampler, VibSampler>(mass_spec, subs, N, root_seed, result_queue, gas_sampler, strict, logconf, operation, collision_time);
+    };
+    switch (vib_mode)
+    {
+    case VibEnergyMode::dos_only:
+      return run.template operator()<VibEnergyDosSampler>();
+    case VibEnergyMode::group_dos:
+      return run.template operator()<VibEnergyGroupSampler>();
+    default:
+      return run.template operator()<DirectSampler>();
+    }
+  };
   if (sample_mode == SampleMode::dss_normalized)
-  {
-    return apitof_mass_spec<GasCollCondNormHistDSSSampler, VibEnergyNormSampler>(
-      mass_spec,
-      subs,
-      N,
-      root_seed,
-      result_queue,
-      GasCollCondNormHistDSSSampler(dtheta, du, boundary_u),
-      // VibEnergyNormSampler(subs.density_cluster),
-      strict,
-      logconf,
-      operation, collision_time);
-  }
-  else if (sample_mode == SampleMode::dss_unnormalized)
-  {
-    return apitof_mass_spec<GasCollCondUnnormHistDSSSampler, VibEnergyUnnormSampler>(
-      mass_spec,
-      subs,
-      N,
-      root_seed,
-      result_queue,
-      GasCollCondUnnormHistDSSSampler(dtheta, du, boundary_u),
-      // VibEnergyUnnormSampler(subs.density_cluster),
-      strict,
-      logconf,
-      operation, collision_time);
-  }
-  else if (sample_mode == SampleMode::rejection)
-  {
-    return apitof_mass_spec<GasCollRejectionSampler, VibEnergyNormSampler>(
-      mass_spec,
-      subs,
-      N,
-      root_seed,
-      result_queue,
-      GasCollRejectionSampler(boundary_u),
-      // VibEnergyNormSampler(subs.density_cluster),
-      strict,
-      logconf,
-      operation, collision_time);
-  }
+    return dispatch.template operator()<VibEnergyNormSampler>(GasCollCondNormHistDSSSampler(dtheta, du, boundary_u));
+  if (sample_mode == SampleMode::dss_unnormalized)
+    return dispatch.template operator()<VibEnergyUnnormSampler>(GasCollCondUnnormHistDSSSampler(dtheta, du, boundary_u));
+  if (sample_mode == SampleMode::rejection)
+    return dispatch.template operator()<VibEnergyNormSampler>(GasCollRejectionSampler(boundary_u));
   else
   {
     throw ApiTofArgumentError([&](auto &msg)
@@ -689,7 +696,7 @@ SimulationResult apitof_mass_spec(
   OperationContext &operation,
   const CollisionTimeOptions &collision_time)
 {
-  VibEnergySamplerT vib_energy_sampler = VibEnergySamplerT(subs.density_cluster);
+  VibEnergySamplerT vib_energy_sampler = VibEnergySamplerT(subs.density_cluster, subs.vib_index);
   const ChamberQuantities chamber(ms, subs.gas);
   const SubstanceQuantities subquants(ms, chamber, subs);
 
@@ -908,7 +915,6 @@ SimulationResult apitof_mass_spec(
   const unsigned long long root_seed,
   StreamingResultQueue &result_queue,
   GasCollSamplerT gas_coll_sampler,
-  // VibEnergySamplerT vib_energy_sampler,
   const bool strict,
   const MassSpecLogConf logconf,
   OperationContext &operation,
@@ -967,7 +973,7 @@ SimulationResult apitof_mass_spec(
       };
       int ncoll = 0;
       double coll_z = 0.0;
-      VibEnergySamplerT vib_energy_sampler{subpayload.density_cluster};
+      VibEnergySamplerT vib_energy_sampler{subpayload.density_cluster, subpayload.vib_index};
       int last_pathway_index = -1;
 
       if (logconf.log_events && operation.should_continue())
@@ -1033,7 +1039,7 @@ SimulationResult apitof_mass_spec(
             particle.velocity = Eigen::Vector3d::Zero();
             particle.omega = Eigen::Vector3d::Zero();
             particle.vibrational_energy = 0;
-            vib_energy_sampler = VibEnergySamplerT(subs.cluster_payloads[subpayload_index].density_cluster);
+            vib_energy_sampler = VibEnergySamplerT(subs.cluster_payloads[subpayload_index].density_cluster, subs.cluster_payloads[subpayload_index].vib_index);
             if (logconf.log_events && operation.should_continue())
             {
               result_queue.enqueue(PostFragmentationEvent{snapshot(j, particle, all_subquants[subpayload_index].inertia, subnode_index)});

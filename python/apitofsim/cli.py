@@ -165,6 +165,7 @@ def prepare(mode, config, database, db_type, ase, warm):
     tolerance = 1e-8
     simulation_mode = "single-cluster"
     sample_mode = "rejection"
+    vib_energy_sampler = "direct"
     use_old_dos_impl = false
     k_total_mesh_mode = "compute_mesh_diagonal_multithreaded"
     \b

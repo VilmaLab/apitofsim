@@ -1171,3 +1171,41 @@ TEST_CASE("RF flight converges to independent trajectory at nonzero entry phase"
   CHECK(collision_time({}) == doctest::Approx(0.37).epsilon(1e-7));
   CHECK(std::abs(collision_time({CollisionTimeMethod::integrated_hazard, 1, 1e-9}) - 0.37) > 1e-5);
 }
+
+TEST_CASE("Prepared vibrational samplers share the discrete energy law")
+{
+  Eigen::ArrayXd x(5), y(5);
+  x << 1, 3, 5, 7, 9;
+  y << 0, 2, 0, 4, 1;
+  Histogram density(x, y);
+  Eigen::ArrayXd cdf(5), tree(16);
+  cdf << 0, 2, 2, 6, 7;
+  tree << 0, 7, 6, 1, 2, 4, 1, 0, 0, 2, 0, 4, 1, 0, 0, 0;
+  // Zero-mass nodes (including padded leaves) are represented by -infinity.
+  for (auto &v : tree)
+    v = v > 0 ? std::log(v) : -std::numeric_limits<double>::infinity();
+  auto check = [&](auto &sampler)
+  {
+    std::mt19937 gen(15);
+    CHECK(sampler.sample(gen, 0) == 0);
+    CHECK(sampler.sample(gen, 3) == 0);
+    CHECK(sampler.sample(gen, 3.01) == 3);
+    CHECK_THROWS_AS(sampler.sample(gen, 11), ApiTofDosOverflow);
+    CHECK_THROWS_AS(sampler.sample(gen, -1), ApiTofArgumentError);
+    // The upper edge is above the last bin center. Include every accessible bin.
+    Eigen::ArrayXi counts = Eigen::ArrayXi::Zero(5);
+    for (int i = 0; i < 20000; ++i)
+    {
+      auto sample = sampler.sample(gen, 10);
+      ++counts[static_cast<int>((sample - 1) / 2)];
+    }
+    Eigen::ArrayXd weights = y * (10 - x).sqrt();
+    CHECK((counts.cast<double>() / counts.sum() - weights / weights.sum()).abs().maxCoeff() < 0.015);
+  };
+  auto cdf_index = std::make_shared<VibEnergyIndex>(VibEnergyMode::dos_only, cdf);
+  auto tree_index = std::make_shared<VibEnergyIndex>(VibEnergyMode::group_dos, tree);
+  VibEnergyDosSampler dos_sampler(density, cdf_index);
+  VibEnergyGroupSampler group_sampler(density, tree_index);
+  check(dos_sampler);
+  check(group_sampler);
+}

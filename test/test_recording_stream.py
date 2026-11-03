@@ -1268,3 +1268,37 @@ def test_pathway_failure_drains_and_links_events(prepared_case, monkeypatch):
         assert db.db.execute(
             "select count(*) from realization where experiment_result_id is null"
         ).fetchone() == (0,)
+
+
+@pytest.mark.parametrize("mode", ["dos-only", "group-dos"])
+def test_prepared_vibrational_index_cache(prepared_case, mode, monkeypatch):
+    db, runner, config, _ = prepared_case
+    # Simulate opening a database created before indexes were supported.
+    db.db.execute("drop table vib_energy_index")
+    prepare(prepared_case)
+    assert runner.preparer.vib_indexes == {}
+    db.db.execute(
+        "update cluster_dos set data = ? where cluster_id = 2", [np.full(1000, 3.0)]
+    )
+    config["vib_energy_sampler"] = mode
+    prepared = prepare(prepared_case)
+    rows = db.db.execute(
+        "select mode, data from vib_energy_index order by dos_id"
+    ).fetchall()
+    assert len(rows) == 2
+    for (name, values), mass in zip(rows, [1, 3], strict=True):
+        assert name == mode.replace("-", "_")
+        if mode == "dos-only":
+            np.testing.assert_array_equal(values, mass * np.arange(1, 1001))
+        else:
+            assert len(values) == 2048
+            assert values[1] == pytest.approx(np.log(1000 * mass))
+            assert values[-1] == -np.inf
+    monkeypatch.setattr(
+        runner.preparer,
+        "_build_vib_index",
+        lambda *args: pytest.fail("unexpected index rebuild"),
+    )
+    prepare(prepared_case)
+    assert len(runner.preparer.vib_indexes) == 2
+    assert len(list(runner.iter_mass_spec(prepared, prepared.groups[0], 2))) > 0

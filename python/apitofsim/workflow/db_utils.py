@@ -126,6 +126,9 @@ def get_through_join_else(conn, rel, proj_col, result_dict, **match_cols):
 
     iterable_match_vals = [match_cols[k] for k in iterable_match_keys]
     wanted_tbl = pa.table(iterable_match_vals, names=iterable_match_keys)
+    wanted_tbl = wanted_tbl.append_column(
+        "_wanted_order", pa.array(range(len(wanted_tbl)))
+    )
     condition = None
     for k in iterable_match_keys:
         new = duckdb.ColumnExpression(f"wanted.{k}") == duckdb.ColumnExpression(
@@ -150,14 +153,13 @@ def get_through_join_else(conn, rel, proj_col, result_dict, **match_cols):
             condition=condition,
             how="right",
         )
+        .order("wanted._wanted_order")
         .select(proj_col)
         .to_arrow_table()
     )
-    try:
-        data = data.column(proj_col).chunk(0)
-    except IndexError:
-        return
-    for match_row, value in zip(zip(*iterable_match_vals), data):
+    for match_row, value in zip(
+        zip(*iterable_match_vals), data.column(proj_col), strict=True
+    ):
         value = value.values
         if value is not None:
             # Hit: update result_dict
@@ -167,7 +169,7 @@ def get_through_join_else(conn, rel, proj_col, result_dict, **match_cols):
             result_dict[match_row] = data
         else:
             # Miss: yield the match_row for the caller to compute/insert
-            yield dict(zip(match_cols.keys(), match_row))
+            yield dict(zip(iterable_match_keys, match_row, strict=True))
 
 
 def insert_via_arrow_limitoffset(conn, table, *, chunk_size=None, **kwargs):

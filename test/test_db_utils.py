@@ -41,3 +41,20 @@ def test_roview_cow_gives_reflink_strings(database, monkeypatch):
         assert [type(arg) for call in calls for arg in call] == [str, str]
     finally:
         db.close()
+
+
+def test_cached_arrays_follow_requested_cluster_ids():
+    from apitofsim.workflow.db_utils import get_through_join_else
+
+    with duckdb.connect() as conn:
+        conn.execute(
+            "create table curves as select i as id, [i::double] as data from range(40) a(i)"
+        )
+        cached = {}
+        missing = list(
+            get_through_join_else(
+                conn, conn.table("curves"), "data", cached, id=list(reversed(range(41)))
+            )
+        )
+        assert missing == [{"id": 40}]
+        assert all(value.tolist() == [key] for key, value in cached.items())
