@@ -8,7 +8,7 @@ This package can be installed using packages from Conda or pip (wheel) or from s
 
 ### Installation using pip
 
-Visit https://github.com/VilmaLab/apitofsim/releases and find the appropriate release ending .whl for your platform, right click and copy the link address. Then run the following command in your terminal, replacing `<link>` with the copied link:
+Visit [the release page](https://github.com/VilmaLab/apitofsim/releases) and find the appropriate release ending .whl for your platform, right click and copy the link address. Then run the following command in your terminal, replacing `<link>` with the copied link:
 
     pip install <link>
 
@@ -18,7 +18,7 @@ Or using uv:
 
 ### Installation using Conda
 
-It is recommend to install this package using Conda.
+You can also install this package using Conda.
 First download [miniforge](https://github.com/conda-forge/miniforge) and then run:
 
     conda install -c https://prefix.dev/vilma apitofsim

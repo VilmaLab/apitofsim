@@ -28,7 +28,7 @@ This will compile and use the version of apitofsim you have checked out.
 
 First [install uv according to the instructions](https://docs.astral.sh/uv/getting-started/installation/).
 
-Assuming you have clone `apitofsim` and are in the root directory:
+Assuming you have cloned `apitofsim` and are in the root directory:
 
 ```bash
  $ uv sync --all-groups
@@ -37,5 +37,5 @@ Assuming you have clone `apitofsim` and are in the root directory:
 You can then run a notebook using:
 
 ```bash
- $ uv run marimo edit gas-cluster-collision-sampler.py
+ $ uv run marimo edit examples/notebooks/gas-cluster-collision-sampler.py
 ```

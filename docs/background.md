@@ -4,8 +4,8 @@ This page gives some background information on how the package works and gives r
 
 ## How does it work?
 
-The simulation runs a number of iterations with each one considering a single instance of a cluster travelling through and APi-TOF MS.
-The main simulation loop considers the distributions of the time until the next collision between the cluster and a gas molecules, the speed/angle of that collision, and the time until the cluster fragments. The main quantity of interest is the probability the cluster survives to reach the detector without fragmenting.
+The simulation runs a number of iterations with each one considering a single instance of a cluster travelling through an APi-TOF MS.
+The main simulation loop considers the distributions of the time until the next collision between the cluster and a gas molecule, the speed/angle of that collision, and the time until the cluster fragments. The main quantity of interest is the probability the cluster survives to reach the detector without fragmenting.
 
 ### Publications describing the simulation
 
@@ -27,7 +27,7 @@ The current version of the code supports sampling schemes other than the origina
 
 Two approaches to considering multiple fragmentation pathways, e.g. in order to obtain the intensities of a spectrogram, have been added.
 In the first and default, the simulation considers multiple pathways at once.
-In particular, after a collision with a gas particle, survival probability distributions are considered for all pathways, and the first to occur after sampling determines the fragmentation pathways along which the fragmentation occurs in the case that another a simulated gas collision does not happen first.
+In particular, after a collision with a gas particle, survival probability distributions are considered for all pathways, and the first to occur after sampling determines the fragmentation pathways along which the fragmentation occurs in the case that another simulated gas collision does not happen first.
 In the second, corresponding to earlier versions of the code, the simulation considers each pathway separately and uses assumptions of independence to obtain the overall survival probability as the product of the survival probabilities of each pathway.
 Beyond this, per-pathway fragmentation probabilities can be found using independence and assuming fragmentation happens in an order proportional to some measure of overall pathway fragmentation as outlined by Zanca, T. (2025)[^5].
 This second approach is available through the `--pathway-at-a-time` option.
@@ -65,7 +65,7 @@ The software has some additional features not yet described in publication or vi
 
 ## Publications using the simulation
 
-These publication make use (previous versions of) this simulation:
+These publications make use of (previous versions of) this simulation:
 
 * Alfaouri et al. (2022)[^6] used an older version of the code, without support for the quadrupole, pinhole rejection or multiple fragmentation pathways.
   In this publication, the overall rejection rate is obtained as the product of the rejection rate of individual pathways.

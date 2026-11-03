@@ -157,7 +157,7 @@ The `apitofsim.workflow` module, contains functions to keep cluster data in a da
 
 Typically an `ExperimentDatabase` is created and its tables created with `db.create_tables(...)` and then clusters are ingested e.g. with `ingest_tree(...)`.
 
-After this, multiple simulation can be run using the `ExperimentRunner` class.
+After this, multiple simulations can be run using the `ExperimentRunner` class.
 
 ### Database read queries
 

@@ -6,6 +6,6 @@ apitofsim-densityandrate < inputs/config.in
 apitofsim-mass-spec < inputs/config.in
 ```
 
-Or using `rus.sh`.
+Or using `run.sh`.
 
 Outputs are generated in `work/out` directory.

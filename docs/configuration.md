@@ -38,7 +38,7 @@ type = "csv"
 
 Next is a section `[pathways.clusters]` consisting firstly of top level keys referencing one or more sources by their name, each of which is specified secondly as `[pathways.clusters.sources.SOURCE_NAME]` where `SOURCE_NAME` is a name of your choice.
 
-#### [[pathways.clusters.source.SOURCE_NAME]]
+#### [pathways.clusters.source.SOURCE_NAME]
 
 The `SOURCE_NAME` will be used as the name of a column of the clusters CSV file given by `clusters_path` which will contain for each cluster the location of the file to import its data from. Alternatively in case several sources have a common prefix, a `prefix` column can be given and each starting with the prefix can specify and extension with `append_to_common_prefix`.
 
@@ -49,10 +49,10 @@ The `SOURCE_NAME` will be used as the name of a column of the clusters CSV file 
 | ignore_unicode_errors | This can be set to `true` to skip over invalid characters in poorly encoded or corrupted files |
 
 Types `"csv"` and `"map"` allow setting specific values inline, which can be useful, e.g. for overriding specific quantities.
-For `"map`" cluster names can be given as keys of `[[pathways.clusters.source.SOURCE_NAME]]` and values can be given inline.
+For `"map"` cluster names can be given as keys of `[[pathways.clusters.source.SOURCE_NAME]]` and values can be given inline.
 For `"csv"`, new columns can be added to the clusters CSV named after the corresponding `"ATTRIBUTE"`.
 
-#### [[pathways.clusters.ATTRIBUTE]]
+#### [pathways.clusters.ATTRIBUTE]
 
 | Name                     | Description                           |
 | ------------------------ | --------------------------------------|
@@ -63,7 +63,7 @@ For `"csv"`, new columns can be added to the clusters CSV named after the corres
 | electronic_energy        | The electronic energy of the compound. |
 | atomic_mass              | The atomic mass of the compound. |
 | charge                   | The charge of the compound. |
-| ase                      | Where to obtain the ASE `Atoms` object from the cluster to insert into an ASE database. Needed only if `--ase` is specified when running [apitofsim db prepare][apitofsim-db-prepare]`. |
+| ase                      | Where to obtain the ASE `Atoms` object from the cluster to insert into an ASE database. Needed only if `--ase` is specified when running `[apitofsim db prepare][apitofsim-db-prepare]`. |
 
 Each of these attributes can be either as `"SOURCE_NAME"` or as an arithmetic expression (using Python syntax) e.g. `"SOURCE_NAME.attribute1 + SOURCE_NAME.attribute2"`.
 
@@ -76,9 +76,9 @@ You can put common parameters in the `default_config` section, so that each `[[c
 For parameters with units, a unit must be given.
 Internally [pint](https://pint.readthedocs.io/en/stable/) is used to convert into the preferred units for the simulation, so you can specify any unit with the correct dimensions.
 For scalars, units can be expressed either as a string (e.g. `1.0 meter`) or as an array of two elements, where the first element is the value and the second element is the unit (e.g. `[1.0, "meter"]`).
-For arrays, the second for should be used e.g. `[[1.0, 2.0], "meter"]`.
+For arrays, the second form should be used e.g. `[[1.0, 2.0], "meter"]`.
 
-For the following example, say we have a start a simulation parameters section like so:
+For the following example, say we have a simulation parameters section like so:
 
 ```toml
 [[configs]]
@@ -131,7 +131,7 @@ cache entries are reused.
 | resolution      | -            | Number of points to use when histogramming across length of the skimmer region (as specified in lengths) |
 | N               | -            | Number of realizations to use in main particle simulation |
 | bin_width       | kelvin       | Bin width for histogramming density of states and k_total |
-| energy_max      | kelvin       | Maximum energy to consider when histogramming density of states. The density of states must be evaluated up to an energy equal or greater to the to the sum of energy_max_rate and the maximum fragmentation energy you will simulate a pathway for. |
+| energy_max      | kelvin       | Maximum energy to consider when histogramming density of states. The density of states must be evaluated up to an energy equal to or greater than the sum of energy_max_rate and the maximum fragmentation energy you will simulate a pathway for. |
 | energy_max_rate | kelvin       | Maximum energy to consider when histogramming k_total |
 
 ### Top level scalars
@@ -160,8 +160,8 @@ cache entries are reused.
 | Name            | Typical unit | Description                          |
 | --------------- | -------------|--------------------------------------|
 | pressures       | pascal       | A two element array of the pressures in the first and second chamber, respectively [$P_1$, $P_2$] |
-| ... $P_1$       | meter        | Pressure in 1st chamber |
-| ... $P_2$       | meter        | Pressure in 2nd chamber |
+| ... $P_1$       | pascal        | Pressure in 1st chamber |
+| ... $P_2$       | pascal        | Pressure in 2nd chamber |
 | lengths         | meter        | A five element array with the important dimensions of the instrument [$L_0$, $L_1$, $L_2$, $L_3$, $L_{sk}$] |
 | ... $L_0$       | meter        | Length of 1st chamber |
 | ... $L_1$       | meter        | Length between skimmer and front quadrupole |
@@ -209,7 +209,7 @@ r_quadrupole = "6.0e-3 meter"
 | Name            | Typical unit | Description                          |
 | --------------- | -------------|--------------------------------------|
 | dc_field        | volt         | DC field at the quadrupole |
-| ac_field        | ac_field     | AC field at the quadrupole |
+| ac_field        | volt         | AC field at the quadrupole |
 | radiofrequency  | hertz        | Radio frequency |
 | r_quadrupole    | meter        | Half-distance between quadrupole rods |
 

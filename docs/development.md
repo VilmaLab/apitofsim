@@ -39,9 +39,7 @@ uv add git+https://github.com/VilmaLab/apitofsim
 uv add /path/to/apitofsim
 ```
 
-```
 See the next section for `--editable` installs
-```
 
 ## Development
 
@@ -73,7 +71,7 @@ Long-running simulations cooperatively cancel on `SIGINT` and `SIGTERM`, restore
 
 ### Configuring meson-python for development
 
-You need disable build isolation to install this as a development/editable package which will recompile at import:
+You need to disable build isolation to install this as a development/editable package which will recompile at import:
 
 Using [uv](https://docs.astral.sh/uv/):
 
