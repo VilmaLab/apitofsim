@@ -163,7 +163,7 @@ def prepare(mode, config, database, db_type, ase, warm):
     energy_max_rate = "1.0e5 kelvin"
     resolution = 1_000
     tolerance = 1e-8
-    simulation_mode = "SINGLE_CLUSTER"
+    simulation_mode = "single-cluster"
     sample_mode = "rejection"
     use_old_dos_impl = false
     k_total_mesh_mode = "compute_mesh_diagonal_multithreaded"

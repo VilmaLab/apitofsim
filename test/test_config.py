@@ -259,7 +259,7 @@ energy_max_rate = "100 kK"
 name = "custom"
 [configs.simulation]
 N = 20
-simulation_mode = "CLUSTER_TREE"
+simulation_mode = "cluster-tree"
 sample_mode = "dss_normalized"
 use_old_dos_impl = true
 k_total_mesh_mode = "no_mesh"
@@ -308,7 +308,7 @@ def test_invalid_simulation_settings(raw, match):
 def test_builder_simulation_options(inputs):
     config = build_config(
         **inputs,
-        simulation_mode="PATHWAY_AT_A_TIME",
+        simulation_mode="pathway-at-a-time",
         sample_mode="dss_unnormalized",
         use_old_dos_impl=True,
         k_total_mesh_mode="compute_mesh_single_threaded",
@@ -360,7 +360,7 @@ def test_preparation_uses_simulation_options(inputs, monkeypatch, mesh_mode):
 
 
 @pytest.mark.parametrize(
-    "mode", ["SINGLE_CLUSTER", "PATHWAY_AT_A_TIME", "CLUSTER_TREE"]
+    "mode", ["single-cluster", "pathway-at-a-time", "cluster-tree"]
 )
 def test_runner_uses_configured_mode_and_sampling(inputs, monkeypatch, mode):
     from apitofsim.api import SampleMode
@@ -384,7 +384,7 @@ def test_runner_uses_configured_mode_and_sampling(inputs, monkeypatch, mode):
         config_id = db.insert_config("configured", config)
         runner = ExperimentRunner(db)
         calls = []
-        method = "iter_mass_spec" if mode == "SINGLE_CLUSTER" else "run_mass_spec"
+        method = "iter_mass_spec" if mode == "single-cluster" else "run_mass_spec"
         original = getattr(runner, method)
 
         def run(*args, **kwargs):
@@ -396,7 +396,33 @@ def test_runner_uses_configured_mode_and_sampling(inputs, monkeypatch, mode):
         assert calls == [SampleMode.dss_normalized]
         assert db.db.execute(
             "select experiment_config_id, simulation_mode from experiment_run"
-        ).fetchall() == [(config_id, mode)]
+        ).fetchall() == [(config_id, mode.replace("-", "_").upper())]
         # An explicit run argument overrides the stored mode.
         runner.run_from_config(config, mode=SimulationMode.SINGLE_CLUSTER)
         assert runner._simulation_mode == SimulationMode.SINGLE_CLUSTER
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "single-cluster",
+        "pathway-at-a-time",
+        "cluster-tree",
+        "SINGLE_CLUSTER",
+        "Cluster_Tree",
+    ],
+)
+def test_simulation_mode_matches_cli(inputs, value):
+    import click
+    from apitofsim.cli import run
+    from apitofsim.config import import_raw_config, simulation_option
+
+    option = next(param for param in run.params if param.name == "simulation_mode")
+    with click.Context(run, **run.context_settings) as context:
+        expected = option.type.convert(value, option, context)
+    config = build_config(**inputs, simulation_mode=value)
+    assert config["simulation_mode"] == expected.name.replace("_", "-").lower()
+    assert simulation_option(config, "simulation_mode") == expected
+    assert import_raw_config({"simulation": {"simulation_mode": value}}) == {
+        "simulation_mode": config["simulation_mode"]
+    }
