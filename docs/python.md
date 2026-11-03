@@ -414,52 +414,50 @@ records may not identify it. Runs without histogram provenance raise
 
 ## Consuming simulation events
 
-`mass_spec(...)` is the blocking aggregate-result API. Use
-`mass_spec_iter(..., logconf=(0, True))` to receive `MassSpecBatch` objects.
-There is no individual-event iterator or `event_callback` argument.
+Use `mass_spec_iter(..., logconf=(0, True))` to receive `MassSpecBatch` objects.
 
 ```python
 from apitofsim import mass_spec_iter
 from apitofsim.api import MassSpecFinalResult
 
-with mass_spec_iter(
-    instrument, substance, N, logconf=(0, True),
-    initial_batch_size=4096, max_batch_size=262144,
-) as stream:
+with mass_spec_iter(instrument, substance, N, logconf=(0, True)) as stream:
     for batch in stream:
-        events = batch.events  # A read-only pyarrow.Table; no per-event Python objects.
+        events = batch.events  # Read-only pyarrow.Table.
         for item in batch.items:
             if isinstance(item, MassSpecFinalResult):
                 counters = item.counters
 ```
 
-The first read waits for one item and drains available items up to
-`initial_batch_size`; subsequent reads drain up to `max_batch_size`. Neither waits
-for a full batch. `read_batch(max_items)` returns the same batch type and can
-request a smaller cap. Limits count events and control items together. Tables
-use local realization indices and numeric `event_kind` values: 0 init, 1 collision,
-2 postcollision, 3 fragmentation, 4 postfragmentation, and 5 escape. State is stored
-in flat `x`, `y`, `z`, `t`, `vx`, `vy`, `vz`, `ox`, `oy`, `oz`, `rot_energy`,
-`vibrational_energy`, and `particle_index` columns. Collision fields are `theta`,
-`u_norm`, `accepted`; fragmentation fields are `transition_index` and
-`next_particle_index`. Detail columns are meaningful only for their event kind.
-Per-realization event order is preserved. Control items are returned separately
-in `batch.items`, without an ordering promise relative to event rows in that batch.
+- `batch.events` preserves event order within each realization.
+- `batch.items` contains progress, logs and the final result, ordered separately
+  from the event rows.
+- Reads wait for one item, then drain available items up to `initial_batch_size`
+  (default 4096) on the first read and `max_batch_size` (default 262144) thereafter.
+  `read_batch(max_items)` can request a smaller cap. Limits include control items.
+- Retained tables and slices remain valid after later reads and iterator destruction.
+  The producer queue can grow when consumers fall behind.
+- Custom persistence can pass `batch.events` to `EventRecorder.record_batch()`.
+  Database workflows commit each batch before yielding its event table.
 
-C++ drains queued event structs directly into numeric columns. Arrow shares these
-buffers in memory: no IPC serialization or file is involved. Two buffers are
-cached for reuse, and the native drain scratch space is reused too. Retaining a
-batch or an Arrow slice keeps its buffers alive; subsequent reads allocate rather
-than overwrite retained data. Read-only buffers remain valid after the iterator
-is destroyed. The existing native producer queue is unchanged and is not bounded
-by the batch-size limit; slow consumers can still accumulate queued events.
+| Columns | Contents |
+| --- | --- |
+| `realization`, `particle_index` | Local realization and particle/node indices |
+| `x`, `y`, `z`, `t` | Position and time |
+| `vx`, `vy`, `vz`, `ox`, `oy`, `oz` | Velocity and angular velocity |
+| `rot_energy`, `vibrational_energy` | Internal energies |
+| `theta`, `u_norm`, `accepted` | Collision details |
+| `transition_index`, `next_particle_index` | Fragmentation details |
 
-Raw iteration does not write to a database. Custom persistence can pass
-`batch.events` to `EventRecorder.record_batch()`. Database workflows record each
-batch transactionally before yielding its event table to the caller, and keep
-existing primary/foreign-key constraints. Recording iterators yield event-only
-`MassSpecBatch` objects, progress/log items, and finally `RecordedMassSpecResult`.
-This replaces the previous event-object/list interface; callers must update.
+Detail columns apply only to their event kind:
+
+| `event_kind` | Event |
+| --- | --- |
+| 0 | init |
+| 1 | collision |
+| 2 | postcollision |
+| 3 | fragmentation |
+| 4 | postfragmentation |
+| 5 | escape |
 
 ## Cancelling a streaming simulation
 
@@ -592,7 +590,13 @@ except Exception as exc:
     raise
 ```
 
-`ExperimentRunner.iter_mass_spec(..., max_batch_items=262144)` records adaptive batches without waiting for them to fill. It yields event-only `MassSpecBatch` objects after persistence, alongside progress/log items and the recorded final result. The initial native cap is 4096 items (or the configured maximum when smaller).
+`ExperimentRunner.iter_mass_spec(..., max_batch_items=262144)` yields:
+
+- Event-only `MassSpecBatch` objects after persistence.
+- Progress and log items.
+- A final `RecordedMassSpecResult`.
+
+The initial batch cap is 4096 items, limited by `max_batch_items`.
 
 ### Native tree inspection
 
