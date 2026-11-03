@@ -154,19 +154,20 @@ def get_through_join_else(conn, rel, proj_col, result_dict, **match_cols):
             how="right",
         )
         .order("wanted._wanted_order")
-        .select(proj_col)
+        .select("wanted._wanted_order", proj_col)
         .to_arrow_table()
     )
-    for match_row, value in zip(
-        zip(*iterable_match_vals), data.column(proj_col), strict=True
+    match_rows = list(zip(*iterable_match_vals))
+    for ordinal, value in zip(
+        data.column("_wanted_order").to_pylist(), data.column(proj_col), strict=True
     ):
+        match_row = match_rows[ordinal]
         value = value.values
         if value is not None:
             # Hit: update result_dict
-            data = value.to_numpy(zero_copy_only=True)
             if len(match_row) == 1:
                 match_row = match_row[0]
-            result_dict[match_row] = data
+            result_dict[match_row] = value.to_numpy(zero_copy_only=True)
         else:
             # Miss: yield the match_row for the caller to compute/insert
             yield dict(zip(iterable_match_keys, match_row, strict=True))
