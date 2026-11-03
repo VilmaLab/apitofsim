@@ -85,6 +85,7 @@ class SimulationConfig(TypedDict):
     energy_max: Quantity
     energy_max_rate: Quantity
     simulation_mode: NotRequired[str]
+    vib_energy_sampler: NotRequired[str]
     sample_mode: NotRequired[str]
     collision_time_method: NotRequired[str]
     hazard_atol: NotRequired[float]
@@ -108,6 +109,7 @@ SIMULATION_FIELDS = (
     "energy_max",
     "energy_max_rate",
     "simulation_mode",
+    "vib_energy_sampler",
     "sample_mode",
     "collision_time_method",
     "hazard_atol",
@@ -130,11 +132,12 @@ def merge_config(defaults, config):
 
 def simulation_option(config, field) -> Any:
     """Resolve the string representation used in files and stored configs."""
-    from .api import MeshMode, SampleMode
+    from .api import MeshMode, SampleMode, VibEnergyMode
     from .workflow.base import SimulationMode
 
     enums = {
         "simulation_mode": (SimulationMode, SimulationMode.SINGLE_CLUSTER),
+        "vib_energy_sampler": (VibEnergyMode, VibEnergyMode.direct),
         "sample_mode": (SampleMode, SampleMode.rejection),
         "collision_time_method": (
             CollisionTimeMethod,
@@ -147,7 +150,7 @@ def simulation_option(config, field) -> Any:
     if isinstance(value, cls):
         return value
     members = cls.__members__
-    if field in ("simulation_mode", "collision_time_method"):
+    if field in ("simulation_mode", "collision_time_method", "vib_energy_sampler"):
         members = {
             name.replace("_", "-").lower(): mode for name, mode in members.items()
         }
@@ -245,6 +248,7 @@ def _config_value(value, field, *, strict=False):
     """Decode stored values, or normalize and validate a builder input."""
     if field in (
         "simulation_mode",
+        "vib_energy_sampler",
         "sample_mode",
         "k_total_mesh_mode",
         "collision_time_method",
@@ -252,7 +256,8 @@ def _config_value(value, field, *, strict=False):
         name = simulation_option({field: value}, field).name
         return (
             name.replace("_", "-").lower()
-            if field in ("simulation_mode", "collision_time_method")
+            if field
+            in ("simulation_mode", "collision_time_method", "vib_energy_sampler")
             else name
         )
     if field == "use_old_dos_impl":
@@ -352,6 +357,7 @@ def build_config(
     energy_max_rate: Quantity,
     simulation_mode: str | None = None,
     sample_mode: str | None = None,
+    vib_energy_sampler: str | None = None,
     collision_time_method: str | None = None,
     hazard_atol: float | None = None,
     hazard_rtol: float | None = None,

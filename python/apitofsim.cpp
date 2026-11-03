@@ -721,8 +721,11 @@ NB_MODULE(apitofsimraw, m)
     .def_ro("rate_const", &MassSpecInputFragmentationPathway::rate_const)
     .def_ro("bonding_energy", &MassSpecInputFragmentationPathway::bonding_energy);
 
+  nb_magic_enum<VibEnergyMode>(m, "VibEnergyMode");
+  nb::class_<VibEnergyIndex>(m, "VibEnergyIndex")
+    .def(nb::init<VibEnergyMode, Eigen::ArrayXd>(), "mode"_a, "data"_a);
   nb::class_<MassSpecSubstanceSingleInput>(m, "MassSpecSubstanceSingleInput")
-    .def(nb::init<const MolecularCluster &, const MolecularCluster &, const ClusterSpec &, Gas, const Histogram &, const Histogram &, std::optional<double>, int>(),
+    .def(nb::init<const MolecularCluster &, const MolecularCluster &, const ClusterSpec &, Gas, const Histogram &, const Histogram &, std::optional<double>, int, VibIndexPtr>(),
          "cluster_0"_a,
          "cluster_1"_a,
          "cluster_2"_a,
@@ -730,20 +733,20 @@ NB_MODULE(apitofsimraw, m)
          "density_cluster"_a,
          "rate_const"_a,
          "fragmentation_energy"_a = std::nullopt,
-         "cluster_charge_sign"_a = defaults::cluster_charge_sign)
-    .def(nb::init<const MolecularCluster &, std::vector<MassSpecInputFragmentationPathway>, Gas, const Histogram &, int>(),
+         "cluster_charge_sign"_a = defaults::cluster_charge_sign, "vib_index"_a = nullptr)
+    .def(nb::init<const MolecularCluster &, std::vector<MassSpecInputFragmentationPathway>, Gas, const Histogram &, int, VibIndexPtr>(),
          "cluster_0"_a,
          "pathways"_a,
          "gas"_a,
          "density_cluster"_a,
-         "cluster_charge_sign"_a = defaults::cluster_charge_sign)
-    .def(nb::init<int, double, double, const Histogram, const std::vector<MassSpecInputFragmentationPathway>, const Gas>(),
+         "cluster_charge_sign"_a = defaults::cluster_charge_sign, "vib_index"_a = nullptr)
+    .def(nb::init<int, double, double, const Histogram, const std::vector<MassSpecInputFragmentationPathway>, const Gas, VibIndexPtr>(),
          "cluster_charge_sign"_a,
          "m_ion"_a,
          "R_cluster"_a,
          "density_cluster"_a,
          "pathways"_a,
-         "gas"_a)
+         "gas"_a, "vib_index"_a = nullptr)
     .def_ro("cluster_charge_sign", &MassSpecSubstanceSingleInput::cluster_charge_sign)
     .def_ro("m_ion", &MassSpecSubstanceSingleInput::m_ion)
     .def_ro("R_cluster", &MassSpecSubstanceSingleInput::R_cluster)
@@ -758,13 +761,13 @@ NB_MODULE(apitofsimraw, m)
   tree_bindings::bind_vector_view<MassSpecInputFragmentationPathway>(m, "FragmentationPathwayView");
 
   nb::class_<MSSubstanceTreeCluster>(m, "MSSubstanceTreeCluster")
-    .def(nb::init<double, double, const Histogram>(),
+    .def(nb::init<double, double, const Histogram, VibIndexPtr>(),
          "m_ion"_a,
          "R_cluster"_a,
-         "density_cluster"_a)
-    .def(nb::init<const MolecularCluster &, const Histogram>(),
+         "density_cluster"_a, "vib_index"_a = nullptr)
+    .def(nb::init<const MolecularCluster &, const Histogram, VibIndexPtr>(),
          "cluster_0"_a,
-         "density_cluster"_a)
+         "density_cluster"_a, "vib_index"_a = nullptr)
     .def_ro("m_ion", &MSSubstanceTreeCluster::m_ion)
     .def_ro("R_cluster", &MSSubstanceTreeCluster::R_cluster)
     .def_ro("density_cluster", &MSSubstanceTreeCluster::density_cluster);

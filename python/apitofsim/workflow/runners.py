@@ -24,6 +24,8 @@ from apitofsim.api import (
     MSSubstanceTreeNode,
     MSSubstanceTreePathway,
     SampleMode,
+    VibEnergyIndex,
+    VibEnergyMode,
     scaled_density,
     scaled_rate_const,
 )
@@ -320,6 +322,59 @@ class DerivedDataPreparer:
         self.db = db
         self.dos_histogram_id = None
         self.rate_histogram_id = None
+        self.vib_indexes: dict[int, VibEnergyIndex] = {}
+
+    @staticmethod
+    def _build_vib_index(mode, density, cluster_id):
+        if not numpy.isfinite(density).all() or numpy.any(density < 0):
+            raise ValueError(f"Invalid vibrational DOS for cluster {cluster_id}")
+        if mode == VibEnergyMode.dos_only:
+            with numpy.errstate(over="ignore"):
+                data = numpy.cumsum(density, dtype=numpy.float64)
+            if not numpy.isfinite(data[-1]):
+                raise ValueError(
+                    f"Vibrational DOS cumulative sum overflow for cluster {cluster_id}"
+                )
+            return data
+        # Heap layout: root 1, children 2i and 2i+1, padded leaves have log mass -inf.
+        leaves = 1 << (len(density) - 1).bit_length()
+        data = numpy.full(2 * leaves, -numpy.inf)
+        numpy.log(density, out=data[leaves : leaves + len(density)], where=density > 0)
+        while leaves > 1:
+            children = data[leaves : 2 * leaves]
+            data[leaves // 2 : leaves] = numpy.logaddexp(children[::2], children[1::2])
+            leaves //= 2
+        return data
+
+    def _prepare_vib_indexes(self, config, densities, pathway_lookup):
+        mode = simulation_option(config, "vib_energy_sampler")
+        self.vib_indexes = {}
+        if mode == VibEnergyMode.direct:
+            return
+        conn = self.db.db
+        self.db.ensure_vib_index_cache()
+        parents = {parent for parent, _, _ in pathway_lookup.values()}
+        for cluster_id in parents:
+            rows = conn.execute(
+                """
+                select d.id, i.data from cluster_dos d left join vib_energy_index i
+                on i.dos_id=d.id and i.mode=?
+                where d.histogram_params_id=? and d.cluster_id=?
+                """,
+                [mode.name, self.dos_histogram_id, cluster_id],
+            ).to_arrow_table()
+            if rows.num_rows != 1:
+                raise ValueError(f"Expected one source DOS for cluster {cluster_id}")
+            stored = rows["data"][0]
+            if stored.is_valid:
+                data = stored.values.to_numpy()
+            else:
+                data = self._build_vib_index(mode, densities[cluster_id], cluster_id)
+                conn.execute(
+                    "insert into vib_energy_index values (?, ?, ?) on conflict do nothing",
+                    [rows["id"][0].as_py(), mode.name, data],
+                )
+            self.vib_indexes[cluster_id] = VibEnergyIndex(mode, data)
 
     def histogram(self, config, data, *, rate=False):
         """Use the actual selected cache's mesh, including independent widths."""
@@ -714,10 +769,16 @@ class DerivedDataPreparer:
                 # Not sure why this is sometimes needed
                 pbar.close()
 
+        self._prepare_vib_indexes(config, cluster_dos_dict, pathway_lookup)
         return k_rates, cluster_dos_dict
 
     def get_cached_densityandrate(
-        self, cluster_indexed, dos_histogram_id, rate_histogram_id, pathway_lookup
+        self,
+        cluster_indexed,
+        dos_histogram_id,
+        rate_histogram_id,
+        pathway_lookup,
+        config=None,
     ):
         num_missed = 0
         k_rates = {}
@@ -736,8 +797,11 @@ class DerivedDataPreparer:
                 f"Expected to get all k rates from the database, but got {num_missed} misses"
             )
 
+        parents = {
+            parent: cluster_indexed[parent] for parent, _, _ in pathway_lookup.values()
+        }
         cluster_dos_dict = self._get_cached_dos(
-            cluster_indexed,
+            parents,
             dos_histogram_id,
             pathway_lookup,
             include_cluster_dos=True,
@@ -745,6 +809,7 @@ class DerivedDataPreparer:
         )
         self.dos_histogram_id = dos_histogram_id
         self.rate_histogram_id = rate_histogram_id
+        self._prepare_vib_indexes(config or {}, cluster_dos_dict, pathway_lookup)
         return k_rates, cluster_dos_dict
 
     def run_preliminaries(
@@ -792,7 +857,11 @@ class DerivedDataPreparer:
         if cached_densityandrate:
             dos_histogram_id, rate_histogram_id = cached_densityandrate
             k_rates, cluster_dos = self.get_cached_densityandrate(
-                cluster_indexed, dos_histogram_id, rate_histogram_id, pathway_lookup
+                cluster_indexed,
+                dos_histogram_id,
+                rate_histogram_id,
+                pathway_lookup,
+                config,
             )
         else:
             k_rates, cluster_dos = self.run_densityandrate(
@@ -1198,6 +1267,7 @@ class ExperimentRunner:
                 rate_hist,
                 fragmentation_energy=config.get("fragmentation_energy"),
                 cluster_charge_sign=cluster.charge,
+                vib_index=self.preparer.vib_indexes.get(cluster_id),
             )
             realizations = (
                 int(environ["N_OVERRIDE"]) if "N_OVERRIDE" in environ else config["N"]
@@ -1274,7 +1344,12 @@ class ExperimentRunner:
                     tuple(pathway_id for pathway_id, _, _ in rows),
                     tuple((p1, p2) for _, p1, p2 in rows),
                     MassSpecSubstanceSingleInput(
-                        cluster, pathways, config["gas"], density, cluster.charge
+                        cluster,
+                        pathways,
+                        config["gas"],
+                        density,
+                        cluster.charge,
+                        vib_index=self.preparer.vib_indexes.get(cluster_id),
                     ),
                     name_lookup[cluster_id],
                 )
@@ -1469,6 +1544,7 @@ class ExperimentRunner:
                         MSSubstanceTreeCluster(
                             root["cluster"],
                             root["density_hist"],
+                            vib_index=self.preparer.vib_indexes.get(cluster_id),
                         )
                     )
                 cluster_payload_idx = cluster_payload_lookup[cluster_id]

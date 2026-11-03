@@ -104,6 +104,7 @@ name = "example"
 N = 2000
 simulation_mode = "single-cluster"
 sample_mode = "rejection"
+vib_energy_sampler = "direct"
 collision_time_method = "integrated-hazard"
 hazard_atol = 1e-12
 hazard_rtol = 1e-9
@@ -120,6 +121,7 @@ normalized when loaded. Do not specify a setting both at top level and inside
 | ---- | ------- | ----------- |
 | simulation_mode | `single-cluster` | `pathway-at-a-time`, `single-cluster`, or `cluster-tree` (same spellings as the CLI flag). `db run --simulation-mode` overrides the config. |
 | sample_mode | `rejection` | `rejection`, `dss_normalized`, or `dss_unnormalized`. |
+| vib_energy_sampler | `direct` | Vibrational energy partition for collisions and rotation. Choose `direct` (scan), `dos-only` (DOS CDF rejection), or `group-dos` (grouped rejection with a log-mass DOS tree). Independent of the gas collision `sample_mode`. |
 | collision_time_method | `integrated-hazard` | Use `legacy` for the previous timestep-based collision clock. Independent of `sample_mode`. |
 | hazard_atol | `1e-12` | Absolute tolerance in dimensionless cumulative hazard, for integration and event location. |
 | hazard_rtol | `1e-9` | Relative tolerance in cumulative hazard. Both tolerances must be finite and positive. |
@@ -141,6 +143,18 @@ cache entries are reused.
 | bin_width       | kelvin       | Bin width for histogramming density of states and k_total |
 | energy_max      | kelvin       | Maximum energy to consider when histogramming density of states. The density of states must be evaluated up to an energy equal to or greater than the sum of energy_max_rate and the maximum fragmentation energy you will simulate a pathway for. |
 | energy_max_rate | kelvin       | Maximum energy to consider when histogramming k_total |
+
+The workflow prepares the requested vibrational index alongside the DOS and rate
+curves and caches it per source cluster DOS in DuckDB. Direct sampling needs no
+index. DOS-only sampling stores one cumulative sum in the original DOS units.
+Group-DOS sampling stores a flat binary tree of log masses and bounds the square
+root of residual energy separately in each group. On the uniform DOS grid each
+proposal has at least $1/\sqrt{2}$ probability of acceptance. Each cluster in a
+fragmentation tree uses its own DOS index. These options apply to the Python
+workflow. The legacy native CLI uses direct vibrational sampling.
+
+When attaching a read-only cluster database, warm the selected index in the
+source database before loading it for simulation.
 
 ### Top level scalars
 
@@ -230,4 +244,3 @@ An example is reproduced here for reference:
 ``` title="config.in"
 --8<-- "examples/legacy_cli/inputs/config.in"
 ```
-
