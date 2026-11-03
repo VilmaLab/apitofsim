@@ -245,6 +245,14 @@ Once these are all prepared you can go ahead and create a database:
 <a href="../cli/#apitofsim-db-prepare">apitofsim db prepare</a> create config.toml database.db
 </code>
 
+For trusted bulk workflows, add `--no-foreign-keys` when creating the database.
+Foreign keys are enabled by default; primary keys and other constraints remain
+enabled in both modes. This option applies only to `create`, not `append`.
+After ingestion or simulation, run `apitofsim db check-integrity database.db`
+before using or sharing the reports. It reports orphan row counts and exits with
+an error if any declared foreign-key relationship fails. It checks only those
+relationships, not all simulation semantics, and does not repair data.
+
 ## Running the simulation
 
 Depending on your parameters and the number of pathways, the simulation can take from minutes to hours to run.

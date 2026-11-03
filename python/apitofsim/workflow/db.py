@@ -128,8 +128,15 @@ class ClusterDatabase:
     def __del__(self):
         self.close()
 
-    def create_tables(self):
+    def create_tables(self, *, foreign_keys: bool = True):
+        """Create a new schema, optionally omitting FKs for trusted bulk ingestion.
+
+        Primary keys, uniqueness and NOT NULL constraints are always retained.
+        This does not change constraints in an existing database.
+        """
         sql = "\n".join(self.TABLES)
+        if not foreign_keys:
+            sql = sql_files.strip_foreign_keys(sql)
         self.db.execute(sql)
         self.refresh_views()
         if self.ase_db is not None:
@@ -138,6 +145,46 @@ class ClusterDatabase:
                 alter table cluster add column ase_mol_id integer default null;
                 """
             )
+
+    def check_foreign_keys(self) -> dict[str, int]:
+        """Return violated schema FK relationships and their orphan row counts.
+
+        Checks the canonical schema even when FKs were omitted at creation.
+        Nullable keys follow SQL MATCH SIMPLE: any NULL component exempts a row.
+        All schema tables must be accessible, including attached cluster tables.
+        This checks declared relationships only, not simulation semantics.
+        """
+        # Let DuckDB interpret the canonical DDL, including composite keys.
+        with duckdb.connect(config={"threads": 1}) as schema:
+            schema.execute("\n".join(self.TABLES))
+            constraints = schema.execute(
+                """select table_name, constraint_column_names,
+                          referenced_table, referenced_column_names
+                   from duckdb_constraints() where constraint_type = 'FOREIGN KEY'
+                   order by table_name, constraint_index"""
+            ).fetchall()
+
+        def quote(name):
+            return '"' + name.replace('"', '""') + '"'
+
+        violations = {}
+        with transaction_scope(self.db):
+            for table, columns, parent, parent_columns in constraints:
+                nonnull = " and ".join(f"c.{quote(c)} is not null" for c in columns)
+                match = " and ".join(
+                    f"c.{quote(c)} = p.{quote(p)}"
+                    for c, p in zip(columns, parent_columns, strict=True)
+                )
+                row = self.db.execute(
+                    f"select count(*) from {quote(table)} c where {nonnull} "
+                    f"and not exists (select 1 from {quote(parent)} p where {match})"
+                ).fetchone()
+                assert row is not None
+                count = row[0]
+                if count:
+                    key = f"{table}({', '.join(columns)}) -> {parent}({', '.join(parent_columns)})"
+                    violations[key] = count
+        return violations
 
     def clusters_query(
         self, parent=None, pathways=None, parents_only=False, children_only=False

@@ -44,7 +44,12 @@ def db():
 @click.option(
     "-w", "--warm", is_flag=True, help="Warm the database with histogrammed data"
 )
-def prepare(mode, config, database, db_type, ase, warm):
+@click.option(
+    "--foreign-keys/--no-foreign-keys",
+    default=True,
+    help="Create with foreign keys (default); omit only for trusted bulk ingestion. Create mode only.",
+)
+def prepare(mode, config, database, db_type, ase, warm, foreign_keys):
     """
     Prepare the database according to MODE at path DATABASE using the json configuration file at path CONFIG.
 
@@ -211,6 +216,9 @@ def prepare(mode, config, database, db_type, ase, warm):
                 merge_config(config_root.get("default_config", {}), config),
             )
 
+    if mode != "create" and not foreign_keys:
+        raise click.UsageError("--no-foreign-keys is only supported in create mode")
+
     if ase:
         ase_path = guess_ase_db_filename(database)
     else:
@@ -243,7 +251,7 @@ def prepare(mode, config, database, db_type, ase, warm):
 
     with connection_scope(db_cls, database, ase_filename=ase_path) as db:
         if mode == "create":
-            db.create_tables()
+            db.create_tables(foreign_keys=foreign_keys)
 
         source = load_toml_file(config)
         path_base = pathlib.Path(config).parent
@@ -740,6 +748,23 @@ def report(report_type, database, csvout):
         except UnknownReportTypeError as e:
             raise click.ClickException(e.args[0])
         df.to_csv(csvout)
+
+
+@db.command(
+    short_help="Check declared foreign-key relationships, including omitted FKs"
+)
+@click.argument("database", type=click.Path(exists=True, dir_okay=False))
+def check_integrity(database):
+    """Check for orphan rows after trusted bulk ingestion; fail if any are found."""
+    from apitofsim.workflow import auto_db_type
+
+    with connection_scope(auto_db_type, database, readonly=True) as db:
+        violations = db.check_foreign_keys()
+    for relationship, count in violations.items():
+        click.echo(f"{relationship}: {count} orphan row(s)")
+    if violations:
+        raise click.ClickException("Foreign-key integrity check failed")
+    click.echo("Foreign-key integrity check passed")
 
 
 @db.command(help="Refresh views in the database at path DATABASE (please ignore)")

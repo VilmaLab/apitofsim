@@ -6,10 +6,10 @@ from apitofsim.workflow.base import SimulationMode
 from apitofsim.workflow.db import ExperimentDatabase, connection_scope
 
 
-@pytest.fixture
-def report_db():
+@pytest.fixture(params=[True, False], ids=["fk", "nofk"])
+def report_db(request):
     with connection_scope(ExperimentDatabase, ":memory:") as db:
-        db.create_tables()
+        db.create_tables(foreign_keys=request.param)
         db.db.execute(
             "insert into cluster (id, common_name) values "
             "(1, 'root'), (2, 'child'), (3, 'terminal'), (4, 'neutral')"

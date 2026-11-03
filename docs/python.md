@@ -159,6 +159,22 @@ Typically an `ExperimentDatabase` is created and its tables created with `db.cre
 
 After this, multiple simulations can be run using the `ExperimentRunner` class.
 
+For trusted bulk ingestion, `db.create_tables(foreign_keys=False)` omits foreign
+keys at creation. The default remains `True`. Primary keys (and their indexes),
+unique and NOT NULL constraints, table columns, sequences and report views are
+unchanged. Reopening the database preserves this choice; it is not an enforcement
+toggle and cannot remove constraints from an existing database.
+
+After ingestion, call `db.check_foreign_keys()`. It returns a dictionary mapping
+each violated relationship to its orphan row count; an empty dictionary means
+all declared relationships pass. It checks the canonical schema even when FKs
+were omitted, including composite keys. Rows with any NULL key component are
+exempt, as with DuckDB's FK enforcement. Run this before publishing results:
+orphan rows can disappear from joined reports. The check is read-only and uses a
+transaction snapshot; it does not repair data or validate undeclared relationships
+and simulation semantics. All tables for the database class must be accessible;
+for split databases, attach the cluster database and set the search path first.
+
 ### Database read queries
 
 `SuperClusterDatabase.available_dos_histograms_query()` returns available DOS
