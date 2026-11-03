@@ -1252,3 +1252,78 @@ def test_transaction_rollback_preserves_primary():
             raise error
     assert caught.value is error
     assert any("rollback failed" in note for note in error.__notes__)
+
+
+@pytest.mark.parametrize("mode", list(SimulationMode))
+def test_every_workflow_batches_events(prepared_case, monkeypatch, mode):
+    db, runner, config, _ = prepared_case
+    original_stream = api.mass_spec_iter
+    original_record = EventRecorder.record_batch
+    produced = []
+    batch_sizes = []
+
+    def queued_stream(*args, **kwargs):
+        # Make availability deterministic; this checks batching, not producer speed.
+        with original_stream(*args, **kwargs) as native:
+            items = list(native)
+        produced.extend(item for item in items if hasattr(item, "state"))
+        return AvailableStream(items)
+
+    def record(recorder, events):
+        if events:
+            batch_sizes.append(len(events))
+        return original_record(recorder, events)
+
+    monkeypatch.setattr(api, "mass_spec_iter", queued_stream)
+    monkeypatch.setattr(EventRecorder, "record_batch", record)
+    runner.run_from_config(
+        config, run_started=True, mode=mode, cached_densityandrate=(1, 2)
+    )
+    if isinstance(db, RealizationDatabase):
+        assert produced
+        assert max(batch_sizes) > 1
+        assert max(batch_sizes) <= 512
+        assert sum(batch_sizes) == len(produced)
+        assert len(batch_sizes) < len(produced)
+        assert db.db.execute("select count(*) from event_info").fetchone() == (
+            len(produced),
+        )
+        assert db.db.execute(
+            "select count(*) from realization where experiment_result_id is null"
+        ).fetchone() == (0,)
+    else:
+        assert not produced
+        assert not batch_sizes
+    table = {
+        SimulationMode.SINGLE_CLUSTER: "multi_pathway_experiment_result",
+        SimulationMode.PATHWAY_AT_A_TIME: "single_pathway_experiment_result",
+        SimulationMode.CLUSTER_TREE: "cluster_tree_experiment_result",
+    }[mode]
+    expected = 4 if mode == SimulationMode.PATHWAY_AT_A_TIME else 2
+    assert db.db.table(table).count("*").fetchone() == (expected,)
+    assert db.db.table("experiment_failure").count("*").fetchone() == (0,)
+
+
+def test_pathway_failure_drains_and_links_events(prepared_case, monkeypatch):
+    db, runner, _, _ = prepared_case
+    prepared = prepare(prepared_case, pathways=[1])
+    items = native_items(prepared)
+    events = [item for item in items if hasattr(item, "state")]
+    primary = RuntimeError("execution failed after events")
+    fake = AvailableStream(events + [primary])
+    monkeypatch.setattr(api, "mass_spec_iter", lambda *a, **k: fake)
+    with pytest.raises(RuntimeError, match="execution failed") as caught:
+        runner.run_mass_spec(
+            prepared.mass_spec, prepared.groups[0].substance, 5, pathway_id=1
+        )
+    assert caught.value is primary
+    assert fake.joined
+    assert db.db.execute(
+        "select pathway_id, cluster_id from experiment_failure"
+    ).fetchall() == [(1, None)]
+    assert recorded_failure(primary).pathway_ids == (1,)
+    if isinstance(db, RealizationDatabase):
+        assert db.db.table("event_info").count("*").fetchone() == (len(events),)
+        assert db.db.execute(
+            "select count(*) from realization where experiment_result_id is null"
+        ).fetchone() == (0,)

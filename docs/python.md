@@ -412,6 +412,35 @@ records may not identify it. Runs without histogram provenance raise
 
 ::: apitofsim.energy_in_joules
 
+## Consuming simulation events
+
+`mass_spec(...)` is the blocking aggregate-result API. To inspect events, use
+`mass_spec_iter(..., logconf=(0, True))`. The per-event `event_callback` argument
+has been removed from both the Python wrapper and native bindings.
+
+```python
+from apitofsim import mass_spec_iter
+from apitofsim.api import MassSpecFinalResult
+
+with mass_spec_iter(instrument, substance, N, logconf=(0, True)) as stream:
+    while True:
+        try:
+            items = stream.read_batch(512)
+        except StopIteration:
+            break
+        for item in items:
+            if isinstance(item, MassSpecFinalResult):
+                counters = item.counters
+            # Inspect events, logs and progress items here.
+```
+
+`read_batch` waits for one item, then drains currently available items up to the
+limit. It does not wait to fill a batch. Individual iteration is also supported;
+raw iteration does not write to a database. Custom persistence can filter events
+from these batches and call `EventRecorder.record_batch(events)`; the recorder
+is no longer callable as a per-event callback.
+Database workflows batch event recording automatically in every simulation mode.
+
 ## Cancelling a streaming simulation
 
 `mass_spec_iter(...)` returns a `MassSpecIterator`. Call its thread-safe,

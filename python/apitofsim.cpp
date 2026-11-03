@@ -266,7 +266,6 @@ mass_spec(
   unsigned long long seed = DEFAULT_SEED,
   std::optional<std::function<void(std::string_view, std::string)>> log_callback = nullopt,
   std::optional<std::function<void(Eigen::ArrayXi)>> result_callback = nullopt,
-  std::optional<std::function<void(EventMessage)>> event_callback = nullopt,
   SampleMode sample_mode = SampleMode::rejection,
   bool strict = true,
   std::tuple<int, bool> logconf = DEFAULT_LOGCONF_TUPLE,
@@ -298,10 +297,7 @@ mass_spec(
     }
     else if (std::holds_alternative<EventMessage>(result))
     {
-      if (event_callback)
-      {
-        (*event_callback)(std::get<EventMessage>(result));
-      }
+      // Consume events without persistence; use MassSpecIterator to inspect them.
     }
     else if (std::holds_alternative<std::monostate>(result))
     {
@@ -855,7 +851,6 @@ NB_MODULE(apitofsimraw, m)
         "seed"_a = DEFAULT_SEED,
         "log_callback"_a = std::nullopt,
         "result_callback"_a = std::nullopt,
-        "event_callback"_a = std::nullopt,
         "sample_mode"_a = SampleMode::rejection,
         "strict"_a = true,
         "logconf"_a = DEFAULT_LOGCONF_TUPLE,
@@ -870,7 +865,6 @@ NB_MODULE(apitofsimraw, m)
         "seed"_a = DEFAULT_SEED,
         "log_callback"_a = std::nullopt,
         "result_callback"_a = std::nullopt,
-        "event_callback"_a = std::nullopt,
         "sample_mode"_a = SampleMode::rejection,
         "strict"_a = true,
         "logconf"_a = DEFAULT_LOGCONF_TUPLE,
