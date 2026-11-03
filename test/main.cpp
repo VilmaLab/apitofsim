@@ -600,7 +600,8 @@ TEST_CASE("apitof pinhole smoke tests")
     ms.radius_pinhole = 1.0;
     ms.lengths = InstrumentDims{0.001, 0.000001, 0.000001, 0.05, 0.001};
     ms.voltages = InstrumentVoltages{0, 10, 10, 10, 20};
-    ms.pressures = InstrumentPressures{100, 0.01};
+    // Give the pinhole section enough gas to exercise rejection with five ions.
+    ms.pressures = InstrumentPressures{100, 2};
     ms.quadrupole = std::nullopt;
     test_rejections = true;
   }
@@ -948,8 +949,8 @@ TEST_CASE("trajectory sampler preserves fragmentation time across upstream produ
   double fragmentation = 1;
   auto next_event = [&]
   {
-    return time_next_coll_quadrupole(0.5, particle, chamber, 7e-10, dts,
-                                     fragmentation, acc, gas.mass, skimmer, ms.mesh_skimmer, ms.quadrupole);
+    return next_coll(0.5, particle, chamber, 7e-10, dts,
+                     fragmentation, acc, gas.mass, skimmer, ms.mesh_skimmer, ms.quadrupole);
   };
   REQUIRE(next_event() == TimeNextCollOutcome::fragmentation);
   REQUIRE(particle.position.z() == doctest::Approx(-4));
@@ -997,12 +998,12 @@ TEST_CASE("trajectory collision timing uses number density in both chambers")
     ParticleState particle{.position = {0, 0, z}, .velocity = Eigen::Vector3d::Zero()};
     const double frequency = collision_frequency(z, particle.velocity, chamber, gas.mass, 7e-10, skimmer, ms.mesh_skimmer);
     const double dt = 0.1 / frequency;
-    // A stationary particle has constant hazard: 0.25 is crossed on step three.
-    auto outcome = time_next_coll_quadrupole(std::exp(-0.25), particle, chamber, 7e-10,
-                                             Eigen::Array2d::Constant(dt), 10 * dt, Eigen::Array4d::Zero(),
-                                             gas.mass, skimmer, ms.mesh_skimmer, ms.quadrupole);
+    // A stationary particle has constant hazard: 0.25 is reached at exactly 2.5 nominal steps.
+    auto outcome = next_coll(std::exp(-0.25), particle, chamber, 7e-10,
+                             Eigen::Array2d::Constant(dt), 10 * dt, Eigen::Array4d::Zero(),
+                             gas.mass, skimmer, ms.mesh_skimmer, ms.quadrupole);
     CHECK(outcome == TimeNextCollOutcome::gas_collision);
-    CHECK(particle.time / dt == doctest::Approx(3));
+    CHECK(particle.time / dt == doctest::Approx(2.5));
   }
 }
 
@@ -1033,7 +1034,7 @@ TEST_CASE("trajectory steps retain regional integration rules")
   {
     CAPTURE(step.z);
     ParticleState particle{.position = {1, 2, step.z}, .velocity = {2, 3, 4}};
-    CHECK(time_next_coll_quadrupole(0, particle, chamber, 7e-10, dts, step.dt, acceleration, gas.mass, skimmer, ms.mesh_skimmer, ms.quadrupole) == TimeNextCollOutcome::fragmentation);
+    CHECK(next_coll_old(0, particle, chamber, 7e-10, dts, step.dt, acceleration, gas.mass, skimmer, ms.mesh_skimmer, ms.quadrupole) == TimeNextCollOutcome::fragmentation);
     CHECK(particle.time == doctest::Approx(step.dt));
     CHECK(particle.velocity.isApprox(step.velocity, 1e-12));
     CHECK(particle.position.isApprox(step.position, 1e-12));
@@ -1047,7 +1048,7 @@ TEST_CASE("trajectory steps retain regional integration rules")
     Eigen::Vector3d expected_velocity{2, 3, z == 20 ? 4.4 : 4};
     double dt = 1e-3 / collision_frequency(z, expected_velocity, chamber, gas.mass, 7e-10, skimmer, ms.mesh_skimmer);
     Eigen::Vector3d expected_position = particle.position + particle.velocity * dt;
-    CHECK(time_next_coll_quadrupole(0, particle, chamber, 7e-10, dts, 1e-100, acceleration, gas.mass, skimmer, ms.mesh_skimmer, ms.quadrupole) == TimeNextCollOutcome::fragmentation);
+    CHECK(next_coll_old(0, particle, chamber, 7e-10, dts, 1e-100, acceleration, gas.mass, skimmer, ms.mesh_skimmer, ms.quadrupole) == TimeNextCollOutcome::fragmentation);
     CHECK(particle.time == doctest::Approx(dt).epsilon(1e-12));
     CHECK(particle.velocity.isApprox(expected_velocity, 1e-12));
     CHECK(particle.position.isApprox(expected_position, 1e-12));
@@ -1068,10 +1069,87 @@ TEST_CASE("trajectory sampler suppresses gas collisions upstream")
   double fragmentation = 1;
   // At this pressure, ordinary chamber motion would produce a collision almost
   // immediately at this threshold. Upstream motion must fragment instead.
-  auto outcome = time_next_coll_quadrupole(std::nextafter(1.0, 0.0), particle, chamber, 7e-10,
-                                           Eigen::Array2d::Constant(0.125), fragmentation,
-                                           Eigen::Array4d::Constant(2), gas.mass, skimmer, ms.mesh_skimmer, ms.quadrupole);
+  auto outcome = next_coll(std::nextafter(1.0, 0.0), particle, chamber, 7e-10,
+                           Eigen::Array2d::Constant(0.125), fragmentation,
+                           Eigen::Array4d::Constant(2), gas.mass, skimmer, ms.mesh_skimmer, ms.quadrupole);
   CHECK(outcome == TimeNextCollOutcome::fragmentation);
   CHECK(particle.position.z() == doctest::Approx(-4));
   CHECK(particle.time == doctest::Approx(1));
+}
+
+TEST_CASE("next_coll integrates the skimmer gas profile across knots")
+{
+  SkimmerData skimmer(3, 3);
+  skimmer << 0, 300, 1, 0, 300, 3, 0, 300, 2;
+  MassSpectrometer ms{skimmer, 1, InstrumentDims::Constant(10), InstrumentVoltages::Zero(), 300, InstrumentPressures::Constant(1)};
+  Gas gas{2e-10, 4.8e-26, 1.4};
+  ChamberQuantities chamber(ms, gas);
+  ParticleState p{.position = {0, 0, 10}, .velocity = {0, 0, 1}};
+  // T and relative velocity are constant, so the rate is linear in pressure.
+  // Integrated pressure to z=11.5 is 2 + 0.5*(3+2.5)/2 = 3.375 Pa s.
+  double unit = collision_frequency(10, p.velocity, chamber, gas.mass, 2e-12, skimmer, 1);
+  auto event = next_coll(std::exp(-3.375 * unit), p, chamber, 2e-12, Eigen::Array2d::Ones(), 10,
+                         Eigen::Array4d::Zero(), gas.mass, skimmer, 1, ms.quadrupole);
+  REQUIRE(event == TimeNextCollOutcome::gas_collision);
+  CHECK(p.time == doctest::Approx(1.5).epsilon(1e-9));
+  CHECK(p.position.z() == doctest::Approx(11.5).epsilon(1e-10));
+}
+
+TEST_CASE("next_coll resolves interfaces in either direction and escape at a deadline")
+{
+  SkimmerData skimmer(2, 3);
+  skimmer << 0, 300, 1, 0, 300, 1;
+  MassSpectrometer ms{skimmer, 5, InstrumentDims::Constant(10), InstrumentVoltages::Zero(), 300, InstrumentPressures::Constant(1)};
+  Gas gas{2e-10, 4.8e-26, 1.4};
+  ChamberQuantities chamber(ms, gas);
+  ParticleState p{.position = {0, 0, 19}, .velocity = {0, 0, 1}};
+  auto run = [&](double dt)
+  {
+    return next_coll(0, p, chamber, 2e-10, Eigen::Array2d::Ones(), dt,
+                     Eigen::Array4d{0, 2, 0, 0}, gas.mass, skimmer, 5, ms.quadrupole);
+  };
+  REQUIRE(run(2) == TimeNextCollOutcome::fragmentation);
+  CHECK(p.position.z() == doctest::Approx(22));
+  CHECK(p.velocity.z() == doctest::Approx(3));
+  p.velocity.z() = -3;
+  REQUIRE(run(2) == TimeNextCollOutcome::fragmentation);
+  CHECK(p.position.z() == doctest::Approx(19));
+  CHECK(p.velocity.z() == doctest::Approx(-1));
+  p.position.z() = 49;
+  p.velocity.z() = 1;
+  REQUIRE(run(1) == TimeNextCollOutcome::escape);
+  CHECK(p.position.z() == 50);
+}
+
+TEST_CASE("RF flight converges to independent trajectory at nonzero entry phase")
+{
+  SkimmerData skimmer(2, 3);
+  skimmer << 0, 300, 1, 0, 300, 1;
+  Quadrupole q{2, 3, 1, 0.01};
+  q.mathieu_factor = 0.5;
+  MassSpectrometer ms{skimmer, 5, InstrumentDims::Constant(10), InstrumentVoltages::Zero(), 300, InstrumentPressures::Ones(), q};
+  Gas gas{2e-10, 4.8e-22, 1.4};
+  ChamberQuantities chamber(ms, gas);
+  // Independent DOP853 reference, rtol=3e-14, from t=0.13 to 0.37.
+  Eigen::Vector4d expected{1.4569258813237311, 2.7641639237064104, 1.6840371968120658, 3.601275068708212};
+  auto error = [&](double step)
+  {
+    ParticleState p{.position = {1, 2, 35}, .time = 0.13, .velocity = {2, 3, 4}};
+    REQUIRE(next_coll(0, p, chamber, 2e-10, Eigen::Array2d::Constant(step), 0.24, Eigen::Array4d::Zero(),
+                      gas.mass, skimmer, 5, q) == TimeNextCollOutcome::fragmentation);
+    CHECK(p.time == doctest::Approx(0.37));
+    CHECK(p.position.z() == doctest::Approx(35.96));
+    return (Eigen::Vector4d{p.position.x(), p.position.y(), p.velocity.x(), p.velocity.y()} - expected).norm();
+  };
+  double coarse = error(0.0015);
+  double fine = error(0.00075);
+  CHECK(fine < 1e-6);
+  CHECK(coarse / fine == doctest::Approx(4).epsilon(0.01));
+
+  // Integrating H'=collision_frequency along the same reference flight gives
+  // exp(-H(0.24)) below. The deadline deliberately falls after the collision.
+  ParticleState p{.position = {1, 2, 35}, .time = 0.13, .velocity = {2, 3, 4}};
+  CHECK(next_coll(0.6001412074736865, p, chamber, 2e-11, Eigen::Array2d::Constant(0.00075), 0.3,
+                  Eigen::Array4d::Zero(), gas.mass, skimmer, 5, q) == TimeNextCollOutcome::gas_collision);
+  CHECK(p.time == doctest::Approx(0.37).epsilon(1e-7));
 }
