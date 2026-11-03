@@ -818,19 +818,6 @@ def mass_spec(
     seed: int = 42,
     log_callback: Callable[[str, str], None] | None = None,
     result_callback: Callable[[numpy.ndarray], None] | None = None,
-    event_callback: Callable[
-        [
-            ParticleState
-            | InitEvent
-            | CollisionEvent
-            | PostCollisionEvent
-            | FragmentationEvent
-            | PostFragmentationEvent
-            | EscapeEvent
-        ],
-        None,
-    ]
-    | None = None,
     named_tuple_counters=False,
     output_timings=False,
 ):
@@ -873,7 +860,6 @@ def mass_spec(
         seed=seed,
         log_callback=log_callback,
         result_callback=wrap_callback(result_callback),
-        event_callback=event_callback,
         sample_mode=sample_mode,
         strict=strict,
         logconf=logconf,

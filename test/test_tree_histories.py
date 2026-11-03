@@ -227,19 +227,33 @@ def test_tree_failure_keeps_early_identity(monkeypatch):
     runner = ExperimentRunner(db)
     runner.start_run(1)
 
-    def fail(*args, event_callback, **kwargs):
-        assert event_callback.result_id is not None
-        db.db.execute(
-            "insert into realization values (1, ?)", [event_callback.result_id]
-        )
-        event(db.db, 1, "init", 0)
-        raise RuntimeError("interrupted execution")
+    class FailedStream:
+        failed = False
 
-    monkeypatch.setattr(api, "mass_spec", fail)
+        def read_batch(self, max_items=512):
+            if self.failed:
+                raise StopIteration
+            self.failed = True
+            row = db.db.execute(
+                "select id from cluster_tree_experiment_result"
+            ).fetchone()
+            assert row is not None
+            db.db.execute("insert into realization values (1, ?)", [row[0]])
+            event(db.db, 1, "init", 0)
+            raise RuntimeError("interrupted execution")
+
+        def request_cancel(self):
+            pass
+
+        def join_if_joinable(self):
+            pass
+
+    monkeypatch.setattr(api, "mass_spec_iter", lambda *a, **k: FailedStream())
     with pytest.raises(RuntimeError, match="interrupted execution"):
         runner.run_mass_spec(
             None,
             tree(),
+            1,
             cluster_id=10,
             pathway_ids=[1, 2, 3, 4, 5, 5],
             tree_cluster_ids={0: 10, 1: 20, 2: 30, 3: 40},
