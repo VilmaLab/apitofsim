@@ -5,6 +5,7 @@ import sys
 import time
 
 import pytest
+import stream_snapshots as snapshot
 from apitofsim.config import ConfigFile
 from apitofsim.workflow import ExperimentDatabase, ExperimentRunner, ingest_legacy_one
 from click.testing import CliRunner
@@ -130,8 +131,8 @@ def test_iterator_cancellation(tree, early):
         initial = 0
         finals = []
         requested = False
-        for item in stream:
-            if isinstance(item, api.InitEvent):
+        for item in snapshot.flatten_batches(stream):
+            if isinstance(item, snapshot.InitEvent):
                 initial += 1
             if isinstance(item, api.MassSpecIntermediateCounter):
                 latest = item.counters
@@ -158,7 +159,7 @@ def test_iterator_cancellation(tree, early):
         stream.request_cancel()
         stream.join_if_joinable()
         stream.join_if_joinable()
-        assert list(stream) == []
+        assert list(snapshot.flatten_batches(stream)) == []
 
 
 @pytest.mark.parametrize("tree", [False, True])
@@ -169,7 +170,7 @@ def test_iterator_cancellation_after_completion(tree, n):
     with _cancellation_stream(tree, n=n) as stream:
         stream.join_if_joinable()  # Complete before draining the queue.
         stream.request_cancel()
-        items = list(stream)
+        items = list(snapshot.flatten_batches(stream))
         final = items[-1]
         assert isinstance(final, api.MassSpecFinalResult)
         assert final.counters.n_realizations == n
@@ -184,8 +185,8 @@ def test_iterator_cancellation_isolation():
         _cancellation_stream(n=3) as independent,
     ):
         cancelled.request_cancel()
-        assert list(cancelled)[-1].cancelled
-        final = list(independent)[-1]
+        assert list(snapshot.flatten_batches(cancelled))[-1].cancelled
+        final = list(snapshot.flatten_batches(independent))[-1]
         assert final.counters.n_realizations == 3
         assert not final.cancelled
 
@@ -196,10 +197,11 @@ def test_iterator_cancellation_blocking(action, tree):
     # A subprocess bounds failures if a blocking binding accidentally keeps the GIL.
     code = f"""
 import os, runpy, signal, threading, time
+import stream_snapshots as snapshot
 make_stream = runpy.run_path({__file__!r})['_cancellation_stream']
 stream = make_stream(tree={tree!r})
 # Ensure completed work is present before interrupting the remaining simulation.
-first = next(stream)
+first = next(snapshot.flatten_batches(stream))
 assert first.counters.n_realizations > 0
 def interrupt():
     time.sleep(.05)
@@ -219,16 +221,16 @@ try:
             output = []
             while True:
                 try:
-                    output.extend(stream.read_batch(512))
+                    output.extend(stream.read_batch(512).items)
                 except StopIteration:
                     break
             final = output[-1]
         else:
-            final = list(stream)[-1]
+            final = list(snapshot.flatten_batches(stream))[-1]
         assert {action!r} != 'sigint', 'SIGINT must raise KeyboardInterrupt'
         assert final.cancelled
         assert first.counters.n_realizations <= final.counters.n_realizations < 1_000_000
-        assert list(stream) == []
+        assert list(snapshot.flatten_batches(stream)) == []
 except KeyboardInterrupt:
     assert {action!r} == 'sigint'
 requester.join()
@@ -484,7 +486,6 @@ def test_tree_indices(edges, monkeypatch):
 
 
 def assert_event_row(connection, event, pathway_id=None):
-    import apitofsim.api as api
     import numpy as np
 
     row = connection.execute(
@@ -508,11 +509,11 @@ def assert_event_row(connection, event, pathway_id=None):
         state.vibrational_energy,
         state.particle_index,
     )
-    if isinstance(event, api.CollisionEvent):
+    if isinstance(event, snapshot.CollisionEvent):
         assert row[8:12] == (event_id, event.theta, event.u_norm, event.accepted)
     else:
         assert row[8:12] == (None,) * 4
-    if isinstance(event, api.FragmentationEvent):
+    if isinstance(event, snapshot.FragmentationEvent):
         assert row[12] == event_id
         assert row[14:] == (event.pathway_index, event.next_particle_index)
         if pathway_id is not None:
@@ -540,30 +541,26 @@ def test_particle_snapshot_properties_and_array_lifetimes():
     subs = raw.MassSpecSubstanceSingleInput(
         -1, 1e-25, 5e-10, density, [], raw.Gas(2e-10, 4.8e-26, 1.4)
     )
-    events = []
-    stream = raw.MassSpecIterator(ms, subs, 2, seed=42, logconf=(0, True))
+    arrays = []
+    stream = raw.MassSpecIterator(
+        ms, subs, 2, seed=42, logconf=(0, True), initial_batch_size=1, max_batch_size=1
+    )
     try:
         while True:
             try:
-                events.extend(stream.read_batch(512))
+                batch = next(stream)
+                columns = batch.columns
+                arrays.extend(columns.values())
+                for column in columns.values():
+                    assert not column.flags.writeable
             except StopIteration:
                 break
     finally:
         stream.join_if_joinable()
-    states = [event.state for event in events if isinstance(event, raw.InitEvent)]
-    assert len(states) == 2
-    arrays = []
-    for state in states:
-        np.testing.assert_array_equal(state.postime, np.zeros(4))
-        assert state.velocity.shape == state.omega.shape == (3,)
-        for attribute in ("postime", "velocity", "omega", "vibrational_energy"):
-            with pytest.raises(AttributeError):
-                setattr(state, attribute, getattr(state, attribute))
-        arrays.extend((state.postime, state.velocity, state.omega))
     expected = [array.copy() for array in arrays]
-    del state, states, events
+    del batch, columns, stream
     gc.collect()
-    for array, values in zip(arrays, expected):
+    for array, values in zip(arrays, expected, strict=True):
         np.testing.assert_array_equal(array, values)
 
 
@@ -601,10 +598,10 @@ def test_init_events_workflow(tmp_path, monkeypatch, mode):
         nonlocal num_events
         original_record(recorder, events)
         if events:
-            event = events[-1]
+            event = list(snapshot.event_rows(events))[-1]
             pathway_id = (
                 recorder.pathways[event.pathway_index]
-                if isinstance(event, api.FragmentationEvent)
+                if isinstance(event, snapshot.FragmentationEvent)
                 else None
             )
             assert_event_row(recorder.db.db, event, pathway_id)
@@ -622,10 +619,10 @@ def test_init_events_workflow(tmp_path, monkeypatch, mode):
             state = event.state
             previous = previous_events.get(state.realization)
             expects_post = (
-                isinstance(previous, api.CollisionEvent) and previous.accepted
+                isinstance(previous, snapshot.CollisionEvent) and previous.accepted
             )
-            assert isinstance(event, api.PostCollisionEvent) == expects_post
-            if isinstance(event, api.PostCollisionEvent):
+            assert isinstance(event, snapshot.PostCollisionEvent) == expects_post
+            if isinstance(event, snapshot.PostCollisionEvent):
                 post_collisions += 1
                 np.testing.assert_array_equal(state.postime, previous.state.postime)
                 assert state.particle_index == previous.state.particle_index
@@ -633,21 +630,23 @@ def test_init_events_workflow(tmp_path, monkeypatch, mode):
                     hasattr(event, field) for field in ("theta", "u_norm", "accepted")
                 )
             expects_post_fragmentation = (
-                isinstance(previous, api.FragmentationEvent)
+                isinstance(previous, snapshot.FragmentationEvent)
                 and previous.next_particle_index >= 0
             )
             assert (
-                isinstance(event, api.PostFragmentationEvent)
+                isinstance(event, snapshot.PostFragmentationEvent)
                 == expects_post_fragmentation
             )
-            if isinstance(event, api.PostFragmentationEvent):
+            if isinstance(event, snapshot.PostFragmentationEvent):
                 assert mode == "CLUSTER_TREE"
                 np.testing.assert_array_equal(state.postime, previous.state.postime)
                 assert state.particle_index == previous.next_particle_index
                 np.testing.assert_array_equal(state.velocity, np.zeros(3))
                 np.testing.assert_array_equal(state.omega, np.zeros(3))
                 assert state.rot_energy == state.vibrational_energy == 0
-            if isinstance(event, (api.CollisionEvent, api.PostCollisionEvent)):
+            if isinstance(
+                event, (snapshot.CollisionEvent, snapshot.PostCollisionEvent)
+            ):
                 particle = (
                     subs
                     if mode != "CLUSTER_TREE"
@@ -666,12 +665,12 @@ def test_init_events_workflow(tmp_path, monkeypatch, mode):
                 assert np.isfinite(state.velocity).all()
                 assert np.isfinite(state.omega).all()
                 assert np.isfinite(state.vibrational_energy)
-            if isinstance(event, api.CollisionEvent):
+            if isinstance(event, snapshot.CollisionEvent):
                 accepted_collisions += event.accepted
             if (
                 previous is not None
-                and not isinstance(previous, api.FragmentationEvent)
-                and not isinstance(event, api.PostCollisionEvent)
+                and not isinstance(previous, snapshot.FragmentationEvent)
+                and not isinstance(event, snapshot.PostCollisionEvent)
             ):
                 np.testing.assert_array_equal(state.omega, previous.state.omega)
                 if ms.quadrupole is None:
@@ -693,7 +692,7 @@ def test_init_events_workflow(tmp_path, monkeypatch, mode):
         def check_event(event):
             state = event.state
             check_collision(event)
-            if isinstance(event, api.InitEvent):
+            if isinstance(event, snapshot.InitEvent):
                 assert state.realization not in initial_states
                 initial_states[state.realization] = state
                 np.testing.assert_array_equal(state.postime, np.zeros(4))
@@ -715,7 +714,10 @@ def test_init_events_workflow(tmp_path, monkeypatch, mode):
                 )
             else:
                 assert state.realization in initial_states
-            if isinstance(event, api.FragmentationEvent) and mode == "CLUSTER_TREE":
+            if (
+                isinstance(event, snapshot.FragmentationEvent)
+                and mode == "CLUSTER_TREE"
+            ):
                 assert (
                     event.pathway_index
                     in subs.tree_nodes[state.particle_index].pathway_indices
@@ -730,8 +732,8 @@ def test_init_events_workflow(tmp_path, monkeypatch, mode):
 
             def read_batch(self, max_items=512):
                 nonlocal num_runs
-                items = native.read_batch(max_items)
-                for item in items:
+                batch = native.read_batch(max_items)
+                for item in snapshot.flatten_batches([batch]):
                     if hasattr(item, "state"):
                         check_event(item)
                     elif isinstance(item, api.MassSpecFinalResult):
@@ -750,7 +752,7 @@ def test_init_events_workflow(tmp_path, monkeypatch, mode):
                         ):
                             np.testing.assert_array_equal(actual, expected)
                         num_runs += 1
-                return items
+                return batch
 
         return CheckedStream()
 
@@ -852,14 +854,14 @@ def test_collision_details_and_escape(accepted, monkeypatch):
         collision = CollisionEvent(
             state=state, theta=0.123456789, u_norm=123.456789, accepted=accepted
         )
-        recorder.record_batch([collision])
+        recorder.record_batch(snapshot.event_table([collision]))
         assert_event_row(db.db, collision)
         if accepted:
             postcollision = PostCollisionEvent(state=state)
-            recorder.record_batch([postcollision])
+            recorder.record_batch(snapshot.event_table([postcollision]))
             assert_event_row(db.db, postcollision)
         escape = EscapeEvent(state=state)
-        recorder.record_batch([escape])
+        recorder.record_batch(snapshot.event_table([escape]))
         assert_event_row(db.db, escape)
         assert (
             db.db.execute("select count(*) from event_info").fetchone()[0]
@@ -1919,9 +1921,9 @@ def test_upstream_escape_invalidates_run(tree, streaming, strict):
             with api.MassSpecIterator(
                 ms.into_cpp(), subs, 8, strict=strict, seed=42, logconf=(0, True)
             ) as stream:
-                for item in stream:
+                for item in snapshot.flatten_batches(stream):
                     assert not isinstance(item, api.MassSpecFinalResult)
-                    if isinstance(item, api.InitEvent):
+                    if isinstance(item, snapshot.InitEvent):
                         initial.append(item.state)
         else:
             api.mass_spec(

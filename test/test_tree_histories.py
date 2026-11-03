@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import duckdb
 import pytest
+import stream_snapshots as snapshot
 from apitofsim import apitofsimraw as raw
 from apitofsim.workflow import (
     ExperimentRunner,
@@ -363,14 +364,16 @@ def test_native_postfragmentation_persistence(batch_size):
         None,
     )
     with api.MassSpecIterator(ms, subs, 1, logconf=(0, True)) as stream:
-        events = [item for item in stream if hasattr(item, "state")]
+        events = [
+            item for item in snapshot.flatten_batches(stream) if hasattr(item, "state")
+        ]
     assert [type(e) for e in events] == [
-        api.InitEvent,
-        api.FragmentationEvent,
-        api.PostFragmentationEvent,
-        api.FragmentationEvent,
-        api.PostFragmentationEvent,
-        api.FragmentationEvent,
+        snapshot.InitEvent,
+        snapshot.FragmentationEvent,
+        snapshot.PostFragmentationEvent,
+        snapshot.FragmentationEvent,
+        snapshot.PostFragmentationEvent,
+        snapshot.FragmentationEvent,
     ]
     for before, after in [(events[1], events[2]), (events[3], events[4])]:
         np.testing.assert_array_equal(before.state.postime, after.state.postime)
@@ -392,7 +395,9 @@ def test_native_postfragmentation_persistence(batch_size):
         result_id = db.start_tree_result(1, 10, subs, {0: 10, 1: 20, 2: 40}, paths)
         recorder = EventRecorder(db, paths, result_id=result_id)
         for offset in range(0, len(events), batch_size):
-            recorder.record_batch(events[offset : offset + batch_size])
+            recorder.record_batch(
+                snapshot.event_table(events[offset : offset + batch_size])
+            )
         rows = db.tree_events_query(result_id=result_id)
         assert rows.aggregate("count(*), count(distinct event_id)").fetchone() == (6, 6)
         assert (

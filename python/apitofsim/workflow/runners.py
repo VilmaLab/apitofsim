@@ -11,6 +11,7 @@ from apitofsim.api import (
     ApiTofOverflowError,
     CollisionTimeOptions,
     Histogram,
+    MassSpecBatch,
     MassSpecFinalResult,
     MassSpecInputFragmentationPathway,
     MassSpecIntermediateCounter,
@@ -124,7 +125,7 @@ class RecordingMassSpecIterator:
         pathway_id=None,
         pathway_ids=(),
         tree_cluster_ids=None,
-        max_batch_items=512,
+        max_batch_items=262144,
         **options,
     ):
         from apitofsim.api import mass_spec_iter
@@ -157,7 +158,14 @@ class RecordingMassSpecIterator:
             else None
         )
         try:
-            self._stream = mass_spec_iter(mass_spec, substance, N, **options)
+            self._stream = mass_spec_iter(
+                mass_spec,
+                substance,
+                N,
+                initial_batch_size=min(4096, self.max_batch_items),
+                max_batch_size=self.max_batch_items,
+                **options,
+            )
         except BaseException as error:
             self._abort(error)
             raise
@@ -170,22 +178,9 @@ class RecordingMassSpecIterator:
     def __iter__(self):
         return self
 
-    def _record_batch(self, items):
+    def _record_batch(self, batch):
         if self._recorder is not None:
-            self._recorder.record_batch(
-                [
-                    item
-                    for item in items
-                    if not isinstance(
-                        item,
-                        (
-                            MassSpecIntermediateCounter,
-                            MassSpecLogItem,
-                            MassSpecFinalResult,
-                        ),
-                    )
-                ]
-            )
+            self._recorder.record_batch(batch.events)
 
     def __next__(self):
         if self._done:
@@ -193,10 +188,12 @@ class RecordingMassSpecIterator:
         assert self._stream is not None
         try:
             try:
-                if not self._ready:
-                    items = self._stream.read_batch(self.max_batch_items)
-                    self._record_batch(items)
-                    self._ready.extend(items)
+                while not self._ready:
+                    batch = self._stream.read_batch(self.max_batch_items)
+                    self._record_batch(batch)
+                    if len(batch.events):
+                        self._ready.append(MassSpecBatch(batch.events, []))
+                    self._ready.extend(batch.items)
                 item = self._ready.popleft()
             except StopIteration:
                 raise RuntimeError("Simulation ended without a final result") from None
@@ -246,10 +243,10 @@ class RecordingMassSpecIterator:
             try:
                 while True:
                     try:
-                        items = self._stream.read_batch(self.max_batch_items)
+                        batch = self._stream.read_batch(self.max_batch_items)
                     except StopIteration:
                         break
-                    self._cleanup_step(error, lambda: self._record_batch(items))
+                    self._cleanup_step(error, lambda: self._record_batch(batch))
             except BaseException as secondary:
                 error.add_note(
                     f"Draining simulation: {type(secondary).__name__}: {secondary}"
@@ -892,7 +889,7 @@ class ExperimentRunner:
         strict_dos=True,
         loglevel=0,
         seed=42,
-        max_batch_items=512,
+        max_batch_items=262144,
     ) -> RecordingMassSpecIterator:
         """Stream a prepared group; see RecordingMassSpecIterator for cleanup.
 
@@ -935,7 +932,7 @@ class ExperimentRunner:
         sample_mode=SampleMode.rejection,
         collision_time: CollisionTimeOptions | None = None,
         seed=42,
-        max_batch_items=512,
+        max_batch_items=262144,
         result_callback=None,
         log_callback=None,
     ):
