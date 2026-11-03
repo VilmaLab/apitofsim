@@ -434,15 +434,7 @@ limit. It does not wait to fill a batch. Individual iteration is also supported;
 raw iteration does not write to a database. Custom persistence can filter events
 from these batches and call `EventRecorder.record_batch(events)`; the recorder
 is no longer callable as a per-event callback.
-
-All database workflow modes (`single-cluster`, `pathway-at-a-time`, and
-`cluster-tree`) use the same batched recording iterator, including blocking
-`ExperimentRunner.run_mass_spec` calls. For a realization database, events are
-saved in batches of up to 512 stream items by default; aggregate experiment
-databases disable event logging. Multi-event batches use Arrow bulk inserts and
-one transaction per batch, unless the caller already owns a transaction. Sparse
-streams may yield singleton batches. Recording stays on the consuming thread;
-batching reduces SQL and transaction overhead without adding writer threads.
+Database workflows batch event recording automatically in every simulation mode.
 
 ## Cancelling a streaming simulation
 
