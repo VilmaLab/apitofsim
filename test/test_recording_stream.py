@@ -229,21 +229,15 @@ def test_collision_time_selects_same_clock_in_blocking_and_streaming(prepared_ca
         options = dict(
             seed=123, logconf=(0, True), collision_time=prepared.collision_time
         )
+        blocking = api.mass_spec(*args, **options, named_tuple_counters=True)
         times = []
-
-        def capture(event):
-            if isinstance(event, api.CollisionEvent):
-                times.append(event.state.postime[3])
-
-        api.mass_spec(*args, **options, event_callback=capture)
-        assert times
         with api.mass_spec_iter(*args, **options) as stream:
-            streamed = [
-                item.state.postime[3]
-                for item in stream
-                if isinstance(item, api.CollisionEvent)
-            ]
-        assert times == streamed
+            for item in stream:
+                if isinstance(item, api.CollisionEvent):
+                    times.append(item.state.postime[3])
+                elif isinstance(item, api.MassSpecFinalResult):
+                    assert_counters(item.counters, blocking)
+        assert times
         first_collision_times.append(times[0])
     assert first_collision_times[0] != first_collision_times[1]
 
