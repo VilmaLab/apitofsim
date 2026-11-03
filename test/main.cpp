@@ -1051,4 +1051,3 @@ TEST_CASE("trajectory sampler suppresses gas collisions upstream")
   CHECK(particle.position.z() == doctest::Approx(-4));
   CHECK(particle.time == doctest::Approx(1));
 }
-

@@ -634,4 +634,3 @@ Eigen::ArrayXXd compute_k_total_batch(std::vector<KTotalInput> batch_input, doub
   std::optional<const Eigen::ArrayXd> mesh = (mesh_mode == MeshMode::no_mesh ? std::nullopt : std::optional<const Eigen::ArrayXd>(precompute_mesh(energy_max_rate, bin_width, mesh_mode)));
   return compute_k_total_batch(batch_input, energy_max_rate, bin_width, mesh, progress_callback);
 }
-
