@@ -437,7 +437,7 @@ with mass_spec_iter(instrument, substance, N, logconf=(0, True)) as stream:
 - Retained tables and slices remain valid after later reads and iterator destruction.
   The producer queue can grow when consumers fall behind.
 - Custom persistence can pass `batch.events` to `EventRecorder.record_batch()`.
-  Database workflows commit each batch before yielding its event table.
+  Database workflows persist each batch before yielding its event table.
 
 | Columns | Contents |
 | --- | --- |
