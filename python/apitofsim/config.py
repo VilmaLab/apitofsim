@@ -11,6 +11,8 @@ from pint.errors import PintError
 
 from .api import (
     ClusterData,
+    CollisionTimeMethod,
+    CollisionTimeOptions,
     Gas,
     Histogram,
     MassSpectrometer,
@@ -84,6 +86,9 @@ class SimulationConfig(TypedDict):
     energy_max_rate: Quantity
     simulation_mode: NotRequired[str]
     sample_mode: NotRequired[str]
+    collision_time_method: NotRequired[str]
+    hazard_atol: NotRequired[float]
+    hazard_rtol: NotRequired[float]
     use_old_dos_impl: NotRequired[bool]
     k_total_mesh_mode: NotRequired[str]
     quadrupole: NotRequired[Quadrupole]
@@ -104,6 +109,9 @@ SIMULATION_FIELDS = (
     "energy_max_rate",
     "simulation_mode",
     "sample_mode",
+    "collision_time_method",
+    "hazard_atol",
+    "hazard_rtol",
     "use_old_dos_impl",
     "k_total_mesh_mode",
 )
@@ -128,6 +136,10 @@ def simulation_option(config, field) -> Any:
     enums = {
         "simulation_mode": (SimulationMode, SimulationMode.SINGLE_CLUSTER),
         "sample_mode": (SampleMode, SampleMode.rejection),
+        "collision_time_method": (
+            CollisionTimeMethod,
+            CollisionTimeMethod.integrated_hazard,
+        ),
         "k_total_mesh_mode": (MeshMode, MeshMode.compute_mesh_diagonal_multithreaded),
     }
     cls, default = enums[field]
@@ -135,7 +147,7 @@ def simulation_option(config, field) -> Any:
     if isinstance(value, cls):
         return value
     members = cls.__members__
-    if field == "simulation_mode":
+    if field in ("simulation_mode", "collision_time_method"):
         members = {
             name.replace("_", "-").lower(): mode for name, mode in members.items()
         }
@@ -145,6 +157,15 @@ def simulation_option(config, field) -> Any:
         return members[value]
     except (KeyError, TypeError) as exc:
         raise ValueError(f"{field}: expected one of {', '.join(members)}") from exc
+
+
+def collision_time_options(config) -> CollisionTimeOptions:
+    defaults = CollisionTimeOptions()
+    return CollisionTimeOptions(
+        simulation_option(config, "collision_time_method"),
+        config.get("hazard_atol", defaults.hazard_atol),
+        config.get("hazard_rtol", defaults.hazard_rtol),
+    )
 
 
 @dataclass(frozen=True)
@@ -171,6 +192,8 @@ CONFIG_FIELDS = MappingProxyType(
                 "M_iter": "dimensionless",
                 "resolution": "dimensionless",
                 "tolerance": "dimensionless",
+                "hazard_atol": "dimensionless",
+                "hazard_rtol": "dimensionless",
                 "dc": "meter",
                 "alpha_factor": "halfturn",
                 "bin_width": "kelvin",
@@ -220,9 +243,18 @@ def _check_components(values, names, field):
 
 def _config_value(value, field, *, strict=False):
     """Decode stored values, or normalize and validate a builder input."""
-    if field in ("simulation_mode", "sample_mode", "k_total_mesh_mode"):
+    if field in (
+        "simulation_mode",
+        "sample_mode",
+        "k_total_mesh_mode",
+        "collision_time_method",
+    ):
         name = simulation_option({field: value}, field).name
-        return name.replace("_", "-").lower() if field == "simulation_mode" else name
+        return (
+            name.replace("_", "-").lower()
+            if field in ("simulation_mode", "collision_time_method")
+            else name
+        )
     if field == "use_old_dos_impl":
         if not isinstance(value, bool):
             raise ValueError(f"{field}: expected a boolean")
@@ -265,7 +297,7 @@ def _config_value(value, field, *, strict=False):
             ],
             spec.unit,
         )
-    if not strict:
+    if not strict and field not in ("hazard_atol", "hazard_rtol"):
         return into_quantity(value, None if spec.unit == "dimensionless" else spec.unit)
     shape = (len(spec.components),) if spec.components else ()
     try:
@@ -287,6 +319,8 @@ def _config_value(value, field, *, strict=False):
             raise ValueError(
                 f"expected finite numeric {'array' if shape else 'scalar'} with shape {shape}"
             )
+        if field in ("hazard_atol", "hazard_rtol") and arr.item() <= 0:
+            raise ValueError("expected a positive tolerance")
         if SimulationConfig.__annotations__.get(field) is int:
             if arr.item() != int(arr.item()):
                 raise ValueError("expected an integer")
@@ -318,6 +352,9 @@ def build_config(
     energy_max_rate: Quantity,
     simulation_mode: str | None = None,
     sample_mode: str | None = None,
+    collision_time_method: str | None = None,
+    hazard_atol: float | None = None,
+    hazard_rtol: float | None = None,
     use_old_dos_impl: bool | None = None,
     k_total_mesh_mode: str | None = None,
     quadrupole: QuadrupoleComponents | Quadrupole | None = None,

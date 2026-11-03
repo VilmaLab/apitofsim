@@ -192,11 +192,12 @@ std::jthread run_mass_spec_in_thread(
   SampleMode sample_mode,
   bool strict,
   std::tuple<int, bool> logconf,
+  CollisionTimeOptions collision_time,
   std::function<void()> on_complete = {})
 {
-  return std::jthread([&, N, seed, sample_mode, strict, logconf, on_complete]
+  return std::jthread([&, N, seed, sample_mode, strict, logconf, collision_time, on_complete]
   {
-    exception_transport.guard([&, N, seed, sample_mode, strict, logconf]
+    exception_transport.guard([&, N, seed, sample_mode, strict, logconf, collision_time]
     {
       result = apitof_mass_spec(
         ms,
@@ -207,7 +208,7 @@ std::jthread run_mass_spec_in_thread(
         sample_mode,
         strict,
         MassSpecLogConf(std::get<0>(logconf), std::get<1>(logconf)),
-        operation);
+        operation, collision_time);
     });
     if (on_complete)
     {
@@ -267,14 +268,15 @@ mass_spec(
   std::optional<std::function<void(Eigen::ArrayXi)>> result_callback = nullopt,
   SampleMode sample_mode = SampleMode::rejection,
   bool strict = true,
-  std::tuple<int, bool> logconf = DEFAULT_LOGCONF_TUPLE)
+  std::tuple<int, bool> logconf = DEFAULT_LOGCONF_TUPLE,
+  std::optional<CollisionTimeOptions> collision_time = std::nullopt)
 {
   DrainingStreamingResultQueue result_queue;
   OperationContext operation;
   ExceptionTransport exception_transport;
   SimulationResult result;
   Eigen::ArrayXi partial_counters = mk_partial_counters(subs);
-  std::jthread thread = run_mass_spec_in_thread<MassSpecSubstanceT>(result, operation, exception_transport, ms, subs, N, seed, result_queue.queue, sample_mode, strict, logconf);
+  std::jthread thread = run_mass_spec_in_thread<MassSpecSubstanceT>(result, operation, exception_transport, ms, subs, N, seed, result_queue.queue, sample_mode, strict, logconf, collision_time.value_or(CollisionTimeOptions{}));
   while (true)
   {
     auto result = pump_mass_spec_queue(result_queue, partial_counters);
@@ -335,13 +337,14 @@ struct MassSpecIterator
     unsigned long long seed = DEFAULT_SEED,
     SampleMode sample_mode = SampleMode::rejection,
     bool strict = true,
-    std::tuple<int, bool> logconf = DEFAULT_LOGCONF_TUPLE) : result_queue(),
-                                                             partial_counters(mk_partial_counters(*subs)),
-                                                             ms(ms),
-                                                             subs(std::shared_ptr<const void>(subs)),
-                                                             exception_transport(),
-                                                             requested_realizations(N),
-                                                             execution_thread(run_mass_spec_in_thread<MassSpecSubstanceT>(final_result, operation, exception_transport, *ms, *subs, N, seed, result_queue.queue, sample_mode, strict, logconf, [this]
+    std::tuple<int, bool> logconf = DEFAULT_LOGCONF_TUPLE,
+    std::optional<CollisionTimeOptions> collision_time = std::nullopt) : result_queue(),
+                                                                         partial_counters(mk_partial_counters(*subs)),
+                                                                         ms(ms),
+                                                                         subs(std::shared_ptr<const void>(subs)),
+                                                                         exception_transport(),
+                                                                         requested_realizations(N),
+                                                                         execution_thread(run_mass_spec_in_thread<MassSpecSubstanceT>(final_result, operation, exception_transport, *ms, *subs, N, seed, result_queue.queue, sample_mode, strict, logconf, collision_time.value_or(CollisionTimeOptions{}), [this]
   {
     completed = true;
   }))
@@ -822,6 +825,14 @@ NB_MODULE(apitofsimraw, m)
         "progress_callback"_a = std::nullopt);
 
   nb_magic_enum<SampleMode>(m, "SampleMode");
+  nb_magic_enum<CollisionTimeMethod>(m, "CollisionTimeMethod");
+  const CollisionTimeOptions default_collision_time;
+  nb::class_<CollisionTimeOptions>(m, "CollisionTimeOptions")
+    .def(nb::init<CollisionTimeMethod, double, double>(), "method"_a = default_collision_time.method,
+         "hazard_atol"_a = default_collision_time.hazard_atol, "hazard_rtol"_a = default_collision_time.hazard_rtol)
+    .def_ro("method", &CollisionTimeOptions::method)
+    .def_ro("hazard_atol", &CollisionTimeOptions::hazard_atol)
+    .def_ro("hazard_rtol", &CollisionTimeOptions::hazard_rtol);
 
   m.def("scaled_density",
         &scaled_density,
@@ -842,7 +853,8 @@ NB_MODULE(apitofsimraw, m)
         "result_callback"_a = std::nullopt,
         "sample_mode"_a = SampleMode::rejection,
         "strict"_a = true,
-        "logconf"_a = DEFAULT_LOGCONF_TUPLE);
+        "logconf"_a = DEFAULT_LOGCONF_TUPLE,
+        "collision_time"_a = std::nullopt);
 
   m.def("mass_spec",
         &mass_spec<MassSpecSubstanceTreeInput>,
@@ -855,7 +867,8 @@ NB_MODULE(apitofsimraw, m)
         "result_callback"_a = std::nullopt,
         "sample_mode"_a = SampleMode::rejection,
         "strict"_a = true,
-        "logconf"_a = DEFAULT_LOGCONF_TUPLE);
+        "logconf"_a = DEFAULT_LOGCONF_TUPLE,
+        "collision_time"_a = std::nullopt);
 
   nb::class_<ParticleStateMsg>(m, "ParticleState")
     .def_ro("realization", &ParticleStateMsg::realization)
@@ -898,7 +911,7 @@ NB_MODULE(apitofsimraw, m)
     .def_ro("state", &EscapeEvent::state);
 
   nb::class_<MassSpecIterator>(m, "MassSpecIterator")
-    .def(nb::init<std::shared_ptr<const MassSpectrometer>, std::shared_ptr<const MassSpecSubstanceSingleInput>, int, unsigned long long, SampleMode, bool, std::tuple<int, bool>>(),
+    .def(nb::init<std::shared_ptr<const MassSpectrometer>, std::shared_ptr<const MassSpecSubstanceSingleInput>, int, unsigned long long, SampleMode, bool, std::tuple<int, bool>, std::optional<CollisionTimeOptions>>(),
          nb::call_guard<nb::gil_scoped_release>(),
          "ms"_a,
          "subs"_a,
@@ -906,8 +919,9 @@ NB_MODULE(apitofsimraw, m)
          "seed"_a = DEFAULT_SEED,
          "sample_mode"_a = SampleMode::rejection,
          "strict"_a = true,
-         "logconf"_a = DEFAULT_LOGCONF_TUPLE)
-    .def(nb::init<std::shared_ptr<const MassSpectrometer>, std::shared_ptr<const MassSpecSubstanceTreeInput>, int, unsigned long long, SampleMode, bool, std::tuple<int, bool>>(),
+         "logconf"_a = DEFAULT_LOGCONF_TUPLE,
+         "collision_time"_a = std::nullopt)
+    .def(nb::init<std::shared_ptr<const MassSpectrometer>, std::shared_ptr<const MassSpecSubstanceTreeInput>, int, unsigned long long, SampleMode, bool, std::tuple<int, bool>, std::optional<CollisionTimeOptions>>(),
          nb::call_guard<nb::gil_scoped_release>(),
          "ms"_a,
          "subs"_a,
@@ -915,7 +929,8 @@ NB_MODULE(apitofsimraw, m)
          "seed"_a = DEFAULT_SEED,
          "sample_mode"_a = SampleMode::rejection,
          "strict"_a = true,
-         "logconf"_a = DEFAULT_LOGCONF_TUPLE)
+         "logconf"_a = DEFAULT_LOGCONF_TUPLE,
+         "collision_time"_a = std::nullopt)
     .def("__next__", &MassSpecIterator::__next__)
     .def("read_batch", &MassSpecIterator::read_batch, "max_items"_a = 512)
     .def("join_if_joinable", &MassSpecIterator::join_if_joinable, nb::call_guard<nb::gil_scoped_release>())

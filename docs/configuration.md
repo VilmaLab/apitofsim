@@ -104,6 +104,9 @@ name = "example"
 N = 2000
 simulation_mode = "single-cluster"
 sample_mode = "rejection"
+collision_time_method = "integrated-hazard"
+hazard_atol = 1e-12
+hazard_rtol = 1e-9
 use_old_dos_impl = false
 k_total_mesh_mode = "compute_mesh_diagonal_multithreaded"
 ```
@@ -117,8 +120,13 @@ normalized when loaded. Do not specify a setting both at top level and inside
 | ---- | ------- | ----------- |
 | simulation_mode | `single-cluster` | `pathway-at-a-time`, `single-cluster`, or `cluster-tree` (same spellings as the CLI flag). `db run --simulation-mode` overrides the config. |
 | sample_mode | `rejection` | `rejection`, `dss_normalized`, or `dss_unnormalized`. |
+| collision_time_method | `integrated-hazard` | Use `legacy` for the previous timestep-based collision clock. Independent of `sample_mode`. |
+| hazard_atol | `1e-12` | Absolute tolerance in dimensionless cumulative hazard, for integration and event location. |
+| hazard_rtol | `1e-9` | Relative tolerance in cumulative hazard. Both tolerances must be finite and positive. |
 | use_old_dos_impl | `false` | Use the legacy density of states implementation for uncached calculations. |
 | k_total_mesh_mode | `compute_mesh_diagonal_multithreaded` | `no_mesh`, `compute_mesh_single_threaded`, `compute_mesh_diagonal_single_threaded`, `compute_mesh_multithreaded`, or `compute_mesh_diagonal_multithreaded`. |
+
+The hazard tolerances apply to the integrated-hazard solver, including RF flights. They do not set the Verlet trajectory accuracy. The legacy solver ignores both tolerances and uses the chamber timesteps derived for each cluster.
 
 The selected DOS implementation affects newly computed entries; existing DOS
 cache entries are reused.

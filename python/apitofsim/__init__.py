@@ -1,6 +1,8 @@
 from . import apitofsimraw
 from .api import (
     ClusterData,
+    CollisionTimeMethod,
+    CollisionTimeOptions,
     FragmentationPathway,
     Gas,
     Histogram,
@@ -49,6 +51,8 @@ consts = apitofsimraw.consts
 __all__ = [
     # API
     "ClusterData",
+    "CollisionTimeMethod",
+    "CollisionTimeOptions",
     "ProductsCluster",
     "Gas",
     "Quadrupole",

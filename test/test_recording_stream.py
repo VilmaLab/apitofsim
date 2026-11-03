@@ -218,6 +218,36 @@ def test_completion_matches_blocking_runner(prepared_case, sign):
     ).fetchone() == (4,)
 
 
+def test_collision_time_selects_same_clock_in_blocking_and_streaming(prepared_case):
+    _, _, config, _ = prepared_case
+    first_collision_times = []
+    for method in ("integrated-hazard", "legacy"):
+        config["collision_time_method"] = method
+        prepared = prepare(prepared_case, pathways=[1])
+        group = prepared.groups[0]
+        args = (prepared.mass_spec, group.substance, 1)
+        options = dict(
+            seed=123, logconf=(0, True), collision_time=prepared.collision_time
+        )
+        times = []
+
+        def capture(event):
+            if isinstance(event, api.CollisionEvent):
+                times.append(event.state.postime[3])
+
+        api.mass_spec(*args, **options, event_callback=capture)
+        assert times
+        with api.mass_spec_iter(*args, **options) as stream:
+            streamed = [
+                item.state.postime[3]
+                for item in stream
+                if isinstance(item, api.CollisionEvent)
+            ]
+        assert times == streamed
+        first_collision_times.append(times[0])
+    assert first_collision_times[0] != first_collision_times[1]
+
+
 def test_run_binding_and_foreign_group(prepared_case):
     db, runner, _, config_id = prepared_case
     prepared = prepare(prepared_case, pathways=[1])

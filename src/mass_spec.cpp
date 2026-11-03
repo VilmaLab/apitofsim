@@ -235,7 +235,8 @@ SimulationResult apitof_mass_spec(
   GasCollSamplerT gas_coll_sampler,
   const bool strict,
   const MassSpecLogConf logconf,
-  OperationContext &operation);
+  OperationContext &operation,
+  const CollisionTimeOptions &collision_time);
 
 template <typename GasCollSamplerT, typename VibEnergySamplerT>
 SimulationResult apitof_mass_spec(
@@ -248,7 +249,8 @@ SimulationResult apitof_mass_spec(
   // VibEnergySamplerT vib_energy_sampler,
   const bool strict,
   const MassSpecLogConf logconf,
-  OperationContext &operation);
+  OperationContext &operation,
+  const CollisionTimeOptions &collision_time);
 
 template <typename MassSpecSubstanceT>
 SimulationResult apitof_mass_spec(
@@ -260,7 +262,8 @@ SimulationResult apitof_mass_spec(
   SampleMode sample_mode,
   const bool strict,
   const MassSpecLogConf logconf,
-  OperationContext &operation)
+  OperationContext &operation,
+  const CollisionTimeOptions &collision_time)
 {
   using consts::boltzmann;
   double m_gas = subs.gas.mass;
@@ -281,7 +284,7 @@ SimulationResult apitof_mass_spec(
       // VibEnergyNormSampler(subs.density_cluster),
       strict,
       logconf,
-      operation);
+      operation, collision_time);
   }
   else if (sample_mode == SampleMode::dss_unnormalized)
   {
@@ -295,7 +298,7 @@ SimulationResult apitof_mass_spec(
       // VibEnergyUnnormSampler(subs.density_cluster),
       strict,
       logconf,
-      operation);
+      operation, collision_time);
   }
   else if (sample_mode == SampleMode::rejection)
   {
@@ -309,7 +312,7 @@ SimulationResult apitof_mass_spec(
       // VibEnergyNormSampler(subs.density_cluster),
       strict,
       logconf,
-      operation);
+      operation, collision_time);
   }
   else
   {
@@ -329,12 +332,13 @@ SimulationResult apitof_mass_spec(
   SampleMode sample_mode,
   const bool strict,
   const MassSpecLogConf logconf,
-  bool on_main_thread)
+  bool on_main_thread,
+  const CollisionTimeOptions &collision_time)
 {
   OperationContext operation;
   return operation.run([&]
   {
-    return apitof_mass_spec<MassSpecSubstanceSingleInput>(mass_spec, subs, N, root_seed, result_queue, sample_mode, strict, logconf, operation);
+    return apitof_mass_spec<MassSpecSubstanceSingleInput>(mass_spec, subs, N, root_seed, result_queue, sample_mode, strict, logconf, operation, collision_time);
   }, !on_main_thread);
 }
 
@@ -347,12 +351,13 @@ SimulationResult apitof_mass_spec(
   SampleMode sample_mode,
   const bool strict,
   const MassSpecLogConf logconf,
-  bool on_main_thread)
+  bool on_main_thread,
+  const CollisionTimeOptions &collision_time)
 {
   OperationContext operation;
   return operation.run([&]
   {
-    return apitof_mass_spec<MassSpecSubstanceTreeInput>(mass_spec, subs, N, root_seed, result_queue, sample_mode, strict, logconf, operation);
+    return apitof_mass_spec<MassSpecSubstanceTreeInput>(mass_spec, subs, N, root_seed, result_queue, sample_mode, strict, logconf, operation, collision_time);
   }, !on_main_thread);
 }
 
@@ -365,9 +370,10 @@ SimulationResult apitof_mass_spec(
   SampleMode sample_mode,
   const bool strict,
   const MassSpecLogConf logconf,
-  OperationContext &operation)
+  OperationContext &operation,
+  const CollisionTimeOptions &collision_time)
 {
-  return apitof_mass_spec<MassSpecSubstanceSingleInput>(mass_spec, subs, N, root_seed, result_queue, sample_mode, strict, logconf, operation);
+  return apitof_mass_spec<MassSpecSubstanceSingleInput>(mass_spec, subs, N, root_seed, result_queue, sample_mode, strict, logconf, operation, collision_time);
 }
 
 SimulationResult apitof_mass_spec(
@@ -379,9 +385,10 @@ SimulationResult apitof_mass_spec(
   SampleMode sample_mode,
   const bool strict,
   const MassSpecLogConf logconf,
-  OperationContext &operation)
+  OperationContext &operation,
+  const CollisionTimeOptions &collision_time)
 {
-  return apitof_mass_spec<MassSpecSubstanceTreeInput>(mass_spec, subs, N, root_seed, result_queue, sample_mode, strict, logconf, operation);
+  return apitof_mass_spec<MassSpecSubstanceTreeInput>(mass_spec, subs, N, root_seed, result_queue, sample_mode, strict, logconf, operation, collision_time);
 }
 
 template SimulationResult apitof_mass_spec<MassSpecSubstanceSingleInput>(
@@ -393,7 +400,8 @@ template SimulationResult apitof_mass_spec<MassSpecSubstanceSingleInput>(
   SampleMode sample_mode,
   const bool strict,
   const MassSpecLogConf logconf,
-  OperationContext &operation);
+  OperationContext &operation,
+  const CollisionTimeOptions &collision_time);
 
 template SimulationResult apitof_mass_spec<MassSpecSubstanceTreeInput>(
   const MassSpectrometer &mass_spec,
@@ -404,7 +412,8 @@ template SimulationResult apitof_mass_spec<MassSpecSubstanceTreeInput>(
   SampleMode sample_mode,
   const bool strict,
   const MassSpecLogConf logconf,
-  OperationContext &operation);
+  OperationContext &operation,
+  const CollisionTimeOptions &collision_time);
 
 template <typename GenT>
 std::tuple<double, std::optional<ApiTofRateConstantOverflow>> next_fragmentation_time(
@@ -677,7 +686,8 @@ SimulationResult apitof_mass_spec(
   GasCollSamplerT gas_coll_sampler,
   const bool strict,
   const MassSpecLogConf logconf,
-  OperationContext &operation)
+  OperationContext &operation,
+  const CollisionTimeOptions &collision_time)
 {
   VibEnergySamplerT vib_energy_sampler = VibEnergySamplerT(subs.density_cluster);
   const ChamberQuantities chamber(ms, subs.gas);
@@ -737,7 +747,7 @@ SimulationResult apitof_mass_spec(
         auto [effective_pathway_index, t_fragmentation, overflow_exception] = next_fragmentation_time_multi(gen, unif, subs.pathways, internal_energy, strict);
 
         double old_t = particle.time;
-        TimeNextCollOutcome outcome = next_coll(unif(gen), particle, chamber, subs.gas.radius + subs.R_cluster, subquants.dts, t_fragmentation, subquants.acc, subs.gas.mass, ms.skimmer, ms.mesh_skimmer, ms.quadrupole);
+        TimeNextCollOutcome outcome = next_coll(unif(gen), particle, chamber, subs.gas.radius + subs.R_cluster, subquants.dts, t_fragmentation, subquants.acc, subs.gas.mass, ms.skimmer, ms.mesh_skimmer, ms.quadrupole, collision_time);
 
         if (logconf.level >= LOGLEVEL_NORMAL)
         {
@@ -901,7 +911,8 @@ SimulationResult apitof_mass_spec(
   // VibEnergySamplerT vib_energy_sampler,
   const bool strict,
   const MassSpecLogConf logconf,
-  OperationContext &operation)
+  OperationContext &operation,
+  const CollisionTimeOptions &collision_time)
 {
   const ChamberQuantities chamber(ms, subs.gas);
   std::vector<SubstanceQuantities> all_subquants;
@@ -974,7 +985,7 @@ SimulationResult apitof_mass_spec(
         auto [effective_pathway_index, t_fragmentation, overflow_exception] = next_fragmentation_time_multi(gen, unif, pathways, internal_energy, strict);
 
         double old_t = particle.time;
-        TimeNextCollOutcome outcome = next_coll(unif(gen), particle, chamber, subs.gas.radius + subpayload.R_cluster, subquants.dts, t_fragmentation, subquants.acc, subs.gas.mass, ms.skimmer, ms.mesh_skimmer, ms.quadrupole);
+        TimeNextCollOutcome outcome = next_coll(unif(gen), particle, chamber, subs.gas.radius + subpayload.R_cluster, subquants.dts, t_fragmentation, subquants.acc, subs.gas.mass, ms.skimmer, ms.mesh_skimmer, ms.quadrupole, collision_time);
 
         if (logconf.level >= LOGLEVEL_NORMAL)
         {

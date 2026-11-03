@@ -9,6 +9,7 @@ from pint import get_application_registry
 from apitofsim.api import (
     ApiTofError,
     ApiTofOverflowError,
+    CollisionTimeOptions,
     Histogram,
     MassSpecFinalResult,
     MassSpecInputFragmentationPathway,
@@ -25,7 +26,7 @@ from apitofsim.api import (
     scaled_density,
     scaled_rate_const,
 )
-from apitofsim.config import simulation_option
+from apitofsim.config import collision_time_options, simulation_option
 
 from .base import SimulationMode
 from .db import (
@@ -65,6 +66,7 @@ class PreparedSimulation:
     dos_histogram_id: int
     rate_histogram_id: int
     _runner: object = field(repr=False, compare=False)
+    collision_time: CollisionTimeOptions = field(default_factory=CollisionTimeOptions)
 
 
 @dataclass(frozen=True)
@@ -877,6 +879,7 @@ class ExperimentRunner:
             self.preparer.dos_histogram_id,
             self.preparer.rate_histogram_id,
             self,
+            collision_time_options(config),
         )
 
     def iter_mass_spec(
@@ -910,6 +913,7 @@ class ExperimentRunner:
             pathway_ids=group.pathway_ids,
             max_batch_items=max_batch_items,
             sample_mode=sample_mode,
+            collision_time=prepared.collision_time,
             strict=strict_dos,
             logconf=(loglevel, isinstance(self.db, RealizationDatabase)),
             seed=seed,
@@ -1216,6 +1220,7 @@ class ExperimentRunner:
                 realizations,
                 pathway_id=pathway_id,
                 sample_mode=simulation_option(config, "sample_mode"),
+                collision_time=collision_time_options(config),
                 loglevel=1 if verbose else 0,
                 strict="STRICT" in environ,
                 strict_dos=strict_dos,
@@ -1585,6 +1590,7 @@ class ExperimentRunner:
                     for pathway in subs.tree_pathways
                 ],
                 sample_mode=simulation_option(config, "sample_mode"),
+                collision_time=collision_time_options(config),
                 loglevel=1 if verbose else 0,
                 strict="STRICT" in environ,
                 strict_dos=strict_dos,

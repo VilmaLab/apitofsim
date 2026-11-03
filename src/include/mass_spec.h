@@ -259,6 +259,22 @@ enum struct SampleMode
   rejection,
 };
 
+enum struct CollisionTimeMethod
+{
+  integrated_hazard,
+  legacy,
+};
+
+struct CollisionTimeOptions
+{
+  const CollisionTimeMethod method;
+  const double hazard_atol;
+  const double hazard_rtol;
+
+  CollisionTimeOptions(CollisionTimeMethod method = CollisionTimeMethod::integrated_hazard,
+                       double hazard_atol = 1e-12, double hazard_rtol = 1e-9);
+};
+
 struct MassSpecLogConf
 {
   int level = DEFAULT_LOGLEVEL;
@@ -287,7 +303,8 @@ SimulationResult apitof_mass_spec(
   SampleMode sample_mode,
   bool strict = true,
   MassSpecLogConf logconf = DEFAULT_LOGCONF,
-  bool on_main_thread = false);
+  bool on_main_thread = false,
+  const CollisionTimeOptions &collision_time = {});
 
 SimulationResult apitof_mass_spec(
   const MassSpectrometer &mass_spec,
@@ -298,7 +315,8 @@ SimulationResult apitof_mass_spec(
   SampleMode sample_mode,
   bool strict,
   MassSpecLogConf logconf,
-  OperationContext &operation);
+  OperationContext &operation,
+  const CollisionTimeOptions &collision_time = {});
 
 SimulationResult apitof_mass_spec(
   const MassSpectrometer &mass_spec,
@@ -309,7 +327,8 @@ SimulationResult apitof_mass_spec(
   SampleMode sample_mode,
   bool strict = true,
   MassSpecLogConf logconf = DEFAULT_LOGCONF,
-  bool on_main_thread = false);
+  bool on_main_thread = false,
+  const CollisionTimeOptions &collision_time = {});
 
 SimulationResult apitof_mass_spec(
   const MassSpectrometer &mass_spec,
@@ -320,7 +339,8 @@ SimulationResult apitof_mass_spec(
   SampleMode sample_mode,
   bool strict,
   MassSpecLogConf logconf,
-  OperationContext &operation);
+  OperationContext &operation,
+  const CollisionTimeOptions &collision_time = {});
 
 double particle_density(double pressure, double kT);
 double evaluate_error(int n, int k);
