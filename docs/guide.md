@@ -10,7 +10,7 @@ Typically, you will start with an XYZ file and run either ORCA or Gaussian to ge
 
 The exact ORCA and Gaussian settings depend upon the material of the clusters being studied and the desired level of accuracy versus available computation time, and are somewhat beyond the scope of this guide.
 Sometimes multiple analyses are run to estimate different properties of the cluster, for example one which is more accurate for energetics, and one which is more accurate for vibrational and rotational frequencies.
-The following examples given only as an indication of settings which have been used previously:
+The following examples are given only as an indication of settings which have been used previously:
 
 === "ORCA"
 
@@ -106,8 +106,8 @@ Another option is to have one column per source file type, and have the file nam
 
 ```
 name,orca,gaussian
-2_2SA_negative,gaussian1.out,orca1.log
-2A_1SA_neutral,gaussian2.out,orca2.log
+2_2SA_negative,orca1.log,gaussian1.out
+2A_1SA_neutral,orca2.log,gaussian2.out
 
 ...
 ```
@@ -133,7 +133,7 @@ So for example, if you have a directory like [Figure 2][directory-listing-2] you
 
 And it would generate a `prefix`-based clusters CSV and a pathways CSV with all possible pathways based on the atom counts and charges of the clusters/molecules in the XYZ files.
 
-Alternatively if you had a directory like [Figure 2][directory-listing-1] and wanted a non-prefix based `clusters.csv`, you could run:
+Alternatively if you had a directory like [Figure 1][directory-listing-1] and wanted a non-prefix based `clusters.csv`, you could run:
 
 <code>
 <a href="cli.md#apitofsim-generate-pathways">apitofsim generate pathways</a> orca pathways.csv clusters.csv *.out
@@ -172,7 +172,7 @@ electronic_energy = "orca.final_single_point_energy + gaussian.zero_point_energy
 ```
 
 The `default_source` is specified as `"gaussian"`, meaning that unless otherwise specified, the attributes of the clusters will be taken from the Gaussian files.
-Each attribute of the following attribute can be specified either as a string specifying a single source to take the attribute from, or as an expression combining attributes from different sources:
+Each attribute from the following list of attributes can be specified either as a string specifying a single source to take the attribute from, or as an expression combining attributes from different sources:
 
  * `rotational_temperatures`
  * `vibrational_temperatures`
@@ -200,7 +200,7 @@ In case we were not using a prefix-based `clusters.csv`, we would instead specif
 ```
 
 Next are the parameters for running the simulation, the full description of which is given in [the reference documentation for the configuration file][configuration].
-However, the example below should be help with getting started:
+However, the example below should help with getting started:
 
 ```toml
 [[configs]]
@@ -242,7 +242,7 @@ r_quadrupole = "6.0e-3 meter"
 Once these are all prepared you can go ahead and create a database:
 
 <code>
-<a href="cli.md#apitofsim-db-prepare">apitofsim db prepare</a> config.toml database.db
+<a href="cli.md#apitofsim-db-prepare">apitofsim db prepare</a> create config.toml database.db
 </code>
 
 ## Running the simulation
@@ -259,7 +259,7 @@ Then you are ready to run:
 
 There are various options to the [`apitofsim db run`][apitofsim-db-run] command to filter what to run, however the most important option at the moment is `--pathway-at-a-time` which switches between two modes of operation.
 
- * *The default mode* runs the simulation parent cluster at a time. After each simulated gas collision, the possibility of of fragmenting into any pathway is considered.
+ * *The default mode* runs the simulation parent cluster at a time. After each simulated gas collision, the possibility of fragmenting into any pathway is considered.
  * *Per-pathway mode* runs each pathway separately. After each simulated collision, only one pathway is considered.
 
 ## Analysing the results
@@ -284,7 +284,7 @@ You can generate CSV reports from the database file, e.g. for usage in Excel or 
 
 You can also generate plots directly from the database file.
 
-As a summary, you can plot a bar char of the survival probability of each cluster:
+As a summary, you can plot a bar chart of the survival probability of each cluster:
 
 <code>
 <a href="cli.md#apitofsim-db-plot-survival">apitofsim db plot survival</a> database.db survival.png
@@ -294,7 +294,7 @@ You can also generate spectrograms.
 For example:
 
 <code>
-<a href="cli.md#apitofsim-db-plot-spectrogram-many">apitofsim db spectrogram-many</a> database.db spectrograms
+<a href="cli.md#apitofsim-db-plot-spectrogram-many">apitofsim db plot spectrogram-many</a> database.db spectrograms
 </code>
 
 This will create a directory called `spectrograms` containing a spectrogram for each cluster.
@@ -313,5 +313,5 @@ They correspond to particular instrument settings, and are expected to be even l
 You can use these models for plotting spectrograms like so:
 
 <code>
-<a href="cli.md#apitofsim-db-plot-spectrogram-many">apitofsim db spectrogram-many</a> --model-transmission=new_neg database.db spectrograms
+<a href="cli.md#apitofsim-db-plot-spectrogram-many">apitofsim db plot spectrogram-many</a> --model-transmission=new_neg database.db spectrograms
 </code>
