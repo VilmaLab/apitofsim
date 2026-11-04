@@ -110,6 +110,7 @@ hazard_atol = 1e-12
 hazard_rtol = 1e-9
 use_old_dos_impl = false
 k_total_mesh_mode = "compute_mesh_linear"
+k_rate_cancellation = true
 ```
 
 Older flat files and stored databases remain readable. The Python builder and
@@ -127,6 +128,7 @@ normalized when loaded. Do not specify a setting both at top level and inside
 | hazard_rtol | `1e-9` | Relative tolerance in cumulative hazard. Both tolerances must be finite and positive. |
 | use_old_dos_impl | `false` | Use the legacy density of states implementation for uncached calculations. |
 | k_total_mesh_mode | `compute_mesh_linear` | `no_mesh`, `compute_mesh_single_threaded`, `compute_mesh_diagonal_single_threaded`, `compute_mesh_multithreaded`, `compute_mesh_diagonal_multithreaded`, or `compute_mesh_linear` (linear-time recurrence). |
+| k_rate_cancellation | `true` | Cancel intermediate DOS factors for uncached rates; `false` uses the previous two-stage calculation. |
 
 The default `compute_mesh_linear` reduces mesh preparation from quadratic to linear time while preserving the existing midpoint weights.
 The single-pathway API and native CLI use it too; batches avoid redundant preparation for cached inputs and atom-only pathways.

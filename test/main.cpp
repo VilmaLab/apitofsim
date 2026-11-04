@@ -389,13 +389,16 @@ TEST_CASE("rate entry points preserve the direct midpoint sums")
           expected[m] = numerator / denominator;
         }
       }
-      const auto full = compute_k_total_full(molecular, products, derived, derived_second, rhos, fragmentation_energy, size * bin_width, bin_width);
-      CHECK(((full - expected).abs() <= 1e-12 * expected.abs()).all());
       const std::vector<KTotalInput> inputs{{molecular, second, fragmentation_energy, rhos.col(C0_ROW), rhos.col(COMB_ROW)}};
-      for (auto mode : {MeshMode::no_mesh, MeshMode::compute_mesh_linear, MeshMode::compute_mesh_single_threaded, MeshMode::compute_mesh_diagonal_single_threaded, MeshMode::compute_mesh_multithreaded, MeshMode::compute_mesh_diagonal_multithreaded})
+      for (bool cancellation : {true, false})
       {
-        const auto batch = compute_k_total_batch(inputs, size * bin_width, bin_width, mode);
-        CHECK(((batch.col(0) - expected).abs() <= 1e-12 * expected.abs()).all());
+        const auto full = compute_k_total_full(molecular, products, derived, derived_second, rhos, fragmentation_energy, size * bin_width, bin_width, cancellation);
+        CHECK(((full - expected).abs() <= 1e-12 * expected.abs()).all());
+        for (auto mode : {MeshMode::no_mesh, MeshMode::compute_mesh_linear, MeshMode::compute_mesh_single_threaded, MeshMode::compute_mesh_diagonal_single_threaded, MeshMode::compute_mesh_multithreaded, MeshMode::compute_mesh_diagonal_multithreaded})
+        {
+          const auto batch = compute_k_total_batch(inputs, size * bin_width, bin_width, mode, std::nullopt, cancellation);
+          CHECK(((batch.col(0) - expected).abs() <= 1e-12 * expected.abs()).all());
+        }
       }
       const auto batch = compute_k_total_batch(inputs, size * bin_width, bin_width);
       CHECK(((batch.col(0) - expected).abs() <= 1e-12 * expected.abs()).all());
