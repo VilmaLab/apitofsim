@@ -314,21 +314,8 @@ argument. For example, pass `CollisionTimeOptions(hazard_atol=1e-11, hazard_rtol
 or `CollisionTimeOptions(method=CollisionTimeMethod.legacy)` from `apitofsim`.
 Prepared streaming groups inherit these options from their run configuration.
 
-For RF simulations using `integrated_hazard`, direct callers must now pass a
-prepared table as `rf_basis` when constructing `MassSpecSubstanceSingleInput`
-or each `MSSubstanceTreeCluster`. Use
-`prepare_rf_basis(quadrupole, cluster)` from `apitofsim`; its result is immutable
-and can be shared across simulations with the same scaled RF equation. The
-workflow runners prepare, persist, and load these inputs automatically. Missing
-or mismatched tables raise an error before realizations start. No table is
-required for the legacy method, zero AC/frequency, or absent quadrupoles.
-
-The native `RFBasis(ac_scaled, dc_scaled, cells=4096)` constructor builds a table;
-`RFBasis(ac_scaled, dc_scaled, data)` restores its `data` array with validation.
-The coefficients are `e * V_AC / (m * r_quad**2 * omega**2)` and
-`e * V_DC / (m * r_quad**2 * omega**2)`, using the simulation's existing RF force
-convention. Both transverse signs are stored. The table uses phase-scaled
-velocities, so absolute frequency and starting phase are supplied by each flight.
+For RF simulations using `integrated_hazard`, call `prepare_rf_basis(quadrupole, cluster)` from `apitofsim` and pass the result as `rf_basis` to `MassSpecSubstanceSingleInput` or each `MSSubstanceTreeCluster`.
+Workflow runners handle this preparation and caching automatically.
 
 ::: apitofsim.mass_spec
     options:
