@@ -2,6 +2,17 @@ These notebooks explore some of the internals of apitofsim.
 
 * `gas-cluster-collision-sampler.py`: This notebook plots the distribution of collision angle and normal velocity of the cluster and the gas, shows how the rejection sampler works, and compares it to other sampling methods.
 * `dos.py`: This compares different algorithms for computing the density of states (DOS) of a cluster in apitofsim.
+* `fragmentation-outcome-sampler.py`: Derives a conditional fragmentation sampler, loads product DOS and cluster properties from a prepared DuckDB, and explores daughter velocity, rotation and vibration with plots, SVG diagrams and conservation checks. Includes the paper's zero-angular-momentum limit and an explicitly identified fixed-angular-momentum extension.
+
+The fragmentation notebook declares its own dependencies and can run without a
+native apitofsim build. From the repository root:
+
+```bash
+uvx marimo edit --sandbox examples/notebooks/fragmentation-outcome-sampler.py
+```
+
+It defaults to `examples/besel2020/database.duckdb` when present; otherwise enter
+the path to another prepared database. Database access is read-only.
 
 ## Running the notebooks with Mamba
 
