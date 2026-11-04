@@ -69,7 +69,7 @@ MassSpecInputFragmentationPathway::MassSpecInputFragmentationPathway(
   const ClusterSpec &cluster_1,
   const ClusterSpec &cluster_2,
   const Histogram &rate_const,
-  std::optional<double> fragmentation_energy) : rate_const(rate_const)
+  std::optional<double> fragmentation_energy, FragmentationProductsPtr products) : rate_const(rate_const), products(std::move(products))
 {
   using consts::hartK;
   double computed_fragmentation_energy;
@@ -87,7 +87,7 @@ MassSpecInputFragmentationPathway::MassSpecInputFragmentationPathway(
 
 MassSpecInputFragmentationPathway::MassSpecInputFragmentationPathway(
   const Histogram rate_const,
-  double bonding_energy) : rate_const(rate_const), bonding_energy(bonding_energy * boltzmann)
+  double bonding_energy, FragmentationProductsPtr products) : rate_const(rate_const), bonding_energy(bonding_energy * boltzmann), products(std::move(products))
 {
 }
 
@@ -180,13 +180,35 @@ MassSpecSubstanceTreeInput::MassSpecSubstanceTreeInput(
   std::vector<MSSubstanceTreeCluster> cluster_payloads,
   std::vector<MassSpecInputFragmentationPathway> pathway_payloads,
   std::vector<MSSubstanceTreeNode> tree_nodes,
-  std::vector<MSSubstanceTreePathway> tree_pathways) : cluster_charge_sign(cluster_charge_sign),
-                                                       gas(gas),
-                                                       cluster_payloads(std::move(cluster_payloads)),
-                                                       pathway_payloads(std::move(pathway_payloads)),
-                                                       tree_nodes(std::move(tree_nodes)),
-                                                       tree_pathways(std::move(tree_pathways))
+  std::vector<MSSubstanceTreePathway> tree_pathways,
+  FragmentationStateMethod fragmentation_state_method) : cluster_charge_sign(cluster_charge_sign),
+                                                         gas(gas),
+                                                         fragmentation_state_method(fragmentation_state_method),
+                                                         cluster_payloads(std::move(cluster_payloads)),
+                                                         pathway_payloads(std::move(pathway_payloads)),
+                                                         tree_nodes(std::move(tree_nodes)),
+                                                         tree_pathways(std::move(tree_pathways))
 {
+  if (fragmentation_state_method == FragmentationStateMethod::phase_space)
+  {
+    for (const auto &node : this->tree_nodes)
+      for (const auto index : node.pathway_indices)
+      {
+        const auto &transition = this->tree_pathways.at(index);
+        if (!transition.product_idx)
+          continue;
+        const auto &pathway = this->pathway_payloads.at(transition.payload_idx);
+        if (!pathway.products)
+          throw ApiTofArgumentError("phase-space fragmentation requires product data for every continuing transition");
+        const auto &parent = this->cluster_payloads.at(node.payload_idx);
+        const auto &child = this->cluster_payloads.at(this->tree_nodes.at(*transition.product_idx).payload_idx);
+        const auto &products = *pathway.products;
+        const auto matches = [](double a, double b)
+        { return std::abs(a - b) <= 1e-10 * std::abs(b); };
+        if (!matches(parent.m_ion, products.daughter.mass + products.neutral.mass) || !matches(child.m_ion, products.daughter.mass) || !matches(0.4 * child.m_ion * child.R_cluster * child.R_cluster, products.daughter.inertia_moment))
+          throw ApiTofArgumentError("Fragmentation product masses and daughter inertia must match the tree transition");
+      }
+  }
 }
 
 // LIST OF FUNCTIONS
@@ -1032,14 +1054,28 @@ SimulationResult apitof_mass_spec(
           }
           if (product_idx)
           {
+            if (subs.fragmentation_state_method == FragmentationStateMethod::phase_space)
+            {
+              const auto &pathway = subs.pathway_payloads[subs.tree_pathways[tree_pathway_idx].payload_idx];
+              auto state = pathway.products->sample(gen, internal_energy - pathway.bonding_energy,
+                                                    subquants.inertia * particle.omega, particle.velocity, operation);
+              if (!state)
+                break;
+              particle.velocity = state->velocity;
+              particle.omega = state->omega;
+              particle.vibrational_energy = state->vibrational_energy;
+            }
+            else
+            {
+              // Legacy continuation: all daughter motion and excitation are reset.
+              particle.velocity = Eigen::Vector3d::Zero();
+              particle.omega = Eigen::Vector3d::Zero();
+              particle.vibrational_energy = 0;
+            }
             subnode_index = *product_idx;
             subpayload_index = subs.tree_nodes[subnode_index].payload_idx;
             prepare_pathways_from_tree(pathways, subs, subnode_index);
 
-            // Assumption: All energy was used up in the fragmentation so we zero everything out.
-            particle.velocity = Eigen::Vector3d::Zero();
-            particle.omega = Eigen::Vector3d::Zero();
-            particle.vibrational_energy = 0;
             vib_energy_sampler = VibEnergySamplerT(subs.cluster_payloads[subpayload_index].density_cluster, subs.cluster_payloads[subpayload_index].vib_index);
             if (logconf.log_events && operation.should_continue())
             {

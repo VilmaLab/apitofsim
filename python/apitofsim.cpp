@@ -714,16 +714,21 @@ NB_MODULE(apitofsimraw, m)
     .def(nb::init<const MassSpectrometer &, const Gas &, double>(), "mass_spec"_a, "gas"_a, "cluster_radius"_a)
     .def("frequency", &CollisionProfile::frequency, "z"_a, "velocity"_a);
 
+  nb_magic_enum<FragmentationStateMethod>(m, "FragmentationStateMethod");
+  nb::class_<FragmentationProducts>(m, "FragmentationProducts")
+    .def(nb::init<const MolecularCluster &, const ClusterSpec &, double, double>(),
+         "daughter"_a, "neutral"_a, "bin_width"_a, "energy_max"_a);
   nb::class_<MassSpecInputFragmentationPathway>(m, "MassSpecInputFragmentationPathway")
-    .def(nb::init<const MolecularCluster &, const MolecularCluster &, const ClusterSpec &, const Histogram &, std::optional<double>>(),
+    .def(nb::init<const MolecularCluster &, const MolecularCluster &, const ClusterSpec &, const Histogram &, std::optional<double>, FragmentationProductsPtr>(),
          "cluster_0"_a,
          "cluster_1"_a,
          "cluster_2"_a,
          "rate_const"_a,
-         "bonding_energy"_a = std::nullopt)
-    .def(nb::init<Histogram, double>(), "rate_const"_a, "bonding_energy"_a = std::nullopt)
+         "bonding_energy"_a = std::nullopt, "products"_a = nullptr)
+    .def(nb::init<Histogram, double, FragmentationProductsPtr>(), "rate_const"_a, "bonding_energy"_a = std::nullopt, "products"_a = nullptr)
     .def_ro("rate_const", &MassSpecInputFragmentationPathway::rate_const)
-    .def_ro("bonding_energy", &MassSpecInputFragmentationPathway::bonding_energy);
+    .def_ro("bonding_energy", &MassSpecInputFragmentationPathway::bonding_energy)
+    .def_ro("products", &MassSpecInputFragmentationPathway::products, nb::sig("def products(self) -> FragmentationProducts | None"));
 
   nb_magic_enum<VibEnergyMode>(m, "VibEnergyMode");
   nb::class_<RFBasis>(m, "RFBasis")
@@ -806,13 +811,14 @@ NB_MODULE(apitofsimraw, m)
     .def_ro("product_idx", &MSSubstanceTreePathway::product_idx);
 
   nb::class_<MassSpecSubstanceTreeInput>(m, "MassSpecSubstanceTreeInput")
-    .def(nb::init<int, Gas, std::vector<MSSubstanceTreeCluster>, std::vector<MassSpecInputFragmentationPathway>, std::vector<MSSubstanceTreeNode>, std::vector<MSSubstanceTreePathway>>(),
+    .def(nb::init<int, Gas, std::vector<MSSubstanceTreeCluster>, std::vector<MassSpecInputFragmentationPathway>, std::vector<MSSubstanceTreeNode>, std::vector<MSSubstanceTreePathway>, FragmentationStateMethod>(),
          "cluster_charge_sign"_a,
          "gas"_a,
          "cluster_payloads"_a,
          "pathway_payloads"_a,
          "tree_nodes"_a,
-         "tree_pathways"_a)
+         "tree_pathways"_a, "fragmentation_state_method"_a = FragmentationStateMethod::zero)
+    .def_ro("fragmentation_state_method", &MassSpecSubstanceTreeInput::fragmentation_state_method)
     .def_ro("cluster_charge_sign", &MassSpecSubstanceTreeInput::cluster_charge_sign)
     .def_ro("gas", &MassSpecSubstanceTreeInput::gas)
     .def_prop_ro("cluster_payloads", tree_bindings::vector_property(&MassSpecSubstanceTreeInput::cluster_payloads))

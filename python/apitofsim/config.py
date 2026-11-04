@@ -85,6 +85,7 @@ class SimulationConfig(TypedDict):
     energy_max: Quantity
     energy_max_rate: Quantity
     simulation_mode: NotRequired[str]
+    fragmentation_state_method: NotRequired[str]
     vib_energy_sampler: NotRequired[str]
     sample_mode: NotRequired[str]
     collision_time_method: NotRequired[str]
@@ -110,6 +111,7 @@ SIMULATION_FIELDS = (
     "energy_max",
     "energy_max_rate",
     "simulation_mode",
+    "fragmentation_state_method",
     "vib_energy_sampler",
     "sample_mode",
     "collision_time_method",
@@ -134,11 +136,15 @@ def merge_config(defaults, config):
 
 def simulation_option(config, field) -> Any:
     """Resolve the string representation used in files and stored configs."""
-    from .api import MeshMode, SampleMode, VibEnergyMode
+    from .api import FragmentationStateMethod, MeshMode, SampleMode, VibEnergyMode
     from .workflow.base import SimulationMode
 
     enums = {
         "simulation_mode": (SimulationMode, SimulationMode.SINGLE_CLUSTER),
+        "fragmentation_state_method": (
+            FragmentationStateMethod,
+            FragmentationStateMethod.zero,
+        ),
         "vib_energy_sampler": (VibEnergyMode, VibEnergyMode.direct),
         "sample_mode": (SampleMode, SampleMode.rejection),
         "collision_time_method": (
@@ -152,7 +158,12 @@ def simulation_option(config, field) -> Any:
     if isinstance(value, cls):
         return value
     members = cls.__members__
-    if field in ("simulation_mode", "collision_time_method", "vib_energy_sampler"):
+    if field in (
+        "simulation_mode",
+        "collision_time_method",
+        "vib_energy_sampler",
+        "fragmentation_state_method",
+    ):
         members = {
             name.replace("_", "-").lower(): mode for name, mode in members.items()
         }
@@ -250,6 +261,7 @@ def _config_value(value, field, *, strict=False):
     """Decode stored values, or normalize and validate a builder input."""
     if field in (
         "simulation_mode",
+        "fragmentation_state_method",
         "vib_energy_sampler",
         "sample_mode",
         "k_total_mesh_mode",
@@ -259,7 +271,12 @@ def _config_value(value, field, *, strict=False):
         return (
             name.replace("_", "-").lower()
             if field
-            in ("simulation_mode", "collision_time_method", "vib_energy_sampler")
+            in (
+                "simulation_mode",
+                "collision_time_method",
+                "vib_energy_sampler",
+                "fragmentation_state_method",
+            )
             else name
         )
     if field in ("use_old_dos_impl", "k_rate_cancellation"):
@@ -358,6 +375,7 @@ def build_config(
     energy_max: Quantity,
     energy_max_rate: Quantity,
     simulation_mode: str | None = None,
+    fragmentation_state_method: str | None = None,
     sample_mode: str | None = None,
     vib_energy_sampler: str | None = None,
     collision_time_method: str | None = None,

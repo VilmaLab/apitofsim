@@ -185,12 +185,13 @@ index, position/time, and stream order; collision details belong only to the
 pre-collision event. Both require event logging to be enabled.
 
 Continuing cluster-tree fragmentations similarly emit a `PostFragmentationEvent`
-(`postfragmentation`) after switching to the product node and resetting velocity,
-angular velocity, and internal energy. It records the actual product state at the
+(`postfragmentation`) after switching to the product node and assigning velocity,
+angular velocity, and internal energy using `fragmentation_state_method` (`zero`
+by default, or opt-in `phase-space`). It records the actual product state at the
 same position/time as the preceding `FragmentationEvent`, with its
 `next_particle_index` as the new `particle_index`. Pair by realization and stream
 order. Terminal fragmentations emit no after-event. Other simulation modes emit
-no post-fragmentation events; fragmentation physics is unchanged.
+no post-fragmentation events. Fragmentation rates are unchanged by this setting.
 
 This schema replaces the previous event tables; existing databases require recreation.
 There is no migration or compatibility query layer. Consumers needing updates include:

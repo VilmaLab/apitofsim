@@ -25,7 +25,7 @@ signal_helper = executable(
 )
 
 tests = executable('apitofsim-tests',
-                   ['main.cpp', gen_compute_k_total],
+                   ['main.cpp', 'fragmentation.cpp', gen_compute_k_total],
                    dependencies : [doctest_dep, eigen3, tbb, concurrentqueue, magic_enum],
                    link_with: libapitofsim,
                    include_directories: [inc_src, include_dir],
@@ -72,7 +72,7 @@ if python_feat.enabled()
       test(
          'apitofsim-python-tests',
          python,
-         args: ['-m', 'pytest', files('test_config.py', 'test_db_utils.py', 'test_python.py', 'test_rates.py', 'test_foreign_keys.py', 'test_experiment_reports.py', 'test_spectrogram.py', 'test_recording_stream.py', 'test_columnar_stream.py', 'test_tree_histories.py', 'test_tree_input.py', 'test_rf_basis.py')],
+         args: ['-m', 'pytest', files('test_config.py', 'test_db_utils.py', 'test_python.py', 'test_rates.py', 'test_foreign_keys.py', 'test_experiment_reports.py', 'test_spectrogram.py', 'test_recording_stream.py', 'test_columnar_stream.py', 'test_tree_histories.py', 'test_tree_input.py', 'test_rf_basis.py', 'test_fragmentation.py')],
          env: env,
          depends: [raw_test_data_files, apitofsim_python, apitofsim_python_py_builddir, signal_helper],
          timeout: timeout
