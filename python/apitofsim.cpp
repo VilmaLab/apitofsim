@@ -761,11 +761,11 @@ NB_MODULE(apitofsimraw, m)
   tree_bindings::bind_vector_view<MassSpecInputFragmentationPathway>(m, "FragmentationPathwayView");
 
   nb::class_<MSSubstanceTreeCluster>(m, "MSSubstanceTreeCluster")
-    .def(nb::init<double, double, const Histogram, VibIndexPtr>(),
+    .def(nb::init<double, double, Histogram, VibIndexPtr>(),
          "m_ion"_a,
          "R_cluster"_a,
          "density_cluster"_a, "vib_index"_a = nullptr)
-    .def(nb::init<const MolecularCluster &, const Histogram, VibIndexPtr>(),
+    .def(nb::init<const MolecularCluster &, Histogram, VibIndexPtr>(),
          "cluster_0"_a,
          "density_cluster"_a, "vib_index"_a = nullptr)
     .def_ro("m_ion", &MSSubstanceTreeCluster::m_ion)

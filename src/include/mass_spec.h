@@ -124,16 +124,16 @@ struct MSSubstanceTreeCluster
   MSSubstanceTreeCluster(
     double m_ion,
     double R_cluster,
-    const Histogram density_cluster, VibIndexPtr vib_index = {});
+    Histogram density_cluster, VibIndexPtr vib_index = {});
 
   MSSubstanceTreeCluster(
     const MolecularCluster &cluster_0,
-    const Histogram density_cluster, VibIndexPtr vib_index = {});
+    Histogram density_cluster, VibIndexPtr vib_index = {});
 
 private:
   MSSubstanceTreeCluster(
     const ClusterDerived &derived,
-    const Histogram density_cluster, VibIndexPtr vib_index = {});
+    Histogram density_cluster, VibIndexPtr vib_index = {});
 };
 
 struct MSSubstanceTreeNode
