@@ -1,11 +1,13 @@
 from collections import deque
 from dataclasses import dataclass, field
+from functools import cache
 from operator import index
 from typing import Any, Callable, Optional, Tuple
 
 import numpy
 from pint import get_application_registry
 
+from apitofsim import apitofsimraw as raw
 from apitofsim.api import (
     ApiTofError,
     ApiTofOverflowError,
@@ -20,7 +22,6 @@ from apitofsim.api import (
     MassSpecSubstanceTreeInput,
     MassSpectrometer,
     MeshMode,
-    MSSubstanceTreeCluster,
     MSSubstanceTreeNode,
     MSSubstanceTreePathway,
     SampleMode,
@@ -1450,6 +1451,34 @@ class ExperimentRunner:
         k_rates,
         cluster_dos,
     ):
+        # These inputs are snapshots for this preparation only: neither database
+        # metadata nor mutable ClusterData should be cached across runs.
+        grids = {}
+
+        def histogram(data, *, rate=False):
+            if rate not in grids:
+                source = self.preparer.histogram(config, data, rate=rate)
+                result = scaled_rate_const(source) if rate else scaled_density(source)
+                grids[rate] = result.x
+            else:
+                result = Histogram(
+                    grids[rate], data if rate else data / raw.consts.boltzmann
+                )
+            if len(result.x) != len(result.y):
+                histogram_id = (
+                    self.preparer.rate_histogram_id
+                    if rate
+                    else self.preparer.dos_histogram_id
+                )
+                raise ValueError(
+                    f"Data does not match histogram configuration {histogram_id}"
+                )
+            return result.into_cpp(mass_spec_stage=True)
+
+        @cache
+        def cluster_input(cluster_id):
+            return cluster_indexed[cluster_id].into_cpp()
+
         productive_cluster_ids = set()
         charge = None
         for _, (cluster_id, _, _) in pathway_lookup.items():
@@ -1462,16 +1491,16 @@ class ExperimentRunner:
 
         cluster_lookup = {}
         for cluster_id in productive_cluster_ids:
-            density_cluster = cluster_dos[cluster_id]
-            density_hist = scaled_density(
-                self.preparer.histogram(config, density_cluster)
-            )
             cluster_lookup[cluster_id] = {
                 "pathways": [],
                 "cluster": cluster_indexed[cluster_id],
                 "cluster_id": cluster_id,
                 "cluster_label": name_lookup[cluster_id],
-                "density_hist": density_hist,
+                "payload": raw.MSSubstanceTreeCluster(
+                    cluster_input(cluster_id),
+                    histogram(cluster_dos[cluster_id]),
+                    vib_index=self.preparer.vib_indexes.get(cluster_id),
+                ),
                 "product_labels": [],
                 "pathway_products": [],
                 "pathway_ids": [],
@@ -1491,9 +1520,6 @@ class ExperimentRunner:
             cur_cluster_dict = cluster_lookup[cluster_id]
             product1 = cluster_indexed[product1_id]
             product2 = cluster_indexed[product2_id]
-            rate_hist = scaled_rate_const(
-                self.preparer.histogram(config, rate_const, rate=True)
-            )
             productive_product = None
             if product1.charge != 0:
                 productive_product = product1_id
@@ -1505,8 +1531,11 @@ class ExperimentRunner:
                 productive_product = product2_id
             cur_cluster_dict["pathway_products"].append(productive_product)
             cur_cluster_dict["pathway_ids"].append(pathway_id)
-            pathway_input_lookup[pathway_id] = MassSpecInputFragmentationPathway(
-                cluster, product1, product2, rate_hist
+            pathway_input_lookup[pathway_id] = raw.MassSpecInputFragmentationPathway(
+                cluster_input(cluster_id),
+                cluster_input(product1_id),
+                cluster_input(product2_id),
+                histogram(rate_const, rate=True),
             )
         return cluster_lookup, pathway_input_lookup
 
@@ -1541,13 +1570,7 @@ class ExperimentRunner:
                 new_parents = (*parents, cluster_id)
                 if cluster_id not in cluster_payload_lookup:
                     cluster_payload_lookup[cluster_id] = len(cluster_payloads)
-                    cluster_payloads.append(
-                        MSSubstanceTreeCluster(
-                            root["cluster"],
-                            root["density_hist"],
-                            vib_index=self.preparer.vib_indexes.get(cluster_id),
-                        )
-                    )
+                    cluster_payloads.append(root["payload"])
                 cluster_payload_idx = cluster_payload_lookup[cluster_id]
                 node_idx = len(tree_nodes)
                 tree_nodes.append(None)

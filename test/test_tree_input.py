@@ -1,9 +1,11 @@
 """Native tree views, topology column ownership and transition identity."""
 
 import gc
+from collections import Counter
 
 import numpy as np
 import pytest
+from apitofsim import api
 from apitofsim import apitofsimraw as raw
 
 
@@ -152,9 +154,115 @@ def test_constructor_accepts_native_views():
     gc.collect()
     assert list(clone.tree_nodes[0].pathway_indices) == [2]
     assert clone.topology_columns()["transition_source"].tolist() == [1, 2, 0]
+    np.testing.assert_array_equal(
+        clone.cluster_payloads[0].density_cluster.y, np.ones(4)
+    )
+    np.testing.assert_array_equal(
+        clone.pathway_payloads[0].rate_const.x, np.arange(4.0)
+    )
 
 
 def test_topology_export_rejects_payload_overflow():
     if np.dtype(np.uintp).itemsize == 8:
         with pytest.raises(ValueError, match="int64 range"):
             make_tree(nodes=[(2**63, [])], pathways=[]).topology_columns()
+
+
+@pytest.mark.parametrize("mode", list(api.VibEnergyMode))
+def test_tree_preparation_reuses_inputs_and_preserves_meshes(
+    prepared_case, monkeypatch, mode
+):
+    db, runner, config, _ = prepared_case
+    config["vib_energy_sampler"] = mode
+    _, clusters, names, pathways, rates, densities = runner._prepare_from_config(
+        config, cached_densityandrate=(1, 2), show_progress=False
+    )
+    params_calls = []
+    conversions = Counter()
+    get_params = db.get_histogram_params
+    into_cpp = api.ClusterData.into_cpp
+
+    def params(histogram_id):
+        params_calls.append(histogram_id)
+        return get_params(histogram_id)
+
+    def convert(cluster):
+        conversions[id(cluster)] += 1
+        return into_cpp(cluster)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(db, "get_histogram_params", params)
+        patch.setattr(api.ClusterData, "into_cpp", convert)
+        trees = list(
+            runner._prepare_cluster_tree(
+                config, clusters, names, pathways, rates, densities
+            )
+        )
+    assert params_calls == [1, 2]
+    assert conversions == Counter({id(cluster): 1 for cluster in clusters.values()})
+    for cluster_ids, pathway_ids, tree, _ in trees:
+        for cluster_id, index in cluster_ids.items():
+            expected = api.scaled_density(
+                api.Histogram.from_mesh(
+                    api.Q_(100, "K"), api.Q_(100000, "K"), densities[cluster_id]
+                )
+            )
+            actual = tree.cluster_payloads[index].density_cluster
+            np.testing.assert_array_equal(actual.x, expected.x.magnitude)
+            np.testing.assert_array_equal(actual.y, expected.y)
+        for pathway_id, index in pathway_ids.items():
+            parent, p1, p2 = pathways[pathway_id]
+            expected = api.MassSpecInputFragmentationPathway(
+                clusters[parent],
+                clusters[p1],
+                clusters[p2],
+                api.scaled_rate_const(
+                    api.Histogram.from_mesh(
+                        api.Q_(50, "K"), api.Q_(100000, "K"), rates[pathway_id]
+                    )
+                ),
+            )
+            actual = tree.pathway_payloads[index]
+            np.testing.assert_array_equal(actual.rate_const.x, expected.rate_const.x)
+            np.testing.assert_array_equal(actual.rate_const.y, expected.rate_const.y)
+            assert actual.bonding_energy == expected.bonding_energy
+
+    # A new preparation must observe both changed mesh selection and mutable
+    # cluster data; previously returned native inputs must retain their values.
+    old_mass = trees[0][2].cluster_payloads[0].m_ion
+    clusters[1].mass *= 2
+    runner.preparer.dos_histogram_id = 3
+    runner.preparer.rate_histogram_id = 1
+    runner.preparer.vib_indexes = {}
+    new_densities = {key: np.ones(4) for key in densities}
+    new_rates = {key: np.ones(1000) for key in rates}
+    fresh = list(
+        runner._prepare_cluster_tree(
+            config, clusters, names, pathways, new_rates, new_densities
+        )
+    )
+    assert trees[0][2].cluster_payloads[0].m_ion == old_mass
+    for cluster_ids, _, tree, _ in fresh:
+        if 1 in cluster_ids:
+            assert tree.cluster_payloads[cluster_ids[1]].m_ion == 2 * old_mass
+        assert len(tree.cluster_payloads[0].density_cluster.x) == 4
+        assert len(tree.pathway_payloads[0].rate_const.x) == 1000
+
+
+@pytest.mark.parametrize("rate", [False, True])
+def test_tree_preparation_checks_every_histogram_length(prepared_case, rate):
+    _, runner, config, _ = prepared_case
+    _, clusters, names, pathways, rates, densities = runner._prepare_from_config(
+        config, cached_densityandrate=(1, 2), show_progress=False
+    )
+    # Corrupt a later payload, after the grid has already been cached.
+    if rate:
+        rates[3] = np.ones(2)
+    else:
+        densities[2] = np.ones(2)
+    with pytest.raises(ValueError, match="histogram configuration"):
+        list(
+            runner._prepare_cluster_tree(
+                config, clusters, names, pathways, rates, densities
+            )
+        )

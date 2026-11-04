@@ -9,6 +9,7 @@
 #include <optional>
 #include <variant>
 #include <vector>
+#include <utility>
 #include "apitofsim.h"
 #include <magic_enum/magic_enum.hpp>
 #include "consts.h"
@@ -153,23 +154,23 @@ MassSpecSubstanceSingleInput::MassSpecSubstanceSingleInput(
 MSSubstanceTreeCluster::MSSubstanceTreeCluster(
   double m_ion,
   double R_cluster,
-  const Histogram density_cluster, VibIndexPtr vib_index) : m_ion(m_ion),
-                                                            R_cluster(R_cluster),
-                                                            density_cluster(density_cluster), vib_index(std::move(vib_index))
+  Histogram density_cluster, VibIndexPtr vib_index) : m_ion(m_ion),
+                                                      R_cluster(R_cluster),
+                                                      density_cluster(std::move(density_cluster)), vib_index(std::move(vib_index))
 {
 }
 
 MSSubstanceTreeCluster::MSSubstanceTreeCluster(
   const MolecularCluster &cluster_0,
-  const Histogram density_cluster, VibIndexPtr vib_index) : MSSubstanceTreeCluster(compute_derived(cluster_0), density_cluster, std::move(vib_index))
+  Histogram density_cluster, VibIndexPtr vib_index) : MSSubstanceTreeCluster(compute_derived(cluster_0), std::move(density_cluster), std::move(vib_index))
 {
 }
 
 MSSubstanceTreeCluster::MSSubstanceTreeCluster(
   const ClusterDerived &derived,
-  const Histogram density_cluster, VibIndexPtr vib_index) : m_ion(derived.mass),
-                                                            R_cluster(derived.radius),
-                                                            density_cluster(density_cluster), vib_index(std::move(vib_index))
+  Histogram density_cluster, VibIndexPtr vib_index) : m_ion(derived.mass),
+                                                      R_cluster(derived.radius),
+                                                      density_cluster(std::move(density_cluster)), vib_index(std::move(vib_index))
 {
 }
 
@@ -181,10 +182,10 @@ MassSpecSubstanceTreeInput::MassSpecSubstanceTreeInput(
   std::vector<MSSubstanceTreeNode> tree_nodes,
   std::vector<MSSubstanceTreePathway> tree_pathways) : cluster_charge_sign(cluster_charge_sign),
                                                        gas(gas),
-                                                       cluster_payloads(cluster_payloads),
-                                                       pathway_payloads(pathway_payloads),
-                                                       tree_nodes(tree_nodes),
-                                                       tree_pathways(tree_pathways)
+                                                       cluster_payloads(std::move(cluster_payloads)),
+                                                       pathway_payloads(std::move(pathway_payloads)),
+                                                       tree_nodes(std::move(tree_nodes)),
+                                                       tree_pathways(std::move(tree_pathways))
 {
 }
 

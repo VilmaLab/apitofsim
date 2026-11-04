@@ -424,7 +424,7 @@ def test_tree_indices(edges, monkeypatch):
         cluster_id: dict(
             cluster_id=cluster_id,
             cluster=SimpleNamespace(charge=-1),
-            density_hist=None,
+            payload=object(),
             pathway_ids=[],
             pathway_products=[],
         )
@@ -439,12 +439,6 @@ def test_tree_indices(edges, monkeypatch):
         runner,
         "_prepare_cluster_tree_lookup",
         lambda *args: (lookup, dict(enumerate(edges))),
-    )
-    runner.preparer.vib_indexes = {cluster_id: object() for cluster_id in lookup}
-    monkeypatch.setattr(
-        runners,
-        "MSSubstanceTreeCluster",
-        lambda cluster, density, *, vib_index: vib_index,
     )
     monkeypatch.setattr(
         runners,
@@ -468,7 +462,7 @@ def test_tree_indices(edges, monkeypatch):
             assert payload_clusters[node.payload_idx] == expected_cluster
             assert (
                 tree.cluster_payloads[node.payload_idx]
-                is runner.preparer.vib_indexes[expected_cluster]
+                is lookup[expected_cluster]["payload"]
             )
             assert len(node.pathway_indices) == len(
                 lookup[expected_cluster]["pathway_ids"]
