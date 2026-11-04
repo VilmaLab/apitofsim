@@ -14,7 +14,7 @@ inline double crossing_time(double z, double velocity, double acceleration, bool
   double result = std::numeric_limits<double>::infinity();
   auto consider = [&](double dt)
   {
-    double final_velocity = velocity + acceleration * dt;
+    double final_velocity = velocity + (acceleration * dt);
     if (dt > 0 && std::isfinite(dt) && (inward ? final_velocity > 0 : final_velocity < 0))
       result = std::min(result, dt);
   };
@@ -53,7 +53,7 @@ inline bool advance(Eigen::Vector3d &velocity, double &z, double &x, double &y,
   double dt = fragmented ? remaining_fragmentation : return_time;
   x += velocity[0] * dt;
   y += velocity[1] * dt;
-  z += (velocity[2] + 0.5 * acceleration * dt) * dt;
+  z += (velocity[2] + (0.5 * acceleration * dt)) * dt;
   velocity[2] += acceleration * dt;
   time += dt;
   elapsed += dt;

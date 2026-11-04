@@ -92,6 +92,14 @@ TEST_CASE_TEMPLATE("vibrational sampler assignment rebinds density and resets di
   CHECK(sampler.sample(gen, 11 * consts::boltzmann) == energies[1]);
 }
 
+static RFBasisPtr test_rf_basis(std::optional<Quadrupole> quadrupole, std::optional<double> mass = std::nullopt)
+{
+  if (quadrupole && mass)
+    quadrupole->compute_mathieu_factor(*mass);
+  auto parameters = rf_parameters(quadrupole);
+  return parameters ? std::make_shared<RFBasis>((*parameters)[0], (*parameters)[1]) : nullptr;
+}
+
 TEST_CASE("operation context restores handlers across nested scopes")
 {
   const auto previous_int = std::signal(SIGINT, test_signal_handler);
@@ -697,7 +705,8 @@ TEST_CASE("apitof pinhole smoke tests")
     Gas{
       2.46e-10,
       4.8506e-26,
-      1.4});
+      1.4},
+    {}, test_rf_basis(ms.quadrupole, m_ion));
   auto counters = std::get<0>(apitof_mass_spec(ms, subs, 5, 42, result_queue, SampleMode::dss_normalized, true, MassSpecLogConf{DEFAULT_LOGLEVEL, true}));
   result_queue.enqueue(std::monostate{});
   CHECK(counters[Counter::nwarnings] == 0);
@@ -1227,19 +1236,20 @@ TEST_CASE("RF flight converges to independent trajectory at nonzero entry phase"
   ChamberQuantities chamber(ms, gas);
   // Independent DOP853 reference, rtol=3e-14, from t=0.13 to 0.37.
   Eigen::Vector4d expected{1.4569258813237311, 2.7641639237064104, 1.6840371968120658, 3.601275068708212};
+  const auto basis = test_rf_basis(q);
   auto error = [&](double step)
   {
     ParticleState p{.position = {1, 2, 35}, .time = 0.13, .velocity = {2, 3, 4}};
     REQUIRE(next_coll(0, p, chamber, 2e-10, Eigen::Array2d::Constant(step), 0.24, Eigen::Array4d::Zero(),
-                      gas.mass, skimmer, 5, q) == TimeNextCollOutcome::fragmentation);
+                      gas.mass, skimmer, 5, q, {}, basis.get()) == TimeNextCollOutcome::fragmentation);
     CHECK(p.time == doctest::Approx(0.37));
     CHECK(p.position.z() == doctest::Approx(35.96));
     return (Eigen::Vector4d{p.position.x(), p.position.y(), p.velocity.x(), p.velocity.y()} - expected).norm();
   };
   double coarse = error(0.0015);
   double fine = error(0.00075);
-  CHECK(fine < 1e-6);
-  CHECK(coarse / fine == doctest::Approx(4).epsilon(0.01));
+  CHECK(fine < 1e-11);
+  CHECK(coarse < 1e-11);
 
   // Integrating H'=collision_frequency along the same reference flight gives
   // exp(-H(0.24)) below. The deadline deliberately falls after the collision.
@@ -1248,11 +1258,11 @@ TEST_CASE("RF flight converges to independent trajectory at nonzero entry phase"
   {
     ParticleState ion = p;
     REQUIRE(next_coll(0.6001412074736865, ion, chamber, 2e-11, Eigen::Array2d::Constant(0.00075), 0.3,
-                      Eigen::Array4d::Zero(), gas.mass, skimmer, 5, q, options) == TimeNextCollOutcome::gas_collision);
+                      Eigen::Array4d::Zero(), gas.mass, skimmer, 5, q, options, basis.get()) == TimeNextCollOutcome::gas_collision);
     return ion.time;
   };
   CHECK(collision_time({}) == doctest::Approx(0.37).epsilon(1e-7));
-  CHECK(std::abs(collision_time({CollisionTimeMethod::integrated_hazard, 1, 1e-9}) - 0.37) > 1e-5);
+  CHECK(collision_time({CollisionTimeMethod::integrated_hazard, 1e-14, 1e-11}) == doctest::Approx(0.37).epsilon(1e-11));
 }
 
 TEST_CASE("simulation quadrupole forces follow the current cluster mass")
@@ -1302,11 +1312,11 @@ TEST_CASE("simulation quadrupole forces follow the current cluster mass")
       // payload must not overwrite the instrument or another cluster's field.
       Histogram rate(1e-21, 256, Eigen::ArrayXd::Constant(256, fragment ? 1e9 : 0));
       run(MassSpecSubstanceTreeInput{
-        -1, gas, {MSSubstanceTreeCluster{parent_mass, radius, density}, MSSubstanceTreeCluster{product_mass, radius, density}}, {MassSpecInputFragmentationPathway{rate, -1e-21}, inactive}, {{0, {0}}, {1, {1}}}, {{0, 1}, {1, std::nullopt}}});
+        -1, gas, {MSSubstanceTreeCluster{parent_mass, radius, density, {}, test_rf_basis(ms.quadrupole, parent_mass)}, MSSubstanceTreeCluster{product_mass, radius, density, {}, test_rf_basis(ms.quadrupole, product_mass)}}, {MassSpecInputFragmentationPathway{rate, -1e-21}, inactive}, {{0, {0}}, {1, {1}}}, {{0, 1}, {1, std::nullopt}}});
     }
     else
     {
-      run(MassSpecSubstanceSingleInput{-1, parent_mass, radius, density, {inactive}, gas});
+      run(MassSpecSubstanceSingleInput{-1, parent_mass, radius, density, {inactive}, gas, {}, test_rf_basis(ms.quadrupole, parent_mass)});
     }
 
     std::optional<ParticleStateMsg> start, end;
@@ -1343,7 +1353,7 @@ TEST_CASE("simulation quadrupole forces follow the current cluster mass")
       ParticleState particle = start->particle;
       REQUIRE(next_coll(0, particle, chamber, gas.radius + radius, quantities.dts,
                         std::numeric_limits<double>::infinity(), quantities.acc, gas.mass,
-                        ms.skimmer, ms.mesh_skimmer, quadrupole, options) == TimeNextCollOutcome::escape);
+                        ms.skimmer, ms.mesh_skimmer, quadrupole, options, test_rf_basis(quadrupole).get()) == TimeNextCollOutcome::escape);
       return particle;
     };
     // The reference supplies the physical factor explicitly, independently of
@@ -1396,4 +1406,72 @@ TEST_CASE("Prepared vibrational samplers share the discrete energy law")
   VibEnergyGroupSampler group_sampler(density, tree_index);
   check(dos_sampler);
   check(group_sampler);
+}
+
+TEST_CASE("Prepared RF basis matches independent trajectories across phase wraps")
+{
+  // DOP853, rtol=2.3e-14, atol=2e-15; state (x, dx/dphase, y, dy/dphase).
+  struct Reference
+  {
+    double ac, dc, phase, duration;
+    std::array<rf_detail::State, 2> expected;
+  };
+  const std::array references{
+    Reference{0.1, 0, 6.2, 20, {{{24.411238076194028, 2.399226585097148}, {65.10898235619696, -5.175517903461773}}}},
+    Reference{0.35, 0.02, -1.2, 3, {{{10.696777544588402, 4.367547130126496}, {8.18348420769359, -0.05303333569744881}}}},
+    Reference{0.1, 0, 6283.315307179586, 0.24, {{{1.483259499400257, 2.0287328191170912}, {3.950675798925281, 3.919453938678203}}}},
+    Reference{0.1, 0, 0.13, 628.3185307179587, {{{17.18056979886848, 1.5587014389627596}, {52.277265079224165, 2.028658481706738}}}},
+    Reference{0.2, -0.25, 9.7, 20, {{{46752.892827541255, 17270.156116869777}, {-50.815206705040815, -9.06548003877477}}}},
+  };
+  for (const auto &r : references)
+  {
+    CAPTURE(r.ac);
+    CAPTURE(r.dc);
+    CAPTURE(r.phase);
+    CAPTURE(r.duration);
+    RFBasis built(r.ac, r.dc);
+    RFBasis restored(r.ac, r.dc, built.data());
+    auto result = restored.anchor(r.phase, {{{1, 2}, {3, 4}}}).evaluate(r.duration);
+    for (int axis = 0; axis < 2; ++axis)
+      for (int j = 0; j < 2; ++j)
+        CHECK(result[axis][j] == doctest::Approx(r.expected[axis][j]).epsilon(2e-10));
+  }
+  RFBasis free(0, 0);
+  auto state = free.anchor(-2, {{{1, 2}, {3, 4}}}).evaluate(100);
+  CHECK(state[0][0] == doctest::Approx(201));
+  CHECK(state[1][0] == doctest::Approx(403));
+  auto reverse = free.anchor(98, state).evaluate(-100);
+  CHECK(reverse[0][0] == doctest::Approx(1));
+  CHECK(reverse[1][0] == doctest::Approx(3));
+}
+
+TEST_CASE("RF cache is required and matched before simulation")
+{
+  Quadrupole q{2, 3, 1, 0.01};
+  q.mathieu_factor = 0.5;
+  auto basis = test_rf_basis(q);
+  CHECK_NOTHROW(validate_rf_basis(q, {}, basis.get()));
+  CHECK_THROWS_AS(validate_rf_basis(q, {}, nullptr), std::invalid_argument);
+  q.mathieu_factor *= 2;
+  CHECK_THROWS_AS(validate_rf_basis(q, {}, basis.get()), std::invalid_argument);
+  CHECK_NOTHROW(validate_rf_basis(q, {CollisionTimeMethod::legacy}, nullptr));
+  q.ac_field = 0;
+  CHECK_NOTHROW(validate_rf_basis(q, {}, nullptr));
+  q.ac_field = 3;
+  q.angular_velocity = 0;
+  CHECK_NOTHROW(validate_rf_basis(q, {}, nullptr));
+}
+
+TEST_CASE("RF preparation rejects unsupported or corrupt tables")
+{
+  CHECK_THROWS_AS(RFBasis(0, 0, 0), std::invalid_argument);
+  CHECK_THROWS_AS(RFBasis(0, 0, -1), std::invalid_argument);
+  CHECK_THROWS_AS(RFBasis(0, -4), std::invalid_argument);
+  CHECK_THROWS_AS(RFBasis(1, 0, 16), std::invalid_argument);
+  RFBasis basis(0.1, 0.03);
+  Eigen::ArrayXd data = basis.data();
+  data[32] += 0.01;
+  CHECK_THROWS_AS(RFBasis(0.1, 0.03, data), std::invalid_argument);
+  CHECK_THROWS_AS(RFBasis(0, 0, Eigen::ArrayXd::Zero(16)), std::invalid_argument);
+  CHECK_THROWS_AS(basis.anchor(std::numeric_limits<double>::infinity(), {{{1, 2}, {3, 4}}}), std::invalid_argument);
 }

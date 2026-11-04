@@ -104,82 +104,6 @@ double rf_factor(const Quadrupole &q, double time)
   return q.mathieu_factor * ((q.ac_field * std::cos(q.angular_velocity * time)) - q.dc_field);
 }
 
-ParticleState verlet(const ParticleState &start, double dt, double az, const Quadrupole &q)
-{
-  ParticleState half = start;
-  auto kick = [](ParticleState &p, double scale)
-  {
-    p.velocity.x() += scale * p.position.x();
-    p.velocity.y() -= scale * p.position.y();
-  };
-  kick(half, dt / 2 * rf_factor(q, start.time));
-  ParticleState end = drift(half, dt, az);
-  kick(end, dt / 2 * rf_factor(q, end.time));
-  return end;
-}
-
-struct RFPanel
-{
-  ParticleState end;
-  double hazard;
-  double error;
-};
-
-template <typename Rate>
-bool rf_step(ParticleState &particle, double &dt, double &remaining, double az, const Quadrupole &q, double max_step, const Rate &rate, const CollisionTimeOptions &options)
-{
-  double field_scale = std::sqrt(std::abs(q.mathieu_factor) * (std::abs(q.dc_field) + std::abs(q.ac_field)));
-  dt = std::min({dt, 2 * max_step, 0.02 / field_scale, 0.02 / std::abs(q.angular_velocity)});
-  double initial_rate = rate(particle);
-  auto propagate = [&](double duration)
-  {
-    auto mid = verlet(particle, duration / 2, az, q);
-    auto end = verlet(mid, duration / 2, az, q);
-    double midpoint_rate = rate(mid);
-    double end_rate = rate(end);
-    double simpson = duration / 6 * (initial_rate + (4 * midpoint_rate) + end_rate);
-    double trapezoid = duration / 2 * (initial_rate + end_rate);
-    return RFPanel{end, simpson, std::abs(simpson - trapezoid)};
-  };
-  RFPanel panel = propagate(dt);
-  // Refine for hazard accuracy, and also when the estimated error could
-  // change which event occurs first. The Verlet stability cap still applies.
-  while (std::isfinite(remaining) && panel.error > 16 * std::numeric_limits<double>::epsilon() * panel.hazard &&
-         (panel.error > options.hazard_atol + (options.hazard_rtol * panel.hazard) ||
-          std::abs(panel.hazard - remaining) <= panel.error))
-  {
-    dt /= 2;
-    panel = propagate(dt);
-  }
-  if (!std::isfinite(panel.hazard))
-    throw ApiTofUnexpectedNumericalError("Nonfinite RF collision hazard");
-  if (remaining < panel.hazard)
-  {
-    double lo = 0;
-    double hi = dt;
-    for (int i = 0; i < 64; ++i)
-    {
-      double mid = std::midpoint(lo, hi);
-      double trial = propagate(mid).hazard;
-      if (std::abs(trial - remaining) <= options.hazard_atol + (options.hazard_rtol * remaining) || mid == lo || mid == hi)
-      {
-        lo = hi = mid;
-        break;
-      }
-      if (trial < remaining)
-        lo = mid;
-      else
-        hi = mid;
-    }
-    dt = std::midpoint(lo, hi);
-    particle = propagate(dt).end;
-    return true;
-  }
-  remaining -= panel.hazard;
-  particle = panel.end;
-  return false;
-}
-
 struct Flight
 {
   double end;
@@ -242,8 +166,27 @@ CollisionTimeOptions::CollisionTimeOptions(CollisionTimeMethod method, double ha
     throw std::invalid_argument("hazard_rtol must be finite and positive");
 }
 
-TimeNextCollOutcome next_coll(double collision_quantile, ParticleState &particle, const ChamberQuantities &chamber, double R, Eigen::Array2d dts, double t_fragmentation, const Eigen::Array4d &acc, double m_gas, const SkimmerData &skimmer, double mesh_skimmer, const std::optional<Quadrupole> quadrupole, const CollisionTimeOptions &options)
+std::optional<std::array<double, 2>> rf_parameters(const std::optional<Quadrupole> &quadrupole)
 {
+  if (!quadrupole || quadrupole->mathieu_factor == 0 || quadrupole->ac_field == 0 || quadrupole->angular_velocity == 0)
+    return std::nullopt;
+  const auto &q = *quadrupole;
+  const double omega2 = q.angular_velocity * q.angular_velocity;
+  return std::array{q.mathieu_factor * q.ac_field / omega2, q.mathieu_factor * q.dc_field / omega2};
+}
+
+void validate_rf_basis(const std::optional<Quadrupole> &quadrupole, const CollisionTimeOptions &options, const RFBasis *basis)
+{
+  if (options.method == CollisionTimeMethod::legacy)
+    return;
+  if (auto parameters = rf_parameters(quadrupole))
+    if (basis == nullptr || !basis->matches((*parameters)[0], (*parameters)[1]))
+      throw std::invalid_argument("integrated_hazard requires a matching prepared RF basis for each particle");
+}
+
+TimeNextCollOutcome next_coll(double collision_quantile, ParticleState &particle, const ChamberQuantities &chamber, double R, Eigen::Array2d dts, double t_fragmentation, const Eigen::Array4d &acc, double m_gas, const SkimmerData &skimmer, double mesh_skimmer, const std::optional<Quadrupole> quadrupole, const CollisionTimeOptions &options, const RFBasis *rf_basis)
+{
+  validate_rf_basis(quadrupole, options, rf_basis);
   if (options.method == CollisionTimeMethod::legacy)
     return next_coll_old(collision_quantile, particle, chamber, R, dts, t_fragmentation, acc, m_gas, skimmer, mesh_skimmer, quadrupole);
   double remaining = collision_quantile == 0 ? infinity : -std::log(collision_quantile);
@@ -283,7 +226,37 @@ TimeNextCollOutcome next_coll(double collision_quantile, ParticleState &particle
     bool rf = field && quadrupole->ac_field != 0 && quadrupole->angular_velocity != 0;
     if (rf)
     {
-      collision = rf_step(particle, dt, remaining, az, *quadrupole, dts[1], rate, options);
+      const auto &q = *quadrupole;
+      const auto anchor = rf_basis->anchor(q.angular_velocity * particle.time,
+                                           {{{particle.position.x(), particle.velocity.x() / q.angular_velocity},
+                                             {particle.position.y(), particle.velocity.y() / q.angular_velocity}}});
+      auto advance = [&](double duration)
+      {
+        auto end = drift(particle, duration, az);
+        auto transverse = anchor.evaluate(q.angular_velocity * duration);
+        for (int axis = 0; axis < 2; ++axis)
+        {
+          end.position[axis] = transverse[axis][0];
+          end.velocity[axis] = q.angular_velocity * transverse[axis][1];
+        }
+        return end;
+      };
+      // Resolve the oscillatory rate before adaptive Gauss–Kronrod integration.
+      dt = std::min(dt, rf_detail::period / (8 * std::abs(q.angular_velocity)));
+      if (std::isfinite(remaining))
+      {
+        auto h = [&](double t)
+        { return rate(advance(t)); };
+        const double h0 = h(0);
+        if (h0 > 0)
+          dt = std::min(dt, 2 * std::max(remaining, options.hazard_atol) / h0);
+        if (auto event = consume(h, 0, dt, remaining, options.hazard_atol, options.hazard_rtol, event_tol))
+        {
+          dt = *event;
+          collision = true;
+        }
+      }
+      particle = advance(dt);
     }
     else
     {

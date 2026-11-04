@@ -99,11 +99,11 @@ MassSpecSubstanceSingleInput::MassSpecSubstanceSingleInput(
   const Histogram &density_cluster,
   const Histogram &rate_const,
   std::optional<double> fragmentation_energy,
-  int cluster_charge_sign, VibIndexPtr vib_index) : MassSpecSubstanceSingleInput(compute_derived(cluster_0),
-                                                                                 cluster_charge_sign,
-                                                                                 density_cluster,
-                                                                                 {MassSpecInputFragmentationPathway(cluster_0, cluster_1, cluster_2, rate_const, fragmentation_energy)},
-                                                                                 gas, std::move(vib_index))
+  int cluster_charge_sign, VibIndexPtr vib_index, RFBasisPtr rf_basis) : MassSpecSubstanceSingleInput(compute_derived(cluster_0),
+                                                                                                      cluster_charge_sign,
+                                                                                                      density_cluster,
+                                                                                                      {MassSpecInputFragmentationPathway(cluster_0, cluster_1, cluster_2, rate_const, fragmentation_energy)},
+                                                                                                      gas, std::move(vib_index), std::move(rf_basis))
 {
 }
 
@@ -112,13 +112,13 @@ MassSpecSubstanceSingleInput::MassSpecSubstanceSingleInput(
   int cluster_charge_sign,
   const Histogram &density_cluster,
   std::vector<MassSpecInputFragmentationPathway> pathways,
-  Gas gas, VibIndexPtr vib_index) : cluster_charge_sign(cluster_charge_sign),
-                                    m_ion(derived.mass),
-                                    R_cluster(derived.radius),
-                                    density_cluster(density_cluster),
-                                    vib_index(std::move(vib_index)),
-                                    pathways(pathways),
-                                    gas(gas)
+  Gas gas, VibIndexPtr vib_index, RFBasisPtr rf_basis) : cluster_charge_sign(cluster_charge_sign),
+                                                         m_ion(derived.mass),
+                                                         R_cluster(derived.radius),
+                                                         density_cluster(density_cluster),
+                                                         vib_index(std::move(vib_index)), rf_basis(std::move(rf_basis)),
+                                                         pathways(pathways),
+                                                         gas(gas)
 {
 }
 
@@ -128,13 +128,13 @@ MassSpecSubstanceSingleInput::MassSpecSubstanceSingleInput(
   double R_cluster,
   const Histogram density_cluster,
   const std::vector<MassSpecInputFragmentationPathway> pathways,
-  const Gas gas, VibIndexPtr vib_index) : cluster_charge_sign(cluster_charge_sign),
-                                          m_ion(m_ion),
-                                          R_cluster(R_cluster),
-                                          density_cluster(density_cluster),
-                                          vib_index(std::move(vib_index)),
-                                          pathways(pathways),
-                                          gas(gas)
+  const Gas gas, VibIndexPtr vib_index, RFBasisPtr rf_basis) : cluster_charge_sign(cluster_charge_sign),
+                                                               m_ion(m_ion),
+                                                               R_cluster(R_cluster),
+                                                               density_cluster(density_cluster),
+                                                               vib_index(std::move(vib_index)), rf_basis(std::move(rf_basis)),
+                                                               pathways(pathways),
+                                                               gas(gas)
 {
 }
 
@@ -143,34 +143,34 @@ MassSpecSubstanceSingleInput::MassSpecSubstanceSingleInput(
   const std::vector<MassSpecInputFragmentationPathway> pathways,
   Gas gas,
   const Histogram &density_cluster,
-  int cluster_charge_sign, VibIndexPtr vib_index) : MassSpecSubstanceSingleInput(compute_derived(cluster_0),
-                                                                                 cluster_charge_sign,
-                                                                                 density_cluster,
-                                                                                 pathways,
-                                                                                 gas, std::move(vib_index))
+  int cluster_charge_sign, VibIndexPtr vib_index, RFBasisPtr rf_basis) : MassSpecSubstanceSingleInput(compute_derived(cluster_0),
+                                                                                                      cluster_charge_sign,
+                                                                                                      density_cluster,
+                                                                                                      pathways,
+                                                                                                      gas, std::move(vib_index), std::move(rf_basis))
 {
 }
 
 MSSubstanceTreeCluster::MSSubstanceTreeCluster(
   double m_ion,
   double R_cluster,
-  Histogram density_cluster, VibIndexPtr vib_index) : m_ion(m_ion),
-                                                      R_cluster(R_cluster),
-                                                      density_cluster(std::move(density_cluster)), vib_index(std::move(vib_index))
+  Histogram density_cluster, VibIndexPtr vib_index, RFBasisPtr rf_basis) : m_ion(m_ion),
+                                                                           R_cluster(R_cluster),
+                                                                           density_cluster(std::move(density_cluster)), vib_index(std::move(vib_index)), rf_basis(std::move(rf_basis))
 {
 }
 
 MSSubstanceTreeCluster::MSSubstanceTreeCluster(
   const MolecularCluster &cluster_0,
-  Histogram density_cluster, VibIndexPtr vib_index) : MSSubstanceTreeCluster(compute_derived(cluster_0), std::move(density_cluster), std::move(vib_index))
+  Histogram density_cluster, VibIndexPtr vib_index, RFBasisPtr rf_basis) : MSSubstanceTreeCluster(compute_derived(cluster_0), std::move(density_cluster), std::move(vib_index), std::move(rf_basis))
 {
 }
 
 MSSubstanceTreeCluster::MSSubstanceTreeCluster(
   const ClusterDerived &derived,
-  Histogram density_cluster, VibIndexPtr vib_index) : m_ion(derived.mass),
-                                                      R_cluster(derived.radius),
-                                                      density_cluster(std::move(density_cluster)), vib_index(std::move(vib_index))
+  Histogram density_cluster, VibIndexPtr vib_index, RFBasisPtr rf_basis) : m_ion(derived.mass),
+                                                                           R_cluster(derived.radius),
+                                                                           density_cluster(std::move(density_cluster)), vib_index(std::move(vib_index)), rf_basis(std::move(rf_basis))
 {
 }
 
@@ -698,6 +698,7 @@ SimulationResult apitof_mass_spec(
   VibEnergySamplerT vib_energy_sampler = VibEnergySamplerT(subs.density_cluster, subs.vib_index);
   const ChamberQuantities chamber(ms, subs.gas);
   const SubstanceQuantities subquants(ms, chamber, subs);
+  validate_rf_basis(subquants.quadrupole, collision_time, subs.rf_basis.get());
 
   LogHelper initial_trace = LogHelper{result_queue, LogMessage::initial_trace, &operation};
   if (logconf.level >= LOGLEVEL_MIN)
@@ -753,7 +754,7 @@ SimulationResult apitof_mass_spec(
         auto [effective_pathway_index, t_fragmentation, overflow_exception] = next_fragmentation_time_multi(gen, unif, subs.pathways, internal_energy, strict);
 
         double old_t = particle.time;
-        TimeNextCollOutcome outcome = next_coll(unif(gen), particle, chamber, subs.gas.radius + subs.R_cluster, subquants.dts, t_fragmentation, subquants.acc, subs.gas.mass, ms.skimmer, ms.mesh_skimmer, subquants.quadrupole, collision_time);
+        TimeNextCollOutcome outcome = next_coll(unif(gen), particle, chamber, subs.gas.radius + subs.R_cluster, subquants.dts, t_fragmentation, subquants.acc, subs.gas.mass, ms.skimmer, ms.mesh_skimmer, subquants.quadrupole, collision_time, subs.rf_basis.get());
 
         if (logconf.level >= LOGLEVEL_NORMAL)
         {
@@ -925,6 +926,7 @@ SimulationResult apitof_mass_spec(
   for (const auto &cluster : subs.cluster_payloads)
   {
     all_subquants.emplace_back(ms, chamber, subs.gas, subs.cluster_charge_sign, cluster);
+    validate_rf_basis(all_subquants.back().quadrupole, collision_time, cluster.rf_basis.get());
   }
 
   LogHelper initial_trace = LogHelper{result_queue, LogMessage::initial_trace, &operation};
@@ -990,7 +992,7 @@ SimulationResult apitof_mass_spec(
         auto [effective_pathway_index, t_fragmentation, overflow_exception] = next_fragmentation_time_multi(gen, unif, pathways, internal_energy, strict);
 
         double old_t = particle.time;
-        TimeNextCollOutcome outcome = next_coll(unif(gen), particle, chamber, subs.gas.radius + subpayload.R_cluster, subquants.dts, t_fragmentation, subquants.acc, subs.gas.mass, ms.skimmer, ms.mesh_skimmer, subquants.quadrupole, collision_time);
+        TimeNextCollOutcome outcome = next_coll(unif(gen), particle, chamber, subs.gas.radius + subpayload.R_cluster, subquants.dts, t_fragmentation, subquants.acc, subs.gas.mass, ms.skimmer, ms.mesh_skimmer, subquants.quadrupole, collision_time, subpayload.rf_basis.get());
 
         if (logconf.level >= LOGLEVEL_NORMAL)
         {

@@ -35,9 +35,12 @@ from .apitofsimraw import (
     ParticleState,
     PostCollisionEvent,
     PostFragmentationEvent,
+    RFBasis,
     SampleMode,
     VibEnergyIndex,
     VibEnergyMode,
+    compute_derived,
+    rf_parameters,
 )
 from .apitofsimraw import (
     AtomLikeCluster as _AtomLikeCluster,
@@ -142,6 +145,8 @@ __all__ = [
     "MeshMode",
     "SampleMode",
     "VibEnergyIndex",
+    "RFBasis",
+    "prepare_rf_basis",
     "VibEnergyMode",
     "CollisionTimeMethod",
     "CollisionTimeOptions",
@@ -679,6 +684,18 @@ def MassSpecInputFragmentationPathway(*args, **kwargs):
         )
 
 
+def prepare_rf_basis(quadrupole: Quadrupole, cluster: ClusterData) -> RFBasis | None:
+    """Prepare transverse RF propagation for one particle species.
+
+    Pass the result as ``rf_basis`` to its single/tree input. Workflow runners
+    persist and reuse these tables automatically for integrated_hazard.
+    """
+    parameters = rf_parameters(
+        quadrupole.into_cpp(), compute_derived(cluster.into_cpp()).mass
+    )
+    return RFBasis(parameters[0], parameters[1]) if parameters is not None else None
+
+
 def MassSpecSubstanceSingleInput(*args, **kwargs):
     """
     Construct a MassSpecSubstanceSingleInput
@@ -702,6 +719,7 @@ def MassSpecSubstanceSingleInput(*args, **kwargs):
                 rate_const=get("rate_const", 5).into_cpp(mass_spec_stage=True),
                 fragmentation_energy=fragmentation_energy,
                 vib_index=kwargs.get("vib_index"),
+                rf_basis=kwargs.get("rf_basis"),
                 cluster_charge_sign=get(
                     "cluster_charge_sign", 7, defaults.cluster_charge_sign
                 ),
@@ -710,6 +728,7 @@ def MassSpecSubstanceSingleInput(*args, **kwargs):
             return _MassSpecSubstanceSingleInput(
                 cluster_0=get("cluster_0", 0).into_cpp(),
                 vib_index=kwargs.get("vib_index"),
+                rf_basis=kwargs.get("rf_basis"),
                 pathways=get("pathways", 1),
                 gas=get("gas", 2).into_cpp(),
                 density_cluster=get("density_cluster", 3).into_cpp(
@@ -727,6 +746,7 @@ def MassSpecSubstanceSingleInput(*args, **kwargs):
             density_cluster=get("density_cluster", 3).into_cpp(mass_spec_stage=True),
             pathways=get("pathways", 4),
             vib_index=kwargs.get("vib_index"),
+            rf_basis=kwargs.get("rf_basis"),
             gas=get("gas", 5).into_cpp(),
         )
 
@@ -758,6 +778,7 @@ def MSSubstanceTreeCluster(*args, **kwargs):
             cluster_0.into_cpp(),
             density_cluster.into_cpp(mass_spec_stage=True),
             vib_index=kwargs.get("vib_index"),
+            rf_basis=kwargs.get("rf_basis"),
         )
     else:
         m_ion = get("m_ion", 0)
@@ -768,6 +789,7 @@ def MSSubstanceTreeCluster(*args, **kwargs):
             R_cluster,
             density_cluster.into_cpp(mass_spec_stage=True),
             vib_index=kwargs.get("vib_index"),
+            rf_basis=kwargs.get("rf_basis"),
         )
 
 

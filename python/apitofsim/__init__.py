@@ -14,6 +14,7 @@ from .api import (
     MassSpectrometer,
     ProductsCluster,
     Quadrupole,
+    RFBasis,
     available_fragmentation_energy,
     compute_density_of_states_batch,
     compute_k_total_batch,
@@ -23,6 +24,7 @@ from .api import (
     mass_spec,
     mass_spec_iter,
     precompute_mesh,
+    prepare_rf_basis,
     skimmer,
 )
 from .apitofsimraw import debug_info
@@ -57,6 +59,8 @@ __all__ = [
     "ProductsCluster",
     "Gas",
     "Quadrupole",
+    "RFBasis",
+    "prepare_rf_basis",
     "Histogram",
     "energy_in_joules",
     "internal_energy",
