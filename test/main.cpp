@@ -570,7 +570,7 @@ TEST_CASE("apitof pinhole smoke tests")
     InstrumentDims(
       1.0e-3,
       2.44e-3,
-      0.101,
+      1.0e-3, // Keep RF smoke coverage affordable under Valgrind.
       4.48e-3,
       5.0e-4),
     InstrumentVoltages(
