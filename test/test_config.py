@@ -264,6 +264,7 @@ collision_time_method = "legacy"
 hazard_rtol = 1e-4
 N = 20
 simulation_mode = "cluster-tree"
+fragmentation_state_method = "phase-space"
 sample_mode = "dss_normalized"
 use_old_dos_impl = true
 k_total_mesh_mode = "no_mesh"
@@ -282,6 +283,10 @@ k_rate_cancellation = false
     assert row.config["use_old_dos_impl"] is True
     assert row.config["k_rate_cancellation"] is False
     assert row.config["collision_time_method"] == "legacy"
+    assert (
+        simulation_option(row.config, "fragmentation_state_method").name
+        == "phase_space"
+    )
     assert row.config["hazard_atol"] == 1e-8
     assert row.config["hazard_rtol"] == 1e-4
     assert (
@@ -299,6 +304,10 @@ k_rate_cancellation = false
         ({"N": 1, "simulation": {"N": 2}}, "also present.*N"),
         ({"simulation": []}, "expected a table"),
         ({"simulation": {"simulation_mode": "invalid"}}, "simulation_mode.*expected"),
+        (
+            {"simulation": {"fragmentation_state_method": "invalid"}},
+            "fragmentation_state_method.*expected",
+        ),
         ({"simulation": {"sample_mode": "invalid"}}, "sample_mode.*expected"),
         (
             {"simulation": {"vib_energy_sampler": "invalid"}},
@@ -338,6 +347,7 @@ def test_builder_simulation_options(inputs):
     config = build_config(
         **inputs,
         simulation_mode="pathway-at-a-time",
+        fragmentation_state_method="zero",
         sample_mode="dss_unnormalized",
         collision_time_method="integrated-hazard",
         hazard_atol=2e-10,
@@ -347,6 +357,74 @@ def test_builder_simulation_options(inputs):
         k_rate_cancellation=False,
     )
     assert_same(build_config(**config), config)
+
+
+@pytest.mark.parametrize("atomic", [False, True])
+@pytest.mark.parametrize("daughter_first", [False, True])
+def test_phase_space_tree_preparation_and_cached_rates(inputs, atomic, daughter_first):
+    from apitofsim import FragmentationStateMethod
+
+    config = build_config(
+        **{
+            **inputs,
+            "bin_width": Q_(10, "K"),
+            "energy_max": Q_(2000, "K"),
+            "energy_max_rate": Q_(1000, "K"),
+            "simulation_mode": "cluster-tree",
+            "fragmentation_state_method": "phase-space",
+        }
+    )
+    with closing(ExperimentDatabase(":memory:")) as db:
+        db.create_tables()
+        for name, mass, charge, energy in (
+            ("parent", 120, -1, -0.002),
+            ("daughter", 100, -1, -0.001),
+            ("last", 80, -1, 0),
+            ("neutral", 20, 0, 0),
+        ):
+            atom = atomic and charge == 0
+            db.insert_cluster(
+                name,
+                mass,
+                charge,
+                energy,
+                None if atom else [1, 2, 3],
+                None if atom else [20, 30],
+            )
+        # Atom-like products must be second in the existing pathway API.
+        db.insert_pathway(
+            1,
+            2 if daughter_first or atomic else 4,
+            4 if daughter_first or atomic else 2,
+        )
+        db.insert_pathway(2, 3, 4)
+        clusters, names, pathways = db.get_all_lookups()
+        runner = ExperimentRunner(db)
+        rates, densities = runner.preparer.run_densityandrate(
+            config, clusters, pathways, name_lookup=names, show_progress=False
+        )
+        cached_rates, cached_densities = runner.preparer.get_cached_densityandrate(
+            clusters,
+            runner.preparer.dos_histogram_id,
+            runner.preparer.rate_histogram_id,
+            pathways,
+            config,
+        )
+        for source_rates, source_densities in (
+            (rates, densities),
+            (cached_rates, cached_densities),
+        ):
+            trees = list(
+                runner._prepare_cluster_tree(
+                    config, clusters, names, pathways, source_rates, source_densities
+                )
+            )
+            root = next(tree for _, _, tree, info in trees if info["cluster_id"] == 1)
+            assert (
+                root.fragmentation_state_method == FragmentationStateMethod.phase_space
+            )
+            assert root.pathway_payloads[0].products is not None
+            assert root.pathway_payloads[1].products is None  # Terminal transition.
 
 
 @pytest.mark.parametrize(

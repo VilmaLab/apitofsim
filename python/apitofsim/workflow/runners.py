@@ -1534,6 +1534,15 @@ class ExperimentRunner:
         def cluster_input(cluster_id):
             return cluster_indexed[cluster_id].into_cpp()
 
+        @cache
+        def density_input(cluster_id):
+            return histogram(cluster_dos[cluster_id])
+
+        sample_products = (
+            simulation_option(config, "fragmentation_state_method")
+            == raw.FragmentationStateMethod.phase_space
+        )
+
         productive_cluster_ids = set()
         charge = None
         for _, (cluster_id, _, _) in pathway_lookup.items():
@@ -1553,7 +1562,7 @@ class ExperimentRunner:
                 "cluster_label": name_lookup[cluster_id],
                 "payload": raw.MSSubstanceTreeCluster(
                     cluster_input(cluster_id),
-                    histogram(cluster_dos[cluster_id]),
+                    density_input(cluster_id),
                     vib_index=self.preparer.vib_indexes.get(cluster_id),
                     rf_basis=self.preparer.rf_bases.get(cluster_id),
                 ),
@@ -1587,11 +1596,23 @@ class ExperimentRunner:
                 productive_product = product2_id
             cur_cluster_dict["pathway_products"].append(productive_product)
             cur_cluster_dict["pathway_ids"].append(pathway_id)
+            products = None
+            if sample_products and productive_product in cluster_lookup:
+                neutral_id = (
+                    product2_id if productive_product == product1_id else product1_id
+                )
+                products = raw.FragmentationProducts(
+                    cluster_input(productive_product),
+                    cluster_input(neutral_id),
+                    density_input(productive_product).bin_width,
+                    density_input(productive_product).x_max,
+                )
             pathway_input_lookup[pathway_id] = raw.MassSpecInputFragmentationPathway(
                 cluster_input(cluster_id),
                 cluster_input(product1_id),
                 cluster_input(product2_id),
                 histogram(rate_const, rate=True),
+                products=products,
             )
         return cluster_lookup, pathway_input_lookup
 
@@ -1662,6 +1683,9 @@ class ExperimentRunner:
                 pathway_payloads,
                 tree_nodes,
                 tree_pathways,
+                fragmentation_state_method=simulation_option(
+                    config, "fragmentation_state_method"
+                ),
             )
 
             yield (cluster_payload_lookup, pathway_payload_lookup, tree_input, root)

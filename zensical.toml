@@ -14,6 +14,7 @@ nav = [
   { "Guide" = "guide.md" },
   { "Reference" = [
     { "Configuration" = "configuration.md" },
+    { "Daughter-state sampling" = "fragmentation.md" },
     { "CLI tools" = "cli.md" },
     { "Python library" = "python.md" },
   ] },

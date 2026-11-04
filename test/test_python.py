@@ -443,11 +443,13 @@ def test_tree_indices(edges, monkeypatch):
     monkeypatch.setattr(
         runners,
         "MassSpecSubstanceTreeInput",
-        lambda charge, gas, clusters, pathways, nodes, tree_pathways: SimpleNamespace(
-            cluster_payloads=clusters,
-            pathway_payloads=pathways,
-            tree_nodes=nodes,
-            tree_pathways=tree_pathways,
+        lambda charge, gas, clusters, pathways, nodes, tree_pathways, **kwargs: (
+            SimpleNamespace(
+                cluster_payloads=clusters,
+                pathway_payloads=pathways,
+                tree_nodes=nodes,
+                tree_pathways=tree_pathways,
+            )
         ),
     )
     for cluster_ids, _, tree, root in runner._prepare_cluster_tree(

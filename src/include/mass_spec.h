@@ -6,6 +6,7 @@
 #include "warnlogcount.h"
 #include "apitofsim.h"
 #include "exceptions.h"
+#include "fragmentation.h"
 
 #include <Eigen/Dense>
 #include <optional>
@@ -56,17 +57,18 @@ struct MassSpecInputFragmentationPathway
 {
   const Histogram rate_const;
   double bonding_energy;
+  const FragmentationProductsPtr products;
 
   MassSpecInputFragmentationPathway(
     const MolecularCluster &cluster_0,
     const ClusterSpec &cluster_1,
     const ClusterSpec &cluster_2,
     const Histogram &rate_const,
-    std::optional<double> fragmentation_energy = std::nullopt);
+    std::optional<double> fragmentation_energy = std::nullopt, FragmentationProductsPtr products = {});
 
   MassSpecInputFragmentationPathway(
     const Histogram rate_const,
-    double bonding_energy);
+    double bonding_energy, FragmentationProductsPtr products = {});
 };
 
 struct MassSpecSubstanceSingleInput
@@ -155,6 +157,7 @@ struct MassSpecSubstanceTreeInput
 {
   int cluster_charge_sign;
   const Gas gas;
+  const FragmentationStateMethod fragmentation_state_method;
 
   // Payloads are stored exactly once
   std::vector<MSSubstanceTreeCluster> cluster_payloads;
@@ -169,7 +172,8 @@ struct MassSpecSubstanceTreeInput
     std::vector<MSSubstanceTreeCluster> cluster_payloads,
     std::vector<MassSpecInputFragmentationPathway> pathway_payloads,
     std::vector<MSSubstanceTreeNode> tree_nodes,
-    std::vector<MSSubstanceTreePathway> tree_pathways);
+    std::vector<MSSubstanceTreePathway> tree_pathways,
+    FragmentationStateMethod fragmentation_state_method = FragmentationStateMethod::zero);
 };
 
 struct Pressures

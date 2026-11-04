@@ -103,6 +103,7 @@ name = "example"
 [configs.simulation]
 N = 2000
 simulation_mode = "single-cluster"
+fragmentation_state_method = "zero"
 sample_mode = "rejection"
 vib_energy_sampler = "direct"
 collision_time_method = "integrated-hazard"
@@ -121,6 +122,7 @@ normalized when loaded. Do not specify a setting both at top level and inside
 | Name | Default | Description |
 | ---- | ------- | ----------- |
 | simulation_mode | `single-cluster` | `pathway-at-a-time`, `single-cluster`, or `cluster-tree` (same spellings as the CLI flag). `db run --simulation-mode` overrides the config. |
+| fragmentation_state_method | `zero` | Continuing cluster-tree breakups: `zero` resets daughter velocity, angular velocity and vibrational energy; `phase-space` samples them while conserving breakup energy, linear momentum and angular momentum. Other simulation modes are unaffected. See [daughter-state sampling](fragmentation.md) for assumptions. |
 | sample_mode | `rejection` | `rejection`, `dss_normalized`, or `dss_unnormalized`. |
 | vib_energy_sampler | `direct` | Vibrational energy partition for collisions and rotation. Choose `direct` (scan), `dos-only` (DOS CDF rejection), or `group-dos` (grouped rejection with a log-mass DOS tree). Independent of the gas collision `sample_mode`. |
 | collision_time_method | `integrated-hazard` | Use `legacy` for the previous timestep-based collision clock. Independent of `sample_mode`. |

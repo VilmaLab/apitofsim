@@ -27,6 +27,7 @@ from .apitofsimraw import (
     EscapeEvent,
     FragmentationEvent,
     FragmentationPathway,
+    FragmentationStateMethod,
     InitEvent,
     KTotalInput,
     MeshMode,
@@ -124,6 +125,8 @@ __all__ = [
     "MSSubstanceTreeNode",
     "MSSubstanceTreePathway",
     "FragmentationPathway",
+    "FragmentationProducts",
+    "FragmentationStateMethod",
     # Exceptions
     "ApiTofError",
     "ApiTofArgumentError",
@@ -659,6 +662,20 @@ class ArgGetter:
             raise ValueError(f"Argument {name} at position {position} not found")
 
 
+def FragmentationProducts(daughter, neutral, bin_width, energy_max):
+    """Prepare ground-inclusive harmonic product counts for tree continuation.
+
+    Energies accept Pint quantities (including kelvin) or bare joules. Product
+    frequencies must resolve to at least one bin after rounding.
+    """
+    width = energy_in_joules(bin_width)
+    maximum = energy_in_joules(energy_max)
+    assert width is not None and maximum is not None
+    return apitofsimraw.FragmentationProducts(
+        daughter.into_cpp(), neutral.into_cpp(), width.magnitude, maximum.magnitude
+    )
+
+
 def MassSpecInputFragmentationPathway(*args, **kwargs):
     """
     Construct a MassSpecInputFragmentationPathway
@@ -677,11 +694,13 @@ def MassSpecInputFragmentationPathway(*args, **kwargs):
             cluster_2=get("cluster_2", 2).into_cpp(),
             rate_const=get("rate_const", 3).into_cpp(mass_spec_stage=True),
             bonding_energy=proc_bonding_energy(get("bonding_energy", 4, None)),
+            products=kwargs.get("products"),
         )
     else:
         return _MassSpecInputFragmentationPathway(
             rate_const=get("rate_const", 0).into_cpp(mass_spec_stage=True),
             bonding_energy=proc_bonding_energy(get("bonding_energy", 1, None)),
+            products=kwargs.get("products"),
         )
 
 
@@ -767,6 +786,9 @@ def MassSpecSubstanceTreeInput(*args, **kwargs):
         pathway_payloads,
         tree_nodes,
         tree_pathways,
+        fragmentation_state_method=get(
+            "fragmentation_state_method", 6, FragmentationStateMethod.zero
+        ),
     )
 
 

@@ -169,6 +169,7 @@ def prepare(mode, config, database, db_type, ase, warm, foreign_keys):
     resolution = 1_000
     tolerance = 1e-8
     simulation_mode = "single-cluster"
+    fragmentation_state_method = "zero"
     sample_mode = "rejection"
     vib_energy_sampler = "direct"
     use_old_dos_impl = false
