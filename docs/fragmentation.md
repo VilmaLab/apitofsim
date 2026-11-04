@@ -34,6 +34,9 @@ the parent's position and time; molecular separation and torques are not resolve
 
 ## Distribution
 
+The [mathematical reference](simulation-methods.pdf) gives the full flux derivation.
+The implemented sampling recipe is summarized here.
+
 For parent velocity $\mathbf V$, angular momentum $\mathbf J=I_P\boldsymbol\omega_P$,
 and internal energy $E$, the available product energy is $Q=E-D_0$. The same
 channel threshold $D_0$ used by the rate calculation is subtracted once. Parent

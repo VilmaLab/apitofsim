@@ -932,6 +932,13 @@ of a gas-event process and is distinct from transmission weighting of spectra.
 
 \clearpage
 \section{Charged-daughter state distribution}\label{app:daughter}
+This distribution is enabled in cluster-tree simulations by
+\texttt{fragmentation\_state\_method = "phase-space"}.
+The default, \texttt{"zero"}, instead resets daughter velocity, angular
+velocity and vibrational energy to zero. The sampler uses ground-inclusive
+harmonic state counts on the configured DOS grid; the rate tables retain
+their existing DOS convention.
+
 For the selected channel $P\to D+N$, evaluate the parent's state at the actual
 fragmentation time. Let $Q=E-D_c$, $\mathbf V=\mathbf v_P$,
 $\mathbf J=I_P\boldsymbol\omega_P$, $M=m_D+m_N$,
