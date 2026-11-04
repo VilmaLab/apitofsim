@@ -616,10 +616,12 @@ compute_k_total_full(const MolecularCluster &cluster_0, const Products &products
       const auto &pair = std::get<MolecularProducts>(products);
       scale = get_prefactor_k_total(derived_1.inertia_moment, derived_2.inertia_moment, pair.first.rotations, pair.second.rotations) * bin_width * bin_width;
       const auto mesh = std::move(kernel);
-      kernel.resize(m_max_rate);
+      kernel = Eigen::ArrayXd(m_max_rate);
       convolve_rate_range(mesh, weights, 0, kernel, operation);
     }
-    Eigen::ArrayXd numerator(m_max_rate), denominator(m_max_rate), result(m_max_rate);
+    Eigen::ArrayXd numerator(m_max_rate);
+    Eigen::ArrayXd denominator(m_max_rate);
+    Eigen::ArrayXd result(m_max_rate);
     convolve_rate_range(rhos.col(COMB_ROW), kernel, 0, numerator, operation);
     convolve_rate_range(rhos.col(C0_ROW), weights, shift, denominator, operation);
     finish_cancelled_rate(numerator, denominator, scale, result, operation);
@@ -723,7 +725,8 @@ Eigen::ArrayXXd compute_k_total_batch(const std::vector<KTotalInput> &batch_inpu
       plans[i] = RatePlan{parent->second, product->second, shift, scale};
     }
     const auto weights = rate_rotation_weights(bin_width, (need_molecular || need_atom) ? weights_size : 0, operation);
-    Eigen::ArrayXd molecular_kernel, atom_kernel;
+    Eigen::ArrayXd molecular_kernel;
+    Eigen::ArrayXd atom_kernel;
     // s * (rho_parent * k0) = C*h^2 * (s * mesh * rho_comb).
     // Thus the numerator is independent of the parent and fragmentation shift.
     if (need_molecular)
