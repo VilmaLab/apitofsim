@@ -610,7 +610,7 @@ def compute_density_of_states_batch(
 def precompute_mesh(
     energy_max_rate: MaybeQuantity,
     bin_width: MaybeQuantity,
-    mesh_mode: MeshMode = MeshMode.compute_mesh_diagonal_multithreaded,
+    mesh_mode: MeshMode = MeshMode.compute_mesh_linear,
     *,
     quantities_strict=True,
 ):
@@ -624,7 +624,7 @@ def compute_k_total_batch(
     inputs: List[KTotalInput],
     energy_max_rate: MaybeQuantity,
     bin_width: MaybeQuantity,
-    mesh: MeshMode | numpy.ndarray = MeshMode.compute_mesh_diagonal_multithreaded,
+    mesh: MeshMode | numpy.ndarray = MeshMode.compute_mesh_linear,
     progress_callback: Callable[[int], None] | None = None,
     *,
     quantities_strict=True,

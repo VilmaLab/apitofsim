@@ -143,7 +143,7 @@ def simulation_option(config, field) -> Any:
             CollisionTimeMethod,
             CollisionTimeMethod.integrated_hazard,
         ),
-        "k_total_mesh_mode": (MeshMode, MeshMode.compute_mesh_diagonal_multithreaded),
+        "k_total_mesh_mode": (MeshMode, MeshMode.compute_mesh_linear),
     }
     cls, default = enums[field]
     value = config.get(field, default)

@@ -344,26 +344,29 @@ def test_builder_simulation_options(inputs):
     assert_same(build_config(**config), config)
 
 
-@pytest.mark.parametrize("mesh_mode", ["compute_mesh_single_threaded", "no_mesh"])
-def test_preparation_uses_simulation_options(inputs, monkeypatch, mesh_mode):
+@pytest.mark.parametrize(
+    "mesh_mode", ["compute_mesh_single_threaded", "compute_mesh_linear", "no_mesh"]
+)
+@pytest.mark.parametrize("atom_like", [False, True])
+def test_preparation_uses_simulation_options(inputs, monkeypatch, mesh_mode, atom_like):
     import apitofsim.api as api
     from apitofsim.api import MeshMode
     from apitofsim.workflow import DerivedDataPreparer
 
     calls = {}
     real_dos = api.compute_density_of_states_batch
-    real_mesh = api.precompute_mesh
+    real_rates = api.compute_k_total_batch
 
     def dos(*args, **kwargs):
         calls["dos"] = kwargs["use_old_impl"]
         return real_dos(*args, **kwargs)
 
-    def mesh(*args, **kwargs):
-        calls["mesh"] = kwargs["mesh_mode"]
-        return real_mesh(*args, **kwargs)
+    def rates(*args, **kwargs):
+        calls["mesh"] = kwargs["mesh"]
+        return real_rates(*args, **kwargs)
 
     monkeypatch.setattr(api, "compute_density_of_states_batch", dos)
-    monkeypatch.setattr("apitofsim.precompute_mesh", mesh)
+    monkeypatch.setattr("apitofsim.compute_k_total_batch", rates)
     config = build_config(
         **{
             **inputs,
@@ -377,14 +380,28 @@ def test_preparation_uses_simulation_options(inputs, monkeypatch, mesh_mode):
     with closing(ExperimentDatabase(":memory:")) as db:
         db.create_tables()
         db.insert_cluster("parent", 200, -1, -1, [1, 2, 3], [10, 20, 30])
+        db.insert_cluster("ion", 100, -1, -0.5, [1, 2, 3], [10, 20, 30])
+        db.insert_cluster(
+            "neutral",
+            100,
+            0,
+            -0.499,
+            None if atom_like else [1, 2, 3],
+            None if atom_like else [10, 20, 30],
+        )
+        db.insert_pathway(1, 2, 3)
         clusters, names, pathways = db.get_all_lookups()
-        DerivedDataPreparer(db).run_densityandrate(
+        preparer = DerivedDataPreparer(db)
+        first, _ = preparer.run_densityandrate(
             config, clusters, pathways, name_lookup=names, show_progress=False
         )
-    expected = {"dos": True}
-    if mesh_mode != "no_mesh":
-        expected["mesh"] = MeshMode.compute_mesh_single_threaded
-    assert calls == expected
+        assert calls == {"dos": True, "mesh": MeshMode[mesh_mode]}
+        calls.clear()
+        cached, _ = preparer.run_densityandrate(
+            config, clusters, pathways, name_lookup=names, show_progress=False
+        )
+        assert not calls
+        np.testing.assert_array_equal(first[1], cached[1])
 
 
 @pytest.mark.parametrize(

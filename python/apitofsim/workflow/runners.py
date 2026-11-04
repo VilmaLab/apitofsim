@@ -21,7 +21,6 @@ from apitofsim.api import (
     MassSpecSubstanceSingleInput,
     MassSpecSubstanceTreeInput,
     MassSpectrometer,
-    MeshMode,
     MSSubstanceTreeNode,
     MSSubstanceTreePathway,
     SampleMode,
@@ -624,6 +623,10 @@ class DerivedDataPreparer:
                 f"{len(k_total_dict)} retrieved; {len(k_total_inputs)} to compute"
             )
 
+        if not k_total_inputs:
+            return k_total_dict
+
+        if status_table is not None:
             inner_pbar = status_table(
                 len(k_total_inputs),
                 position=1,
@@ -671,16 +674,14 @@ class DerivedDataPreparer:
     ):
         from timeit import default_timer as timer
 
-        from apitofsim import precompute_mesh
-
         table = pbar = None
-        total_steps, cur_step = 3, 1
+        total_steps, cur_step = 2, 1
         if show_progress and tablepbar is None:
             from progress_table import ProgressTable
 
             table = ProgressTable(default_column_alignment="left", refresh_rate=0)
             pbar = table(
-                3,
+                2,
                 description="Preliminary steps",
                 show_throughput=False,
                 show_progress=True,
@@ -692,7 +693,7 @@ class DerivedDataPreparer:
             table.add_column("Time (s)", alignment="right")
         elif show_progress and tablepbar is not None:
             table, pbar = tablepbar
-            total_steps = 4
+            total_steps = 3
             cur_step = 2
         if table is not None and pbar is not None:
             table["#"] = f"{cur_step}/{total_steps}"
@@ -724,30 +725,6 @@ class DerivedDataPreparer:
             cur_step += 1
 
             table["#"] = f"{cur_step}/{total_steps}"
-            table["Step"] = "Computing mesh"
-            pbar.update()
-        start = timer()
-
-        if table is not None and pbar is not None:
-            mesh_points = config["energy_max_rate"] / config["bin_width"]
-            table["Description"] = f"Mesh of {mesh_points} pts"
-
-        mesh_mode = simulation_option(config, "k_total_mesh_mode")
-        mesh = (
-            None
-            if mesh_mode == MeshMode.no_mesh
-            else precompute_mesh(
-                energy_max_rate=config["energy_max_rate"],
-                bin_width=config["bin_width"],
-                mesh_mode=mesh_mode,
-            )
-        )
-        if table is not None and pbar is not None:
-            table["Time (s)"] = f"{(timer() - start):.2f}"
-            table.next_row()
-            cur_step += 1
-
-            table["#"] = f"{cur_step}/{total_steps}"
             table["Step"] = "K total"
             pbar.update()
         start = timer()
@@ -755,7 +732,7 @@ class DerivedDataPreparer:
         k_rates = self._run_k_total(
             cluster_indexed,
             cluster_dos_dict,
-            mesh,
+            simulation_option(config, "k_total_mesh_mode"),
             config["bin_width"],
             config["energy_max"],
             config["energy_max_rate"],
@@ -834,7 +811,7 @@ class DerivedDataPreparer:
                 default_column_alignment="left", refresh_rate=0
             )
             outer_pbar = prelim_table(
-                4,
+                3,
                 description="Preliminary steps",
                 show_throughput=False,
                 show_progress=True,
@@ -844,7 +821,7 @@ class DerivedDataPreparer:
             prelim_table.add_column("Step", width=20)
             prelim_table.add_column("Description", width=40)
             prelim_table.add_column("Time (s)", alignment="right")
-            prelim_table["#"] = "1/4"
+            prelim_table["#"] = "1/3"
             prelim_table["Step"] = "Skimmer"
             outer_pbar.update()
             start = timer()

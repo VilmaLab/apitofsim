@@ -315,6 +315,89 @@ TEST_CASE("all mesh implementations match the serial reference")
   CHECK(diagonal_parallel.isApprox(serial, 1.0e-12));
 }
 
+TEST_CASE("linear mesh preserves midpoint weights and is the default")
+{
+  for (double bin_width : {0.125, 1.0, 4.0, 20.0})
+  {
+    for (int size : {0, 1, 7, 128, 4096})
+    {
+      CAPTURE(bin_width);
+      CAPTURE(size);
+      const auto expected = precompute_mesh(size * bin_width, bin_width, MeshMode::compute_mesh_single_threaded);
+      const auto actual = precompute_mesh(size * bin_width, bin_width);
+      CHECK(actual.size() == size);
+      CHECK(((actual - expected).abs() <= 1e-12 * expected.abs()).all());
+    }
+  }
+}
+
+TEST_CASE("rate entry points preserve the direct midpoint sums")
+{
+  const Eigen::Vector3d rotations(1.0, 2.0, 3.0);
+  const Eigen::ArrayXd frequencies = Eigen::ArrayXd::Constant(1, 2.0);
+  const MolecularCluster molecular(10, 0.0, rotations, frequencies, 0);
+  const AtomLikeCluster atom(1, 0.0, 0);
+  const ClusterDerived derived = compute_derived(molecular);
+  for (double bin_width : {0.5, 4.0})
+  {
+    constexpr int size = 32;
+    constexpr int shift = 7;
+    const double fragmentation_energy = (shift + 0.25) * bin_width;
+    DensityResult rhos = DensityResult::Ones(size + shift, 4);
+    rhos.col(C0_ROW) = Eigen::ArrayXd::LinSpaced(size + shift, 1.0, 100.0).square();
+    rhos.col(COMB_ROW) = Eigen::ArrayXd::LinSpaced(size + shift, 0.0, 30.0).square();
+    rhos.col(COMB_ROW).head(3).setZero();
+    for (const ClusterSpec &second : {ClusterSpec(molecular), ClusterSpec(atom)})
+    {
+      const auto products = make_products(molecular, second);
+      const auto derived_second = compute_derived(second);
+      Eigen::ArrayXd k0(size), expected(size);
+      if (std::holds_alternative<MolecularCluster>(second))
+      {
+        compute_k_total(k0, expected, derived.inertia_moment, derived_second.inertia_moment, rotations, rotations, rhos.col(COMB_ROW), rhos.col(C0_ROW), bin_width, size, fragmentation_energy);
+      }
+      else
+      {
+        const double prefactor = consts::boltzmann * consts::boltzmann * derived.inertia_moment / (consts::pi * pow(consts::hbar, 3));
+        for (int m = 0; m < size; ++m)
+        {
+          double integral = 0.0;
+          for (int i = 0; i <= m; ++i)
+          {
+            integral += bin_width * (i + 0.5) * rhos(m - i, COMB_ROW);
+          }
+          k0[m] = prefactor * integral * bin_width / rhos(shift + m, C0_ROW);
+          double numerator = 0.0;
+          double denominator = 0.0;
+          for (int i = 0; i <= shift + m; ++i)
+          {
+            const double weight = sqrt(bin_width * (i + 0.5)) * rhos(shift + m - i, C0_ROW);
+            denominator += weight;
+            if (i <= m)
+            {
+              numerator += weight * k0[m - i];
+            }
+          }
+          expected[m] = numerator / denominator;
+        }
+      }
+      const auto full = compute_k_total_full(molecular, products, derived, derived_second, rhos, fragmentation_energy, size * bin_width, bin_width);
+      CHECK(((full - expected).abs() <= 1e-12 * expected.abs()).all());
+      const std::vector<KTotalInput> inputs{{molecular, second, fragmentation_energy, rhos.col(C0_ROW), rhos.col(COMB_ROW)}};
+      for (auto mode : {MeshMode::no_mesh, MeshMode::compute_mesh_linear, MeshMode::compute_mesh_single_threaded, MeshMode::compute_mesh_diagonal_single_threaded, MeshMode::compute_mesh_multithreaded, MeshMode::compute_mesh_diagonal_multithreaded})
+      {
+        const auto batch = compute_k_total_batch(inputs, size * bin_width, bin_width, mode);
+        CHECK(((batch.col(0) - expected).abs() <= 1e-12 * expected.abs()).all());
+      }
+      const auto batch = compute_k_total_batch(inputs, size * bin_width, bin_width);
+      CHECK(((batch.col(0) - expected).abs() <= 1e-12 * expected.abs()).all());
+    }
+  }
+  const auto empty = compute_k_total_batch({}, 8.0, 1.0);
+  CHECK(empty.rows() == 8);
+  CHECK(empty.cols() == 0);
+}
+
 TEST_CASE("parallel APIs support concurrent callers")
 {
   constexpr double energy_max_rate = 64.0;
