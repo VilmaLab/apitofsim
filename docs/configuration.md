@@ -131,23 +131,8 @@ normalized when loaded. Do not specify a setting both at top level and inside
 The default `compute_mesh_linear` reduces mesh preparation from quadratic to linear time while preserving the existing midpoint weights.
 The single-pathway API and native CLI use it too; batches avoid redundant preparation for cached inputs and atom-only pathways.
 
-The hazard tolerances apply to the integrated-hazard solver, including RF flights.
-RF motion uses a prepared Mathieu fundamental-matrix table and adaptive
-Gauss–Kronrod hazard integration. The workflow prepares tables only for
-`integrated-hazard` with nonzero AC and frequency. Static fields use the analytic
-propagator. The legacy solver ignores both tolerances and uses the chamber
-timesteps derived for each cluster; the legacy native CLI only supports that solver.
-
-RF tables are persisted in `rf_basis`, independently of DOS and rate caches.
-The keys are dimensionless AC/DC strengths, grid size (4096 cells per RF period),
-and format version. A table can be shared by different clusters or instruments
-with identical scaled strengths. Changing gas conditions, DOS, vibrational
-sampler, recording settings, or starting phase does not invalidate it.
-Tables are checked for local interpolation/integration accuracy and conditioning
-when constructed or loaded. Unsupported parameters or invalid cached data raise
-an error; there is no automatic fallback. Hazard tolerances do not control table
-accuracy. Databases created before this table was introduced must be recreated
-for RF simulation; no migration is provided.
+The hazard tolerances apply to the integrated-hazard solver, including RF flights; the legacy solver ignores both tolerances and uses the chamber timesteps derived for each cluster.
+The workflow automatically prepares and caches RF tables for `integrated-hazard` simulations with nonzero AC and frequency.
 
 The selected DOS implementation affects newly computed entries; existing DOS
 cache entries are reused.
