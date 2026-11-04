@@ -267,6 +267,7 @@ simulation_mode = "cluster-tree"
 sample_mode = "dss_normalized"
 use_old_dos_impl = true
 k_total_mesh_mode = "no_mesh"
+k_rate_cancellation = false
 """)
     config = merge_config(source["default_config"], source["configs"][0])
     assert config["simulation"]["N"] == 20
@@ -279,6 +280,7 @@ k_total_mesh_mode = "no_mesh"
     assert row.config["energy_max"].to("K").magnitude == 200_000
     assert row.config["N"] == 20
     assert row.config["use_old_dos_impl"] is True
+    assert row.config["k_rate_cancellation"] is False
     assert row.config["collision_time_method"] == "legacy"
     assert row.config["hazard_atol"] == 1e-8
     assert row.config["hazard_rtol"] == 1e-4
@@ -313,6 +315,8 @@ k_total_mesh_mode = "no_mesh"
         ({"simulation": {"hazard_atol": 0}}, "hazard_atol.*positive"),
         ({"simulation": {"hazard_rtol": float("nan")}}, "hazard_rtol.*finite"),
         ({"simulation": {"use_old_dos_impl": "false"}}, "expected a boolean"),
+        ({"simulation": {"k_rate_cancellation": "false"}}, "expected a boolean"),
+        ({"simulation": {"k_rate_cancellation": 0}}, "expected a boolean"),
     ],
 )
 def test_invalid_simulation_settings(raw, match):
@@ -340,6 +344,7 @@ def test_builder_simulation_options(inputs):
         hazard_rtol=3e-5,
         use_old_dos_impl=True,
         k_total_mesh_mode="compute_mesh_single_threaded",
+        k_rate_cancellation=False,
     )
     assert_same(build_config(**config), config)
 
@@ -348,7 +353,10 @@ def test_builder_simulation_options(inputs):
     "mesh_mode", ["compute_mesh_single_threaded", "compute_mesh_linear", "no_mesh"]
 )
 @pytest.mark.parametrize("atom_like", [False, True])
-def test_preparation_uses_simulation_options(inputs, monkeypatch, mesh_mode, atom_like):
+@pytest.mark.parametrize("cancellation", [None, True, False])
+def test_preparation_uses_simulation_options(
+    inputs, monkeypatch, mesh_mode, atom_like, cancellation
+):
     import apitofsim.api as api
     from apitofsim.api import MeshMode
     from apitofsim.workflow import DerivedDataPreparer
@@ -363,6 +371,7 @@ def test_preparation_uses_simulation_options(inputs, monkeypatch, mesh_mode, ato
 
     def rates(*args, **kwargs):
         calls["mesh"] = kwargs["mesh"]
+        calls["cancellation"] = kwargs["k_rate_cancellation"]
         return real_rates(*args, **kwargs)
 
     monkeypatch.setattr(api, "compute_density_of_states_batch", dos)
@@ -376,6 +385,7 @@ def test_preparation_uses_simulation_options(inputs, monkeypatch, mesh_mode, ato
         },
         use_old_dos_impl=True,
         k_total_mesh_mode=mesh_mode,
+        k_rate_cancellation=cancellation,
     )
     with closing(ExperimentDatabase(":memory:")) as db:
         db.create_tables()
@@ -395,7 +405,11 @@ def test_preparation_uses_simulation_options(inputs, monkeypatch, mesh_mode, ato
         first, _ = preparer.run_densityandrate(
             config, clusters, pathways, name_lookup=names, show_progress=False
         )
-        assert calls == {"dos": True, "mesh": MeshMode[mesh_mode]}
+        assert calls == {
+            "dos": True,
+            "mesh": MeshMode[mesh_mode],
+            "cancellation": True if cancellation is None else cancellation,
+        }
         calls.clear()
         cached, _ = preparer.run_densityandrate(
             config, clusters, pathways, name_lookup=names, show_progress=False

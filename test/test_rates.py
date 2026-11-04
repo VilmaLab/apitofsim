@@ -43,7 +43,10 @@ def reference(first, second, parent, combined, shift, h, size, mesh=None):
 
 @pytest.mark.parametrize("h", [0.5, 4.0])
 @pytest.mark.parametrize("custom_mesh", [False, True])
-def test_shared_rates_with_overlapping_and_disjoint_windows(h, custom_mesh):
+@pytest.mark.parametrize("cancellation", [True, False])
+def test_shared_rates_with_overlapping_and_disjoint_windows(
+    h, custom_mesh, cancellation
+):
     size = 80
     parent = np.linspace(1, 9, size + 200) ** 8
     combined = np.linspace(0, 8, size + 10) ** 6
@@ -70,12 +73,21 @@ def test_shared_rates_with_overlapping_and_disjoint_windows(h, custom_mesh):
     )
     mode = mesh if custom_mesh else raw.MeshMode.compute_mesh_linear
     completed = []
-    actual = raw.compute_k_total_batch(inputs, size * h, h, mode, completed.append)
+    actual = raw.compute_k_total_batch(
+        inputs, size * h, h, mode, completed.append, k_rate_cancellation=cancellation
+    )
     np.testing.assert_allclose(actual, expected, rtol=2e-12, atol=0)
     assert completed == list(range(1, len(inputs) + 1))
     with ThreadPoolExecutor(2) as pool:
         futures = [
-            pool.submit(raw.compute_k_total_batch, inputs[::-1], size * h, h, mode)
+            pool.submit(
+                raw.compute_k_total_batch,
+                inputs[::-1],
+                size * h,
+                h,
+                mode,
+                k_rate_cancellation=cancellation,
+            )
             for _ in range(2)
         ]
         for future in futures:
@@ -84,7 +96,9 @@ def test_shared_rates_with_overlapping_and_disjoint_windows(h, custom_mesh):
             )
     # Caches belong to one call and must not retain values after caller mutation.
     combined *= 2
-    again = raw.compute_k_total_batch(inputs, size * h, h, mode)
+    again = raw.compute_k_total_batch(
+        inputs, size * h, h, mode, k_rate_cancellation=cancellation
+    )
     np.testing.assert_allclose(again, 2 * expected, rtol=2e-12, atol=0)
 
 
@@ -135,3 +149,45 @@ def test_cancelled_rate_validates_density_and_mesh_lengths():
             raw.compute_k_total_batch(
                 invalid, 4.0, 1.0, raw.MeshMode.compute_mesh_linear
             )
+
+
+@pytest.mark.parametrize("atom", [False, True])
+def test_disabling_cancellation_preserves_two_stage_zero_bin_behavior(atom):
+    from apitofsim import ClusterData, compute_k_total_batch, densityandrate
+    from apitofsim.api import Q_
+
+    first = molecular()
+    second = raw.AtomLikeCluster(1, 0.0, 0) if atom else molecular()
+    parent = np.array([1.0, 0.0, 1.0])
+    combined = np.array([1.0, 0.0, 1.0])
+    inputs = [raw.KTotalInput(first, second, 0.0, parent, combined)]
+    for cancellation in (True, False):
+        rates = compute_k_total_batch(
+            inputs, Q_(3, "K"), Q_(1, "K"), k_rate_cancellation=cancellation
+        )
+        assert np.isfinite(rates[1, 0]) == cancellation
+        cluster = ClusterData(
+            Q_(10, "amu"),
+            Q_(0, "hartree"),
+            np.array([1.0, 2.0, 3.0]),
+            np.array([2.0]),
+            0,
+        )
+        product = (
+            ClusterData(Q_(1, "amu"), Q_(0, "hartree"), np.zeros(3), np.array([]), 0)
+            if atom
+            else cluster
+        )
+        _, histogram = densityandrate(
+            cluster,
+            cluster,
+            product,
+            Q_(5, "K"),
+            Q_(3, "K"),
+            Q_(1, "K"),
+            fragmentation_energy=Q_(2, "K"),
+            k_rate_cancellation=cancellation,
+        )
+        assert np.isfinite(histogram.y[1]) == cancellation
+    default = compute_k_total_batch(inputs, Q_(3, "K"), Q_(1, "K"))
+    assert np.isfinite(default).all()

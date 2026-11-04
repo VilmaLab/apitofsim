@@ -173,6 +173,7 @@ def prepare(mode, config, database, db_type, ase, warm, foreign_keys):
     vib_energy_sampler = "direct"
     use_old_dos_impl = false
     k_total_mesh_mode = "compute_mesh_linear"
+    k_rate_cancellation = true
     \b
     [default_config.gas]
     radius = "1.84e-10 meter"

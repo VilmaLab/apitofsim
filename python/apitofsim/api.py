@@ -633,12 +633,13 @@ def compute_k_total_batch(
     progress_callback: Callable[[int], None] | None = None,
     *,
     quantities_strict=True,
+    k_rate_cancellation: bool = True,
 ):
     process_arg = QuantityProcessor(quantities_strict)
     energy_max_rate = process_arg("energy_max", energy_max_rate, "kelvin")
     bin_width = process_arg("bin_width", bin_width, "kelvin")
     return _compute_k_total_batch(
-        inputs, energy_max_rate, bin_width, mesh, progress_callback
+        inputs, energy_max_rate, bin_width, mesh, progress_callback, k_rate_cancellation
     )
 
 
@@ -803,6 +804,7 @@ def densityandrate(
     fragmentation_energy: MaybeQuantity | None = None,
     *,
     quantities_strict=True,
+    k_rate_cancellation: bool = True,
 ):
     """
     This function precomputes the density of states and rate constants histograms for a given set of clusters.
@@ -831,6 +833,7 @@ def densityandrate(
         energy_max_rate,
         bin_width,
         fragmentation_energy,
+        k_rate_cancellation,
     )
     return Histogram.from_cpp(density_cluster), Histogram.from_cpp(rate_const)
 

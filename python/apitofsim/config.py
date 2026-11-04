@@ -92,6 +92,7 @@ class SimulationConfig(TypedDict):
     hazard_rtol: NotRequired[float]
     use_old_dos_impl: NotRequired[bool]
     k_total_mesh_mode: NotRequired[str]
+    k_rate_cancellation: NotRequired[bool]
     quadrupole: NotRequired[Quadrupole]
     radius_pinhole: NotRequired[Quantity]
     bonding_energy: NotRequired[Quantity]
@@ -116,6 +117,7 @@ SIMULATION_FIELDS = (
     "hazard_rtol",
     "use_old_dos_impl",
     "k_total_mesh_mode",
+    "k_rate_cancellation",
 )
 
 
@@ -260,7 +262,7 @@ def _config_value(value, field, *, strict=False):
             in ("simulation_mode", "collision_time_method", "vib_energy_sampler")
             else name
         )
-    if field == "use_old_dos_impl":
+    if field in ("use_old_dos_impl", "k_rate_cancellation"):
         if not isinstance(value, bool):
             raise ValueError(f"{field}: expected a boolean")
         return value
@@ -363,6 +365,7 @@ def build_config(
     hazard_rtol: float | None = None,
     use_old_dos_impl: bool | None = None,
     k_total_mesh_mode: str | None = None,
+    k_rate_cancellation: bool | None = None,
     quadrupole: QuadrupoleComponents | Quadrupole | None = None,
     radius_pinhole: Quantity | None = None,
     bonding_energy: Quantity | None = None,

@@ -612,6 +612,7 @@ class DerivedDataPreparer:
         pathway_lookup,
         status_table=None,
         name_lookup=None,
+        k_rate_cancellation=True,
     ):
         import pyarrow as pa
 
@@ -719,6 +720,7 @@ class DerivedDataPreparer:
             bin_width=bin_width,
             mesh=mesh,
             progress_callback=progress_callback,
+            k_rate_cancellation=k_rate_cancellation,
         )
 
         insert_via_arrow(
@@ -811,6 +813,7 @@ class DerivedDataPreparer:
             pathway_lookup=pathway_lookup,
             status_table=table,
             name_lookup=name_lookup,
+            k_rate_cancellation=config.get("k_rate_cancellation", True),
         )
 
         if table is not None and pbar is not None:
