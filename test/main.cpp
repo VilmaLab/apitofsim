@@ -1172,6 +1172,111 @@ TEST_CASE("RF flight converges to independent trajectory at nonzero entry phase"
   CHECK(std::abs(collision_time({CollisionTimeMethod::integrated_hazard, 1, 1e-9}) - 0.37) > 1e-5);
 }
 
+TEST_CASE("simulation quadrupole forces follow the current cluster mass")
+{
+  bool tree = false;
+  bool fragment = false;
+  SUBCASE("single cluster")
+  {
+  }
+  SUBCASE("tree root")
+  {
+    tree = true;
+  }
+  SUBCASE("tree product after fragmentation")
+  {
+    tree = fragment = true;
+  }
+
+  for (auto method : {CollisionTimeMethod::integrated_hazard, CollisionTimeMethod::legacy})
+  {
+    CAPTURE(method);
+    // Low pressure keeps this seeded flight collision-free. The first chamber
+    // and skimmer still need finite steps with the legacy collision clock.
+    SkimmerData skimmer(2, 3);
+    skimmer << 0, 300, 1, 0, 300, 1;
+    MassSpectrometer ms{skimmer, 5e-5, InstrumentDims{1e-4, 1e-4, 1e-4, 1e-3, 1e-4},
+                        InstrumentVoltages{0, 0.01, 0.02, 0.03, 0.04}, 300, InstrumentPressures{1, 1e-12},
+                        Quadrupole{0, 1, 1e5, 0.01}};
+    Gas gas{2e-10, 4.8e-26, 1.4};
+    const double parent_mass = 2e-25, product_mass = 1e-25, radius = 5e-10;
+    Histogram density(1e-21, 256, Eigen::ArrayXd::Ones(256));
+    Histogram inactive_rate(1e-21, 256, Eigen::ArrayXd::Zero(256));
+    MassSpecInputFragmentationPathway inactive{inactive_rate, -1e-21};
+    CollisionTimeOptions options{method};
+    StreamingResultQueue queue;
+    auto run = [&](const auto &subs)
+    {
+      auto counters = std::get<0>(apitof_mass_spec(ms, subs, 1, 42, queue, SampleMode::rejection,
+                                                   true, MassSpecLogConf{0, true}, false, options));
+      CHECK(counters[Counter::ncoll_total] == 0);
+      CHECK(counters[Counter::n_escaped_total] == (fragment ? 0 : 1));
+      CHECK(counters[Counter::nwarnings] == 0);
+    };
+    if (tree)
+    {
+      // Include both masses even for the nonfragmenting root: preparing a later
+      // payload must not overwrite the instrument or another cluster's field.
+      Histogram rate(1e-21, 256, Eigen::ArrayXd::Constant(256, fragment ? 1e9 : 0));
+      run(MassSpecSubstanceTreeInput{
+        -1, gas, {MSSubstanceTreeCluster{parent_mass, radius, density}, MSSubstanceTreeCluster{product_mass, radius, density}}, {MassSpecInputFragmentationPathway{rate, -1e-21}, inactive}, {{0, {0}}, {1, {1}}}, {{0, 1}, {1, std::nullopt}}});
+    }
+    else
+    {
+      run(MassSpecSubstanceSingleInput{-1, parent_mass, radius, density, {inactive}, gas});
+    }
+
+    std::optional<ParticleStateMsg> start, end;
+    StreamingResultElement item;
+    while (queue.try_dequeue(item))
+    {
+      if (auto *event = std::get_if<EventMessage>(&item))
+      {
+        if (auto *initial = std::get_if<InitEvent>(event); initial && !fragment)
+          start = initial->state;
+        if (auto *product = std::get_if<PostFragmentationEvent>(event); product && fragment)
+          start = product->state;
+        if (auto *escaped = std::get_if<EscapeEvent>(event))
+          end = escaped->state;
+      }
+    }
+    REQUIRE(start.has_value());
+    REQUIRE(end.has_value());
+    CHECK(start->particle_index == (fragment ? 1 : 0));
+    CHECK(end->particle_index == start->particle_index);
+    if (fragment)
+    {
+      CHECK(start->particle.velocity.isZero());
+      CHECK(start->particle.position.z() < ms.lengths[0]);
+    }
+
+    ChamberQuantities chamber(ms, gas);
+    double mass = fragment ? product_mass : parent_mass;
+    SubstanceQuantities quantities(ms, chamber, gas, -1, mass, radius);
+    auto propagate = [&](double factor)
+    {
+      auto quadrupole = *ms.quadrupole;
+      quadrupole.mathieu_factor = factor;
+      ParticleState particle = start->particle;
+      REQUIRE(next_coll(0, particle, chamber, gas.radius + radius, quantities.dts,
+                        std::numeric_limits<double>::infinity(), quantities.acc, gas.mass,
+                        ms.skimmer, ms.mesh_skimmer, quadrupole, options) == TimeNextCollOutcome::escape);
+      return particle;
+    };
+    // The reference supplies the physical factor explicitly, independently of
+    // the simulation's preparation and tree payload selection.
+    const double factor = consts::eV / (mass * std::pow(ms.quadrupole->r_quadrupole, 2));
+    auto expected = propagate(factor);
+    CHECK(end->particle.position.isApprox(expected.position, 1e-10));
+    CHECK(end->particle.velocity.isApprox(expected.velocity, 1e-10));
+    CHECK(end->particle.time == doctest::Approx(expected.time).epsilon(1e-10));
+    CHECK((end->particle.velocity - propagate(0).velocity).head<2>().norm() > 1e-6);
+    if (fragment)
+      CHECK((end->particle.velocity - propagate(factor / 2).velocity).head<2>().norm() > 1e-6);
+    CHECK(ms.quadrupole->mathieu_factor == 0);
+  }
+}
+
 TEST_CASE("Prepared vibrational samplers share the discrete energy law")
 {
   Eigen::ArrayXd x(5), y(5);

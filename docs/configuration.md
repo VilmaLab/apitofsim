@@ -206,6 +206,10 @@ adiabatic_index = 1.4
 
 This section is optional. If not specified, the simulation will be run without a quadrupole.
 
+The quadrupole force uses the current cluster's mass. In `cluster-tree` mode,
+its mass-dependent factor changes to that of the continuing product after each
+fragmentation. This applies to both collision-time methods.
+
 For example:
 
 ```toml

@@ -232,7 +232,7 @@ struct SubstanceQuantities
   double inertia;
   Eigen::Array4d acc;
   Eigen::Array2d dts;
-  std::optional<double> mathieu_factor = std::nullopt;
+  std::optional<Quadrupole> quadrupole;
 
   SubstanceQuantities(
     const MassSpectrometer &ms,
