@@ -42,9 +42,9 @@ Quadrupole::Quadrupole(
   angular_velocity = 2.0 * consts::pi * radiofrequency;
 }
 
-double compute_mathieu_factor(double m_ion, double r_quadrupole)
+void Quadrupole::compute_mathieu_factor(double m_ion)
 {
-  return consts::eV / (m_ion * r_quadrupole * r_quadrupole);
+  mathieu_factor = consts::eV / (m_ion * r_quadrupole * r_quadrupole);
 }
 
 Histogram scaled_density(const Histogram &density_cluster)
@@ -573,11 +573,12 @@ SubstanceQuantities::SubstanceQuantities(
   const double R_cluster) : reduced_mass(1. / ((1. / m_ion) + (1. / gas.mass))),
                             inertia(0.4 * m_ion * R_cluster * R_cluster),
                             acc(chamber.E * consts::eV * cluster_charge_sign / m_ion),
-                            dts(chamber.pressures.histogram_dts(R_cluster + gas.radius, chamber.mobility_gas, chamber.mobility_gas_inv, DT_MULTIPLIER, ms.quadrupole))
+                            dts(chamber.pressures.histogram_dts(R_cluster + gas.radius, chamber.mobility_gas, chamber.mobility_gas_inv, DT_MULTIPLIER, ms.quadrupole)),
+                            quadrupole(ms.quadrupole)
 {
-  if (ms.quadrupole)
+  if (quadrupole)
   {
-    mathieu_factor = compute_mathieu_factor(m_ion, ms.quadrupole->r_quadrupole);
+    quadrupole->compute_mathieu_factor(m_ion);
   }
 }
 
@@ -752,7 +753,7 @@ SimulationResult apitof_mass_spec(
         auto [effective_pathway_index, t_fragmentation, overflow_exception] = next_fragmentation_time_multi(gen, unif, subs.pathways, internal_energy, strict);
 
         double old_t = particle.time;
-        TimeNextCollOutcome outcome = next_coll(unif(gen), particle, chamber, subs.gas.radius + subs.R_cluster, subquants.dts, t_fragmentation, subquants.acc, subs.gas.mass, ms.skimmer, ms.mesh_skimmer, ms.quadrupole, collision_time);
+        TimeNextCollOutcome outcome = next_coll(unif(gen), particle, chamber, subs.gas.radius + subs.R_cluster, subquants.dts, t_fragmentation, subquants.acc, subs.gas.mass, ms.skimmer, ms.mesh_skimmer, subquants.quadrupole, collision_time);
 
         if (logconf.level >= LOGLEVEL_NORMAL)
         {
@@ -989,7 +990,7 @@ SimulationResult apitof_mass_spec(
         auto [effective_pathway_index, t_fragmentation, overflow_exception] = next_fragmentation_time_multi(gen, unif, pathways, internal_energy, strict);
 
         double old_t = particle.time;
-        TimeNextCollOutcome outcome = next_coll(unif(gen), particle, chamber, subs.gas.radius + subpayload.R_cluster, subquants.dts, t_fragmentation, subquants.acc, subs.gas.mass, ms.skimmer, ms.mesh_skimmer, ms.quadrupole, collision_time);
+        TimeNextCollOutcome outcome = next_coll(unif(gen), particle, chamber, subs.gas.radius + subpayload.R_cluster, subquants.dts, t_fragmentation, subquants.acc, subs.gas.mass, ms.skimmer, ms.mesh_skimmer, subquants.quadrupole, collision_time);
 
         if (logconf.level >= LOGLEVEL_NORMAL)
         {
