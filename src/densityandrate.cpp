@@ -5,6 +5,7 @@
 #include <optional>
 #include <cstdlib>
 #include <cmath>
+#include <algorithm>
 #include "consts.h"
 #include "exceptions.h"
 #include "operation_context.h"
@@ -98,6 +99,22 @@ double get_final_rate_k_total(const Eigen::ArrayXd &k0, const Eigen::Ref<const E
   }
 
   return integral / normalization;
+}
+
+Eigen::ArrayXd compute_mesh_linear(double bin_width, int m_max_rate, OperationContext &operation)
+{
+  Eigen::ArrayXd mesh(m_max_rate);
+  double prefix = 0.0;
+  double integral = 0.0;
+  for (int m = 0; m < m_max_rate && operation.checkpoint(); ++m)
+  {
+    const double rotational_energy_sqrt = sqrt(bin_width * (m + 0.5));
+    // M[m] - M[m-1] = h * sum(s[0:m]) + h/2 * s[m].
+    integral += bin_width * (prefix + (0.5 * rotational_energy_sqrt));
+    prefix += rotational_energy_sqrt;
+    mesh[m] = integral;
+  }
+  return mesh;
 }
 
 Eigen::ArrayXd compute_mesh(double bin_width, int m_max_rate)
@@ -257,16 +274,13 @@ void compute_k_total_atom(Eigen::ArrayXd &k0, Eigen::Ref<Eigen::ArrayXd> k_rate,
 
   double prefactor = boltzmann * boltzmann * inertia_moment_1 / (pi * hbar * hbar * hbar);
   int n_fragmentation = static_cast<int>(fragmentation_energy / bin_width);
+  double prefix = 0.0;
+  double integral = 0.0;
   for (int m = 0; m < m_max_rate; m++)
   {
     double density_cluster = rho_0[n_fragmentation + m];
-    double integral = 0.0;
-#pragma omp simd reduction(+ : integral)
-    for (int i = 0; i <= m; i++) // translational energy
-    {
-      double translational_energy = bin_width * (i + 0.5);
-      integral += translational_energy * rho_comb[m - i];
-    }
+    integral += bin_width * (prefix + (0.5 * rho_comb[m]));
+    prefix += rho_comb[m];
 
     k0[m] = prefactor / density_cluster * integral * bin_width;
     k_rate[m] = get_final_rate_k_total(k0, rho_0, bin_width, m, n_fragmentation);
@@ -500,7 +514,7 @@ Eigen::ArrayXXd compute_density_of_states_batch(std::vector<Eigen::ArrayXd> batc
 
 namespace
 {
-void compute_k_total_general(Eigen::ArrayXd &k0, Eigen::Ref<Eigen::ArrayXd> k_rate, const MolecularProducts &products, const ClusterDerived &derived_1, const ClusterDerived &derived_2, double fragmentation_energy, Eigen::Ref<const Eigen::ArrayXd> rho_parent, Eigen::Ref<const Eigen::ArrayXd> rho_comb, double bin_width, double m_max_rate, std::optional<const Eigen::ArrayXd> mesh)
+void compute_k_total_general(Eigen::ArrayXd &k0, Eigen::Ref<Eigen::ArrayXd> k_rate, const MolecularProducts &products, const ClusterDerived &derived_1, const ClusterDerived &derived_2, double fragmentation_energy, Eigen::Ref<const Eigen::ArrayXd> rho_parent, Eigen::Ref<const Eigen::ArrayXd> rho_comb, double bin_width, double m_max_rate, const std::optional<Eigen::ArrayXd> &mesh)
 {
   if (mesh)
   {
@@ -512,7 +526,7 @@ void compute_k_total_general(Eigen::ArrayXd &k0, Eigen::Ref<Eigen::ArrayXd> k_ra
   }
 }
 
-void compute_k_total_general(Eigen::ArrayXd &k0, Eigen::Ref<Eigen::ArrayXd> k_rate, const AtomLikeProducts &products, const ClusterDerived &derived_1, const ClusterDerived &derived_2, double fragmentation_energy, Eigen::Ref<const Eigen::ArrayXd> rho_parent, Eigen::Ref<const Eigen::ArrayXd> rho_comb, double bin_width, double m_max_rate, std::optional<const Eigen::ArrayXd> mesh)
+void compute_k_total_general(Eigen::ArrayXd &k0, Eigen::Ref<Eigen::ArrayXd> k_rate, const AtomLikeProducts &products, const ClusterDerived &derived_1, const ClusterDerived &derived_2, double fragmentation_energy, Eigen::Ref<const Eigen::ArrayXd> rho_parent, Eigen::Ref<const Eigen::ArrayXd> rho_comb, double bin_width, double m_max_rate, const std::optional<Eigen::ArrayXd> &mesh)
 {
   (void)products;
   (void)derived_2;
@@ -520,7 +534,7 @@ void compute_k_total_general(Eigen::ArrayXd &k0, Eigen::Ref<Eigen::ArrayXd> k_ra
   compute_k_total_atom(k0, k_rate, derived_1.inertia_moment, rho_comb, rho_parent, bin_width, m_max_rate, fragmentation_energy);
 }
 
-void compute_k_total_general(Eigen::ArrayXd &k0, Eigen::Ref<Eigen::ArrayXd> k_rate, const Products &products, const ClusterDerived &derived_1, const ClusterDerived &derived_2, double fragmentation_energy, Eigen::Ref<const Eigen::ArrayXd> rho_parent, Eigen::Ref<const Eigen::ArrayXd> rho_comb, double bin_width, double m_max_rate, std::optional<const Eigen::ArrayXd> mesh)
+void compute_k_total_general(Eigen::ArrayXd &k0, Eigen::Ref<Eigen::ArrayXd> k_rate, const Products &products, const ClusterDerived &derived_1, const ClusterDerived &derived_2, double fragmentation_energy, Eigen::Ref<const Eigen::ArrayXd> rho_parent, Eigen::Ref<const Eigen::ArrayXd> rho_comb, double bin_width, double m_max_rate, const std::optional<Eigen::ArrayXd> &mesh)
 {
   std::visit([&](const auto &products)
   {
@@ -558,14 +572,23 @@ compute_k_total_full(const MolecularCluster &cluster_0, const Products &products
 
   validate_max_energies(fragmentation_energy, rho_0.size(), m_max_rate, bin_width);
 
-  compute_k_total_general(k0, k_rate, products, derived_1, derived_2, fragmentation_energy, rho_0, rho_comb, bin_width, m_max_rate, std::nullopt);
+  std::optional<Eigen::ArrayXd> mesh;
+  if (std::holds_alternative<MolecularProducts>(products))
+  {
+    mesh = precompute_mesh(energy_max_rate, bin_width);
+  }
+  compute_k_total_general(k0, k_rate, products, derived_1, derived_2, fragmentation_energy, rho_0, rho_comb, bin_width, m_max_rate, mesh);
   return k_rate;
 }
 
 Eigen::ArrayXd precompute_mesh_impl(double energy_max_rate, double bin_width, MeshMode mesh_mode, OperationContext &operation)
 {
   int m_max_rate = static_cast<int>(energy_max_rate / bin_width);
-  if (mesh_mode == MeshMode::compute_mesh_single_threaded)
+  if (mesh_mode == MeshMode::compute_mesh_linear)
+  {
+    return compute_mesh_linear(bin_width, m_max_rate, operation);
+  }
+  else if (mesh_mode == MeshMode::compute_mesh_single_threaded)
   {
     return compute_mesh(bin_width, m_max_rate);
   }
@@ -596,7 +619,7 @@ Eigen::ArrayXd precompute_mesh(double energy_max_rate, double bin_width, MeshMod
   });
 }
 
-Eigen::ArrayXXd compute_k_total_batch(std::vector<KTotalInput> batch_input, double energy_max_rate, double bin_width, std::optional<const Eigen::ArrayXd> mesh, std::optional<std::function<void(size_t)>> progress_callback)
+Eigen::ArrayXXd compute_k_total_batch(const std::vector<KTotalInput> &batch_input, double energy_max_rate, double bin_width, const std::optional<Eigen::ArrayXd> &mesh, std::optional<std::function<void(size_t)>> progress_callback)
 {
   OperationContext operation;
   int m_max_rate = static_cast<int>(energy_max_rate / bin_width);
@@ -637,8 +660,13 @@ Eigen::ArrayXXd compute_k_total_batch(std::vector<KTotalInput> batch_input, doub
   return k_rate;
 }
 
-Eigen::ArrayXXd compute_k_total_batch(std::vector<KTotalInput> batch_input, double energy_max_rate, double bin_width, MeshMode mesh_mode, std::optional<std::function<void(size_t)>> progress_callback)
+Eigen::ArrayXXd compute_k_total_batch(const std::vector<KTotalInput> &batch_input, double energy_max_rate, double bin_width, MeshMode mesh_mode, std::optional<std::function<void(size_t)>> progress_callback)
 {
-  std::optional<const Eigen::ArrayXd> mesh = (mesh_mode == MeshMode::no_mesh ? std::nullopt : std::optional<const Eigen::ArrayXd>(precompute_mesh(energy_max_rate, bin_width, mesh_mode)));
+  std::optional<Eigen::ArrayXd> mesh;
+  if (mesh_mode != MeshMode::no_mesh && std::ranges::any_of(batch_input, [](const auto &input)
+  { return std::holds_alternative<MolecularCluster>(input.cluster_2); }))
+  {
+    mesh = precompute_mesh(energy_max_rate, bin_width, mesh_mode);
+  }
   return compute_k_total_batch(batch_input, energy_max_rate, bin_width, mesh, progress_callback);
 }

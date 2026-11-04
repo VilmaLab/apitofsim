@@ -68,7 +68,7 @@ tolerance = 1e-8
 simulation_mode = "single-cluster"
 sample_mode = "rejection"
 use_old_dos_impl = false
-k_total_mesh_mode = "compute_mesh_diagonal_multithreaded"
+k_total_mesh_mode = "compute_mesh_linear"
 
 [default_config.gas]
 radius = "1.84e-10 meter"

@@ -109,7 +109,7 @@ collision_time_method = "integrated-hazard"
 hazard_atol = 1e-12
 hazard_rtol = 1e-9
 use_old_dos_impl = false
-k_total_mesh_mode = "compute_mesh_diagonal_multithreaded"
+k_total_mesh_mode = "compute_mesh_linear"
 ```
 
 Older flat files and stored databases remain readable. The Python builder and
@@ -126,7 +126,14 @@ normalized when loaded. Do not specify a setting both at top level and inside
 | hazard_atol | `1e-12` | Absolute tolerance in dimensionless cumulative hazard, for integration and event location. |
 | hazard_rtol | `1e-9` | Relative tolerance in cumulative hazard. Both tolerances must be finite and positive. |
 | use_old_dos_impl | `false` | Use the legacy density of states implementation for uncached calculations. |
-| k_total_mesh_mode | `compute_mesh_diagonal_multithreaded` | `no_mesh`, `compute_mesh_single_threaded`, `compute_mesh_diagonal_single_threaded`, `compute_mesh_multithreaded`, or `compute_mesh_diagonal_multithreaded`. |
+| k_total_mesh_mode | `compute_mesh_linear` | `no_mesh`, `compute_mesh_single_threaded`, `compute_mesh_diagonal_single_threaded`, `compute_mesh_multithreaded`, `compute_mesh_diagonal_multithreaded`, or `compute_mesh_linear` (linear-time recurrence). |
+
+The default mesh uses a prefix-sum recurrence with the same midpoint weights as
+the older mesh modes, reducing mesh preparation from quadratic to linear time.
+The single-pathway API and native CLI also use this mesh. Batch preparation
+skips the mesh when all missing pathways have an atom-like product, and skips
+rate calculation entirely when all requested rates are cached. Existing cached
+rates remain usable; differences between mesh modes are limited to rounding.
 
 The hazard tolerances apply to the integrated-hazard solver, including RF flights. They do not set the Verlet trajectory accuracy. The legacy solver ignores both tolerances and uses the chamber timesteps derived for each cluster.
 
