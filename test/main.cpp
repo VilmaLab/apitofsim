@@ -557,6 +557,31 @@ TEST_CASE("k total batch reports every completed item in order")
   }
 }
 
+TEST_CASE("shared rate windows match the original molecular calculation")
+{
+  constexpr int size = 16;
+  const Eigen::Vector3d rotations(1.0, 2.0, 3.0);
+  const MolecularCluster product(10, 0.0, rotations, Eigen::ArrayXd::Constant(1, 2.0), 0);
+  const auto derived = compute_derived(product);
+  Eigen::ArrayXd parent = Eigen::ArrayXd::LinSpaced(128, 1.0, 10.0).pow(8);
+  const Eigen::ArrayXd combined = Eigen::ArrayXd::LinSpaced(size, 0.0, 8.0).pow(6);
+  const std::array shifts{50, 0, 10, 50, 100};
+  std::vector<KTotalInput> inputs;
+  for (int shift : shifts)
+  {
+    inputs.push_back({product, product, static_cast<double>(shift), parent.head(shift + size), combined});
+  }
+  const auto result = compute_k_total_batch(inputs, size, 1.0);
+  for (size_t i = 0; i < shifts.size(); ++i)
+  {
+    Eigen::ArrayXd k0(size), expected(size);
+    compute_k_total(k0, expected, derived.inertia_moment, derived.inertia_moment, rotations, rotations, combined, parent, 1.0, size, shifts[i]);
+    CHECK(((result.col(i) - expected).abs() <= 1e-12 * expected.abs()).all());
+  }
+  parent.setZero();
+  CHECK_THROWS_AS(compute_k_total_batch(inputs, size, 1.0), ApiTofArgumentError);
+}
+
 TEST_CASE("particle snapshots own physical state and capture the current inertia")
 {
   ParticleState particle{

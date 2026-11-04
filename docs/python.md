@@ -151,6 +151,29 @@ These classes input data to the simulation, as well as output data from intermed
       summary: false
       heading_level: 3
 
+## Rate preparation
+
+Mesh-based molecular rates combine the rotational average with the inner rate
+integral, cancelling the intermediate division by the parent vibrational DOS
+(equations 16, 21 and 39 of [Zapadinsky et al.](https://doi.org/10.1021/acs.jpca.8b10744)).
+The implementation retains the midpoint grid and uses direct convolutions to
+protect low-energy results from FFT roundoff across large DOS dynamic ranges.
+`MeshMode.no_mesh` retains the original molecular calculation for comparison.
+
+Within `compute_k_total_batch`, inputs sharing the same contiguous parent DOS
+buffer reuse normalisation bins across the union of their requested energy
+windows; inputs sharing a product DOS buffer reuse the numerator for each
+product type. Equal-valued copies are computed separately. Reuse lasts only for
+one call, and callers must keep the input arrays alive and unchanged during it.
+Atom-like rates use their own kernel, regardless of an explicit molecular mesh.
+
+The cancelled formulation supports isolated zero parent vibrational DOS bins,
+but raises `ApiTofArgumentError` when a requested rotational normalisation is
+zero or nonfinite. Fragmentation energies must be finite and nonnegative, and
+DOS arrays and explicit molecular meshes must cover the requested range.
+Existing database rates are reused; recompute entries that previously contained
+NaNs to benefit from the new treatment of isolated zero bins.
+
 ## Workflow interface
 
 The `apitofsim.workflow` module, contains functions to keep cluster data in a database, convenient for running scaled-up simulations.

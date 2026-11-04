@@ -72,7 +72,7 @@ if python_feat.enabled()
       test(
          'apitofsim-python-tests',
          python,
-         args: ['-m', 'pytest', files('test_config.py', 'test_db_utils.py', 'test_python.py', 'test_foreign_keys.py', 'test_experiment_reports.py', 'test_spectrogram.py', 'test_recording_stream.py', 'test_columnar_stream.py', 'test_tree_histories.py', 'test_tree_input.py', 'test_rf_basis.py')],
+         args: ['-m', 'pytest', files('test_config.py', 'test_db_utils.py', 'test_python.py', 'test_rates.py', 'test_foreign_keys.py', 'test_experiment_reports.py', 'test_spectrogram.py', 'test_recording_stream.py', 'test_columnar_stream.py', 'test_tree_histories.py', 'test_tree_input.py', 'test_rf_basis.py')],
          env: env,
          depends: [raw_test_data_files, apitofsim_python, apitofsim_python_py_builddir, signal_helper],
          timeout: timeout

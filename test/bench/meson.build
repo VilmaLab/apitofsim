@@ -33,6 +33,23 @@ benchmark(
    env: 'APITOFSIM_BENCH_CONCURRENCY=1',
 )
 
+rate_batch = executable(
+   'compute_k_total_batch',
+   'compute_k_total_batch.cpp',
+   dependencies: [eigen3, tbb],
+   link_with: libapitofsim,
+   include_directories: incdirs,
+)
+foreach reuse : ['shared', 'unique']
+   benchmark('rate-batch-' + reuse, rate_batch, args: [reuse])
+   benchmark(
+      'rate-batch-' + reuse + '-one-thread',
+      rate_batch,
+      args: [reuse],
+      env: 'APITOFSIM_BENCH_CONCURRENCY=1',
+   )
+endforeach
+
 mass_spec_benchmark_env = {
    'DATA_DIR': fs.parent(fs.parent(ready_test_data_files[0].full_path())),
 }
