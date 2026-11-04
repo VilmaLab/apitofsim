@@ -2,6 +2,8 @@
 
 This page gives some background information on how the package works and gives references to relevant publications.
 
+For a self-contained mathematical description, see [Simulation model and numerical methods (PDF)](simulation-methods.pdf).
+
 ## How does it work?
 
 The simulation runs a number of iterations with each one considering a single instance of a cluster travelling through an APi-TOF MS.

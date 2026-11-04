@@ -116,6 +116,19 @@ uv sync -p /usr/bin/python3.12-dbg --reinstall-package apitofsim
 
 ### Building docs
 
+The mathematical reference is written in `docs/simulation-methods.tex`. Install
+`latexmk`, `texlive-latex-extra`, and `texlive-fonts-recommended`, then build its
+PDF before building or serving the site:
+
+```bash
+bash ci/build-methods.sh
+```
+
+The script uses `${TMPDIR:-$HOME/.scratch}/apitofsim-methods` for intermediate
+files (or the directory passed as its first argument) and copies the PDF to
+`docs/simulation-methods.pdf`. The generated PDF is not committed. CI builds it
+as the `simulation-methods-pdf` artifact and includes it in the deployed site.
+
 The following will run a live-reloading Zensical server:
 
 ```bash
