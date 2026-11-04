@@ -14,6 +14,7 @@
 #include <nanobind/nanobind.h>
 #include <nanobind/eigen/dense.h>
 #include <nanobind/stl/function.h>
+#include <nanobind/stl/array.h>
 #include <nanobind/stl/shared_ptr.h>
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/string_view.h>
@@ -27,6 +28,7 @@
 #include "skimmer.h"
 #include "densityandrate.h"
 #include "mass_spec.h"
+#include "trajectory.h"
 #include "consts.h"
 #include "warnlogcount.h"
 #include "operation_context.h"
@@ -722,10 +724,23 @@ NB_MODULE(apitofsimraw, m)
     .def_ro("bonding_energy", &MassSpecInputFragmentationPathway::bonding_energy);
 
   nb_magic_enum<VibEnergyMode>(m, "VibEnergyMode");
+  nb::class_<RFBasis>(m, "RFBasis")
+    .def(nb::init<double, double, int>(), "ac_scaled"_a, "dc_scaled"_a, "cells"_a = RFBasis::default_cells)
+    .def(nb::init<double, double, const Eigen::ArrayXd &>(), "ac_scaled"_a, "dc_scaled"_a, "data"_a)
+    .def_prop_ro("data", &RFBasis::data)
+    .def_prop_ro_static("default_cells", [](nb::handle)
+  { return RFBasis::default_cells; })
+    .def_prop_ro_static("format_version", [](nb::handle)
+  { return RFBasis::format_version; });
+  m.def("rf_parameters", [](Quadrupole q, double m_ion)
+  {
+    q.compute_mathieu_factor(m_ion);
+    return rf_parameters(q);
+  }, "quadrupole"_a, "m_ion"_a);
   nb::class_<VibEnergyIndex>(m, "VibEnergyIndex")
     .def(nb::init<VibEnergyMode, Eigen::ArrayXd>(), "mode"_a, "data"_a);
   nb::class_<MassSpecSubstanceSingleInput>(m, "MassSpecSubstanceSingleInput")
-    .def(nb::init<const MolecularCluster &, const MolecularCluster &, const ClusterSpec &, Gas, const Histogram &, const Histogram &, std::optional<double>, int, VibIndexPtr>(),
+    .def(nb::init<const MolecularCluster &, const MolecularCluster &, const ClusterSpec &, Gas, const Histogram &, const Histogram &, std::optional<double>, int, VibIndexPtr, RFBasisPtr>(),
          "cluster_0"_a,
          "cluster_1"_a,
          "cluster_2"_a,
@@ -733,26 +748,27 @@ NB_MODULE(apitofsimraw, m)
          "density_cluster"_a,
          "rate_const"_a,
          "fragmentation_energy"_a = std::nullopt,
-         "cluster_charge_sign"_a = defaults::cluster_charge_sign, "vib_index"_a = nullptr)
-    .def(nb::init<const MolecularCluster &, std::vector<MassSpecInputFragmentationPathway>, Gas, const Histogram &, int, VibIndexPtr>(),
+         "cluster_charge_sign"_a = defaults::cluster_charge_sign, "vib_index"_a = nullptr, "rf_basis"_a = nullptr)
+    .def(nb::init<const MolecularCluster &, std::vector<MassSpecInputFragmentationPathway>, Gas, const Histogram &, int, VibIndexPtr, RFBasisPtr>(),
          "cluster_0"_a,
          "pathways"_a,
          "gas"_a,
          "density_cluster"_a,
-         "cluster_charge_sign"_a = defaults::cluster_charge_sign, "vib_index"_a = nullptr)
-    .def(nb::init<int, double, double, const Histogram, const std::vector<MassSpecInputFragmentationPathway>, const Gas, VibIndexPtr>(),
+         "cluster_charge_sign"_a = defaults::cluster_charge_sign, "vib_index"_a = nullptr, "rf_basis"_a = nullptr)
+    .def(nb::init<int, double, double, const Histogram, const std::vector<MassSpecInputFragmentationPathway>, const Gas, VibIndexPtr, RFBasisPtr>(),
          "cluster_charge_sign"_a,
          "m_ion"_a,
          "R_cluster"_a,
          "density_cluster"_a,
          "pathways"_a,
-         "gas"_a, "vib_index"_a = nullptr)
+         "gas"_a, "vib_index"_a = nullptr, "rf_basis"_a = nullptr)
     .def_ro("cluster_charge_sign", &MassSpecSubstanceSingleInput::cluster_charge_sign)
     .def_ro("m_ion", &MassSpecSubstanceSingleInput::m_ion)
     .def_ro("R_cluster", &MassSpecSubstanceSingleInput::R_cluster)
     .def_ro("density_cluster", &MassSpecSubstanceSingleInput::density_cluster)
     .def_ro("pathways", &MassSpecSubstanceSingleInput::pathways)
-    .def_ro("gas", &MassSpecSubstanceSingleInput::gas);
+    .def_ro("gas", &MassSpecSubstanceSingleInput::gas)
+    .def_ro("rf_basis", &MassSpecSubstanceSingleInput::rf_basis, nb::sig("def rf_basis(self) -> RFBasis | None"));
 
   tree_bindings::bind_vector_view<size_t>(m, "IndexView");
   tree_bindings::bind_vector_view<MSSubstanceTreeNode>(m, "TreeNodeView");
@@ -761,16 +777,17 @@ NB_MODULE(apitofsimraw, m)
   tree_bindings::bind_vector_view<MassSpecInputFragmentationPathway>(m, "FragmentationPathwayView");
 
   nb::class_<MSSubstanceTreeCluster>(m, "MSSubstanceTreeCluster")
-    .def(nb::init<double, double, Histogram, VibIndexPtr>(),
+    .def(nb::init<double, double, Histogram, VibIndexPtr, RFBasisPtr>(),
          "m_ion"_a,
          "R_cluster"_a,
-         "density_cluster"_a, "vib_index"_a = nullptr)
-    .def(nb::init<const MolecularCluster &, Histogram, VibIndexPtr>(),
+         "density_cluster"_a, "vib_index"_a = nullptr, "rf_basis"_a = nullptr)
+    .def(nb::init<const MolecularCluster &, Histogram, VibIndexPtr, RFBasisPtr>(),
          "cluster_0"_a,
-         "density_cluster"_a, "vib_index"_a = nullptr)
+         "density_cluster"_a, "vib_index"_a = nullptr, "rf_basis"_a = nullptr)
     .def_ro("m_ion", &MSSubstanceTreeCluster::m_ion)
     .def_ro("R_cluster", &MSSubstanceTreeCluster::R_cluster)
-    .def_ro("density_cluster", &MSSubstanceTreeCluster::density_cluster);
+    .def_ro("density_cluster", &MSSubstanceTreeCluster::density_cluster)
+    .def_ro("rf_basis", &MSSubstanceTreeCluster::rf_basis, nb::sig("def rf_basis(self) -> RFBasis | None"));
 
   nb::class_<MSSubstanceTreeNode>(m, "MSSubstanceTreeNode")
     .def(nb::init<size_t, std::vector<size_t>>(),

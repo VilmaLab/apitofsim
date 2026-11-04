@@ -271,7 +271,7 @@ void mass_spec_config_in()
         sample_mode,
         false,
         DEFAULT_LOGCONF,
-        operation);
+        operation, CollisionTimeOptions{CollisionTimeMethod::legacy});
     });
     result_queue.enqueue(std::monostate{});
   });

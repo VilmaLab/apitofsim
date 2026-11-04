@@ -38,7 +38,7 @@ from .db import (
     RealizationDatabase,
     SuperClusterDatabase,
 )
-from .db_utils import get_or_insert, insert_via_arrow
+from .db_utils import get_or_insert, get_through_join_else, insert_via_arrow
 
 ureg = get_application_registry()
 Q_ = ureg.Quantity
@@ -323,6 +323,78 @@ class DerivedDataPreparer:
         self.dos_histogram_id = None
         self.rate_histogram_id = None
         self.vib_indexes: dict[int, VibEnergyIndex] = {}
+        self.rf_bases: dict[int, raw.RFBasis] = {}
+
+    @staticmethod
+    def _build_rf_basis(parameters):
+        return raw.RFBasis(parameters[0], parameters[1], raw.RFBasis.default_cells)
+
+    def _prepare_rf_bases(self, config, cluster_indexed, pathway_lookup):
+        self.rf_bases = {}
+        quadrupole = config.get("quadrupole")
+        if (
+            collision_time_options(config).method
+            != raw.CollisionTimeMethod.integrated_hazard
+            or quadrupole is None
+        ):
+            return
+        import pyarrow as pa
+
+        quadrupole = quadrupole.into_cpp()
+        # The phase-scaled equation is independent of gas, DOS, absolute phase,
+        # initial state, and simulation/recording options.
+        cluster_keys = {}
+        for cluster_id in {parent for parent, _, _ in pathway_lookup.values()}:
+            parameters = raw.rf_parameters(
+                quadrupole,
+                raw.compute_derived(cluster_indexed[cluster_id].into_cpp()).mass,
+            )
+            if parameters is not None:
+                cluster_keys[cluster_id] = tuple(parameters)
+        keys = list(dict.fromkeys(cluster_keys.values()))
+        if not keys:
+            return
+        cells, version = raw.RFBasis.default_cells, raw.RFBasis.format_version
+        width = 16 * (cells + 1)
+        cached = {}
+        missing = list(
+            get_through_join_else(
+                self.db.db,
+                self.db.db.table("rf_basis"),
+                "data",
+                cached,
+                ac_scaled=[key[0] for key in keys],
+                dc_scaled=[key[1] for key in keys],
+                cells=cells,
+                version=version,
+            )
+        )
+        prepared = {}
+        for key, data in cached.items():
+            if len(data) != width:
+                raise ValueError("Invalid persisted RF basis grid size")
+            prepared[key] = raw.RFBasis(key[0], key[1], data)
+        missed_keys = [(row["ac_scaled"], row["dc_scaled"]) for row in missing]
+        for key in missed_keys:
+            prepared[key] = self._build_rf_basis(key)
+        if missed_keys:
+            # Use the same columnar cache insertion as DOS, avoiding conversion
+            # of each table's doubles through Python scalar SQL parameters.
+            insert_via_arrow(
+                self.db.db,
+                "rf_basis",
+                ac_scaled=[key[0] for key in missed_keys],
+                dc_scaled=[key[1] for key in missed_keys],
+                cells=[cells] * len(missed_keys),
+                version=[version] * len(missed_keys),
+                data=pa.FixedSizeListArray.from_arrays(
+                    numpy.concatenate([prepared[key].data for key in missed_keys]),
+                    width,
+                ),
+            )
+        self.rf_bases = {
+            cluster_id: prepared[key] for cluster_id, key in cluster_keys.items()
+        }
 
     @staticmethod
     def _build_vib_index(mode, density, cluster_id):
@@ -852,6 +924,7 @@ class DerivedDataPreparer:
                 show_progress=show_progress,
             )
 
+        self._prepare_rf_bases(config, cluster_indexed, pathway_lookup)
         return skimmer_np, k_rates, cluster_dos
 
 
@@ -1247,6 +1320,7 @@ class ExperimentRunner:
                 fragmentation_energy=config.get("fragmentation_energy"),
                 cluster_charge_sign=cluster.charge,
                 vib_index=self.preparer.vib_indexes.get(cluster_id),
+                rf_basis=self.preparer.rf_bases.get(cluster_id),
             )
             realizations = (
                 int(environ["N_OVERRIDE"]) if "N_OVERRIDE" in environ else config["N"]
@@ -1329,6 +1403,7 @@ class ExperimentRunner:
                         density,
                         cluster.charge,
                         vib_index=self.preparer.vib_indexes.get(cluster_id),
+                        rf_basis=self.preparer.rf_bases.get(cluster_id),
                     ),
                     name_lookup[cluster_id],
                 )
@@ -1477,6 +1552,7 @@ class ExperimentRunner:
                     cluster_input(cluster_id),
                     histogram(cluster_dos[cluster_id]),
                     vib_index=self.preparer.vib_indexes.get(cluster_id),
+                    rf_basis=self.preparer.rf_bases.get(cluster_id),
                 ),
                 "product_labels": [],
                 "pathway_products": [],

@@ -2,6 +2,7 @@
 
 #include "consts.h"
 #include "vib_index.h"
+#include "rf_basis.h"
 #include "warnlogcount.h"
 #include "apitofsim.h"
 #include "exceptions.h"
@@ -75,6 +76,7 @@ struct MassSpecSubstanceSingleInput
   double R_cluster;
   const Histogram density_cluster;
   const VibIndexPtr vib_index;
+  const RFBasisPtr rf_basis;
   std::vector<MassSpecInputFragmentationPathway> pathways;
   const Gas gas;
 
@@ -86,7 +88,7 @@ struct MassSpecSubstanceSingleInput
     const Histogram &density_cluster,
     const Histogram &rate_const,
     std::optional<double> fragmentation_energy = std::nullopt,
-    int cluster_charge_sign = defaults::cluster_charge_sign, VibIndexPtr vib_index = {});
+    int cluster_charge_sign = defaults::cluster_charge_sign, VibIndexPtr vib_index = {}, RFBasisPtr rf_basis = {});
 
   MassSpecSubstanceSingleInput(
     int cluster_charge_sign,
@@ -94,14 +96,14 @@ struct MassSpecSubstanceSingleInput
     double R_cluster,
     const Histogram density_cluster,
     std::vector<MassSpecInputFragmentationPathway> pathways,
-    const Gas gas, VibIndexPtr vib_index = {});
+    const Gas gas, VibIndexPtr vib_index = {}, RFBasisPtr rf_basis = {});
 
   MassSpecSubstanceSingleInput(
     const MolecularCluster &cluster_0,
     const std::vector<MassSpecInputFragmentationPathway> pathways,
     Gas gas,
     const Histogram &density_cluster,
-    int cluster_charge_sign, VibIndexPtr vib_index = {});
+    int cluster_charge_sign, VibIndexPtr vib_index = {}, RFBasisPtr rf_basis = {});
 
 private:
   // Delegated to by the ClusterSpec constructors, so that the derived quantities
@@ -111,7 +113,7 @@ private:
     int cluster_charge_sign,
     const Histogram &density_cluster,
     std::vector<MassSpecInputFragmentationPathway> pathways,
-    Gas gas, VibIndexPtr vib_index);
+    Gas gas, VibIndexPtr vib_index, RFBasisPtr rf_basis);
 };
 
 struct MSSubstanceTreeCluster
@@ -120,20 +122,21 @@ struct MSSubstanceTreeCluster
   double R_cluster;
   const Histogram density_cluster;
   const VibIndexPtr vib_index;
+  const RFBasisPtr rf_basis;
 
   MSSubstanceTreeCluster(
     double m_ion,
     double R_cluster,
-    Histogram density_cluster, VibIndexPtr vib_index = {});
+    Histogram density_cluster, VibIndexPtr vib_index = {}, RFBasisPtr rf_basis = {});
 
   MSSubstanceTreeCluster(
     const MolecularCluster &cluster_0,
-    Histogram density_cluster, VibIndexPtr vib_index = {});
+    Histogram density_cluster, VibIndexPtr vib_index = {}, RFBasisPtr rf_basis = {});
 
 private:
   MSSubstanceTreeCluster(
     const ClusterDerived &derived,
-    Histogram density_cluster, VibIndexPtr vib_index = {});
+    Histogram density_cluster, VibIndexPtr vib_index = {}, RFBasisPtr rf_basis = {});
 };
 
 struct MSSubstanceTreeNode

@@ -484,6 +484,7 @@ class SuperClusterDatabase(ClusterDatabase):
         sql_files.pathway,
         sql_files.histograms,
         sql_files.vib_energy_index,
+        sql_files.rf_basis,
     ]
     VIEWS = [
         sql_files.pathway_report,
@@ -671,6 +672,7 @@ class ExperimentDatabase(SuperClusterDatabase):
         sql_files.pathway,
         sql_files.histograms,
         sql_files.vib_energy_index,
+        sql_files.rf_basis,
         sql_files.experiment,
     ]
     VIEWS = [
@@ -1222,6 +1224,7 @@ class RealizationDatabase(ExperimentDatabase):
         sql_files.pathway,
         sql_files.histograms,
         sql_files.vib_energy_index,
+        sql_files.rf_basis,
         sql_files.experiment,
         sql_files.realizations,
     ]

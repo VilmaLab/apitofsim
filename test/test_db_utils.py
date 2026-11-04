@@ -1,4 +1,3 @@
-import os
 from pathlib import Path
 
 import duckdb
@@ -24,7 +23,7 @@ def test_roview_cow_accepts_pathlike(database, as_path):
     finally:
         db.close()
         if cleanup is not None:
-            os.remove(cleanup)
+            cleanup()
 
 
 def test_roview_cow_gives_reflink_strings(database, monkeypatch):
