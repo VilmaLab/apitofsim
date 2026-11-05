@@ -1278,19 +1278,6 @@ TEST_CASE("RF flight converges to independent trajectory at nonzero entry phase"
   double fine = error(0.00075);
   CHECK(fine < 1e-11);
   CHECK(coarse < 1e-11);
-
-  // Integrating H'=collision_frequency along the same reference flight gives
-  // exp(-H(0.24)) below. The deadline deliberately falls after the collision.
-  ParticleState p{.position = {1, 2, 35}, .time = 0.13, .velocity = {2, 3, 4}};
-  auto collision_time = [&](const CollisionTimeOptions &options)
-  {
-    ParticleState ion = p;
-    REQUIRE(next_coll(0.6001412074736865, ion, chamber, 2e-11, Eigen::Array2d::Constant(0.00075), 0.3,
-                      Eigen::Array4d::Zero(), gas.mass, skimmer, 5, q, options, basis.get()) == TimeNextCollOutcome::gas_collision);
-    return ion.time;
-  };
-  CHECK(collision_time({}) == doctest::Approx(0.37).epsilon(1e-7));
-  CHECK(collision_time({CollisionTimeMethod::integrated_hazard, 1e-14, 1e-11}) == doctest::Approx(0.37).epsilon(1e-11));
 }
 
 TEST_CASE("simulation quadrupole forces follow the current cluster mass")

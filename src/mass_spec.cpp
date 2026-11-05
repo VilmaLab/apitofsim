@@ -752,6 +752,8 @@ SimulationResult apitof_mass_spec(
       mt19937 gen = mt19937(root_seed ^ j);
       // Define uniform distribution from 0 to 1
       uniform_real_distribution<double> unif = uniform_real_distribution<>(0.0, 1.0);
+      const std::function<double()> collision_uniform = [&]
+      { return unif(gen); };
       // Define normal (gaussian) distribution with 0 mean and 1 standard deviation
       normal_distribution<double> gauss = normal_distribution<>(0.0, 1.0);
 
@@ -776,7 +778,7 @@ SimulationResult apitof_mass_spec(
         auto [effective_pathway_index, t_fragmentation, overflow_exception] = next_fragmentation_time_multi(gen, unif, subs.pathways, internal_energy, strict);
 
         double old_t = particle.time;
-        TimeNextCollOutcome outcome = next_coll(unif(gen), particle, chamber, subs.gas.radius + subs.R_cluster, subquants.dts, t_fragmentation, subquants.acc, subs.gas.mass, ms.skimmer, ms.mesh_skimmer, subquants.quadrupole, collision_time, subs.rf_basis.get());
+        TimeNextCollOutcome outcome = next_coll(unif(gen), particle, chamber, subs.gas.radius + subs.R_cluster, subquants.dts, t_fragmentation, subquants.acc, subs.gas.mass, ms.skimmer, ms.mesh_skimmer, subquants.quadrupole, collision_time, subs.rf_basis.get(), collision_uniform);
 
         if (logconf.level >= LOGLEVEL_NORMAL)
         {
@@ -985,6 +987,8 @@ SimulationResult apitof_mass_spec(
       mt19937 gen = mt19937(root_seed ^ j);
       // Define uniform distribution from 0 to 1
       uniform_real_distribution<double> unif = uniform_real_distribution<>(0.0, 1.0);
+      const std::function<double()> collision_uniform = [&]
+      { return unif(gen); };
       // Define normal (gaussian) distribution with 0 mean and 1 standard deviation
       normal_distribution<double> gauss = normal_distribution<>(0.0, 1.0);
 
@@ -1014,7 +1018,7 @@ SimulationResult apitof_mass_spec(
         auto [effective_pathway_index, t_fragmentation, overflow_exception] = next_fragmentation_time_multi(gen, unif, pathways, internal_energy, strict);
 
         double old_t = particle.time;
-        TimeNextCollOutcome outcome = next_coll(unif(gen), particle, chamber, subs.gas.radius + subpayload.R_cluster, subquants.dts, t_fragmentation, subquants.acc, subs.gas.mass, ms.skimmer, ms.mesh_skimmer, subquants.quadrupole, collision_time, subpayload.rf_basis.get());
+        TimeNextCollOutcome outcome = next_coll(unif(gen), particle, chamber, subs.gas.radius + subpayload.R_cluster, subquants.dts, t_fragmentation, subquants.acc, subs.gas.mass, ms.skimmer, ms.mesh_skimmer, subquants.quadrupole, collision_time, subpayload.rf_basis.get(), collision_uniform);
 
         if (logconf.level >= LOGLEVEL_NORMAL)
         {
@@ -1547,6 +1551,8 @@ void update_rot_vel(Eigen::Vector3d &omega, double rot_energy_old, double rot_en
 double mean_free_path(double R, double kT, double pressure)
 {
   using consts::pi;
+  if (pressure == 0)
+    return std::numeric_limits<double>::infinity();
   return kT / (std::numbers::sqrt2 * pi * 4.0 * R * R * pressure);
 }
 

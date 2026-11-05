@@ -25,7 +25,7 @@ signal_helper = executable(
 )
 
 tests = executable('apitofsim-tests',
-                   ['main.cpp', 'fragmentation.cpp', gen_compute_k_total],
+                   ['main.cpp', 'fragmentation.cpp', 'test_rf_thinning.cpp', gen_compute_k_total],
                    dependencies : [doctest_dep, eigen3, tbb, concurrentqueue, magic_enum],
                    link_with: libapitofsim,
                    include_directories: [inc_src, include_dir],
