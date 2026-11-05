@@ -60,7 +60,7 @@ def recording_lock(path, *, shared=False):
 
 
 def archive_metadata(path):
-    with pa.ipc.open_file(str(path)) as reader:
+    with pa.OSFile(str(path), "rb") as source, pa.ipc.open_file(source) as reader:
         metadata = reader.schema.metadata or {}
         if metadata.get(b"apitofsim:event_schema") != b"1":
             raise ValueError(
@@ -225,7 +225,10 @@ class RecordingTransaction:
             if self.spec.mode == "overwrite":
                 if self.path.exists():
                     try:
-                        with pa.ipc.open_file(str(self.path)) as existing:
+                        with (
+                            pa.OSFile(str(self.path), "rb") as source,
+                            pa.ipc.open_file(source) as existing,
+                        ):
                             identity = (existing.schema.metadata or {}).get(
                                 b"apitofsim:archive_id", b""
                             )
