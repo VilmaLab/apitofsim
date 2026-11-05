@@ -75,6 +75,7 @@ requirements:
     - progress-table >= 3.2.2
     - ase >= 3.27.0
     - pyarrow >= 23.0.0
+    - portalocker >= 3.2.0
     - click >= 8.2.0
     - questionary >= 2.1.1
     - tomlkit >= 0.14.0
@@ -94,7 +95,7 @@ tests:
         then: DATA_DIR=$(pwd)/test/data pytest ./test
       - if: win
         then: set "DATA_DIR=%CD%/test/data" && pytest ./test
-      - python -c "import apitofsim; assert apitofsim.precompute_mesh(100.0, 1.0, quantities_strict=False).size == 100"
+      - python test/wheel_smoke.py
     requirements:
       run:
         - pytest
