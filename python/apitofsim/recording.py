@@ -239,7 +239,10 @@ class RecordingTransaction:
                             "Overwrite database-owned sidecars through their database workflow"
                         )
                 self.recover(self.work_path)
-                self.work_path.unlink(missing_ok=True)
+                if self.work_path.exists():
+                    raise FileExistsError(
+                        f"Unmanaged recording staging file already exists: {self.work_path}"
+                    )
             exists = self.work_path.exists()
             if self.spec.mode == "create" and exists:
                 raise FileExistsError(
