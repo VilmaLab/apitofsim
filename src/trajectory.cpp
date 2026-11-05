@@ -342,8 +342,6 @@ TimeNextCollOutcome next_coll(double collision_quantile, ParticleState &particle
       return TimeNextCollOutcome::escape;
     if (dt == deadline)
       return TimeNextCollOutcome::fragmentation;
-    if (remaining == 0)
-      return TimeNextCollOutcome::gas_collision;
     if (!(elapsed + dt > elapsed))
       throw ApiTofUnexpectedNumericalError("Collision flight made no time progress");
     elapsed += dt;

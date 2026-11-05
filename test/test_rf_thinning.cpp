@@ -125,16 +125,19 @@ TEST_CASE("RF thinning preserves zero-hazard boundaries and deadlines")
     {
       ParticleState initial{.position = {0.01, -0.03, 39.9}, .time = 0.99, .velocity = {100, -200, vz}};
       auto expected = initial;
-      auto actual = initial;
       const Eigen::Array4d acceleration{0, 0, 1, 0};
       const auto outcome = next_coll(0, expected, chamber, 7e-10, Eigen::Array2d::Ones(), deadline, acceleration, gas.mass, skimmer, 5, q, {}, &basis);
       const std::function<double()> unused = []() -> double
       { throw std::runtime_error("Zero hazard consumed RNG"); };
-      CHECK(next_coll(0.5, actual, chamber, 7e-10, Eigen::Array2d::Ones(), deadline, acceleration, gas.mass, skimmer, 5, q,
-                      {}, &basis, unused) == outcome);
-      CHECK(actual.time == doctest::Approx(expected.time));
-      CHECK(actual.position.isApprox(expected.position, 1e-9));
-      CHECK(actual.velocity.isApprox(expected.velocity, 1e-9));
+      for (double quantile : {0.5, 1.0})
+      {
+        auto actual = initial;
+        CHECK(next_coll(quantile, actual, chamber, 7e-10, Eigen::Array2d::Ones(), deadline, acceleration, gas.mass, skimmer, 5, q,
+                        {}, &basis, unused) == outcome);
+        CHECK(actual.time == doctest::Approx(expected.time));
+        CHECK(actual.position.isApprox(expected.position, 1e-9));
+        CHECK(actual.velocity.isApprox(expected.velocity, 1e-9));
+      }
     }
 }
 
