@@ -188,41 +188,62 @@ All four methods return DuckDB relations that callers can select, filter, sort
 or fetch. Missing run or cluster IDs return empty relations. Display labels and
 date formatting belong to callers.
 
-### Result and event views
+### Event storage and read queries
 
-`experiment_result` contains one row per successful result, with `id`,
-`experiment_run_id`, resolved parent `cluster_id`, optional `pathway_id`, and
-`is_single_pathway`. Multi-pathway results have a null `pathway_id`; failures
-are excluded.
+`ExperimentDatabase` stores configuration, tree topology, summaries and failure
+information. Native event payloads are stored in its automatically named IPC
+sidecar: `results.duckdb` uses `results.events.arrow`. The optional ASE sidecar
+retains its `results.ase.sqlite.db` naming. Move the files together with matching
+basenames. An archive UUID and committed length detect mismatched sidecars.
 
-Realization databases also provide `event_details`, which retains every
-`event_info` row and left-joins optional collision and fragmentation fields.
-It includes the raw `postime` struct and its `x`, `y`, `z`, `t` fields, with
-coordinates and physical quantities in the recorder's original units. It
-retains initial events and events whose realization has no successful result.
-`event_report` joins these events to successful results and parent clusters,
-preserving its existing columns, including the fragmentation `pathway_id`.
-Neither view clamps coordinates or assigns display labels or regions;
-`event_details` has no display ordering.
+There are no physical `event_info`, `realization`, `collision_event` or
+`fragmentation_event` tables. `event_execution` contains one metadata row per
+execution, with its result ID, status, event count and batch range. Status is
+`running`, `complete`, `cancelled` or `failed`; whole-experiment status is also
+persisted in `experiment_run.execution_status`. Incomplete executions are never
+inserted into successful-result aggregates. The event reader registers a PyArrow
+IPC dataset with DuckDB, without downloading a DuckDB extension.
 
-`postcollision` rows contain the final particle state for accepted collisions,
-after velocity updates and internal-energy redistribution. They correlate with
-the preceding `collision` row within the realization by particle index and
-position/time, and have null collision-detail fields. `collision` rows contain
-the pre-collision state, including for rejected attempts.
+`results_query()`, `realizations_query()`, `events_query()` and
+`recorded_output_query()` return DuckDB relations. Filters `run_id`, `parent`
+(root cluster ID) and `result_id` intersect. Failed/cancelled executions retain
+their recorded events. Realization counts count observed histories, including
+histories interrupted before a completed-realization counter was emitted.
 
-`postfragmentation` rows record the continuing cluster-tree product's state
-immediately after the simulator resets its motion and internal energy. They share
-position/time with the preceding `fragmentation` row within the realization and
-use its `next_particle_index` as their `particle_index`. Pair by realization and
-stream order. Terminal splits have no after-row. These rows have null collision
-and fragmentation details and are included in `events_query()` and
-`tree_events_query()`.
+```python
+from apitofsim.workflow import ExperimentDatabase
 
-New databases receive these views through `create_tables()`. For existing
-writable files, use `refresh_views()` or `apitofsim refresh-views DATABASE`.
-The SQL continues to resolve tables through the connection's search path,
-without fixed attachment aliases.
+with ExperimentDatabase("results.duckdb", readonly=True) as db:
+    events = db.events_query(run_id=3, parent=17, sort=True).fetchdf()
+    histories = db.fragmentation_histories_query(run_id=3).fetchdf()
+```
+
+Every event has numeric `result_id`, `realization_index` and `event_index`.
+The latter is monotonically increasing within one realization, including tied
+timestamps. These three fields are the identity; ordering between realizations
+is not stable. SQL's convenience `event_id` and `realization_id` are opaque
+colon-separated strings of their components. Sort by the numeric components,
+not the textual IDs. `events_query(sort=True)` does this automatically.
+
+`event_details`, `event_info`, `realization` and `event_report` are temporary read
+views created by the database wrapper. `event_details` exposes position/time and
+velocity structs, energies, node identity and optional collision/fragmentation
+fields. A collision holds its before-state; `postcollision` holds its accepted
+after-state. Continuing splits similarly emit `postfragmentation`; terminal
+splits have no after-event. No event associations are inferred from timestamps.
+
+Readers hold a shared sidecar lock. A recording transaction requires exclusive
+access; close other readers before appending. Event queries on the writing
+connection are unavailable during an append; use live Python delivery instead.
+Finish existing query scans before appending and do not execute retained event
+relations inside the recording transaction. Locks coordinate library-managed
+readers and writers; direct file access must follow the same rule.
+Deleting execution metadata hides its events without rewriting the archive.
+Reclaiming that space requires a future explicit compaction operation.
+
+`RealizationDatabase` and the relational event writer have been removed. Old
+experiment/event schemas are rejected with an explicit migration message. This
+release does not silently migrate historical databases.
 
 ::: apitofsim.workflow.ClusterDatabase
     options:
@@ -241,69 +262,6 @@ without fixed attachment aliases.
       members: true
       heading_level: 3
       filters: public
-
-### Recorded realizations and events
-
-`RealizationDatabase` provides DuckDB relations for querying recorded output.
-`results_query()`, `realizations_query()`, `events_query()` and
-`recorded_output_query()` accept optional `run_id`, `parent` (cluster ID) and
-`result_id` filters. Supplied filters are intersected; omitting all filters selects
-the current database. Both single- and multi-pathway results are supported.
-Database scope includes realizations that have not yet been linked to a result;
-run, parent and result scopes include only linked realizations.
-The queries use the `experiment_result` and `event_details` views. For existing
-files, refresh the views as described above before using these APIs.
-
-```python
-from apitofsim.workflow.db import RealizationDatabase, connection_scope
-
-with connection_scope(RealizationDatabase, "output.duckdb", readonly=True) as db:
-    events = db.events_query(run_id=1, parent=3, sort=True).fetchdf()
-    diagnostics = db.recorded_output_query(run_id=1, parent=3).fetchone()
-```
-
-Relations can also be consumed with `.pl()` (with Polars installed) or
-`.fetchall()`, or further filtered and projected before fetching. Fetch results
-before closing the database. `events_query(sort=True)` orders by realization ID,
-simulation time and event ID, including deterministic ordering for time ties.
-Events retain raw state structs, event and cohort IDs, and optional subtype fields.
-The flattened `x`, `y`, `z` and `t` columns from `event_details` are also available.
-
-Diagnostics return one row, including for empty cohorts (all counts are zero):
-
-| Column | Recorded quantity |
-| --- | --- |
-| `realization_count` | Realization rows, including those with no events |
-| `event_count` | Event-info rows, including post-collision states |
-| `escape_count` | Escape event-info rows |
-| `collision_event_count` | Collision attempts, excluding post-collision states |
-| `collision_subtype_count` | Joined collision subtype rows |
-| `fragmentation_event_count` | Fragmentation event-info rows |
-| `fragmentation_subtype_count` | Joined fragmentation subtype rows |
-| `terminal_realization_count` | Distinct realizations containing escape or fragmentation event-info rows |
-
-These counts describe recorded output rather than simulation counters. Missing
-subtypes remain visible through separate counts and nullable `collision_event_id`
-and `fragmentation_event_id` columns in the event query. A present fragmentation
-subtype may have a null `pathway_id`, so that field alone cannot detect missing
-subtype records. Terminal realization counts do not require subtype records and
-count a realization with multiple terminal events only once.
-
-::: apitofsim.workflow.RealizationDatabase
-    options:
-      members: true
-      heading_level: 3
-      filters: public
-
-::: apitofsim.workflow.ingest_tree
-    options:
-      heading_level: 3
-
-::: apitofsim.workflow.ExperimentRunner
-    options:
-      members: true
-      heading_level: 3
-      filters: ["!^_", "^__init__$"]
 
 ## Individual simulation functions
 
@@ -422,191 +380,133 @@ records may not identify it. Runs without histogram provenance raise
 
 ::: apitofsim.energy_in_joules
 
-## Consuming simulation events
+## Native recording and Python event delivery
 
-Use `mass_spec_iter(..., logconf=(0, True))` to receive `MassSpecBatch` objects.
+Recording and Python observation are independent. `mass_spec()` returns a
+`MassSpecResult` with `counters`, `timings`, `cancelled`, `status` and optional
+`recording` provenance. Unrecorded execution does not capture events.
 
 ```python
-from apitofsim import mass_spec_iter
-from apitofsim.api import MassSpecFinalResult
+from apitofsim import mass_spec, IpcRecording
 
-with mass_spec_iter(instrument, substance, N, logconf=(0, True)) as stream:
-    for batch in stream:
-        events = batch.events  # Read-only pyarrow.Table.
-        for item in batch.items:
-            if isinstance(item, MassSpecFinalResult):
-                counters = item.counters
+result = mass_spec(instrument, substance, N=100)
+recorded = mass_spec(instrument, substance, N=100, record_to="events.arrow")
+print(recorded.recording.event_count)
+
+# Existing standalone files require an explicit choice.
+more = mass_spec(instrument, substance, N=100,
+                 record_to=IpcRecording("events.arrow", mode="append"))
+replacement = mass_spec(instrument, substance, N=100,
+                        record_to=IpcRecording("events.arrow", mode="overwrite"))
 ```
 
-- `batch.events` preserves event order within each realization.
-- `batch.items` contains progress, logs and the final result, ordered separately
-  from the event rows.
-- Reads wait for one item, then drain available items up to `initial_batch_size`
-  (default 4096) on the first read and `max_batch_size` (default 262144) thereafter.
-  `read_batch(max_items)` can request a smaller cap. Limits include control items.
-- Retained tables and slices remain valid after later reads and iterator destruction.
-  The producer queue can grow when consumers fall behind.
-- Custom persistence can pass `batch.events` to `EventRecorder.record_batch()`.
-  Database workflows persist each batch before yielding its event table.
+Successful return includes native writer completion, file sync and publication.
+Appending reads/replaces footer metadata and writes new payloads; it does not
+copy the previous event payloads. Overwrite builds a replacement and publishes
+it atomically. A standalone archive's footer records each execution's status,
+event count and batch range, including zero-event and incomplete executions.
 
-| Columns | Contents |
-| --- | --- |
-| `realization`, `particle_index` | Local realization and particle/node indices |
-| `x`, `y`, `z`, `t` | Position and time |
-| `vx`, `vy`, `vz`, `ox`, `oy`, `oz` | Velocity and angular velocity |
-| `rot_energy`, `vibrational_energy` | Internal energies |
-| `theta`, `u_norm`, `accepted` | Collision details |
-| `transition_index`, `next_particle_index` | Fragmentation details |
-
-Detail columns apply only to their event kind:
-
-| `event_kind` | Event |
-| --- | --- |
-| 0 | init |
-| 1 | collision |
-| 2 | postcollision |
-| 3 | fragmentation |
-| 4 | postfragmentation |
-| 5 | escape |
-
-## Cancelling a streaming simulation
-
-`mass_spec_iter(...)` returns a `MassSpecIterator`. Call its thread-safe,
-idempotent, non-blocking `request_cancel()` method to request cooperative
-cancellation of that simulation. Another Python thread can call this while
-iteration or `join_if_joinable()` is blocked. Continue iterating to drain queued
-items and receive one `MassSpecFinalResult`, then normal iteration termination:
+`mass_spec_iter()` yields only event data. Counters/logs are available through
+`result_callback`/`log_callback`; the final result is `stream.result` after
+exhaustion or context cleanup. Use `loglevel` for diagnostic verbosity, independently
+of recording and Python delivery.
 
 ```python
-from apitofsim.api import MassSpecFinalResult, MassSpecIntermediateCounter, mass_spec_iter
+from apitofsim import mass_spec_iter, CollisionEvent
 
-with mass_spec_iter(instrument, substance, N) as stream:
-    for batch in stream:
-        for item in batch.items:
-            if isinstance(item, MassSpecIntermediateCounter) and should_stop():
-                stream.request_cancel()
-            if isinstance(item, MassSpecFinalResult):
-                completed = item.counters.n_realizations
-                cancelled = item.cancelled  # Also available as stream.cancelled.
+with mass_spec_iter(instrument, substance, 100, events="batches",
+                    record_to="observed.arrow") as stream:
+    for batch in stream:              # pyarrow.RecordBatch
+        process_batch(batch)
+print(stream.result.counters)
+
+with mass_spec_iter(instrument, substance, 100, events="individual") as stream:
+    for event in stream:              # immutable typed Event subclass
+        if isinstance(event, CollisionEvent):
+            inspect(event.theta, event.accepted, event.vibrational_energy)
 ```
 
-Final counters include only completed realizations. Active realizations may be
-interrupted, and their streamed events may remain in the queue without a
-corresponding completed realization. Cancellation does not send a signal, raise
-`KeyboardInterrupt`, or cancel other iterators. Actual Ctrl-C behavior is
-unchanged. Requests after completion have no effect; `cancelled` stays false for
-full completion. Exiting the context manager waits for the worker; request
-cancellation explicitly if needed before exiting.
+Batches retain their native buffers after subsequent reads and stream deletion.
+Individual events are unpacked lazily from those batches. Types are `InitEvent`,
+`CollisionEvent`, `PostCollisionEvent`, `FragmentationEvent`,
+`PostFragmentationEvent` and `EscapeEvent`. Common fields include identity,
+`particle_index`, `x/y/z/t`, `vx/vy/vz`, `ox/oy/oz`, `rot_energy` and
+`vibrational_energy`. Collision rows add `theta`, `u_norm`, `accepted`;
+fragmentation rows add `transition_index` and `next_particle_index`. Native
+values retain double precision and SI units. Raw batch subtype fields are zero
+or -1 outside their event kind; SQL read views expose them as NULL instead.
 
-## Prepared, database-recording simulations
-
-For `SINGLE_CLUSTER` runs, preparation and execution can be consumed separately.
-The database must already contain clusters, pathways and a configuration. Select
-one parent by ID/name, or select pathways by IDs/name triples; the two selectors
-are mutually exclusive. An empty or partly missing selection raises `ValueError`.
-Selections spanning parents produce separate groups. The tuple `pathway_ids` in
-each group matches its substance's native pathway indices and `product_ids`.
+Use the iterator as a context manager. `request_cancel()` is thread-safe and
+nonblocking. Early exit cancels, drains the native queue, saves partial events
+with an incomplete status, and joins. Native errors propagate after retaining
+partial events when the writer can finish safely. File/metadata I/O failure
+rolls back the pending append. Python delivery is lossless and bounded by
+`max_pending_events` (default 262144), plus at most one 1024-event accounting
+chunk per producer and two pending native batches. A slow
+consumer creates backpressure and can increase simulation time.
+`initial_batch_size` and `max_batch_size` control delivery batch sizes; the
+native writer uses at most 65536 events per batch. `stream.finish()` discards
+remaining Python delivery and waits for completion without requesting cancellation.
 
 ```python
-from apitofsim.api import MassSpecIntermediateCounter, MassSpecLogItem
-from apitofsim.workflow import ExperimentRunner, RecordedMassSpecResult, SimulationMode
+from apitofsim import read_events
 
-# db is caller-owned: ExperimentDatabase or RealizationDatabase.
-row = next(db.iter_configs())
+for batch in read_events("events.arrow", result_id=1):
+    process_batch(batch)
+for event in read_events("events.arrow", events="individual"):
+    inspect(event)
+```
+
+## Prepared experiment execution
+
+Start a run, prepare its roots, then choose blocking execution or event delivery.
+Public preparation supports `SINGLE_CLUSTER` and `CLUSTER_TREE`. Input groups,
+cache provenance and native node/transition order remain bound to that runner.
+
+```python
+from apitofsim.workflow import ExperimentRunner, SimulationMode
+
 runner = ExperimentRunner(db)
-runner.start_run(row.id, simulation_mode=SimulationMode.SINGLE_CLUSTER)
-print("Preparing")
-prepared = runner.prepare_from_config(row.config, show_progress=False)
-# To reuse explicitly selected caches, also pass cached_densityandrate=(dos_id, rate_id).
-# Their independent meshes are used, and their actual IDs are saved as provenance.
-print("Simulating")
-for group in prepared.groups:
-    with runner.iter_mass_spec(prepared, group, N=row.config["N"], seed=42, loglevel=1) as stream:
-        for item in stream:
-            if isinstance(item, MassSpecIntermediateCounter):
-                print("Completed:", item.counters.n_realizations)
-                if item.counters.n_realizations >= 100:
-                    stream.request_cancel()  # Example stopping policy; keep draining.
-            elif isinstance(item, MassSpecLogItem):
-                print(item.type, item.name)
-            elif isinstance(item, RecordedMassSpecResult):
-                print("Saved:", item.run_id, item.cluster_id, item.result_id)
-                print("Cancelled:", item.result.cancelled)
-            # Native events are already recorded on this consuming thread.
+runner.start_run(config_id, simulation_mode=SimulationMode.CLUSTER_TREE)
+prepared = runner.prepare_from_config(config)
+
+# Every root; summaries only.
+result = runner.run_experiment(prepared, N=100, record_events=False)
+
+# Every root; one database-owned IPC writer and durable transaction.
+result = runner.run_experiment(prepared, N=100, record_events=True)
+
+# Every root; native recording plus optional Python observation.
+with runner.iter_experiment(prepared, N=100, record_events=True,
+                            events="batches") as stream:
+    for batch in stream:
+        process_batch(batch)
+print(stream.result.roots)
 ```
 
-`prepare_from_config()` requires `start_run()` and never inserts another run or
-config. Preparation saves the effective configuration and actual histogram IDs
-before any trajectories start. Prepared inputs retain their run identity even
-if the runner later starts another run. Inputs belong to their preparing runner;
-use a group from that prepared object's `groups`. Treat the prepared native inputs
-as read-only. Grouped runs preserve existing electronic-energy bonding energies;
-`fragmentation_energy` overrides currently apply to pathway-at-a-time runs only.
+`run_from_config(config, record_events=True)` prepares and executes through the
+existing configuration workflow. `ExperimentDatabase(..., record_events=True)`
+sets the default; individual calls can override it. Database recording always
+appends to its managed sidecar. The metadata commit follows sidecar fsync;
+one experiment shares a writer across all roots. Reopening the database permits
+another experiment to append to the same file.
 
-Use the recording stream as a context manager. Exiting early requests
-cancellation, drains and records remaining events/results, and joins the worker.
-The saved terminal wrapper is also available as `stream.result` after context
-exit. This is stronger than the low-level iterator's join-only context exit.
-`request_cancel()` is thread-safe, idempotent and non-blocking, including while
-`next()` is blocked. Only that method may be called from another thread; iteration,
-context exit and database access stay on the consuming thread.
-
-A terminal wrapper is exposed only after counters, timings and realization
-associations are saved. It contains the original `MassSpecFinalResult`, including
-`cancelled`; cancellation status is not currently a database column. Cancelled
-runs with zero completed realizations are saved too. Interrupted realizations may
-have recorded events without contributing to final completed-realization counters.
-Consumers choose how to display or delete cancelled output.
-
-The stream records execution/persistence failures once when possible and re-raises
-the original exception. Missing native completion is an error. Committed events
-are retained and linked to the failure when possible. Do not insert another
-execution-failure row in the consumer; consumer-specific diagnostics and errors
-in consumer processing remain the consumer's responsibility. Secondary cleanup
-errors are attached as exception notes. Final persistence uses the existing
-non-atomic database methods: a persistence error may leave partial result rows
-or associations; writes are not retried and no successful terminal wrapper is
-exposed. The stream never closes or checkpoints the caller's database.
+For a single prepared group, use
+`runner.iter_mass_spec(prepared, group, N=100, events="individual", record_events=True)`.
+Recording roots in one transaction is sequential; overlapping recorded root
+streams are rejected. Always close each stream context before leaving the
+recording transaction. An explicit `with db.recording_transaction():` can group several individual
+calls into one durability boundary. Results inside such an outer scope are
+provisional until that scope exits. Whole-experiment early exit retains the
+current root's partial history and does not start remaining roots.
 
 ### Failure diagnostics
 
-::: apitofsim.workflow.RecordedFailure
-
-::: apitofsim.workflow.recorded_failure
-
-See [add_failure_diagnostics][apitofsim.workflow.ExperimentDatabase.add_failure_diagnostics]
-and [get_failure_diagnostics][apitofsim.workflow.ExperimentDatabase.get_failure_diagnostics]
-for storing and reading diagnostics.
-
-```python
-from traceback import format_exception
-from apitofsim.workflow import recorded_failure
-
-try:
-    with runner.iter_mass_spec(prepared, group, N=100) as stream:
-        for item in stream:
-            handle(item)
-except Exception as exc:
-    failure = recorded_failure(exc)
-    diagnostics = {"stage": stage, "traceback": format_exception(exc)}
-    if failure is not None:
-        try:
-            db.add_failure_diagnostics(failure.failure_id, diagnostics)
-        except Exception as enrichment_error:
-            exc.add_note(f"Saving diagnostics failed: {enrichment_error}")
-            save_external_diagnostics(diagnostics)
-    else:
-        save_external_diagnostics(diagnostics)
-    raise
-```
-
-`ExperimentRunner.iter_mass_spec(..., max_batch_items=262144)` yields:
-
-- Event-only `MassSpecBatch` objects after persistence.
-- Progress and log items.
-- A final `RecordedMassSpecResult`.
-
-The initial batch cap is 4096 items, limited by `max_batch_items`.
+`recorded_failure(error)` returns the workflow's persisted failure identity,
+including startup errors when failure insertion succeeds. Partial events carry
+`failed`/`cancelled` execution status rather than being interpreted as successful
+results. Consumer exceptions propagate after cancellation/cleanup. Native I/O
+errors never become successful completion merely because simulation finished.
 
 ### Native tree inspection
 
@@ -665,4 +565,4 @@ Tree realizations are linked as they are recorded, so scopes include retained
 partial executions. `total_us` remains NULL until successful completion;
 `failure_id` links a recorded failure. Aggregate reports include completed tree
 results and existing failure records, without counting incomplete trees as
-successes. This does not introduce a persisted cancellation-status protocol.
+successes. Cancellation and failure status are persisted in `event_execution` and the IPC footer.

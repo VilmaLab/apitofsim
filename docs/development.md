@@ -162,48 +162,47 @@ uv run meson test --print-errorlogs -C build
 uv run meson test --benchmark --num-processes 1 -C build
 ```
 
-### Realization event storage
+### Native IPC event storage
 
-Each recorded event has one `event_info` row containing its realization ID, event type
-(`init`, `collision`, `postcollision`, `fragmentation`, `postfragmentation`, or `escape`), position/time, velocity, angular
-velocity, energies, and particle index. State uses double precision and records
-`rot_energy` and `vibrational_energy` separately. Events retain the snapshots emitted by the simulator.
+The small, pinned Apache nanoarrow static dependency encodes IPC in C/C++ and
+is built through a Meson wrap/overlay. No Arrow C++ runtime ABI or PyArrow version
+pin is introduced. The project now requires a C compiler as well as C++20.
 
-`collision_event` adds `theta`, `u_norm`, and `accepted`; `fragmentation_event` adds
-`pathway_id`. Their primary keys reference `event_info.id`. Init, post-collision, post-fragmentation, and escape events
-have no separate tables. The recorder inserts shared state and detail rows atomically.
+`EventColumns` is the common native column layout. A consuming native thread
+writes batches while the simulation produces events; Python gets batches only
+when requested. Input credits and a two-batch delivery queue impose backpressure.
+Cancellation releases blocked producers and consumers. Record batches own retained
+buffers; the writer's borrowed C Data arrays are used only for synchronous encoding.
 
-`event_report` joins these tables with realization and experiment information. It keeps
-`x`, `y`, `z`, and `t` and adds `event_id`, the motion structs, energies, particle index,
-and applicable event details. Inapplicable detail columns are null.
+A database owns one `.events.arrow` sidecar. The format has fixed primitive fields,
+a schema version/archive UUID, and per-execution footer metadata. An appender
+verifies the previous footer, retains its batch descriptors, then replaces only
+the EOS/footer and adds new batches. Existing event bodies are never copied.
 
-`CollisionEvent` captures the state before the attempted collision. Each accepted
-collision is followed, within its realization, by a `PostCollisionEvent` containing
-the final state after velocity updates and internal-energy redistribution. Rejected
-collisions have no post-collision event. Correlate pairs by realization, particle
-index, position/time, and stream order; collision details belong only to the
-pre-collision event. Both require event logging to be enabled.
+Publication uses an exclusive portable sidecar lock and a durable small journal
+containing the old ending and committed length. Event data, its footer and parent
+directory are synced before committing DuckDB's archive generation/length and
+execution metadata. Reopening compares generations and either retains the
+committed file or restores the old ending/truncates the uncommitted append.
+Standalone files use a committed journal marker; explicit overwrite stages an
+atomic replacement. A journal is recovery state, not a second event store.
 
-Continuing cluster-tree fragmentations similarly emit a `PostFragmentationEvent`
-(`postfragmentation`) after switching to the product node and assigning velocity,
-angular velocity, and internal energy using `fragmentation_state_method` (`zero`
-by default, or opt-in `phase-space`). It records the actual product state at the
-same position/time as the preceding `FragmentationEvent`, with its
-`next_particle_index` as the new `particle_index`. Pair by realization and stream
-order. Terminal fragmentations emit no after-event. Other simulation modes emit
-no post-fragmentation events. Fragmentation rates are unchanged by this setting.
+DuckDB keeps execution/root/tree/counter metadata. It does not insert or allocate
+IDs for event/realization rows. PyArrow datasets supply temporary DuckDB event
+views without the community nanoarrow extension. SQL IDs are opaque composite
+strings; numeric `result_id`, `realization_index`, `event_index` define order.
+Deletion is logical until explicit compaction; a schema change requires migration.
 
-This schema replaces the previous event tables; existing databases require recreation.
-There is no migration or compatibility query layer. Consumers needing updates include:
+Downstream changes required before updating their dependency pins:
 
-- `apitofsim-resultviewer`: the event union in `src/apitofresview/plotting/explorer/data.py`
-  should read `event_info` and join fragmentation details; its event fixtures also change.
-- `apitofsim-web`: queries in `src/vms/job_failures.py` should count and select realization
-  IDs from `event_info` by event type. Schema creation in `src/vms/app.py` must account for
-  inline `references` constraints when preparing separate cluster and result databases.
+- `apitofsim-resultviewer` must use `ExperimentDatabase`, transport/open the IPC
+  sidecar, and sort on numeric identity components instead of opaque event IDs.
+- `apitofsim-web` must replace `RealizationDatabase` construction, pass an explicit
+  events filename for attached/in-memory result connections, and store/download
+  the sidecar alongside DuckDB. Shared-cluster attachments remain supported.
 
-Tree fragmentation's existing pathway-index issue is tracked separately in
-[issue #81](https://github.com/VilmaLab/apitofsim/issues/81).
+The old relational-event schema and `EventRecorder` are removed. Historical
+schemas fail clearly and require an explicit migration; this PR provides none.
 
 ### Bumping the downstream pins
 

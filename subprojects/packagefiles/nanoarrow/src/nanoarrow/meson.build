@@ -1,0 +1,7 @@
+config = configuration_data()
+config.set('NANOARROW_VERSION_MAJOR', 0)
+config.set('NANOARROW_VERSION_MINOR', 9)
+config.set('NANOARROW_VERSION_PATCH', 0)
+config.set('NANOARROW_VERSION', '0.9.0')
+config.set('NANOARROW_NAMESPACE_DEFINE', '#define NANOARROW_NAMESPACE apitofsim_')
+configure_file(input: 'nanoarrow_config.h.in', output: 'nanoarrow_config.h', configuration: config)

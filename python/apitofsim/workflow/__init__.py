@@ -4,13 +4,13 @@ from .db import (
     ExperimentDatabase,
     PathwayRateCurve,
     RateCurveProvenanceError,
-    RealizationDatabase,
     SuperClusterDatabase,
     auto_db_type,
 )
 from .ingest import ingest_legacy_one, ingest_tree
 from .runners import (
     DerivedDataPreparer,
+    ExperimentResult,
     ExperimentRunner,
     PreparedGroup,
     PreparedSimulation,
@@ -27,9 +27,9 @@ __all__ = [
     "PathwayRateCurve",
     "RateCurveProvenanceError",
     "SuperClusterDatabase",
-    "RealizationDatabase",
     "DerivedDataPreparer",
     "ExperimentRunner",
+    "ExperimentResult",
     "PreparedGroup",
     "PreparedSimulation",
     "RecordedFailure",

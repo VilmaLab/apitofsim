@@ -21,21 +21,15 @@ from .apitofsimraw import (
     ApiTofParticleEscapeError,
     ApiTofRateConstantOverflow,
     ApiTofUnexpectedNumericalError,
-    CollisionEvent,
     CollisionTimeMethod,
     CollisionTimeOptions,
-    EscapeEvent,
-    FragmentationEvent,
     FragmentationPathway,
     FragmentationStateMethod,
-    InitEvent,
     KTotalInput,
     MeshMode,
     MSSubstanceTreeNode,
     MSSubstanceTreePathway,
     ParticleState,
-    PostCollisionEvent,
-    PostFragmentationEvent,
     RFBasis,
     SampleMode,
     VibEnergyIndex,
@@ -868,7 +862,7 @@ def counters_named_tuple(counters):
     return Counters(*counters[: len(Counter) - 1], counters[len(Counter) - 1 :])
 
 
-def mass_spec(
+def _mass_spec_legacy(
     mass_spec: MassSpectrometer,
     subs: _MassSpecSubstanceSingleInput,
     N: int,
@@ -966,7 +960,7 @@ class MassSpecBatch:
     items: list[MassSpecIntermediateCounter | MassSpecLogItem | MassSpecFinalResult]
 
 
-class MassSpecIterator(_MassSpecIterator):
+class _MassSpecBatchIterator(_MassSpecIterator):
     """Adaptive columnar simulation stream with cooperative cancellation.
 
     The first batch drains up to initial_batch_size items; subsequent batches
@@ -1033,7 +1027,7 @@ class MassSpecIterator(_MassSpecIterator):
         self.join_if_joinable()
 
 
-def mass_spec_iter(
+def _mass_spec_batches(
     mass_spec: MassSpectrometer,
     subs: _MassSpecSubstanceSingleInput,
     N: int,
@@ -1045,8 +1039,9 @@ def mass_spec_iter(
     seed: int = 42,
     initial_batch_size: int = 4096,
     max_batch_size: int = 262144,
+    queue_capacity: int = 0,
 ):
-    return MassSpecIterator(
+    return _MassSpecBatchIterator(
         mass_spec.into_cpp(),
         subs,
         N,
@@ -1057,6 +1052,7 @@ def mass_spec_iter(
         seed=seed,
         initial_batch_size=initial_batch_size,
         max_batch_size=max_batch_size,
+        queue_capacity=queue_capacity,
     )
 
 
@@ -1075,3 +1071,76 @@ def validate_max_energies(
     energy_max_rate = process_arg("energy_max_rate", energy_max_rate, "kelvin")
     bin_width = process_arg("bin_width", bin_width, "kelvin")
     _validate_max_energies(fragmentation_energy, energy_max, energy_max_rate, bin_width)
+
+
+# Public re-exports are explicit to keep the generated API stable.
+from .events import CollisionEvent as CollisionEvent  # noqa: E402
+from .events import EscapeEvent as EscapeEvent  # noqa: E402
+from .events import Event as Event  # noqa: E402
+from .events import EventKind as EventKind  # noqa: E402
+from .events import FragmentationEvent as FragmentationEvent  # noqa: E402
+from .events import InitEvent as InitEvent  # noqa: E402
+from .events import MassSpecIterator as MassSpecIterator  # noqa: E402
+from .events import MassSpecResult as MassSpecResult  # noqa: E402
+from .events import PostCollisionEvent as PostCollisionEvent  # noqa: E402
+from .events import PostFragmentationEvent as PostFragmentationEvent  # noqa: E402
+from .events import read_events as read_events  # noqa: E402
+from .events import start_stream  # noqa: E402
+from .recording import IpcRecording as IpcRecording  # noqa: E402
+from .recording import RecordingInfo as RecordingInfo  # noqa: E402
+
+
+def mass_spec_iter(mass_spec, subs, N, *, events="batches", record_to=None, **options):
+    """Receive Arrow batches or typed events, optionally also recording natively.
+
+    Always use the returned stream as a context manager. Exhaustion completes
+    recording; early exit cancels and retains explicitly incomplete output.
+    """
+    return start_stream(
+        mass_spec, subs, N, events=events, record_to=record_to, **options
+    )
+
+
+def mass_spec(
+    mass_spec,
+    subs,
+    N,
+    *,
+    record_to=None,
+    loglevel=0,
+    result_callback=None,
+    log_callback=None,
+    **options,
+):
+    """Run to completion, returning counters, timings and optional IPC provenance.
+
+    Recording never depends on Python event consumption. Existing standalone
+    files require IpcRecording(path, mode="append" or "overwrite").
+    """
+    if record_to is None:
+        counters, timings = _mass_spec_legacy(
+            mass_spec,
+            subs,
+            N,
+            logconf=(loglevel, False),
+            named_tuple_counters=True,
+            output_timings=True,
+            result_callback=result_callback,
+            log_callback=log_callback,
+            **options,
+        )
+        assert isinstance(counters, Counters)
+        assert isinstance(timings, Timings)
+        return MassSpecResult(counters, timings)
+    with start_stream(
+        mass_spec,
+        subs,
+        N,
+        events=None,
+        record_to=record_to,
+        loglevel=loglevel,
+        result_callback=result_callback,
+        log_callback=log_callback,
+        **options,
+    ) as stream:
+        return stream.finish()

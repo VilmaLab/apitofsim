@@ -72,7 +72,7 @@ def test_released_native_columns_are_reused(prepared_case):
 def test_invalid_sizes_before_native_start(prepared_case, initial, maximum):
     prepared = prepare(prepared_case, pathways=[1])
     with pytest.raises(ValueError):
-        api.mass_spec_iter(
+        api._mass_spec_batches(
             prepared.mass_spec,
             prepared.groups[0].substance,
             0,

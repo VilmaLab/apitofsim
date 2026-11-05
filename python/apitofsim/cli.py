@@ -36,7 +36,7 @@ def db():
 @click.option(
     "-t",
     "--db-type",
-    type=click.Choice(["experiment", "cluster", "super", "realization"]),
+    type=click.Choice(["experiment", "cluster", "super"]),
     default="experiment",
     help="The type of database to create: this will determine which tables are created",
 )
@@ -207,7 +207,6 @@ def prepare(mode, config, database, db_type, ase, warm, foreign_keys):
         ClusterDatabase,
         DerivedDataPreparer,
         ExperimentDatabase,
-        RealizationDatabase,
         SuperClusterDatabase,
         ingest_tree,
     )
@@ -247,8 +246,6 @@ def prepare(mode, config, database, db_type, ase, warm, foreign_keys):
         db_cls = ClusterDatabase
     elif db_type == "super":
         db_cls = SuperClusterDatabase
-    elif db_type == "realization":
-        db_cls = RealizationDatabase
     else:
         assert False
 
@@ -302,7 +299,7 @@ def prepare(mode, config, database, db_type, ase, warm, foreign_keys):
                     name_lookup=name_lookup,
                 )
 
-        if db_type in ("experiment", "realization"):
+        if db_type == "experiment":
             assert isinstance(db, ExperimentDatabase)
             for name, config_dict in iter_raw_configs(source.unwrap()):
                 import_raw_config(deepcopy(config_dict))
@@ -354,6 +351,11 @@ def prepare(mode, config, database, db_type, ase, warm, foreign_keys):
     help="Override the configured simulation mode",
 )
 @click.option("--verbose", default=False, is_flag=True)
+@click.option(
+    "--record-events/--no-record-events",
+    default=False,
+    help="Record native IPC events in the database .events.arrow sidecar",
+)
 def run(
     database,
     strict_dos,
@@ -362,6 +364,7 @@ def run(
     filter_config,
     simulation_mode,
     verbose,
+    record_events,
 ):
     """
     Run simulation according to the configurations in DATABASE.
@@ -369,14 +372,13 @@ def run(
     from apitofsim.workflow import (
         ExperimentDatabase,
         ExperimentRunner,
-        RealizationDatabase,
         auto_db_type,
     )
 
     with connection_scope(auto_db_type, database) as db:
-        if not isinstance(db, (ExperimentDatabase, RealizationDatabase)):
+        if not isinstance(db, ExperimentDatabase):
             raise click.ClickException(
-                "Database must be created as an experiment database or a realization database"
+                "Database must be created as an experiment database"
             )
         num_configs = db.db.sql(
             "select count(*) from duckdb_tables() where table_name = 'experiment_config'"
@@ -396,6 +398,7 @@ def run(
             if filter_pathway
             else None,
             verbose=verbose,
+            record_events=record_events,
         )
 
 
@@ -683,12 +686,12 @@ def plot_events(database, dirout, panels, rescale):
     import matplotlib.pyplot as plt
 
     from apitofsim.plotting.events import plot_events_experiment
-    from apitofsim.workflow.db import RealizationDatabase
+    from apitofsim.workflow.db import ExperimentDatabase
 
     if len(panels) > 3 or len(set(panels)) != len(panels):
         raise click.BadParameter("Choose 1–3 distinct panels", param_hint="--panel")
 
-    with connection_scope(RealizationDatabase, database, readonly=True) as db:
+    with connection_scope(ExperimentDatabase, database, readonly=True) as db:
         experiment_id, is_single_pathway = select_experiment(db)
         if is_single_pathway:
             raise click.ClickException(

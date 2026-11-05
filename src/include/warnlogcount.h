@@ -9,6 +9,12 @@
 #include <iomanip>
 #include <cstring>
 #include <variant>
+#include <atomic>
+#include <climits>
+#include <cstddef>
+#include <limits>
+#include <utility>
+#include <oneapi/tbb/enumerable_thread_specific.h>
 #include <Eigen/Dense>
 #include <magic_enum/magic_enum.hpp>
 #include <blockingconcurrentqueue.h>
@@ -123,12 +129,93 @@ struct LogMessage
 };
 
 using StreamingResultElement = std::variant<std::monostate, LogMessage, EventMessage, PartialResult>;
-using StreamingResultQueue = BlockingConcurrentQueue<StreamingResultElement>;
+class StreamingResultQueue
+{
+  BlockingConcurrentQueue<StreamingResultElement> storage;
+  struct ProducerCount
+  {
+    size_t count{0};
+  };
+  oneapi::tbb::enumerable_thread_specific<ProducerCount> producers;
+  size_t consumed{0}; // Exactly one consuming thread per simulation.
+  size_t capacity;
+  size_t chunk;
+  std::atomic<std::ptrdiff_t> pending{0};
+  std::atomic<bool> bounded;
+
+public:
+  explicit StreamingResultQueue(size_t capacity = 0) : capacity(capacity), chunk(std::min(size_t{1024}, std::max(size_t{1}, capacity / 2))), bounded(capacity != 0)
+  {
+    if (capacity > static_cast<size_t>(INT_MAX / 2))
+      throw std::invalid_argument("Event queue capacity is too large");
+  }
+
+  template <typename T>
+  bool enqueue(T &&item)
+  {
+    if (!storage.enqueue(std::forward<T>(item)))
+      throw std::bad_alloc();
+    if (bounded.load(std::memory_order_relaxed))
+    {
+      auto &producer = producers.local();
+      if (++producer.count == chunk)
+      {
+        producer.count = 0;
+        auto count = pending.fetch_add(static_cast<std::ptrdiff_t>(chunk)) + static_cast<std::ptrdiff_t>(chunk);
+        while (std::cmp_greater(count, capacity) && bounded.load())
+        {
+          pending.wait(count);
+          count = pending.load();
+        }
+      }
+    }
+    return true;
+  }
+
+  void release_slot()
+  {
+    // Credits are amortized over blocks. The bound allows one partially
+    // accounted block per producer, avoiding an atomic RMW on every event.
+    if (bounded.load(std::memory_order_relaxed) && ++consumed == chunk)
+    {
+      consumed = 0;
+      pending.fetch_sub(static_cast<std::ptrdiff_t>(chunk));
+      pending.notify_all();
+    }
+  }
+
+  bool try_dequeue(StreamingResultElement &item)
+  {
+    if (!storage.try_dequeue(item))
+      return false;
+    release_slot();
+    return true;
+  }
+
+  void wait_dequeue(StreamingResultElement &item)
+  {
+    storage.wait_dequeue(item);
+    release_slot();
+  }
+
+  void unblock_producers()
+  {
+    bounded = false;
+    // Atomic wait requires a changed value, not just a notification. A distant
+    // negative sentinel also prevents an ABA from in-flight producer updates.
+    pending = std::numeric_limits<std::ptrdiff_t>::min() / 2;
+    pending.notify_all();
+  }
+};
 
 struct DrainingStreamingResultQueue
 {
   StreamingResultQueue queue;
   bool draining = false;
+
+  explicit DrainingStreamingResultQueue(size_t capacity = 0) : queue(capacity)
+  {
+  }
 
   void draining_dequeue(StreamingResultElement &result)
   {

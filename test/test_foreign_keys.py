@@ -6,7 +6,6 @@ from apitofsim.cli import check_integrity, prepare
 from apitofsim.workflow.db import (
     ClusterDatabase,
     ExperimentDatabase,
-    RealizationDatabase,
     SuperClusterDatabase,
     connection_scope,
 )
@@ -15,7 +14,7 @@ from click.testing import CliRunner
 
 @pytest.mark.parametrize(
     "db_type",
-    [ClusterDatabase, SuperClusterDatabase, ExperimentDatabase, RealizationDatabase],
+    [ClusterDatabase, SuperClusterDatabase, ExperimentDatabase],
 )
 @pytest.mark.parametrize("foreign_keys", [None, True, False])
 def test_schema_constraints(db_type, foreign_keys):
@@ -43,7 +42,7 @@ def test_schema_constraints(db_type, foreign_keys):
 
 
 def test_integrity_composite_and_nullable_keys():
-    with connection_scope(RealizationDatabase, ":memory:") as db:
+    with connection_scope(ExperimentDatabase, ":memory:") as db:
         db.create_tables(foreign_keys=False)
         db.db.execute("insert into cluster(id) values (1)")
         db.db.execute("insert into pathway values (1, 1, 1, 1)")
@@ -61,23 +60,21 @@ def test_integrity_composite_and_nullable_keys():
         assert db.check_foreign_keys() == expected
         db.db.execute("insert into cluster_tree_node values (1, 1, 1)")
         assert db.check_foreign_keys() == {}
-        db.db.execute("insert into fragmentation_event(id) values (123)")
-        assert db.check_foreign_keys() == {
-            "fragmentation_event(id) -> event_info(id)": 1
-        }
 
 
 def test_integrity_cli_and_reopen(tmp_path):
     path = str(tmp_path / "results.duckdb")
-    with connection_scope(RealizationDatabase, path) as db:
+    with connection_scope(ExperimentDatabase, path) as db:
         db.create_tables(foreign_keys=False)
     runner = CliRunner()
     assert runner.invoke(check_integrity, [path]).exit_code == 0
-    with connection_scope(RealizationDatabase, path) as db:
-        db.db.execute("insert into collision_event values (42, 0, 0, true)")
+    with connection_scope(ExperimentDatabase, path) as db:
+        db.db.execute("insert into cluster_tree_node values (42, 0, 999)")
     result = runner.invoke(check_integrity, [path])
     assert result.exit_code == 1
-    assert "collision_event(id) -> event_info(id): 1 orphan row(s)" in result.output
+    assert (
+        "cluster_tree_node(cluster_id) -> cluster(id): 1 orphan row(s)" in result.output
+    )
 
 
 @pytest.mark.parametrize("foreign_keys", [None, True, False])
@@ -85,12 +82,12 @@ def test_prepare_cli(tmp_path, foreign_keys):
     config = tmp_path / "config.toml"
     config.write_text("pathways = []\n")
     path = str(tmp_path / "results.duckdb")
-    args = ["create", str(config), path, "--db-type=realization"]
+    args = ["create", str(config), path, "--db-type=experiment"]
     if foreign_keys is not None:
         args.append("--foreign-keys" if foreign_keys else "--no-foreign-keys")
     runner = CliRunner(catch_exceptions=False)
     assert runner.invoke(prepare, args).exit_code == 0
-    with connection_scope(RealizationDatabase, path) as db:
+    with connection_scope(ExperimentDatabase, path) as db:
         assert bool(
             db.db.execute(
                 "select count(*) from duckdb_constraints() where constraint_type = 'FOREIGN KEY'"
@@ -114,8 +111,8 @@ def test_attached_clusters_and_caller_transaction(tmp_path):
         conn.execute(f"attach '{tmp_path / 'results.duckdb'}' as results_db")
         conn.execute("use results_db")
         conn.execute("set search_path='results_db,clusters_db'")
-        conn.execute(sql_files_nofk.experiment + sql_files_nofk.realizations)
-        db = RealizationDatabase((conn, None))
+        conn.execute(sql_files_nofk.experiment + sql_files_nofk.event_recording)
+        db = ExperimentDatabase((conn, None))
         conn.execute("begin")
         conn.execute("insert into cluster_tree_node values (1, 0, 2)")
         assert db.check_foreign_keys() == {
