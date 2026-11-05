@@ -1,13 +1,11 @@
 # Background on the APi-TOF simulation
 
-This page gives some background information on how the package works and gives references to relevant publications.
-
-For a self-contained mathematical description, see [Simulation model and numerical methods (PDF)](simulation-methods.pdf).
+This page gives some background information on how the package works and gives references to relevant publications at a high level. For a more detailed, self-contained mathematical description, see [Simulation model and numerical methods (PDF)](simulation-methods.pdf).
 
 ## How does it work?
 
 The simulation runs a number of iterations with each one considering a single instance of a cluster travelling through an APi-TOF MS.
-The main simulation loop considers the distributions of the time until the next collision between the cluster and a gas molecule, the speed/angle of that collision, and the time until the cluster fragments. The main quantity of interest is the probability the cluster survives to reach the detector without fragmenting.
+The main simulation loop considers the distributions of the time until the next collision between the cluster and a gas molecule, the speed/angle of that collision, and the time until the cluster fragments. The main quantity of interest is the probability the cluster survives to reach the detector --- currently modelled as simply reaching the end of the instrument --- without fragmenting.
 
 ### Publications describing the simulation
 
@@ -27,14 +25,16 @@ Later, Zanca, T. (2025)[^4] added support for atom-like products.
 
 The current version of the code supports sampling schemes other than the originally described histogram-based technique. The rejection sampling method is described [in one of the notebooks included in the source code repository](notebooks.md).
 
-Two approaches to considering multiple fragmentation pathways, e.g. in order to obtain the intensities of a spectrogram, have been added.
+Three approaches to considering multiple fragmentation pathways, e.g. in order to obtain the intensities of a spectrogram, have been added.
 In the first and default, the simulation considers multiple pathways at once.
 In particular, after a collision with a gas particle, survival probability distributions are considered for all pathways, and the first to occur after sampling determines the fragmentation pathways along which the fragmentation occurs in the case that another simulated gas collision does not happen first.
 In the second, corresponding to earlier versions of the code, the simulation considers each pathway separately and uses assumptions of independence to obtain the overall survival probability as the product of the survival probabilities of each pathway.
 Beyond this, per-pathway fragmentation probabilities can be found using independence and assuming fragmentation happens in an order proportional to some measure of overall pathway fragmentation as outlined by Zanca, T. (2025)[^5].
-This second approach is available through the `--pathway-at-a-time` option.
+This second approach is available through the `--simulation-mode=pathway-at-a-time` option.
+A final is the cluster tree approach which carries on simulating charged daughter ions after fragmentation, and is available through the `--simulation-mode=cluster-tree` option.
+This is described in [Simulation model and numerical methods (PDF)](simulation-methods.pdf).
 
-The software has some additional features not yet described in publication or via a notebook. They are:
+The software has some additional features not yet described in publication or via a notebook, although they are covered in [Simulation model and numerical methods (PDF)](simulation-methods.pdf). They are:
 
 * Support for either negatively or positively charged clusters.
 * Pinhole rejection: Extra code to compensate for reduced gas collision frequency near to the pinhole.
