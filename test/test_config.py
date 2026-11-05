@@ -526,13 +526,13 @@ def test_runner_uses_configured_mode_and_sampling(inputs, monkeypatch, mode, vib
         config_id = db.insert_config("configured", config)
         runner = ExperimentRunner(db)
         calls = []
-        method = "iter_mass_spec" if mode == "single-cluster" else "run_mass_spec"
+        method = "_iter_mass_spec" if mode == "single-cluster" else "run_mass_spec"
         original = getattr(runner, method)
 
         def run(*args, **kwargs):
             options = (
                 args[0].collision_time
-                if method == "iter_mass_spec"
+                if method == "_iter_mass_spec"
                 else kwargs["collision_time"]
             )
             calls.append(

@@ -1,5 +1,4 @@
 from itertools import permutations
-from types import SimpleNamespace
 
 import matplotlib
 import numpy as np
@@ -10,11 +9,9 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from apitofsim.plotting.events import (
     PANELS,
-    get_events,
-    plot_events_experiment,
     plot_events_from_df,
 )
-from apitofsim.workflow.db import RealizationDatabase, connection_scope
+from apitofsim.workflow.db import ExperimentDatabase, connection_scope
 
 
 @pytest.fixture
@@ -84,41 +81,27 @@ def test_empty_cohort(events):
     plt.close(fig)
 
 
-def test_run_scope_and_missing_histories(monkeypatch):
-    from apitofsim import api
+def test_run_scope_and_missing_histories(monkeypatch, tmp_path):
+    from archive_fixtures import publish_events
 
-    with connection_scope(RealizationDatabase, ":memory:") as db:
+    with connection_scope(ExperimentDatabase, tmp_path / "plot.duckdb") as db:
         db.create_tables()
         db.insert_cluster("parent", 100, -1, 0, [1, 1, 1], [])
         config_id = db.insert_config("events", "{}")
         run_id = db.insert_run(config_id)
-        # Make run and result IDs differ, and include another run.
-        db.insert_run(config_id)
-        counts = SimpleNamespace(
-            nwarnings=0,
-            n_escaped_total=2,
-            n_fragmented_total=[],
-            ncoll_total=0,
-            counter_collision_rejections=0,
+        result = db.begin_execution(run_id, 1, None, [], recorded=True)
+        publish_events(
+            db,
+            [
+                dict(
+                    result_id=result,
+                    realization_index=0,
+                    event_index=0,
+                    event_kind=5,
+                    z=0.005,
+                    t=1,
+                )
+            ],
         )
-        db.record_result(2, counts, cluster_id=1, pathway_ids=[])
-        result_id = db.record_result(run_id, counts, cluster_id=1, pathway_ids=[])
-        # record_result returns an ID; only one of two histories has events.
-        for result in (1, result_id):
-            realization = db.insert_realization(result)
-            db.insert_realization(result)
-            db.db.execute(
-                "insert into event_info values (default, ?, 'escape', "
-                "{'x':0,'y':0,'z':0.005,'t':1}, "
-                "{'x':0,'y':0,'z':0}, {'x':0,'y':0,'z':0}, 0, 0, 0)",
-                [realization],
-            )
-        assert get_events(db, run_id).experiment_result_id.tolist() == [result_id]
-        monkeypatch.setattr(
-            "apitofsim.plotting.events.get_geometry",
-            lambda *args: api.Q_(np.full(5, 0.001), "m"),
-        )
-        [(name, fig)] = list(plot_events_experiment(db, run_id, panels=("bars",)))
-        assert name == "parent"
-        assert fig.axes[0].patches[-1].get_height() == 0.5
-        plt.close(fig)
+        assert db.events_query(run_id=run_id).count("*").fetchone() == (1,)
+        assert db.events_query(run_id=999).count("*").fetchone() == (0,)

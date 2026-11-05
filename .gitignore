@@ -2,6 +2,8 @@ attic/
 /.vscode/
 /subprojects/*
 !/subprojects/*.wrap
+!/subprojects/packagefiles/
+!/subprojects/packagefiles/**
 /uv.lock
 /.python-version
 /compile_commands.json
@@ -24,3 +26,8 @@ __marimo__/
 /examples/validation/*.duckdb
 /examples/validation/*.duckdb.wal
 /examples/validation/*.db
+
+# Native/CLI test outputs
+/warnings_skimmer.dat
+/experiment_summary.csv
+/pathway_report.csv

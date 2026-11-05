@@ -1,6 +1,8 @@
 # We need to install the pure Python sources, but we also need them in the build dir for the tests
 apitofsim_python_py_src = [
 'api.py',
+'recording.py',
+'events.py',
 'collision.py',
 'cli.py',
 'config.py',
@@ -54,6 +56,12 @@ python.install_sources([
 'workflow/sql/rf_basis.sql',
 'workflow/sql/pathway.sql',
 'workflow/sql/pathway_report.sql',
-'workflow/sql/realizations.sql',
-'workflow/sql/event_report.sql',
+'workflow/sql/event_recording.sql',
+'workflow/sql/event_views.sql',
 ], subdir: 'apitofsim/workflow/sql', pure : false)
+
+install_data(
+  'licenses/nanoarrow.LICENSE.txt', 'licenses/nanoarrow.NOTICE.txt',
+  'licenses/flatcc.LICENSE.txt',
+  install_dir: python.get_install_dir(pure: false) / 'apitofsim' / 'licenses',
+)

@@ -10,7 +10,7 @@ endif
 apitofsim_python = python.extension_module(
   'apitofsimraw',
   sources: ['apitofsim.cpp'],
-  dependencies: [python_dep, nanobind, eigen3, tbb, concurrentqueue, magic_enum],
+  dependencies: [python_dep, nanobind, eigen3, tbb, concurrentqueue, magic_enum, nanoarrow],
   cpp_args: python_cpp.get_supported_arguments('-Wno-maybe-uninitialized'),
   link_args: python_link_args,
   link_with: libapitofsim,

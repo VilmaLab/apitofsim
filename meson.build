@@ -1,6 +1,7 @@
 project(
   'apitofsim',
   'cpp',
+  'c',
   license : 'MIT',
   default_options: {
     'cpp_std': 'c++20',
@@ -57,6 +58,8 @@ magic_enum = dependency(
     'test': false
   }
 )
+
+nanoarrow = dependency('nanoarrow', include_type : 'system')
 
 subdir('src')
 

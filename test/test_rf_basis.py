@@ -59,7 +59,9 @@ def test_rf_persistence_and_shared_inputs(prepared_case, monkeypatch, tmp_path):
     # Worker inputs retain ownership even after the preparer's map is replaced.
     runner.preparer.rf_bases = {}
     with runner.iter_mass_spec(prepared, prepared.groups[0], 2) as stream:
-        assert list(stream)[-1].result.counters.n_realizations == 2
+        for _ in stream:
+            pass
+        assert stream.result.result.counters.n_realizations == 2
 
 
 @pytest.mark.parametrize(

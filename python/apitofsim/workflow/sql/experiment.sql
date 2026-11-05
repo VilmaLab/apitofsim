@@ -18,7 +18,8 @@ create table experiment_run (
     simulation_mode simulation_mode not null,
     run_config json,
     foreign key (experiment_config_id) references experiment_config (id),
-    start_time timestamp
+    start_time timestamp,
+    execution_status varchar not null default 'running'
 );
 
 create table single_pathway_experiment_result (

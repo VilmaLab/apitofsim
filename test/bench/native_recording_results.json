@@ -1,0 +1,74 @@
+{
+  "date": "2026-11-05",
+  "model": "examples/besel2020",
+  "mode": "CLUSTER_TREE",
+  "roots": 21,
+  "realizations_per_root": 100,
+  "vib_energy_sampler": "dos-only",
+  "foreign_keys": false,
+  "environment": {
+    "platform": "Linux x86_64",
+    "python": "3.14.8",
+    "compiler": "Clang 22",
+    "optimization": "-O2 -march=native; assertions enabled",
+    "parallelism": "oneTBB default"
+  },
+  "method": "Three sequential repeats per mode on fresh-schema copies of warm model/caches. Shared preparation excluded. Timer includes execution, execution metadata, native IPC, journal/fsync, commit, database close and database fsync. Append is preceded by an untimed 100-realization run per root; old payloads remain in the same file. Reopening/count and per-realization event-index validation occur outside the timer.",
+  "all_simulation_counters_identical": true,
+  "results": {
+    "control": {
+      "wall_seconds": [
+        5.47663690400077,
+        5.2632497410231736,
+        5.308449570991797
+      ],
+      "median_wall_seconds": 5.308449570991797,
+      "cpu_seconds": [
+        55.799312019999995,
+        55.502834867,
+        55.444828884
+      ],
+      "median_cpu_seconds": 55.502834867,
+      "events_per_measured_run": 0,
+      "previous_archive_bytes": 0,
+      "archive_bytes": 0
+    },
+    "record": {
+      "wall_seconds": [
+        7.330902618996333,
+        6.967654364998452,
+        6.900226142024621
+      ],
+      "median_wall_seconds": 6.967654364998452,
+      "cpu_seconds": [
+        63.57709598900001,
+        62.79616856799999,
+        63.04815686799999
+      ],
+      "median_cpu_seconds": 63.04815686799999,
+      "events_per_measured_run": 8610568,
+      "previous_archive_bytes": 0,
+      "archive_bytes": 1515653810,
+      "wall_ratio_to_control": 1.3125592080733772
+    },
+    "append": {
+      "wall_seconds": [
+        7.145480976992985,
+        7.229704110010061,
+        7.152091569994809
+      ],
+      "median_wall_seconds": 7.152091569994809,
+      "cpu_seconds": [
+        63.46289384400001,
+        64.06669651899999,
+        63.38806140199999
+      ],
+      "median_cpu_seconds": 63.46289384400001,
+      "events_per_measured_run": 8610568,
+      "previous_archive_bytes": 1515653810,
+      "archive_bytes": 3031305130,
+      "wall_ratio_to_control": 1.34730328966063
+    }
+  },
+  "reproduce": "python test/bench/native_recording.py WARM_MODEL.duckdb NEW_OUTPUT.duckdb [--record-events] [--seed-realizations 100]"
+}

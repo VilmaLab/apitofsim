@@ -10,6 +10,21 @@ If you are using `uv` you may need to run `uv run apitofsim` instead.
     :depth: 1
     :list_subcommands: True
 
+## Native event recording
+
+Use an experiment database for both summary-only and recorded runs:
+
+```bash
+apitofsim db prepare create config.toml database.duckdb
+apitofsim db run database.duckdb --record-events
+```
+
+Recording appends natively to `database.events.arrow`. The optional ASE sidecar
+is `database.ase.sqlite.db`. Move the files together with matching basenames.
+`--no-record-events` is the default. The former `--db-type=realization` schema
+and relational event inserts are removed; old event databases require migration.
+Do not read the event sidecar while an append transaction is active.
+
 ## Event plots
 
 `apitofsim db plot plot-events results.db plots/` writes one Matplotlib figure per recorded

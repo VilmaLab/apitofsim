@@ -71,7 +71,12 @@ def _terminal_events(df, boundaries, realization_ids):
     """Accept one terminal event per history, only if it is the last event."""
     import numpy as np
 
-    events = df.sort_values(["realization_id", "t", "event_id"])
+    ordering = (
+        ["result_id", "realization_index", "event_index"]
+        if "event_index" in df
+        else ["realization_id", "t", "event_id"]
+    )
+    events = df.sort_values(ordering)
     if realization_ids is None:
         realization_ids = events["realization_id"].unique()
     events = events[events["realization_id"].isin(realization_ids)]

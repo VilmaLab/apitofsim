@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 from apitofsim import api
-from apitofsim.workflow import ExperimentDatabase, ExperimentRunner, RealizationDatabase
+from apitofsim.workflow import ExperimentDatabase, ExperimentRunner
 from apitofsim.workflow.db import connection_scope
 
 
@@ -12,9 +12,13 @@ def foreign_keys(request):
     return request.param
 
 
-@pytest.fixture(params=[ExperimentDatabase, RealizationDatabase])
-def prepared_case(request, monkeypatch, foreign_keys):
-    with connection_scope(request.param, ":memory:") as db:
+@pytest.fixture(params=[False, True], ids=["summary", "recorded"])
+def prepared_case(request, monkeypatch, foreign_keys, tmp_path):
+    with connection_scope(
+        ExperimentDatabase,
+        str(tmp_path / "fixture.duckdb"),
+        record_events=request.param,
+    ) as db:
         db.create_tables(foreign_keys=foreign_keys)
         # Interleave parents in insertion order, with two outgoing pathways each.
         for name, mass, charge, energy in (

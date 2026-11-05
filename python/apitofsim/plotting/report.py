@@ -7,9 +7,9 @@ def get_report(db, report_type):
 
     import pandas
 
-    if not db.is_realization_db() and report_type in {"event-report"}:
+    if not db.is_experiment_db() and report_type in {"event-report"}:
         raise UnknownReportTypeError(
-            f"Report type {report_type} is only available for realization databases"
+            f"Report type {report_type} is only available for experiment databases"
         )
 
     if not db.is_experiment_db() and report_type in {

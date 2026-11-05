@@ -117,7 +117,7 @@ def _cancellation_stream(tree=False, slow=False, n=1_000_000, events=False):
         subs = raw.MassSpecSubstanceSingleInput(
             -1, 3.6e-25, 5e-10, density, pathways, gas
         )
-    return api.MassSpecIterator(ms, subs, n, logconf=(0, events))
+    return api._MassSpecBatchIterator(ms, subs, n, logconf=(0, events))
 
 
 @pytest.mark.parametrize("tree", [False, True])
@@ -488,43 +488,6 @@ def test_tree_indices(edges, monkeypatch):
         }
 
 
-def assert_event_row(connection, event, pathway_id=None):
-    import numpy as np
-
-    row = connection.execute(
-        "select e.id, e.event_type, e.postime, e.velocity, e.omega, "
-        "e.rot_energy, e.vibrational_energy, e.particle_index, "
-        "c.id, c.theta, c.u_norm, c.accepted, f.id, f.pathway_id, "
-        "f.transition_index, f.next_particle_index "
-        "from event_info e "
-        "left join collision_event c on c.id = e.id "
-        "left join fragmentation_event f on f.id = e.id "
-        "where e.id = (select max(id) from event_info)"
-    ).fetchone()
-    event_id, event_type, postime, velocity, omega, rot, vibrational, particle = row[:8]
-    state = event.state
-    assert event_type == type(event).__name__.removesuffix("Event").lower()
-    np.testing.assert_array_equal(list(postime.values()), state.postime)
-    np.testing.assert_array_equal(list(velocity.values()), state.velocity)
-    np.testing.assert_array_equal(list(omega.values()), state.omega)
-    assert (rot, vibrational, particle) == (
-        state.rot_energy,
-        state.vibrational_energy,
-        state.particle_index,
-    )
-    if isinstance(event, snapshot.CollisionEvent):
-        assert row[8:12] == (event_id, event.theta, event.u_norm, event.accepted)
-    else:
-        assert row[8:12] == (None,) * 4
-    if isinstance(event, snapshot.FragmentationEvent):
-        assert row[12] == event_id
-        assert row[14:] == (event.pathway_index, event.next_particle_index)
-        if pathway_id is not None:
-            assert row[13] == pathway_id
-    else:
-        assert row[12:] == (None,) * 4
-
-
 def test_particle_snapshot_properties_and_array_lifetimes():
     import gc
 
@@ -565,315 +528,6 @@ def test_particle_snapshot_properties_and_array_lifetimes():
     gc.collect()
     for array, values in zip(arrays, expected, strict=True):
         np.testing.assert_array_equal(array, values)
-
-
-@pytest.mark.parametrize(
-    "mode", ["SINGLE_CLUSTER", "PATHWAY_AT_A_TIME", "CLUSTER_TREE"]
-)
-def test_init_events_workflow(tmp_path, monkeypatch, mode):
-    import apitofsim.api as api
-    import numpy as np
-    from apitofsim.cli import prepare
-    from apitofsim.workflow.base import SimulationMode
-    from apitofsim.workflow.db import (
-        EventRecorder,
-        RealizationDatabase,
-        connection_scope,
-    )
-
-    filename = str(tmp_path / "realizations.duckdb")
-    result = CliRunner(catch_exceptions=False).invoke(
-        prepare,
-        [
-            "create",
-            os.environ["DATA_DIR"] + "/besel/config.toml",
-            filename,
-            "--db-type=realization",
-        ],
-    )
-    assert result.exit_code == 0
-    original_stream = api.mass_spec_iter
-    original_record = EventRecorder.record_batch
-    num_runs = num_events = 0
-    batch_sizes = []
-
-    def check_batch(recorder, events):
-        nonlocal num_events
-        original_record(recorder, events)
-        if events:
-            event = list(snapshot.event_rows(events))[-1]
-            pathway_id = (
-                recorder.pathways[event.pathway_index]
-                if isinstance(event, snapshot.FragmentationEvent)
-                else None
-            )
-            assert_event_row(recorder.db.db, event, pathway_id)
-            num_events += len(events)
-            batch_sizes.append(len(events))
-
-    def check_stream(ms, subs, n, **kwargs):
-        initial_states = {}
-        previous_events = {}
-        accepted_collisions = post_collisions = 0
-        native = original_stream(ms, subs, n, **kwargs)
-
-        def check_collision(event):
-            nonlocal accepted_collisions, post_collisions
-            state = event.state
-            previous = previous_events.get(state.realization)
-            expects_post = (
-                isinstance(previous, snapshot.CollisionEvent) and previous.accepted
-            )
-            assert isinstance(event, snapshot.PostCollisionEvent) == expects_post
-            if isinstance(event, snapshot.PostCollisionEvent):
-                post_collisions += 1
-                np.testing.assert_array_equal(state.postime, previous.state.postime)
-                assert state.particle_index == previous.state.particle_index
-                assert not any(
-                    hasattr(event, field) for field in ("theta", "u_norm", "accepted")
-                )
-            expects_post_fragmentation = (
-                isinstance(previous, snapshot.FragmentationEvent)
-                and previous.next_particle_index >= 0
-            )
-            assert (
-                isinstance(event, snapshot.PostFragmentationEvent)
-                == expects_post_fragmentation
-            )
-            if isinstance(event, snapshot.PostFragmentationEvent):
-                assert mode == "CLUSTER_TREE"
-                np.testing.assert_array_equal(state.postime, previous.state.postime)
-                assert state.particle_index == previous.next_particle_index
-                np.testing.assert_array_equal(state.velocity, np.zeros(3))
-                np.testing.assert_array_equal(state.omega, np.zeros(3))
-                assert state.rot_energy == state.vibrational_energy == 0
-            if isinstance(
-                event, (snapshot.CollisionEvent, snapshot.PostCollisionEvent)
-            ):
-                particle = (
-                    subs
-                    if mode != "CLUSTER_TREE"
-                    else subs.cluster_payloads[
-                        subs.tree_nodes[state.particle_index].payload_idx
-                    ]
-                )
-                assert state.rot_energy == pytest.approx(
-                    0.2
-                    * particle.m_ion
-                    * particle.R_cluster**2
-                    * np.dot(state.omega, state.omega),
-                    rel=1e-12,
-                    abs=0,
-                )
-                assert np.isfinite(state.velocity).all()
-                assert np.isfinite(state.omega).all()
-                assert np.isfinite(state.vibrational_energy)
-            if isinstance(event, snapshot.CollisionEvent):
-                accepted_collisions += event.accepted
-            if (
-                previous is not None
-                and not isinstance(previous, snapshot.FragmentationEvent)
-                and not isinstance(event, snapshot.PostCollisionEvent)
-            ):
-                np.testing.assert_array_equal(state.omega, previous.state.omega)
-                if ms.quadrupole is None:
-                    np.testing.assert_array_equal(
-                        state.velocity[:2], previous.state.velocity[:2]
-                    )
-                assert state.rot_energy == pytest.approx(
-                    previous.state.rot_energy, rel=1e-12, abs=0
-                )
-                assert state.vibrational_energy == previous.state.vibrational_energy
-            previous_events[state.realization] = event
-
-        root = (
-            subs
-            if mode != "CLUSTER_TREE"
-            else subs.cluster_payloads[subs.tree_nodes[0].payload_idx]
-        )
-
-        def check_event(event):
-            state = event.state
-            check_collision(event)
-            if isinstance(event, snapshot.InitEvent):
-                assert state.realization not in initial_states
-                initial_states[state.realization] = state
-                np.testing.assert_array_equal(state.postime, np.zeros(4))
-                assert np.isfinite(state.velocity).all()
-                assert np.isfinite(state.omega).all()
-                assert np.isfinite(state.rot_energy) and state.rot_energy >= 0
-                assert (
-                    np.isfinite(state.vibrational_energy)
-                    and state.vibrational_energy >= 0
-                )
-                assert state.particle_index == 0
-                assert state.rot_energy == pytest.approx(
-                    0.2
-                    * root.m_ion
-                    * root.R_cluster**2
-                    * np.dot(state.omega, state.omega),
-                    rel=1e-12,
-                    abs=0,
-                )
-            else:
-                assert state.realization in initial_states
-            if (
-                isinstance(event, snapshot.FragmentationEvent)
-                and mode == "CLUSTER_TREE"
-            ):
-                assert (
-                    event.pathway_index
-                    in subs.tree_nodes[state.particle_index].pathway_indices
-                )
-
-        class CheckedStream:
-            def request_cancel(self):
-                native.request_cancel()
-
-            def join_if_joinable(self):
-                native.join_if_joinable()
-
-            def read_batch(self, max_items=512):
-                nonlocal num_runs
-                batch = native.read_batch(max_items)
-                for item in snapshot.flatten_batches([batch]):
-                    if hasattr(item, "state"):
-                        check_event(item)
-                    elif isinstance(item, api.MassSpecFinalResult):
-                        assert set(initial_states) == set(range(n))
-                        assert accepted_collisions == post_collisions
-                        assert post_collisions > 0
-                        unlogged = api.mass_spec(
-                            ms,
-                            subs,
-                            n,
-                            seed=kwargs.get("seed", 42),
-                            named_tuple_counters=True,
-                        )
-                        for actual, expected in zip(
-                            item.counters, unlogged, strict=True
-                        ):
-                            np.testing.assert_array_equal(actual, expected)
-                        num_runs += 1
-                return batch
-
-        return CheckedStream()
-
-    monkeypatch.setattr(api, "mass_spec_iter", check_stream)
-    monkeypatch.setattr(EventRecorder, "record_batch", check_batch)
-    with connection_scope(RealizationDatabase, filename) as db:
-        runner = ExperimentRunner(db)
-        runner.run_prepared_config(mode=SimulationMode[mode])
-        assert num_runs > 0
-        assert batch_sizes
-        if mode == "CLUSTER_TREE":
-            assert (
-                db.tree_events_query()
-                .filter(
-                    "provenance != 'persisted' or continuity_valid is distinct from true"
-                )
-                .fetchall()
-                == []
-            )
-        for result_id, run_id, parent, _, _ in db.db.table(
-            "experiment_result"
-        ).fetchall():
-            curves = db.pathway_rate_curves(run_id, parent, result_id)
-            assert curves and all(c.histogram is not None for c in curves)
-        count = db.db.execute(
-            "select count(*) from event_info where event_type = 'init'"
-        ).fetchone()[0]
-        assert count == db.db.execute("select count(*) from realization").fetchone()[0]
-        assert (
-            db.db.execute(
-                "select count(*) from realization where experiment_result_id is null"
-            ).fetchone()[0]
-            == 0
-        )
-        assert (
-            db.db.execute("select count(*) from event_info").fetchone()[0] == num_events
-        )
-        db.refresh_views()
-        assert (
-            db.db.execute("select count(*) from event_report").fetchone()[0]
-            == num_events
-        )
-        assert (
-            db.db.execute(
-                "select count(*) from event_info e join event_report r on r.event_id = e.id "
-                "left join collision_event c on c.id = e.id "
-                "left join fragmentation_event f on f.id = e.id "
-                "where e.event_type = r.event_type and e.postime.x = r.x "
-                "and e.postime.y = r.y and e.postime.z = r.z and e.postime.t = r.t "
-                "and e.velocity = r.velocity and e.omega = r.omega "
-                "and e.rot_energy = r.rot_energy and e.vibrational_energy = r.vibrational_energy "
-                "and e.particle_index = r.particle_index "
-                "and c.theta is not distinct from r.theta "
-                "and c.u_norm is not distinct from r.u_norm "
-                "and c.accepted is not distinct from r.accepted "
-                "and f.pathway_id is not distinct from r.pathway_id"
-            ).fetchone()[0]
-            == num_events
-        )
-        assert (
-            db.db.execute(
-                "select count(*) from event_report where event_type = 'init'"
-            ).fetchone()[0]
-            == count
-        )
-
-
-@pytest.mark.parametrize("accepted", [True, False])
-def test_collision_details_and_escape(accepted, monkeypatch):
-    from types import SimpleNamespace
-
-    import apitofsim.api as api
-    import numpy as np
-    from apitofsim.workflow.db import (
-        EventRecorder,
-        RealizationDatabase,
-        connection_scope,
-    )
-
-    # Native events are read-only; use payload fixtures to exercise both acceptance values.
-    CollisionEvent = type("CollisionEvent", (SimpleNamespace,), {})
-    PostCollisionEvent = type("PostCollisionEvent", (SimpleNamespace,), {})
-    EscapeEvent = type("EscapeEvent", (SimpleNamespace,), {})
-    monkeypatch.setattr(api, "CollisionEvent", CollisionEvent)
-    monkeypatch.setattr(api, "PostCollisionEvent", PostCollisionEvent)
-    monkeypatch.setattr(api, "EscapeEvent", EscapeEvent)
-    state = SimpleNamespace(
-        realization=7,
-        postime=np.array([1.123456789, 2.234567891, 3.345678912, 4.456789123]),
-        velocity=np.array([5.567891234, -6.678912345, 7.789123456]),
-        omega=np.array([8.891234567, 9.912345678, -10.123456789]),
-        rot_energy=1.234567891234567e-21,
-        vibrational_energy=2.345678912345678e-21,
-        particle_index=3,
-    )
-    with connection_scope(RealizationDatabase, ":memory:") as db:
-        db.create_tables()
-        recorder = EventRecorder(db, [])
-        collision = CollisionEvent(
-            state=state, theta=0.123456789, u_norm=123.456789, accepted=accepted
-        )
-        recorder.record_batch(snapshot.event_table([collision]))
-        assert_event_row(db.db, collision)
-        if accepted:
-            postcollision = PostCollisionEvent(state=state)
-            recorder.record_batch(snapshot.event_table([postcollision]))
-            assert_event_row(db.db, postcollision)
-        escape = EscapeEvent(state=state)
-        recorder.record_batch(snapshot.event_table([escape]))
-        assert_event_row(db.db, escape)
-        assert (
-            db.db.execute("select count(*) from event_info").fetchone()[0]
-            == 2 + accepted
-        )
-        assert db.db.execute("select count(*) from collision_event").fetchone()[0] == 1
-        assert (
-            db.db.execute("select count(*) from fragmentation_event").fetchone()[0] == 0
-        )
 
 
 def test_sql_foreign_keys_declared_on_own_line():
@@ -979,7 +633,7 @@ def test_experiment_metadata_queries():
             (3, "SINGLE_CLUSTER"),
         ):
             db.execute(
-                "insert into experiment_run values (?, 1, ?, '{}', ?)",
+                "insert into experiment_run (id,experiment_config_id,simulation_mode,run_config,start_time) values (?, 1, ?, '{}', ?)",
                 (run_id, mode, start_time),
             )
         db.execute(
@@ -1033,310 +687,6 @@ def test_experiment_metadata_queries():
                 database.experiment_clusters_query(run_id, 1).fetchall()
                 == clusters.fetchall()
             )
-
-
-@pytest.mark.parametrize("attached", [False, True])
-def test_normalized_result_and_event_views(tmp_path, attached):
-    import duckdb
-    from apitofsim.workflow import sql_files, sql_files_nofk
-    from apitofsim.workflow.db import RealizationDatabase, connection_scope
-
-    if attached:
-        clusters_path = str(tmp_path / "clusters.duckdb")
-        results_path = str(tmp_path / "results.duckdb")
-        with duckdb.connect(clusters_path) as clusters:
-            clusters.execute(sql_files.pathway)
-            clusters.execute(
-                "insert into cluster (id, common_name) values (1, 'parent')"
-            )
-            clusters.execute("insert into pathway values (1, 1, 1, 1), (2, 1, 1, 1)")
-        # Arbitrary aliases and read-only cluster attachment, as used by the web app.
-        connection = duckdb.connect()
-        connection.execute(f"attach '{clusters_path}' as molecules (read_only)")
-        connection.execute(f"attach '{results_path}' as output")
-        connection.execute("use output; set search_path = 'output,molecules'")
-        connection.execute(sql_files_nofk.experiment)
-        connection.execute(sql_files_nofk.realizations)
-        filename = (connection, None)
-    else:
-        filename = ":memory:"
-
-    with connection_scope(RealizationDatabase, filename) as database:
-        db = database.db
-        if not attached:
-            database.create_tables()
-            db.execute("insert into cluster (id, common_name) values (1, 'parent')")
-            db.execute("insert into pathway values (1, 1, 1, 1), (2, 1, 1, 1)")
-        database.refresh_views()
-        for view in ("experiment_result", "event_details", "event_report"):
-            assert db.execute(f"select count(*) from {view}").fetchone() == (0,)
-
-        db.execute("insert into experiment_config (id) values (1)")
-        db.execute(
-            "insert into experiment_run (id, experiment_config_id, simulation_mode) "
-            "values (1, 1, 'PATHWAY_AT_A_TIME'), (2, 1, 'SINGLE_CLUSTER')"
-        )
-        db.execute(
-            "insert into single_pathway_experiment_result (id, experiment_run_id, pathway_id) "
-            "values (1, 1, 1)"
-        )
-        db.execute(
-            "insert into multi_pathway_experiment_result (id, experiment_run_id, cluster_id) "
-            "values (2, 2, 1)"
-        )
-        db.execute(
-            "insert into pathway_fragmentation (experiment_result_id, pathway_id, count) "
-            "values (2, 1, 1), (2, 2, 1)"
-        )
-        db.execute(
-            "insert into experiment_failure (id, experiment_run_id, pathway_id) values (3, 1, 1)"
-        )
-        db.execute(
-            "insert into realization values (1, 1), (2, 2), (3, null), (4, 99), (5, 3)"
-        )
-        event_id = 0
-        for realization_id in range(1, 6):
-            types = (
-                ("init", "collision", "fragmentation", "escape")
-                if realization_id <= 2
-                else ("init",)
-            )
-            for event_type in types:
-                event_id += 1
-                db.execute(
-                    "insert into event_info values (?, ?, ?, "
-                    "{x: 1.0, y: 2.0, z: -3.0, t: 4.0}, "
-                    "{x: 5.0, y: 6.0, z: 7.0}, {x: 8.0, y: 9.0, z: 10.0}, 11, 12, 13)",
-                    (event_id, realization_id, event_type),
-                )
-                if event_type == "collision":
-                    db.execute(
-                        "insert into collision_event values (?, 0.5, 14, false)",
-                        (event_id,),
-                    )
-                elif event_type == "fragmentation":
-                    db.execute(
-                        "insert into fragmentation_event (id, pathway_id) values (?, 2)",
-                        (event_id,),
-                    )
-
-        # Refresh also upgrades existing files with stale report definitions.
-        db.execute("create or replace view event_report as select 0 as obsolete")
-        database.refresh_views()
-        assert db.execute("select * from experiment_result order by id").fetchall() == [
-            (1, 1, 1, 1, True),
-            (2, 2, 1, None, False),
-        ]
-        assert db.execute("select count(*) from event_details").fetchone() == (11,)
-        assert db.execute(
-            "select count(*), count(distinct event_id) from event_report"
-        ).fetchone() == (8, 8)
-        assert db.execute(
-            "select experiment_result_id, cluster_id, count(*) from event_report group by all order by 1"
-        ).fetchall() == [(1, 1, 4), (2, 1, 4)]
-        assert db.execute(
-            "select count(*) from event_report where event_type = 'init'"
-        ).fetchone() == (2,)
-        assert db.execute(
-            "select event_type, theta, u_norm, accepted, pathway_id from event_report "
-            "where experiment_result_id = 1 order by event_id"
-        ).fetchall() == [
-            ("init", None, None, None, None),
-            ("collision", 0.5, 14, False, None),
-            ("fragmentation", None, None, None, 2),
-            ("escape", None, None, None, None),
-        ]
-        assert db.execute(
-            "select count(*) from event_details where postime.z = z and z = -3 "
-            "and x = 1 and y = 2 and t = 4 and velocity.x = 5 and omega.z = 10 "
-            "and rot_energy = 11 and vibrational_energy = 12 and particle_index = 13"
-        ).fetchone() == (11,)
-        assert db.execute(
-            "select count(*) from event_report where z = -3"
-        ).fetchone() == (8,)
-
-    if attached:
-        # Refreshed persisted views can be consumed through read-only attachments.
-        with duckdb.connect() as readonly:
-            readonly.execute(f"attach '{clusters_path}' as molecules (read_only)")
-            readonly.execute(f"attach '{results_path}' as output (read_only)")
-            readonly.execute("use output; set search_path = 'output,molecules'")
-            assert readonly.execute(
-                "select count(*) from experiment_result"
-            ).fetchone() == (2,)
-            assert readonly.execute(
-                "select count(*) from event_details"
-            ).fetchone() == (11,)
-            assert readonly.execute("select count(*) from event_report").fetchone() == (
-                8,
-            )
-
-
-@pytest.fixture
-def query_db():
-    from apitofsim.workflow.db import RealizationDatabase, connection_scope
-
-    with connection_scope(RealizationDatabase, ":memory:") as db:
-        db.create_tables()
-        for name in ("parent", "other parent", "product"):
-            db.insert_cluster(name, 1, 1, 0, [1, 1, 1], [])
-        db.insert_pathway(1, 3, 3)
-        db.insert_pathway(1, 2, 3)
-        db.insert_pathway(2, 3, 3)
-        config_id = db.insert_config("queries", "{}")
-        db.insert_run(config_id)
-        db.insert_run(config_id)
-        # Two single results for one parent, plus multi results without pathway counts.
-        db.db.execute("""
-            insert into single_pathway_experiment_result (id, experiment_run_id, pathway_id)
-            values (1, 1, 1), (2, 1, 2), (3, 2, 1), (4, 1, 3);
-            insert into multi_pathway_experiment_result (id, experiment_run_id, cluster_id)
-            values (5, 1, 1), (6, 2, 1), (7, 1, 2);
-            insert into realization values
-            (1, 1), (2, 2), (3, 3), (4, 4), (5, 5), (6, 6), (7, 7),
-            (8, 5), (9, null);
-        """)
-        # IDs deliberately differ from chronological order; equal times use ID ties.
-        for event_id, realization_id, event_type, t in (
-            (1, 1, "escape", 3),
-            (2, 1, "collision", 2),
-            (3, 1, "init", 0),
-            (4, 2, "fragmentation", 1),
-            (5, 3, "escape", 1),
-            (6, 4, "escape", 1),
-            (7, 5, "fragmentation", 1),
-            (8, 5, "collision", 1),
-            (9, 5, "escape", 2),
-            (10, 6, "escape", 1),
-            (11, 7, "escape", 1),
-            (12, 9, "init", 0),
-        ):
-            db.db.execute(
-                "insert into event_info values (?, ?, ?, {'x': 0, 'y': 0, 'z': 0, 't': ?}, "
-                "{'x': 0, 'y': 0, 'z': 0}, {'x': 0, 'y': 0, 'z': 0}, 0, 0, 0)",
-                (event_id, realization_id, event_type, t),
-            )
-        db.db.execute("""
-            insert into collision_event values (2, 0.5, 2, false);
-            insert into fragmentation_event (id, pathway_id) values (7, null);
-        """)
-        yield db
-
-
-@pytest.mark.parametrize(
-    "scope, result_ids, realization_ids",
-    [
-        ({}, list(range(1, 8)), list(range(1, 10))),
-        ({"run_id": 1, "parent": 1}, [1, 2, 5], [1, 2, 5, 8]),
-        ({"run_id": 2, "parent": 1}, [3, 6], [3, 6]),
-        ({"run_id": 1, "parent": 2}, [4, 7], [4, 7]),
-        ({"result_id": 5}, [5], [5, 8]),
-        ({"run_id": 2, "result_id": 5}, [], []),
-        ({"parent": 2, "result_id": 5}, [], []),
-        ({"run_id": 999}, [], []),
-        ({"parent": 999}, [], []),
-        ({"result_id": 999}, [], []),
-    ],
-)
-def test_realization_query_scopes(query_db, scope, result_ids, realization_ids):
-    import duckdb
-
-    results = query_db.results_query(**scope)
-    realizations = query_db.realizations_query(**scope)
-    events = query_db.events_query(**scope)
-    assert isinstance(results, duckdb.DuckDBPyRelation)
-    assert isinstance(realizations, duckdb.DuckDBPyRelation)
-    assert isinstance(events, duckdb.DuckDBPyRelation)
-    assert results.order("experiment_result_id").select(
-        "experiment_result_id"
-    ).fetchall() == [(i,) for i in result_ids]
-    assert realizations.order("realization_id").select("realization_id").fetchall() == [
-        (i,) for i in realization_ids
-    ]
-    expected_events = query_db.db.sql("select * from event_info").fetchall()
-    assert sorted(events.select("event_id").fetchall()) == sorted(
-        (e[0],) for e in expected_events if e[1] in realization_ids
-    )
-
-
-def test_recorded_output_queries(query_db):
-    assert query_db.results_query().order("experiment_result_id").fetchall() == (
-        query_db.db.table("experiment_result").order("id").fetchall()
-    )
-    assert query_db.events_query().filter(
-        "postime.x = x and postime.y = y and postime.z = z and postime.t = t"
-    ).count("*").fetchone() == (12,)
-
-    def counts(**scope):
-        df = query_db.recorded_output_query(**scope).fetchdf()
-        assert len(df) == 1
-        return df.iloc[0].to_dict()
-
-    assert counts(run_id=1, parent=1) == {
-        "realization_count": 4,
-        "event_count": 7,
-        "escape_count": 2,
-        "collision_event_count": 2,
-        "collision_subtype_count": 1,
-        "fragmentation_event_count": 2,
-        "fragmentation_subtype_count": 1,
-        "terminal_realization_count": 3,
-    }
-    assert counts()["realization_count"] == 9
-    assert counts()["event_count"] == 12
-    assert counts(run_id=2)["realization_count"] == 2
-    assert counts(result_id=5)["terminal_realization_count"] == 1
-    assert all(value == 0 for value in counts(run_id=999).values())
-    rows = (
-        query_db.events_query(run_id=1, parent=1, sort=True)
-        .select(
-            "event_id, realization_id, collision_event_id, fragmentation_event_id, pathway_id, accepted"
-        )
-        .fetchall()
-    )
-    assert rows == [
-        (3, 1, None, None, None, None),
-        (2, 1, 2, None, None, False),
-        (1, 1, None, None, None, None),
-        (4, 2, None, None, None, None),
-        (7, 5, None, 7, None, None),
-        (8, 5, None, None, None, None),
-        (9, 5, None, None, None, None),
-    ]
-    # Lazy relations retain their own scope when other queries run on the connection.
-    first = query_db.events_query(run_id=1, parent=1, sort=True)
-    query_db.events_query(run_id=2).fetchall()
-    assert first.select("event_id").fetchall() == [(row[0],) for row in rows]
-
-
-@pytest.mark.parametrize("parameter", ["run_id", "parent", "result_id"])
-def test_query_scope_parameters_are_values(query_db, parameter):
-    import duckdb
-
-    for method in (
-        query_db.results_query,
-        query_db.realizations_query,
-        query_db.events_query,
-        query_db.recorded_output_query,
-    ):
-        with pytest.raises(duckdb.ConversionException):
-            method(**{parameter: "1 OR 1=1"}).fetchall()
-
-
-def test_recorded_output_database_scope(query_db):
-    from apitofsim.workflow.db import RealizationDatabase, connection_scope
-
-    # A second database must not share aliases or counts with the populated one.
-    with connection_scope(RealizationDatabase, ":memory:") as empty_db:
-        empty_db.create_tables()
-        assert empty_db.results_query().fetchall() == []
-        assert empty_db.events_query(sort=True).fetchall() == []
-        assert empty_db.recorded_output_query().fetchone() == (0,) * 8
-        empty_db.insert_realization(None)
-        assert empty_db.recorded_output_query().fetchone() == (1,) + (0,) * 7
-        assert query_db.recorded_output_query().select(
-            "realization_count"
-        ).fetchone() == (9,)
 
 
 @pytest.fixture
@@ -1612,9 +962,9 @@ def test_quantity_energy_helpers():
 @pytest.fixture
 def rate_curve_db():
     from apitofsim.api import Q_
-    from apitofsim.workflow.db import RealizationDatabase, connection_scope
+    from apitofsim.workflow.db import ExperimentDatabase, connection_scope
 
-    with connection_scope(RealizationDatabase, ":memory:") as db:
+    with connection_scope(ExperimentDatabase, ":memory:") as db:
         db.create_tables()
         for name, energy, frequencies, charge in (
             ("parent", -10.0, [100.0, 200.0, 300.0], -1),
@@ -1746,7 +1096,7 @@ def test_rate_curve_provenance_errors(rate_curve_db):
 @pytest.mark.parametrize("attached", [False, True])
 def test_rate_curves_readonly(rate_curve_db, tmp_path, attached):
     import duckdb
-    from apitofsim.workflow.db import RealizationDatabase, connection_scope
+    from apitofsim.workflow.db import ExperimentDatabase, connection_scope
 
     path = str(tmp_path / "curves.duckdb")
     source = rate_curve_db.db
@@ -1779,12 +1129,12 @@ def test_rate_curves_readonly(rate_curve_db, tmp_path, attached):
         connection.execute("set search_path = 'output,molecules'")
     else:
         connection = duckdb.connect(path, read_only=True)
-    with connection_scope(RealizationDatabase, (connection, None)) as db:
+    with connection_scope(ExperimentDatabase, (connection, None)) as db:
         before = connection.execute("select count(*) from k_rate").fetchone()
         assert len(db.pathway_rate_curves(1, 1, 3)) == 2
         assert before == connection.execute("select count(*) from k_rate").fetchone()
         assert connection.execute(
-            "select count(*) from duckdb_views() where not internal"
+            "select count(*) from duckdb_views() where not internal and not temporary"
         ).fetchone() == (0,)
 
 
@@ -1921,7 +1271,7 @@ def test_upstream_escape_invalidates_run(tree, streaming, strict):
         api.ApiTofParticleEscapeError, match="axial velocity.*acceleration"
     ):
         if streaming:
-            with api.MassSpecIterator(
+            with api._MassSpecBatchIterator(
                 ms.into_cpp(), subs, 8, strict=strict, seed=42, logconf=(0, True)
             ) as stream:
                 for item in snapshot.flatten_batches(stream):
@@ -1929,7 +1279,7 @@ def test_upstream_escape_invalidates_run(tree, streaming, strict):
                     if isinstance(item, snapshot.InitEvent):
                         initial.append(item.state)
         else:
-            api.mass_spec(
+            api._mass_spec_legacy(
                 ms,
                 subs,
                 8,
