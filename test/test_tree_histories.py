@@ -430,7 +430,7 @@ def test_native_postfragmentation_persistence(batch_size):
 
 def test_tree_persistence_rolls_back_bulk_insert_failure():
     db = RealizationDatabase(":memory:")
-    db.create_tables()
+    db.create_tables(foreign_keys=True)
     populate(db.db)
     db.db.execute("insert into experiment_config (id) values (1)")
     db.db.execute(

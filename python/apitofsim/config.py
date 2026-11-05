@@ -145,7 +145,7 @@ def simulation_option(config, field) -> Any:
             FragmentationStateMethod,
             FragmentationStateMethod.zero,
         ),
-        "vib_energy_sampler": (VibEnergyMode, VibEnergyMode.direct),
+        "vib_energy_sampler": (VibEnergyMode, VibEnergyMode.dos_only),
         "sample_mode": (SampleMode, SampleMode.rejection),
         "collision_time_method": (
             CollisionTimeMethod,

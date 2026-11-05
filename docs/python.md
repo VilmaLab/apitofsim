@@ -159,9 +159,9 @@ Typically an `ExperimentDatabase` is created and its tables created with `db.cre
 
 After this, multiple simulations can be run using the `ExperimentRunner` class.
 
-`db.create_tables(foreign_keys=False)` omits FKs at creation for trusted bulk
-ingestion while preserving primary keys, other constraints and report views;
-FKs remain enabled by default.
+`db.create_tables()` omits foreign keys by default while preserving primary keys,
+other constraints and report views. Use `db.create_tables(foreign_keys=True)` to
+enable foreign keys when creating a database.
 Before using reports, call `db.check_foreign_keys()` to get orphan counts for
 violated declared relationships (an empty dictionary means none); it supports
 nullable/composite keys and accessible attached cluster tables.

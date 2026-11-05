@@ -46,8 +46,8 @@ def db():
 )
 @click.option(
     "--foreign-keys/--no-foreign-keys",
-    default=True,
-    help="Create with foreign keys (default); omit only for trusted bulk ingestion. Create mode only.",
+    default=False,
+    help="Create with foreign keys (omitted by default). Create mode only.",
 )
 def prepare(mode, config, database, db_type, ase, warm, foreign_keys):
     """
@@ -171,7 +171,7 @@ def prepare(mode, config, database, db_type, ase, warm, foreign_keys):
     simulation_mode = "single-cluster"
     fragmentation_state_method = "zero"
     sample_mode = "rejection"
-    vib_energy_sampler = "direct"
+    vib_energy_sampler = "dos-only"
     use_old_dos_impl = false
     k_total_mesh_mode = "compute_mesh_linear"
     k_rate_cancellation = true
@@ -219,8 +219,8 @@ def prepare(mode, config, database, db_type, ase, warm, foreign_keys):
                 merge_config(config_root.get("default_config", {}), config),
             )
 
-    if mode != "create" and not foreign_keys:
-        raise click.UsageError("--no-foreign-keys is only supported in create mode")
+    if mode != "create" and foreign_keys:
+        raise click.UsageError("--foreign-keys is only supported in create mode")
 
     if ase:
         ase_path = guess_ase_db_filename(database)

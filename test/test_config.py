@@ -499,9 +499,9 @@ def test_preparation_uses_simulation_options(
 @pytest.mark.parametrize(
     "mode", ["single-cluster", "pathway-at-a-time", "cluster-tree"]
 )
-@pytest.mark.parametrize("vib_mode", ["direct", "dos-only", "group-dos"])
+@pytest.mark.parametrize("vib_mode", [None, "direct", "dos-only", "group-dos"])
 def test_runner_uses_configured_mode_and_sampling(inputs, monkeypatch, mode, vib_mode):
-    from apitofsim.api import CollisionTimeMethod, SampleMode
+    from apitofsim.api import CollisionTimeMethod, SampleMode, VibEnergyMode
     from apitofsim.workflow.base import SimulationMode
 
     config = build_config(
@@ -547,6 +547,14 @@ def test_runner_uses_configured_mode_and_sampling(inputs, monkeypatch, mode, vib
 
         monkeypatch.setattr(runner, method, run)
         runner.run_prepared_config(name="configured")
+        expected_vib_mode = VibEnergyMode[(vib_mode or "dos-only").replace("-", "_")]
+        if expected_vib_mode == VibEnergyMode.direct:
+            assert not runner.preparer.vib_indexes
+        else:
+            assert runner.preparer.vib_indexes
+            assert db.db.execute(
+                "select distinct mode from vib_energy_index"
+            ).fetchall() == [(expected_vib_mode.name,)]
         assert calls == [
             (SampleMode.dss_normalized, CollisionTimeMethod.legacy, 4e-8, 2e-6)
         ]

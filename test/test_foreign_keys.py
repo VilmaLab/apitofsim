@@ -17,15 +17,17 @@ from click.testing import CliRunner
     "db_type",
     [ClusterDatabase, SuperClusterDatabase, ExperimentDatabase, RealizationDatabase],
 )
-@pytest.mark.parametrize("foreign_keys", [True, False])
+@pytest.mark.parametrize("foreign_keys", [None, True, False])
 def test_schema_constraints(db_type, foreign_keys):
     with connection_scope(db_type, ":memory:") as db:
-        db.create_tables(foreign_keys=foreign_keys)
+        db.create_tables(
+            **({} if foreign_keys is None else {"foreign_keys": foreign_keys})
+        )
         constraints = db.db.execute(
             "select constraint_type, count(*) from duckdb_constraints() group by 1"
         ).fetchall()
         counts = dict(constraints)
-        assert (counts.get("FOREIGN KEY", 0) > 0) == foreign_keys
+        assert (counts.get("FOREIGN KEY", 0) > 0) == bool(foreign_keys)
         assert counts["PRIMARY KEY"] > 0
         assert counts["NOT NULL"] > 0
         db.db.execute("insert into cluster(id) values (1)")
@@ -78,26 +80,24 @@ def test_integrity_cli_and_reopen(tmp_path):
     assert "collision_event(id) -> event_info(id): 1 orphan row(s)" in result.output
 
 
-@pytest.mark.parametrize("foreign_keys", [True, False])
+@pytest.mark.parametrize("foreign_keys", [None, True, False])
 def test_prepare_cli(tmp_path, foreign_keys):
     config = tmp_path / "config.toml"
     config.write_text("pathways = []\n")
     path = str(tmp_path / "results.duckdb")
     args = ["create", str(config), path, "--db-type=realization"]
-    if not foreign_keys:
-        args.append("--no-foreign-keys")
+    if foreign_keys is not None:
+        args.append("--foreign-keys" if foreign_keys else "--no-foreign-keys")
     runner = CliRunner(catch_exceptions=False)
     assert runner.invoke(prepare, args).exit_code == 0
     with connection_scope(RealizationDatabase, path) as db:
-        assert (
-            bool(
-                db.db.execute(
-                    "select count(*) from duckdb_constraints() where constraint_type = 'FOREIGN KEY'"
-                ).fetchone()[0]
-            )
-            == foreign_keys
-        )
-    result = runner.invoke(prepare, ["append", str(config), path, "--no-foreign-keys"])
+        assert bool(
+            db.db.execute(
+                "select count(*) from duckdb_constraints() where constraint_type = 'FOREIGN KEY'"
+            ).fetchone()[0]
+        ) == bool(foreign_keys)
+    assert runner.invoke(prepare, ["append", str(config), path]).exit_code == 0
+    result = runner.invoke(prepare, ["append", str(config), path, "--foreign-keys"])
     assert result.exit_code == 2
     assert "only supported in create mode" in result.output
 
