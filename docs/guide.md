@@ -245,8 +245,8 @@ Once these are all prepared you can go ahead and create a database:
 <a href="../cli/#apitofsim-db-prepare">apitofsim db prepare</a> create config.toml database.db
 </code>
 
-For trusted bulk ingestion, create with `--no-foreign-keys` (the default keeps FKs;
-primary keys and other constraints remain enabled).
+Foreign keys are omitted by default. Create with `--foreign-keys` to enable them;
+primary keys and other constraints remain enabled in either case.
 Run `apitofsim db check-integrity database.db` after ingestion or simulation and
 before using reports to detect orphan rows.
 

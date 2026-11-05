@@ -128,8 +128,8 @@ class ClusterDatabase:
     def __del__(self):
         self.close()
 
-    def create_tables(self, *, foreign_keys: bool = True):
-        """Create a new schema, optionally omitting FKs for trusted bulk ingestion.
+    def create_tables(self, *, foreign_keys: bool = False):
+        """Create a new schema, with foreign keys only when explicitly enabled.
 
         Primary keys, uniqueness and NOT NULL constraints are always retained.
         This does not change constraints in an existing database.

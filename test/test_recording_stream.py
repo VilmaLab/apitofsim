@@ -1275,6 +1275,7 @@ def test_prepared_vibrational_index_cache(prepared_case, mode, monkeypatch):
     db, runner, config, _ = prepared_case
     # Simulate opening a database created before indexes were supported.
     db.db.execute("drop table vib_energy_index")
+    config["vib_energy_sampler"] = "direct"
     prepare(prepared_case)
     assert runner.preparer.vib_indexes == {}
     db.db.execute(
