@@ -357,7 +357,7 @@ def read_events(path, *, events="batches", result_id=None):
             RecordingTransaction.recover(path)
     with recording_lock(path, shared=True):
         archive_metadata(path)
-        with pa.ipc.open_file(str(path)) as reader:
+        with pa.OSFile(str(path), "rb") as source, pa.ipc.open_file(source) as reader:
             for i in range(reader.num_record_batches):
                 batch = reader.get_batch(i)
                 if result_id is not None:

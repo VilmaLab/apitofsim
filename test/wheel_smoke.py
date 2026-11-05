@@ -18,7 +18,7 @@ with TemporaryDirectory() as directory:
     ]:
         with RecordingTransaction(apitofsim.IpcRecording(path, mode)) as recording:
             recording.executions["1"] = {"status": status}
-        with pa.ipc.open_file(path) as reader:
+        with pa.OSFile(str(path), "rb") as source, pa.ipc.open_file(source) as reader:
             assert reader.schema.field("event_index").type == pa.int64()
             assert reader.num_record_batches == 0
             assert (
