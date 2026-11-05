@@ -63,6 +63,52 @@ private:
     std::array<Matrix, 2> value, derivative;
   };
   std::vector<Node> nodes;
+  // Range-max tree over cubic Bezier control points of the interpolated
+  // velocity rows. Built once, shared read-only by thinning realizations.
+  std::vector<Matrix> velocity_bounds;
+  int bound_leaves = 1;
+  void prepare_bounds()
+  {
+    while (bound_leaves < cells)
+      bound_leaves *= 2;
+    velocity_bounds.resize(2 * static_cast<std::size_t>(bound_leaves));
+    for (int i = 0; i < cells; ++i)
+      for (std::size_t axis = 0; axis < 2; ++axis)
+        for (std::size_t j = 0; j < 2; ++j)
+        {
+          const auto component = 2 + j;
+          const double a = nodes[i].value[axis][component];
+          const double b = a + (h * nodes[i].derivative[axis][component] / 3);
+          const double d = nodes[i + 1].value[axis][component];
+          const double c = d - (h * nodes[i + 1].derivative[axis][component] / 3);
+          velocity_bounds[bound_leaves + i][(2 * axis) + j] = std::max({std::abs(a), std::abs(b), std::abs(c), std::abs(d)});
+        }
+    for (int i = bound_leaves - 1; i > 0; --i)
+      for (int j = 0; j < 4; ++j)
+        velocity_bounds[i][j] = std::max(velocity_bounds[2 * static_cast<std::size_t>(i)][j], velocity_bounds[(2 * i) + 1][j]);
+  }
+  Matrix velocity_range(double lo, double hi) const
+  {
+    // Include adjacent cells to cover floating-point phase/grid conversion.
+    int left = std::clamp(static_cast<int>(lo / h) - 1, 0, cells - 1) + bound_leaves;
+    int right = std::clamp(static_cast<int>(hi / h) + 1, 0, cells - 1) + bound_leaves + 1;
+    Matrix out{};
+    auto merge = [&](int i)
+    {
+      for (int j = 0; j < 4; ++j)
+        out[j] = std::max(out[j], velocity_bounds[i][j]);
+    };
+    while (left < right)
+    {
+      if ((left & 1) != 0)
+        merge(left++);
+      if ((right & 1) != 0)
+        merge(--right);
+      left /= 2;
+      right /= 2;
+    }
+    return out;
+  }
   Matrix derivative(const Matrix &f, double phase, int axis) const
   {
     const double k = (axis == 0 ? 1 : -1) * ((ac * std::cos(phase)) - dc);
@@ -91,6 +137,7 @@ public:
       }
     }
     validate();
+    prepare_bounds();
   }
   // Persist values and derivatives, in node/axis/component order. Loading checks
   // the same local accuracy and conditioning invariants as construction.
@@ -110,6 +157,7 @@ public:
           for (auto &value : axis)
             value = data[index++];
     validate();
+    prepare_bounds();
   }
   Eigen::ArrayXd data() const
   {
@@ -199,6 +247,35 @@ public:
     const Basis &basis;
     double phase;
     std::array<State, 2> coefficients;
+    // Componentwise speed bounds for this actual cubic interpolant, not an
+    // endpoint-only bound on the oscillating RF trajectory. At most one period
+    // in either direction; split explicitly at phase wraps/monodromy powers.
+    State speed_bound(double delta) const
+    {
+      if (!std::isfinite(delta) || std::abs(delta) > period * (1 + 1e-12))
+        throw std::invalid_argument("RF bound horizon exceeds one period");
+      const double lo = std::min(phase, phase + delta);
+      const double hi = std::max(phase, phase + delta);
+      const auto first = static_cast<long long>(std::floor(lo / period));
+      const auto last = static_cast<long long>(std::floor(hi / period));
+      State out{};
+      for (auto turn = first; turn <= last; ++turn)
+      {
+        const double a = std::clamp(lo - (turn * period), 0.0, period);
+        const double b = std::clamp(hi - (turn * period), 0.0, period);
+        const auto bound = basis.velocity_range(a, b);
+        for (std::size_t axis = 0; axis < 2; ++axis)
+        {
+          State c = coefficients[axis];
+          if (turn != 0)
+            c = matvec(power(basis.nodes.back().value[axis], turn), c);
+          const double v = (bound[2 * axis] * std::abs(c[0])) + (bound[(2 * axis) + 1] * std::abs(c[1]));
+          // Guard evaluation/power roundoff as well as bound construction.
+          out[axis] = std::max(out[axis], ((1 + 1e-12) * v) + 1e-14);
+        }
+      }
+      return out;
+    }
     std::array<State, 2> evaluate(double delta) const
     {
       const double total = phase + delta;

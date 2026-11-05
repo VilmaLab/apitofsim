@@ -135,7 +135,7 @@ normalized when loaded. Do not specify a setting both at top level and inside
 The default `compute_mesh_linear` reduces mesh preparation from quadratic to linear time while preserving the existing midpoint weights.
 The single-pathway API and native CLI use it too; batches avoid redundant preparation for cached inputs and atom-only pathways.
 
-The hazard tolerances apply to the integrated-hazard solver, including RF flights; the legacy solver ignores both tolerances and uses the chamber timesteps derived for each cluster.
+The default solver uses bounded thinning in RF fields and hazard integration elsewhere, where the hazard tolerances control integration and event location. The legacy solver ignores both tolerances and uses the chamber timesteps derived for each cluster.
 The workflow automatically prepares and caches RF tables for `integrated-hazard` simulations with nonzero AC and frequency.
 
 The selected DOS implementation affects newly computed entries; existing DOS

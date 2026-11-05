@@ -7,7 +7,6 @@
 namespace
 {
 constexpr double infinity = std::numeric_limits<double>::infinity();
-
 struct Estimate
 {
   double value;
@@ -184,11 +183,20 @@ void validate_rf_basis(const std::optional<Quadrupole> &quadrupole, const Collis
       throw std::invalid_argument("integrated_hazard requires a matching prepared RF basis for each particle");
 }
 
-TimeNextCollOutcome next_coll(double collision_quantile, ParticleState &particle, const ChamberQuantities &chamber, double R, Eigen::Array2d dts, double t_fragmentation, const Eigen::Array4d &acc, double m_gas, const SkimmerData &skimmer, double mesh_skimmer, const std::optional<Quadrupole> quadrupole, const CollisionTimeOptions &options, const RFBasis *rf_basis)
+TimeNextCollOutcome next_coll(double collision_quantile, ParticleState &particle, const ChamberQuantities &chamber, double R, Eigen::Array2d dts, double t_fragmentation, const Eigen::Array4d &acc, double m_gas, const SkimmerData &skimmer, double mesh_skimmer, const std::optional<Quadrupole> quadrupole, const CollisionTimeOptions &options, const RFBasis *rf_basis, const std::function<double()> &uniform)
 {
   validate_rf_basis(quadrupole, options, rf_basis);
   if (options.method == CollisionTimeMethod::legacy)
     return next_coll_old(collision_quantile, particle, chamber, R, dts, t_fragmentation, acc, m_gas, skimmer, mesh_skimmer, quadrupole);
+  auto draw = [&]
+  {
+    if (!uniform)
+      throw std::invalid_argument("RF collision timing requires a realization-local RNG");
+    const double u = uniform();
+    if (!std::isfinite(u) || u < 0 || u >= 1)
+      throw std::invalid_argument("Thinning RNG must return values in [0, 1)");
+    return u;
+  };
   double remaining = collision_quantile == 0 ? infinity : -std::log(collision_quantile);
   const double event_tol = options.hazard_atol + (options.hazard_rtol * remaining);
   double elapsed = 0;
@@ -219,11 +227,11 @@ TimeNextCollOutcome next_coll(double collision_quantile, ParticleState &particle
     };
     if (!std::isfinite(dt) && (!std::isfinite(remaining) || rate(particle) == 0))
       throw ApiTofUnexpectedNumericalError("Flight has no reachable event");
-    if (remaining == 0 && rate(particle) > 0)
-      return TimeNextCollOutcome::gas_collision;
     bool collision = false;
     bool field = region == 3 && quadrupole && quadrupole->mathieu_factor != 0 && (quadrupole->ac_field != 0 || quadrupole->dc_field != 0);
     bool rf = field && quadrupole->ac_field != 0 && quadrupole->angular_velocity != 0;
+    if (remaining == 0 && !rf && rate(particle) > 0)
+      return TimeNextCollOutcome::gas_collision;
     if (rf)
     {
       const auto &q = *quadrupole;
@@ -241,22 +249,50 @@ TimeNextCollOutcome next_coll(double collision_quantile, ParticleState &particle
         }
         return end;
       };
-      // Resolve the oscillatory rate before adaptive Gauss–Kronrod integration.
-      dt = std::min(dt, rf_detail::period / (8 * std::abs(q.angular_velocity)));
-      if (std::isfinite(remaining))
+      // Choose the window/bound independently of the exponential proposal.
+      dt = std::min(dt, rf_detail::period / std::abs(q.angular_velocity));
+      const auto transverse = anchor.speed_bound(q.angular_velocity * dt);
+      const double vz = std::max(std::abs(particle.velocity.z()), std::abs(particle.velocity.z() + (az * dt)));
+      const double speed = std::hypot(std::abs(q.angular_velocity) * std::hypot(transverse[0], transverse[1]), vz);
+      double bound = coll_freq(chamber.pressures.n[1], chamber.mobility_gas, chamber.mobility_gas_inv, R, speed);
+      bound *= 1 + 1e-12;
+      if (!std::isfinite(bound) || bound < 0)
+        throw ApiTofUnexpectedNumericalError("Invalid RF thinning envelope");
+
+      double offset = 0;
+      while (bound > 0 && std::isfinite(remaining))
       {
-        auto h = [&](double t)
-        { return rate(advance(t)); };
-        const double h0 = h(0);
-        if (h0 > 0)
-          dt = std::min(dt, 2 * std::max(remaining, options.hazard_atol) / h0);
-        if (auto event = consume(h, 0, dt, remaining, options.hazard_atol, options.hazard_rtol, event_tol))
+        const double wait = remaining / bound;
+        if (!(wait < dt - offset))
         {
-          dt = *event;
-          collision = true;
+          remaining = std::max(0.0, remaining - (bound * (dt - offset)));
+          break;
         }
+        const double proposal = offset + wait;
+        if (remaining > 0 && !(proposal > offset))
+          throw ApiTofUnexpectedNumericalError("RF thinning proposal made no progress");
+        offset = proposal;
+        const auto candidate = advance(offset);
+        const double hazard = rate(candidate);
+
+        if (!std::isfinite(hazard) || hazard < 0 || hazard > bound)
+          throw ApiTofUnexpectedNumericalError("RF thinning envelope violated");
+
+        if (draw() * bound < hazard)
+        {
+          dt = offset;
+          particle = candidate;
+          collision = true;
+          break;
+        }
+
+        const double u = draw();
+        remaining = u == 0 ? infinity : -std::log(u);
       }
-      particle = advance(dt);
+      // The proposal residual is exponential conditional on survival at the
+      // window boundary; it may be carried into either solver/next region.
+      if (!collision)
+        particle = advance(dt);
     }
     else
     {

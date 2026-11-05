@@ -315,7 +315,7 @@ or `CollisionTimeOptions(method=CollisionTimeMethod.legacy)` from `apitofsim`.
 Prepared streaming groups inherit these options from their run configuration.
 
 For RF simulations using `integrated_hazard`, call `prepare_rf_basis(quadrupole, cluster)` from `apitofsim` and pass the result as `rf_basis` to `MassSpecSubstanceSingleInput` or each `MSSubstanceTreeCluster`.
-Workflow runners handle this preparation and caching automatically.
+Workflow runners handle this preparation and caching automatically. RF collision times use bounded thinning with these tables; hazard tolerances apply to non-RF integration.
 
 ::: apitofsim.mass_spec
     options:

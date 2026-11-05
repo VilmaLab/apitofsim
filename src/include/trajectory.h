@@ -2,8 +2,9 @@
 
 #include "mass_spec.h"
 
-// Internal trajectory sampler: callers draw the collision quantile, while tests
-// can supply explicit event inputs without depending on random distributions.
+// Internal trajectory sampler: callers supply the first exponential quantile
+// and a realization-local uniform RNG for RF thinning. A zero quantile permits
+// deterministic collision-free trajectory checks.
 enum struct TimeNextCollOutcome
 {
   fragmentation,
@@ -12,7 +13,7 @@ enum struct TimeNextCollOutcome
 };
 
 TimeNextCollOutcome next_coll_old(double collision_quantile, ParticleState &particle, const ChamberQuantities &chamber, double R, Eigen::Array2d dts, double t_fragmentation, const Eigen::Array4d &acc, double m_gas, const SkimmerData &skimmer, double mesh_skimmer, const std::optional<Quadrupole> quadrupole);
-TimeNextCollOutcome next_coll(double collision_quantile, ParticleState &particle, const ChamberQuantities &chamber, double R, Eigen::Array2d dts, double t_fragmentation, const Eigen::Array4d &acc, double m_gas, const SkimmerData &skimmer, double mesh_skimmer, const std::optional<Quadrupole> quadrupole, const CollisionTimeOptions &options = {}, const RFBasis *rf_basis = nullptr);
+TimeNextCollOutcome next_coll(double collision_quantile, ParticleState &particle, const ChamberQuantities &chamber, double R, Eigen::Array2d dts, double t_fragmentation, const Eigen::Array4d &acc, double m_gas, const SkimmerData &skimmer, double mesh_skimmer, const std::optional<Quadrupole> quadrupole, const CollisionTimeOptions &options = {}, const RFBasis *rf_basis = nullptr, const std::function<double()> &uniform = {});
 
 int zone(double z, const CumulativeLengths &clens);
 

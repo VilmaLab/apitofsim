@@ -129,7 +129,7 @@ The total competing fragmentation rate is $K_f=\sum_c k_c(E)$:
 The implementation draws individual channel clocks, which is equivalent to
 one $\Exp(K_f)$ clock and a categorical channel draw. A sampled fragmentation
 clock remains in force across chamber boundaries. The integrated-hazard solver
-locates gas events with adaptive quadrature along the deterministic flight
+locates gas events with bounded thinning in RF fields and adaptive quadrature elsewhere along the deterministic flight
 (Appendix~\ref{app:flight}).
 
 For $N$ completed realizations, an observed fraction is $\widehat p=n_p/N$,
@@ -493,15 +493,27 @@ velocity into this basis; collisions and daughter transitions do not reset the
 RF phase. Persisted tables are checked for conditioning, unit Wronskian and
 local interpolation/integration consistency.
 
-The integrated-hazard solver uses embedded Gauss(7)--Kronrod(15) quadrature
+Outside RF fields, the default solver uses embedded Gauss(7)--Kronrod(15) quadrature
 for $H$, subdividing until estimated integral error is at most
 $\varepsilon_a+\varepsilon_r H_{\rm panel}$. The defaults are
 $\varepsilon_a=10^{-12}$ and $\varepsilon_r=10^{-9}$, both dimensionless.
 It consumes accepted panels from the left until the sampled budget falls in a
-panel, then refines the event location. RF panels span at most one eighth of
-a period; local horizons also limit accumulated hazard. Constant-rate flights
+panel, then refines the event location. Local horizons limit accumulated hazard. Constant-rate flights
 use $T_g=B/\lambda$ directly. Region interfaces and skimmer table knots are
 integration boundaries. Traversing an interface retains the residual budget.
+
+In RF fields the solver uses bounded thinning over windows of at most one
+period, truncated at interfaces or fragmentation. Cubic Bezier control points
+bound each interpolated velocity-matrix entry over the window, including phase
+wraps and the corresponding monodromy powers. Applying these bounds to the
+anchor coefficients and the axial endpoint-speed bound gives $v_{\max}$.
+The Maxwellian collision frequency is nondecreasing in ion speed, so
+$M=\lambda(v_{\max})$ bounds the window hazard. Exponential proposals of rate
+$M$ are accepted with probability $\lambda(t)/M$; rejected proposals are not
+physical collisions. The window and bound are chosen independently of the
+proposal draw. The exponential residual can be retained at a window boundary
+by memorylessness, including when switching to non-RF integration. Floating-point
+guards enlarge the bound and evaluated envelope violations are errors.
 
 There are no gas collisions for $z<0$. An ion travelling upstream is propagated
 under the first-region axial field until return or fragmentation; this is not
