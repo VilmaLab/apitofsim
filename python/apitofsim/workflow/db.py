@@ -1503,37 +1503,66 @@ class EventRecorder:
                     "escape",
                 ]
             )
-            fragmentation = pc.equal(kinds, 3)
-            indices = pc.if_else(fragmentation, events["transition_index"], None)
-            pathways = pc.take(pa.array(self.pathways, type=pa.int64()), indices)
             table = events.append_column("id", ids).append_column(
                 "realization_id", realization_ids
             )
-            table = table.append_column(
-                "event_type", pc.take(types, kinds)
-            ).append_column("pathway_id", pathways)
+            table = table.append_column("event_type", pc.take(types, kinds))
             self._insert_events(table)
         self.realization_ids.update(staged)
 
     def _insert_events(self, table):
+        import pyarrow as pa
         import pyarrow.compute as pc
 
-        # Relation-local Arrow scans avoid shadowing caller-registered names.
-        relation = self.db.db.from_arrow(table)
-        relation.project(
-            "id, realization_id, event_type, "
-            "{'x':x,'y':y,'z':z,'t':t}, "
-            "{'x':vx,'y':vy,'z':vz}, {'x':ox,'y':oy,'z':oz}, "
-            "rot_energy, vibrational_energy, particle_index"
-        ).insert_into("event_info")
-        for kind, columns in (
-            ("collision", "id, theta, u_norm, accepted::BOOLEAN"),
-            ("fragmentation", "id, transition_index, next_particle_index, pathway_id"),
+        shared = pa.table(
+            {
+                "id": table["id"],
+                "realization_id": table["realization_id"],
+                "event_type": table["event_type"],
+                "postime": pc.make_struct(
+                    *(table[k] for k in ("x", "y", "z", "t")),
+                    field_names=["x", "y", "z", "t"],
+                ),
+                "velocity": pc.make_struct(
+                    *(table[k] for k in ("vx", "vy", "vz")),
+                    field_names=["x", "y", "z"],
+                ),
+                "omega": pc.make_struct(
+                    *(table[k] for k in ("ox", "oy", "oz")),
+                    field_names=["x", "y", "z"],
+                ),
+                **{
+                    k: table[k]
+                    for k in ("rot_energy", "vibrational_energy", "particle_index")
+                },
+            }
+        )
+        # Relation-local scans preserve caller registrations and attached databases.
+        self.db.db.from_arrow(shared).insert_into("event_info")
+        for kind, code, columns in (
+            ("collision", 1, ["id", "theta", "u_norm", "accepted"]),
+            (
+                "fragmentation",
+                3,
+                ["id", "transition_index", "next_particle_index"],
+            ),
         ):
-            if pc.any(pc.equal(table.column("event_type"), kind)).as_py():
-                relation.filter(f"event_type = '{kind}'").project(columns).insert_into(
-                    f"{kind}_event"
+            # Filter only the narrow detail columns, using native numeric kinds.
+            detail = table.select(columns).filter(pc.equal(table["event_kind"], code))
+            if not len(detail):
+                continue
+            if kind == "fragmentation":
+                detail = detail.append_column(
+                    "pathway_id",
+                    pc.take(
+                        pa.array(self.pathways, type=pa.int64()),
+                        detail["transition_index"],
+                    ),
                 )
+            relation = self.db.db.from_arrow(detail)
+            if kind == "collision":
+                relation = relation.project("id, theta, u_norm, accepted::BOOLEAN")
+            relation.insert_into(f"{kind}_event")
 
     def relate_realizations(self, experiment_result_id):
         if self.realization_ids:

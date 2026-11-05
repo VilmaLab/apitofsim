@@ -1060,8 +1060,10 @@ def test_failed_batch_rolls_back_without_retry(prepared_case, monkeypatch):
 
 
 @pytest.mark.parametrize("attached", [False, True])
-def test_bulk_events_and_caller_transaction(prepared_case, tmp_path, attached):
+@pytest.mark.parametrize("chunked", [False, True])
+def test_bulk_events_and_caller_transaction(prepared_case, tmp_path, attached, chunked):
     import duckdb
+    import pyarrow as pa
     from apitofsim.workflow import sql_files_nofk
 
     source, _, _, _ = prepared_case
@@ -1094,7 +1096,20 @@ def test_bulk_events_and_caller_transaction(prepared_case, tmp_path, attached):
     conn.execute("begin")
     txid = conn.execute("select current_transaction_id()").fetchone()[0]
     for offset in range(0, len(events), 512):
-        recorder.record_batch(snapshot.event_table(events[offset : offset + 512]))
+        table = snapshot.event_table(events[offset : offset + 512])
+        if chunked:
+            # Different chunk boundaries across columns must preserve row alignment.
+            table = pa.Table.from_arrays(
+                [
+                    pa.chunked_array(
+                        column.slice(0, i % 3 + 1).chunks
+                        + column.slice(i % 3 + 1).chunks
+                    )
+                    for i, column in enumerate(table.columns)
+                ],
+                schema=table.schema,
+            )
+        recorder.record_batch(table)
     recorder.relate_realizations(42)
     assert conn.execute("select current_transaction_id()").fetchone()[0] == txid
     assert (
