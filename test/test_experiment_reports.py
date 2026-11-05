@@ -35,6 +35,34 @@ def record_counts(db, run_id, escaped, counts, **kwargs):
     )
 
 
+@pytest.mark.parametrize("counts", [(2, 3, 0), (2**63, 2**63 - 1, 0)])
+def test_record_result_aggregates_pathways(report_db, counts):
+    db = report_db
+    run_id = db.insert_run(1, simulation_mode=SimulationMode.CLUSTER_TREE)
+    result_id = record_counts(
+        db, run_id, 4, counts, cluster_id=1, pathway_ids=[1, 1, 3]
+    )
+    assert db.db.execute(
+        "select pathway_id, count from pathway_fragmentation "
+        "where experiment_result_id = ? order by pathway_id",
+        [result_id],
+    ).fetchall() == [(1, counts[0] + counts[1]), (3, 0)]
+
+
+def test_record_result_obeys_caller_transaction(report_db):
+    db = report_db
+    run_id = db.insert_run(1)
+    db.db.execute("begin")
+    transaction_id = db.db.sql("select current_transaction_id()").fetchone()[0]
+    record_counts(db, run_id, 4, [2, 3, 0], cluster_id=1, pathway_ids=[1, 1, 3])
+    assert db.db.sql("select current_transaction_id()").fetchone()[0] == transaction_id
+    db.db.execute("rollback")
+    assert db.db.sql("select count(*) from pathway_fragmentation").fetchone() == (0,)
+    assert db.db.sql(
+        "select count(*) from multi_pathway_experiment_result"
+    ).fetchone() == (0,)
+
+
 @pytest.mark.parametrize("mode", list(SimulationMode))
 def test_run_mode_enum(report_db, mode):
     run_id = report_db.insert_run(1, simulation_mode=mode)

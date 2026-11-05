@@ -1074,10 +1074,12 @@ class ExperimentDatabase(SuperClusterDatabase):
                 pathway_ids, counters.n_fragmented_total, strict=True
             ):
                 counter[pathway_id] += cnt
-            for pathway_id, cnt in counter.items():
+            if counter:
                 self.db.execute(
-                    "insert into pathway_fragmentation values (default, ?, ?, ?)",
-                    (id[0], pathway_id, int(cnt)),
+                    "insert into pathway_fragmentation "
+                    "(experiment_result_id, pathway_id, count) "
+                    "select ?, unnest(?::INTEGER[]), unnest(?::UBIGINT[])",
+                    [id[0], list(counter), [int(cnt) for cnt in counter.values()]],
                 )
         assert id is not None
         return id[0]
