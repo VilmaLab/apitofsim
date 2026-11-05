@@ -538,3 +538,15 @@ def test_recorded_roots_cannot_share_writer_concurrently(prepared_case):
             for _ in second:
                 pass
     assert first.result.result.status == second.result.result.status == "complete"
+
+
+def test_overwrite_preserves_unmanaged_staging_file(tmp_path):
+    path = tmp_path / "events.arrow"
+    staging = Path(str(path) + ".replacement")
+    path.write_bytes(b"original destination")
+    staging.write_bytes(b"unrelated file")
+    with pytest.raises(FileExistsError, match="Unmanaged recording staging file"):
+        with persistence.RecordingTransaction(api.IpcRecording(path, "overwrite")):
+            pass
+    assert path.read_bytes() == b"original destination"
+    assert staging.read_bytes() == b"unrelated file"
