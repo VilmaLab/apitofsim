@@ -188,6 +188,7 @@ def test_workflow_roots_share_sidecar_and_reopen(prepared_case):
     ).fetchall()
     assert len(ids) == 2
     before = db.events_query(sort=True).fetchall()
+    scoped = db.events_query(result_id=ids[0][0], sort=True)
     group = prepared.groups[0]
     runner.run_mass_spec(
         prepared.mass_spec,
@@ -201,6 +202,7 @@ def test_workflow_roots_share_sidecar_and_reopen(prepared_case):
         2,
     )
     assert len(db.events_query(sort=True).fetchall()) > len(before)
+    assert scoped.fetchall() == [row for row in before if row[2] == ids[0][0]]
     physical = {
         row[0]
         for row in db.db.execute("select table_name from duckdb_tables()").fetchall()

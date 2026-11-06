@@ -23,6 +23,37 @@ EVENT_SCHEMA = pa.schema(
 )
 
 
+def event_batch_dataset(path, ranges, columns=None):
+    """Expose selected IPC batches as a reusable, projectable Arrow dataset."""
+    import pyarrow.dataset as ds
+
+    if columns is None:
+        schema = EVENT_SCHEMA
+        options = None
+    else:
+        schema = pa.schema([EVENT_SCHEMA.field(name) for name in columns])
+        options = pa.ipc.IpcReadOptions(
+            included_fields=[EVENT_SCHEMA.get_field_index(name) for name in columns]
+        )
+    if not ranges:
+        return ds.dataset(pa.Table.from_batches([], schema=schema))
+
+    # The native IPC writer emits uncompressed buffers, so mmap keeps batch
+    # bodies file-backed. On Windows, live mappings would prevent an append
+    # from resizing the archive even after the database releases its lock.
+    open_source = pa.OSFile if os.name == "nt" else pa.memory_map
+    with (
+        open_source(str(path), "r") as source,
+        pa.ipc.open_file(source, options=options) as reader,
+    ):
+        batches = [
+            reader.get_batch(index)
+            for start, count in ranges
+            for index in range(start, start + count)
+        ]
+    return ds.dataset(batches)
+
+
 def events_filename(database):
     path = Path(database)
     return (

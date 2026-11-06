@@ -1,12 +1,13 @@
 """Small, explicit IPC fixtures for query tests, independent of the simulator."""
 
 import json
+from collections import defaultdict
 
 import pyarrow as pa
 from apitofsim.recording import EVENT_SCHEMA
 
 
-def publish_events(db, rows):
+def publish_events(db, rows, *, batch_size=None, statuses=None):
     db._release_event_reader()
     identity, generation, _ = db.db.execute(
         "select archive_id,generation,file_size from event_recording_state"
@@ -16,29 +17,41 @@ def publish_events(db, rows):
     ).with_metadata(
         {b"apitofsim:event_schema": b"1", b"apitofsim:archive_id": identity.encode()}
     )
-    values = [
-        {
-            **{field.name: 0 for field in schema},
-            "transition_index": -1,
-            "next_particle_index": -1,
-            **row,
-        }
-        for row in rows
-    ]
-    table = pa.Table.from_pylist(values, schema=schema)
-    ids = sorted({row["result_id"] for row in values})
-    metadata = {str(id): {"status": "complete"} for id in ids}
+    by_result = defaultdict(list)
+    for row in rows:
+        by_result[row["result_id"]].append(
+            {
+                **{field.name: 0 for field in schema},
+                "transition_index": -1,
+                "next_particle_index": -1,
+                **row,
+            }
+        )
+    metadata = {}
+    batches = []
+    for result_id, values in by_result.items():
+        result_batches = pa.Table.from_pylist(values, schema=schema).to_batches(
+            max_chunksize=batch_size
+        )
+        info = metadata[str(result_id)] = dict(
+            status=(statuses or {}).get(result_id, "complete"),
+            event_count=len(values),
+            batch_start=len(batches),
+            batch_count=len(result_batches),
+        )
+        batches.extend(result_batches)
+        db.db.execute(
+            """update event_execution set recorded=true,status=?,event_count=?,
+               batch_start=?,batch_count=? where result_id=?""",
+            [*info.values(), result_id],
+        )
     with pa.ipc.new_file(
         str(db.events_path),
         schema,
         metadata={b"apitofsim:executions": json.dumps(metadata).encode()},
     ) as writer:
-        writer.write_table(table)
-    for id in ids:
-        db.db.execute(
-            "update event_execution set recorded=true,status='complete' where result_id=?",
-            [id],
-        )
+        for batch in batches:
+            writer.write_batch(batch)
     db.db.execute(
         "update event_recording_state set generation=?,file_size=?",
         [generation + 1, db.events_path.stat().st_size],

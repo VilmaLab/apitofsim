@@ -206,7 +206,8 @@ IPC dataset with DuckDB, without downloading a DuckDB extension.
 
 `results_query()`, `realizations_query()`, `events_query()` and
 `recorded_output_query()` return DuckDB relations. Filters `run_id`, `parent`
-(root cluster ID) and `result_id` intersect. Failed/cancelled executions retain
+(root cluster ID) and `result_id` intersect. Scoped event and realization queries
+read only the IPC batches for matching executions. Failed/cancelled executions retain
 their recorded events. Realization counts count observed histories, including
 histories interrupted before a completed-realization counter was emitted.
 
