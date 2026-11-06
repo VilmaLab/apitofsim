@@ -168,11 +168,14 @@ The small, pinned Apache nanoarrow static dependency encodes IPC in C/C++ and
 is built through a Meson wrap/overlay. No Arrow C++ runtime ABI or PyArrow version
 pin is introduced. The project now requires a C compiler as well as C++20.
 
-`EventColumns` is the common native column layout. A consuming native thread
-writes batches while the simulation produces events; Python gets batches only
-when requested. Input credits and a two-batch delivery queue impose backpressure.
-Cancellation releases blocked producers and consumers. Record batches own retained
-buffers; the writer's borrowed C Data arrays are used only for synchronous encoding.
+`EventColumns` is the common native column layout. A oneTBB pipeline assigns
+realization IDs, simulates histories in parallel, and delivers completed tokens
+through a serial output stage. Recording uses in-order output and the stage
+coalesces events directly into IPC batches. Final-only summaries can group
+realizations and reduce counters without collecting events. Python iterators
+use a bounded handoff for events and callbacks. The raw iterator retains its eager queue
+for join-before-read callers. Record batches own retained buffers, and the
+writer borrows C Data arrays for synchronous encoding.
 
 A database owns one `.events.arrow` sidecar. The format has fixed primitive fields,
 a schema version/archive UUID, and per-execution footer metadata. An appender

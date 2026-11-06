@@ -437,17 +437,25 @@ fragmentation rows add `transition_index` and `next_particle_index`. Native
 values retain double precision and SI units. Raw batch subtype fields are zero
 or -1 outside their event kind; SQL read views expose them as NULL instead.
 
+Use `ordered=True` to deliver events by realization index and event index within
+an execution. Recording implies ordered delivery. Passing `ordered=False` with
+recording raises an error. Without recording, the default emits histories as they
+complete. Live events become available after the realization finishes, or when
+cancellation or failure ends it early. New IPC footer entries mark ordered
+executions. Appending leaves the layout of earlier executions intact.
+
 Use the iterator as a context manager. `request_cancel()` is thread-safe and
-nonblocking. Early exit cancels, drains the native queue, saves partial events
-with an incomplete status, and joins. Native errors propagate after retaining
-partial events when the writer can finish safely. File/metadata I/O failure
-rolls back the pending append. Python delivery is lossless and bounded by
-`max_pending_events` (default 262144), plus at most one 1024-event accounting
-chunk per producer and two pending native batches. A slow
-consumer creates backpressure and can increase simulation time.
-`initial_batch_size` and `max_batch_size` control delivery batch sizes; the
-native writer uses at most 65536 events per batch. `stream.finish()` discards
-remaining Python delivery and waits for completion without requesting cancellation.
+nonblocking. Early exit stops admitting realizations, drains partial histories,
+saves an incomplete status, and joins. A write failure rolls back the pending
+append. During normal Python event delivery, backpressure limits the handoff
+to two pending batches and the `max_pending_events` credit limit (default 262144). One batch may
+exceed that credit limit. The pipeline separately bounds the number of in-flight
+histories, whose sizes depend on the simulation.
+
+`initial_batch_size` and `max_batch_size` control delivery batch sizes. The native
+writer coalesces histories into batches of up to 65536 events. `stream.finish()`
+discards remaining Python events, delivers requested callbacks on the caller's
+thread, and waits for completion.
 
 ```python
 from apitofsim import read_events

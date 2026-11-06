@@ -108,6 +108,12 @@ class MassSpecResult:
     status: str = "complete"
 
 
+def ordered_delivery(ordered: bool | None, recording: bool) -> bool:
+    if recording and ordered is False:
+        raise ValueError("Event recording requires ordered delivery")
+    return recording or bool(ordered)
+
+
 class MassSpecIterator:
     """A single lossless Python consumer, independent of the native IPC sink.
 
@@ -126,6 +132,9 @@ class MassSpecIterator:
         result_id=0,
         result_callback=None,
         log_callback=None,
+        ordered=False,
+        progress=None,
+        logs=None,
     ):
         if events not in (None, "batches", "individual"):
             raise ValueError("events must be batches or individual")
@@ -148,6 +157,9 @@ class MassSpecIterator:
             recording.writer if recording is not None else None,
             result_id,
             events is not None,
+            ordered=ordered,
+            progress=result_callback is not None if progress is None else progress,
+            logs=log_callback is not None if logs is None else logs,
         )
 
     def request_cancel(self):
@@ -184,6 +196,7 @@ class MassSpecIterator:
                 event_count=info.event_count,
                 batch_start=info.batch_start,
                 batch_count=info.batch_count,
+                ordered=True,
             )
             if self.owns_recording:
                 try:
@@ -212,7 +225,7 @@ class MassSpecIterator:
                     lambda: setattr(error, "recording", None)
                 )
 
-    def _read(self, *, discard=False):
+    def _read(self, *, discard=False, callbacks=True):
         from .api import (
             MassSpecFinalResult,
             MassSpecIntermediateCounter,
@@ -235,14 +248,12 @@ class MassSpecIterator:
             if isinstance(item, MassSpecFinalResult):
                 self._completion(item)
             elif (
-                not discard
+                callbacks
                 and isinstance(item, MassSpecIntermediateCounter)
                 and self.result_callback
             ):
                 self.result_callback(item.counters)
-            elif (
-                not discard and isinstance(item, MassSpecLogItem) and self.log_callback
-            ):
+            elif callbacks and isinstance(item, MassSpecLogItem) and self.log_callback:
                 self.log_callback(item.type, item.name)
         if not discard and self.events is not None and len(batch.events):
             table = batch.events.rename_columns(
@@ -272,10 +283,13 @@ class MassSpecIterator:
 
     def finish(self):
         """Drain remaining delivery and wait for native execution/persistence."""
+        return self._finish(callbacks=True)
+
+    def _finish(self, *, callbacks):
         self._ready.clear()
         self._row_batch = None
         while not self._done:
-            self._read(discard=True)
+            self._read(discard=True, callbacks=callbacks)
         return self.result
 
     def __enter__(self):
@@ -285,7 +299,7 @@ class MassSpecIterator:
         if not self._done:
             self.request_cancel()
             try:
-                self.finish()
+                self._finish(callbacks=False)
             except BaseException as cleanup:
                 if exc is None:
                     raise
@@ -300,6 +314,7 @@ def start_stream(
     *,
     events: str | None = "batches",
     record_to=None,
+    ordered=None,
     result_callback=None,
     log_callback=None,
     max_pending_events=262144,
@@ -317,6 +332,7 @@ def start_stream(
         raise ValueError(
             "N must be nonnegative and max_pending_events must be positive"
         )
+    ordered = ordered_delivery(ordered, record_to is not None)
     transaction = None
     if record_to is not None:
         transaction = RecordingTransaction(record_to)
@@ -327,8 +343,9 @@ def start_stream(
             ms,
             substance,
             N,
-            logconf=(loglevel, True),
+            logconf=(loglevel, transaction is not None or events is not None),
             queue_capacity=max_pending_events,
+            _deferred=True,
             **options,
         )
         return MassSpecIterator(
@@ -339,6 +356,7 @@ def start_stream(
             result_id=transaction.next_result_id if transaction is not None else 0,
             result_callback=result_callback,
             log_callback=log_callback,
+            ordered=ordered,
         )
     except BaseException:
         if transaction is not None:

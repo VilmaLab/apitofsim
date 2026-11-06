@@ -129,10 +129,13 @@ class RecordingMassSpecIterator:
         max_pending_events=262144,
         record_events=None,
         python_events=False,
+        ordered=None,
+        _progress=True,
+        _logs=True,
         **options,
     ):
         from apitofsim.api import _mass_spec_batches
-        from apitofsim.events import MassSpecIterator
+        from apitofsim.events import MassSpecIterator, ordered_delivery
 
         self.max_batch_items = index(max_batch_items)
         max_pending_events = index(max_pending_events)
@@ -157,6 +160,7 @@ class RecordingMassSpecIterator:
         self.record_events = (
             db.record_events if record_events is None else record_events
         )
+        ordered = ordered_delivery(ordered, self.record_events)
         if hasattr(substance, "tree_nodes") and tree_cluster_ids is None:
             raise ValueError("Tree execution requires tree_cluster_ids")
         if (
@@ -197,15 +201,18 @@ class RecordingMassSpecIterator:
                 if self.record_events or python_events
                 else 0,
                 logconf=(level, self.record_events or python_events),
+                _deferred=True,
                 **options,
             )
-            if self.record_events or python_events:
-                self._controller = MassSpecIterator(
-                    self._stream,
-                    events="batches" if python_events else None,
-                    recording=db._recording if self.record_events else None,
-                    result_id=self.execution_id,
-                )
+            self._controller = MassSpecIterator(
+                self._stream,
+                events="batches" if python_events else None,
+                recording=db._recording if self.record_events else None,
+                result_id=self.execution_id,
+                ordered=ordered,
+                progress=_progress,
+                logs=_logs,
+            )
         except BaseException as error:
             self._abort(error)
             raise
@@ -463,6 +470,7 @@ class ExperimentEventIterator:
         *,
         events,
         record_events=None,
+        ordered=None,
         result_callback=None,
         log_callback=None,
         **options,
@@ -478,7 +486,14 @@ class ExperimentEventIterator:
             runner.db.record_events if record_events is None else record_events
         )
         self.result_callback, self.log_callback = result_callback, log_callback
-        self.options = options
+        from apitofsim.events import ordered_delivery
+
+        self.options = dict(
+            options,
+            ordered=ordered_delivery(ordered, self.record),
+            _progress=result_callback is not None,
+            _logs=log_callback is not None,
+        )
         self.result = None
         self._groups = iter(prepared.groups)
         self._current = None
@@ -1519,6 +1534,9 @@ class ExperimentRunner:
         max_pending_events=262144,
         record_events=None,
         python_events=False,
+        ordered=None,
+        _progress=True,
+        _logs=True,
     ) -> RecordingMassSpecIterator:
         """Stream a prepared group; see RecordingMassSpecIterator for cleanup.
 
@@ -1542,6 +1560,9 @@ class ExperimentRunner:
             max_pending_events=max_pending_events,
             record_events=record_events,
             python_events=python_events,
+            ordered=ordered,
+            _progress=_progress,
+            _logs=_logs,
             sample_mode=sample_mode,
             collision_time=prepared.collision_time,
             strict=strict_dos,
@@ -1549,25 +1570,54 @@ class ExperimentRunner:
             seed=seed,
         )
 
-    def run_experiment(self, prepared, N=None, *, record_events=None, **options):
+    def run_experiment(
+        self, prepared, N=None, *, record_events=None, ordered=None, **options
+    ):
         """Run every prepared root; return after requested persistence is durable."""
         with ExperimentEventIterator(
-            self, prepared, N, events=None, record_events=record_events, **options
+            self,
+            prepared,
+            N,
+            events=None,
+            record_events=record_events,
+            ordered=ordered,
+            **options,
         ) as stream:
             return stream.finish()
 
     def iter_experiment(
-        self, prepared, N=None, *, events="batches", record_events=None, **options
+        self,
+        prepared,
+        N=None,
+        *,
+        events="batches",
+        record_events=None,
+        ordered=None,
+        **options,
     ):
         """Receive events across all roots; one native IPC writer spans the run."""
         if events not in ("batches", "individual"):
             raise ValueError("events must be batches or individual")
         return ExperimentEventIterator(
-            self, prepared, N, events=events, record_events=record_events, **options
+            self,
+            prepared,
+            N,
+            events=events,
+            record_events=record_events,
+            ordered=ordered,
+            **options,
         )
 
     def iter_mass_spec(
-        self, prepared, group, N, *, events="batches", record_events=None, **options
+        self,
+        prepared,
+        group,
+        N,
+        *,
+        events="batches",
+        record_events=None,
+        ordered=None,
+        **options,
     ):
         if events not in ("batches", "individual"):
             raise ValueError("events must be batches or individual")
@@ -1578,6 +1628,9 @@ class ExperimentRunner:
                 N,
                 python_events=True,
                 record_events=record_events,
+                ordered=ordered,
+                _progress=False,
+                _logs=False,
                 **options,
             ),
             events,
@@ -1603,6 +1656,7 @@ class ExperimentRunner:
         result_callback=None,
         log_callback=None,
         record_events=None,
+        ordered=None,
     ):
         """Run to completion using the same batched recorder as streaming runs."""
         self._guard_run_started()
@@ -1621,6 +1675,9 @@ class ExperimentRunner:
                 tree_cluster_ids=tree_cluster_ids,
                 max_batch_items=max_batch_items,
                 record_events=record_events,
+                ordered=ordered,
+                _progress=result_callback is not None,
+                _logs=log_callback is not None,
                 sample_mode=sample_mode,
                 collision_time=collision_time,
                 seed=seed,

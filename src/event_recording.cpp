@@ -50,6 +50,7 @@ struct IpcEventWriter::Impl
   nanoarrow::UniqueBuffer body;
   int64_t rows{0};
   bool closed{false};
+  bool write_failed{false};
   std::string executions{"{}"};
 
   Impl(const std::string &path, bool append, const std::string &archive_id) : path(std::u8string(path.begin(), path.end()))
@@ -190,6 +191,8 @@ struct IpcEventWriter::Impl
 
   void close()
   {
+    if (write_failed)
+      throw std::runtime_error("Event IPC: cannot publish after a failed write");
     if (closed)
       return;
     const auto continuation = little_endian(UINT32_MAX);
@@ -256,7 +259,21 @@ IpcEventWriter::IpcEventWriter(const std::string &path, bool append, const std::
 IpcEventWriter::~IpcEventWriter() = default;
 void IpcEventWriter::write(const EventColumns &columns, int64_t result_id, const std::vector<int64_t> &event_indices)
 {
-  impl->write(columns, result_id, event_indices);
+  try
+  {
+    impl->write(columns, result_id, event_indices);
+  }
+  catch (const std::invalid_argument &)
+  {
+    // Shape validation happens before encoding or writing anything.
+    throw;
+  }
+  catch (...)
+  {
+    if (!impl->closed)
+      impl->write_failed = true;
+    throw;
+  }
 }
 void IpcEventWriter::close()
 {
