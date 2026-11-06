@@ -7,12 +7,8 @@ def get_report(db, report_type):
 
     import pandas
 
-    if not db.is_experiment_db() and report_type in {"event-report"}:
-        raise UnknownReportTypeError(
-            f"Report type {report_type} is only available for experiment databases"
-        )
-
     if not db.is_experiment_db() and report_type in {
+        "event-report",
         "experiment-pathway-report",
         "experiment-cluster-report",
         "experiment-summary",
@@ -36,5 +32,7 @@ def get_report(db, report_type):
             )
         df = pandas.concat(dataframes)
         return df
-    else:
-        return db.db.table(report_type.replace("-", "_")).df()
+    report = db.db.table(report_type.replace("-", "_")).df()
+    if report_type == "event-report" and report.empty:
+        raise UnknownReportTypeError("No recorded events in the database")
+    return report
