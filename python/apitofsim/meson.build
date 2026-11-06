@@ -2,6 +2,7 @@
 apitofsim_python_py_src = [
 'api.py',
 'recording.py',
+'event_conversion.py',
 'events.py',
 'collision.py',
 'cli.py',

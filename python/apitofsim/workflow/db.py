@@ -5,6 +5,7 @@ from collections import Counter, namedtuple
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import timedelta
+from pathlib import Path
 
 import duckdb
 import numpy
@@ -833,7 +834,7 @@ class _EventQueries:
                 else particle_index = lag(
                     case when event_type = 'fragmentation' then next_particle_index
                          else particle_index end
-                ) over (partition by realization_id order by event_index)
+                ) over (partition by result_id, realization_index order by event_index)
             end as continuity_valid
         """).order("result_id, realization_index, event_index")
 
@@ -887,10 +888,14 @@ class ExperimentDatabase(SuperClusterDatabase, _EventQueries):
     ]
 
     def __init__(
-        self, filename, *, record_events=False, events_filename=None, **kwargs
+        self,
+        filename,
+        *,
+        record_events=False,
+        events_filename=None,
+        _database_path=None,
+        **kwargs,
     ):
-        from pathlib import Path
-
         from apitofsim.recording import events_filename as sidecar_name
 
         self.record_events = record_events
@@ -898,12 +903,13 @@ class ExperimentDatabase(SuperClusterDatabase, _EventQueries):
         self._recording = None
         self._event_read_lock = None
         self._event_reader_ready = False
-        self.events_path = (
+        self._parquet_events = False
+        self._explicit_events_path = (
             Path(events_filename).resolve() if events_filename is not None else None
         )
         super().__init__(filename, **kwargs)
-        if self.events_path is None:
-            source = (
+        if _database_path is None:
+            _database_path = (
                 filename
                 if isinstance(filename, (str, Path)) and str(filename) != ":memory:"
                 else next(
@@ -915,8 +921,17 @@ class ExperimentDatabase(SuperClusterDatabase, _EventQueries):
                     None,
                 )
             )
-            if source is not None:
-                self.events_path = sidecar_name(source).resolve()
+        self._ipc_path = (
+            sidecar_name(_database_path).resolve()
+            if _database_path is not None
+            else None
+        )
+        self._parquet_path = (
+            sidecar_name(_database_path, parquet=True).resolve()
+            if _database_path is not None
+            else None
+        )
+        self.events_path = self._explicit_events_path or self._ipc_path
         physical = {
             row[0]
             for row in self.db.execute(
@@ -946,20 +961,23 @@ class ExperimentDatabase(SuperClusterDatabase, _EventQueries):
 
     def _release_event_reader(self):
         if self._event_reader_ready and not self.closed:
-            self.db.unregister("_event_archive")
+            if self._parquet_events:
+                self.db.execute("drop view _event_archive")
+            else:
+                self.db.unregister("_event_archive")
         if self._event_read_lock is not None:
             self._event_read_lock.release()
             self._event_read_lock = None
         self._event_reader_ready = False
 
     def _ensure_event_reader(self):
-        from pathlib import Path
-
         import pyarrow as pa
         import pyarrow.dataset as ds
 
         from apitofsim.recording import (
             EVENT_SCHEMA,
+            IPC_VERSION,
+            PARQUET_VERSION,
             RecordingTransaction,
             archive_metadata,
             recording_lock,
@@ -971,50 +989,114 @@ class ExperimentDatabase(SuperClusterDatabase, _EventQueries):
             )
         if self._event_reader_ready:
             return
-        state = self.db.execute(
-            "select schema_version,archive_id,generation,file_size from event_recording_state"
-        ).fetchall()[0]
-        if state[0] != 1:
-            raise ValueError(
-                "Unsupported event recording schema; explicit migration is required"
-            )
-        path = self.events_path
-        if path is not None and Path(str(path) + ".journal").exists():
-            with recording_lock(path):
-                RecordingTransaction.recover(
-                    path, generation=state[2], expected_archive_id=state[1]
-                )
-        if path is not None:
-            self._event_read_lock = recording_lock(path, shared=True)
-            self._event_read_lock.acquire()
-        if state[3]:
-            if path is None or not path.exists():
-                self._release_event_reader()
-                raise FileNotFoundError(
-                    "Recorded events require the matching .events.arrow sidecar (or explicit events_filename)"
-                )
-            if path.stat().st_size != state[3] or archive_metadata(path)[0] != state[1]:
-                self._release_event_reader()
+
+        # The standard IPC lock guards both formats, including the switch.
+        lock_path = self._explicit_events_path or self._ipc_path
+        if self._explicit_events_path == self._parquet_path:
+            lock_path = self._ipc_path
+        try:
+            if lock_path is not None:
+                self._event_read_lock = recording_lock(lock_path, shared=True)
+                self._event_read_lock.acquire()
+            version, identity, generation, size = self.db.execute(
+                "select schema_version,archive_id,generation,file_size from event_recording_state"
+            ).fetchall()[0]
+            if version not in (IPC_VERSION, PARQUET_VERSION):
                 raise ValueError(
-                    "Event sidecar identity/size does not match this database"
+                    "Unsupported event recording schema; explicit migration is required"
                 )
-            self.db.register("_event_archive", ds.dataset(str(path), format="ipc"))
-        else:
-            self.db.register(
-                "_event_archive", pa.Table.from_batches([], schema=EVENT_SCHEMA)
+            self._parquet_events = version == PARQUET_VERSION
+            path = self._explicit_events_path or (
+                self._parquet_path if self._parquet_events else self._ipc_path
             )
-        self.db.execute(
-            sql_files.event_views.format(event_columns=sql_files.event_columns)
-        )
-        self._event_reader_ready = True
+            self.events_path = path
+            if (
+                not self._parquet_events
+                and path is not None
+                and Path(str(path) + ".journal").exists()
+            ):
+                if self.readonly:
+                    RecordingTransaction.recover(
+                        path,
+                        generation=generation,
+                        expected_archive_id=identity,
+                        readonly=True,
+                    )
+                else:
+                    self._release_event_reader()
+                    with recording_lock(path):
+                        current = self.db.execute(
+                            "select archive_id,generation from event_recording_state where schema_version=?",
+                            [IPC_VERSION],
+                        ).fetchone()
+                        if current is not None:
+                            RecordingTransaction.recover(
+                                path,
+                                generation=current[1],
+                                expected_archive_id=current[0],
+                            )
+                    return self._ensure_event_reader()
+            if size or self._parquet_events:
+                if path is None or not path.is_file():
+                    suffix = "parquet" if self._parquet_events else "arrow"
+                    raise FileNotFoundError(
+                        f"Recorded events require the matching .events.{suffix} sidecar (or explicit events_filename)"
+                    )
+                if path.stat().st_size != size or (
+                    not self._parquet_events and archive_metadata(path)[0] != identity
+                ):
+                    raise ValueError(
+                        "Event sidecar identity/size does not match this database"
+                    )
+                if self._parquet_events:
+                    from apitofsim.event_conversion import validate_parquet
+
+                    validate_parquet(path, identity, generation)
+                    # The archive is immutable while the shared lock is held.
+                    self.db.execute("set parquet_metadata_cache=true")
+                    scan = self.db.read_parquet(str(path), hive_partitioning=False)
+                    self.db.execute(
+                        f"create or replace temp view _event_archive as {scan.sql_query()}"
+                    )
+                else:
+                    self.db.register(
+                        "_event_archive", ds.dataset(str(path), format="ipc")
+                    )
+            else:
+                self.db.register(
+                    "_event_archive", pa.Table.from_batches([], schema=EVENT_SCHEMA)
+                )
+            self._event_reader_ready = True
+            self.db.execute(
+                sql_files.event_views.format(event_columns=sql_files.event_columns)
+            )
+        except BaseException:
+            self._release_event_reader()
+            raise
 
     def _recorded_events(self, run_id, parent, result_id, *, columns=None):
         from apitofsim.recording import event_batch_dataset
 
         self._ensure_event_reader()
         execution = self._execution_query(run_id, parent, result_id).filter("recorded")
-        if run_id is None and parent is None and result_id is None:
-            return self.db.table("_event_archive"), execution
+        unscoped = run_id is None and parent is None and result_id is None
+        if self._parquet_events:
+            # DuckDB 1.4 can materialize views passed to .table() eagerly.
+            archive = self.db.sql("from _event_archive")
+            if unscoped:
+                return archive, execution
+            ids = [
+                int(row[0])
+                for row in execution.select("experiment_result_id").fetchall()
+            ]
+            if not ids:
+                return archive.filter("false"), execution
+            if len(ids) == 1:
+                return archive.filter(f"result_id = {ids[0]}"), execution
+            return archive.filter(
+                f"result_id in ({','.join(map(str, ids))})"
+            ), execution
+
         ranges = (
             execution.filter("batch_count > 0")
             .select("batch_start, batch_count")
@@ -1038,7 +1120,11 @@ class ExperimentDatabase(SuperClusterDatabase, _EventQueries):
 
     @contextmanager
     def recording_transaction(self):
-        from apitofsim.recording import IpcRecording, RecordingTransaction
+        from apitofsim.recording import (
+            PARQUET_APPEND_ERROR,
+            IpcRecording,
+            RecordingTransaction,
+        )
 
         if self.readonly:
             raise PermissionError("Cannot record through a read-only database")
@@ -1049,6 +1135,8 @@ class ExperimentDatabase(SuperClusterDatabase, _EventQueries):
             raise ValueError(
                 "Recording requires a file-backed database or an explicit events_filename"
             )
+        if self._parquet_events:
+            raise ValueError(PARQUET_APPEND_ERROR)
         self._release_event_reader()
         transaction = RecordingTransaction(
             IpcRecording(self.events_path, "append"), database=self
@@ -1596,6 +1684,8 @@ class ExperimentDatabase(SuperClusterDatabase, _EventQueries):
         return json.loads(row[0]) if row and row[0] is not None else {}
 
     def report_df(self, tbl_name):
+        if tbl_name == "event_report" and self._parquet_events:
+            return self.db.sql("from event_report").fetchdf()
         return self.db.table(tbl_name).fetchdf()
 
     def experiment_overview_query(self, experiment_run_id=None):
@@ -1682,8 +1772,6 @@ def auto_db_type(filename, *, readonly=False):
     db, cleanup = connect_duckdb_cleanup(filename, readonly=readonly)
     conn = (db, cleanup)
     if is_experiment_db(db):
-        return ExperimentDatabase(
-            conn, readonly=readonly, events_filename=guess_events_filename(filename)
-        )
+        return ExperimentDatabase(conn, readonly=readonly, _database_path=filename)
     else:
         return SuperClusterDatabase(conn)
