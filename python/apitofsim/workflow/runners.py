@@ -615,6 +615,104 @@ class DerivedDataPreparer:
         self.rate_histogram_id = None
         self.vib_indexes: dict[int, VibEnergyIndex] = {}
         self.rf_bases: dict[int, raw.RFBasis] = {}
+        self.fragmentation_products: dict[
+            tuple[int, int], raw.FragmentationProducts
+        ] = {}
+
+    def _prepare_fragmentation_products(
+        self, config, clusters, pathways, densities, status_table=None
+    ):
+        import hashlib
+        import json
+
+        import pyarrow as pa
+
+        self.fragmentation_products = {}
+        if (
+            simulation_option(config, "fragmentation_state_method")
+            != raw.FragmentationStateMethod.phase_space
+        ):
+            return
+        self.db.ensure_fragmentation_dos_cache()
+        parents = {parent for parent, _, _ in pathways.values()}
+        hits = misses = 0
+        for parent, first, second in pathways.values():
+            if clusters[parent].charge == 0:
+                continue
+            if clusters[first].charge == 0:
+                first, second = second, first
+            if first not in parents or clusters[first].charge == 0:
+                continue  # Terminal transition: no daughter state is sampled.
+            if (first, second) in self.fragmentation_products:
+                continue
+            daughter = clusters[first].into_cpp()
+            neutral = clusters[second].into_cpp()
+            # Use exactly the same SI grid as the former tree-assembly path,
+            # including the selected cached histogram rather than config defaults.
+            grid = scaled_density(self.histogram(config, densities[first])).into_cpp(
+                mass_spec_stage=True
+            )
+            identity = (
+                1,  # Phase-space recurrence/cache convention version.
+                grid.bin_width.hex(),
+                grid.x_max.hex(),
+                daughter.frequencies.tolist(),
+                neutral.frequencies.tolist()
+                if isinstance(neutral, raw.MolecularCluster)
+                else None,
+            )
+            key = hashlib.sha256(json.dumps(identity).encode()).hexdigest()
+            rows = self.db.db.execute(
+                "select data from fragmentation_dos where key = ?", [key]
+            ).to_arrow_table()
+            if rows.num_rows:
+                data = rows["data"][0].values.to_numpy().reshape((-1, 3), order="F")
+                products = raw.FragmentationProducts(
+                    daughter, neutral, grid.bin_width, grid.x_max, data
+                )
+                hits += 1
+            else:
+                products = raw.FragmentationProducts(
+                    daughter, neutral, grid.bin_width, grid.x_max
+                )
+                data = products.log_dos.flatten("F")
+                insert_via_arrow(
+                    self.db.db,
+                    "fragmentation_dos",
+                    key=[key],
+                    data=pa.FixedSizeListArray.from_arrays(data, len(data)),
+                )
+                misses += 1
+            self.fragmentation_products[first, second] = products
+            if status_table is not None:
+                status_table["Description"] = f"{hits} retrieved; {misses} computed"
+
+    def _fragmentation_preliminary(
+        self,
+        config,
+        clusters,
+        pathways,
+        densities,
+        table=None,
+        pbar=None,
+        step=1,
+        total=1,
+    ):
+        from timeit import default_timer as timer
+
+        if table is not None:
+            table["#"] = f"{step}/{total}"
+            table["Step"] = "Fragmentation DOS"
+            table["Description"] = "Preparing product state counts"
+            if pbar is not None:
+                pbar.update()
+        start = timer()
+        self._prepare_fragmentation_products(
+            config, clusters, pathways, densities, table
+        )
+        if table is not None:
+            table["Time (s)"] = f"{timer() - start:.2f}"
+            table.next_row()
 
     @staticmethod
     def _build_rf_basis(parameters):
@@ -1040,13 +1138,17 @@ class DerivedDataPreparer:
         from timeit import default_timer as timer
 
         table = pbar = None
-        total_steps, cur_step = 2, 1
+        phase_space = (
+            simulation_option(config, "fragmentation_state_method")
+            == raw.FragmentationStateMethod.phase_space
+        )
+        total_steps, cur_step = 2 + phase_space, 1
         if show_progress and tablepbar is None:
             from progress_table import ProgressTable
 
             table = ProgressTable(default_column_alignment="left", refresh_rate=0)
             pbar = table(
-                2,
+                total_steps,
                 description="Preliminary steps",
                 show_throughput=False,
                 show_progress=True,
@@ -1058,7 +1160,7 @@ class DerivedDataPreparer:
             table.add_column("Time (s)", alignment="right")
         elif show_progress and tablepbar is not None:
             table, pbar = tablepbar
-            total_steps = 3
+            total_steps = 3 + phase_space
             cur_step = 2
         if table is not None and pbar is not None:
             table["#"] = f"{cur_step}/{total_steps}"
@@ -1109,6 +1211,22 @@ class DerivedDataPreparer:
 
         if table is not None and pbar is not None:
             table["Time (s)"] = f"{(timer() - start):.2f}"
+            if phase_space:
+                table.next_row()
+        if phase_space:
+            self._fragmentation_preliminary(
+                config,
+                cluster_indexed,
+                pathway_lookup,
+                cluster_dos_dict,
+                table,
+                pbar,
+                total_steps,
+                total_steps,
+            )
+        else:
+            self.fragmentation_products = {}
+        if table is not None and pbar is not None:
             table.close()
             if pbar._is_active:
                 # Not sure why this is sometimes needed
@@ -1124,6 +1242,7 @@ class DerivedDataPreparer:
         rate_histogram_id,
         pathway_lookup,
         config=None,
+        tablepbar=None,
     ):
         num_missed = 0
         k_rates = {}
@@ -1155,6 +1274,27 @@ class DerivedDataPreparer:
         self.dos_histogram_id = dos_histogram_id
         self.rate_histogram_id = rate_histogram_id
         self._prepare_vib_indexes(config or {}, cluster_dos_dict, pathway_lookup)
+        table, pbar = tablepbar or (None, None)
+        if (
+            simulation_option(config or {}, "fragmentation_state_method")
+            == raw.FragmentationStateMethod.phase_space
+        ):
+            self._fragmentation_preliminary(
+                config or {},
+                cluster_indexed,
+                pathway_lookup,
+                cluster_dos_dict,
+                table,
+                pbar,
+                2,
+                2,
+            )
+        else:
+            self.fragmentation_products = {}
+        if table is not None:
+            table.close()
+        if pbar is not None and pbar._is_active:
+            pbar.close()
         return k_rates, cluster_dos_dict
 
     def run_preliminaries(
@@ -1170,6 +1310,11 @@ class DerivedDataPreparer:
         from timeit import default_timer as timer
 
         prelim_table = outer_pbar = None
+        phase_space = (
+            simulation_option(config, "fragmentation_state_method")
+            == raw.FragmentationStateMethod.phase_space
+        )
+        total_steps = (1 if cached_densityandrate else 3) + phase_space
         if show_progress:
             from progress_table import ProgressTable
 
@@ -1177,7 +1322,7 @@ class DerivedDataPreparer:
                 default_column_alignment="left", refresh_rate=0
             )
             outer_pbar = prelim_table(
-                3,
+                total_steps,
                 description="Preliminary steps",
                 show_throughput=False,
                 show_progress=True,
@@ -1187,7 +1332,7 @@ class DerivedDataPreparer:
             prelim_table.add_column("Step", width=20)
             prelim_table.add_column("Description", width=40)
             prelim_table.add_column("Time (s)", alignment="right")
-            prelim_table["#"] = "1/3"
+            prelim_table["#"] = f"1/{total_steps}"
             prelim_table["Step"] = "Skimmer"
             outer_pbar.update()
             start = timer()
@@ -1207,6 +1352,7 @@ class DerivedDataPreparer:
                 rate_histogram_id,
                 pathway_lookup,
                 config,
+                tablepbar=(prelim_table, outer_pbar),
             )
         else:
             k_rates, cluster_dos = self.run_densityandrate(
@@ -1494,8 +1640,15 @@ class ExperimentRunner:
                 if selected != requested:
                     raise ValueError("Some selected pathways were not found")
 
+        # The option has no effect outside tree continuation. Standalone DOS
+        # preparation can still explicitly warm phase-space tables for later runs.
+        preparation_config = (
+            config
+            if self._simulation_mode == SimulationMode.CLUSTER_TREE
+            else {**config, "fragmentation_state_method": "zero"}
+        )
         skimmer_np, k_rates, cluster_dos = self.preparer.run_preliminaries(
-            config,
+            preparation_config,
             cluster_indexed,
             pathway_lookup=pathway_lookup,
             name_lookup=name_lookup,
@@ -2010,15 +2163,13 @@ class ExperimentRunner:
             cur_cluster_dict["pathway_ids"].append(pathway_id)
             products = None
             if sample_products and productive_product in cluster_lookup:
+                assert productive_product is not None
                 neutral_id = (
                     product2_id if productive_product == product1_id else product1_id
                 )
-                products = raw.FragmentationProducts(
-                    cluster_input(productive_product),
-                    cluster_input(neutral_id),
-                    density_input(productive_product).bin_width,
-                    density_input(productive_product).x_max,
-                )
+                products = self.preparer.fragmentation_products[
+                    productive_product, neutral_id
+                ]
             pathway_input_lookup[pathway_id] = raw.MassSpecInputFragmentationPathway(
                 cluster_input(cluster_id),
                 cluster_input(product1_id),

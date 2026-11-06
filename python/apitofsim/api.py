@@ -656,17 +656,23 @@ class ArgGetter:
             raise ValueError(f"Argument {name} at position {position} not found")
 
 
-def FragmentationProducts(daughter, neutral, bin_width, energy_max):
+def FragmentationProducts(daughter, neutral, bin_width, energy_max, *, log_dos=None):
     """Prepare ground-inclusive harmonic product counts for tree continuation.
 
     Energies accept Pint quantities (including kelvin) or bare joules. Product
     frequencies must resolve to at least one bin after rounding.
+    ``log_dos`` restores the three-column snapshot returned by ``.log_dos``
+    for these same ordered products and grid, without repeating the recurrence.
     """
     width = energy_in_joules(bin_width)
     maximum = energy_in_joules(energy_max)
     assert width is not None and maximum is not None
     return apitofsimraw.FragmentationProducts(
-        daughter.into_cpp(), neutral.into_cpp(), width.magnitude, maximum.magnitude
+        daughter.into_cpp(),
+        neutral.into_cpp(),
+        width.magnitude,
+        maximum.magnitude,
+        log_dos,
     )
 
 

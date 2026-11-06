@@ -875,8 +875,9 @@ NB_MODULE(apitofsimraw, m)
 
   nb_magic_enum<FragmentationStateMethod>(m, "FragmentationStateMethod");
   nb::class_<FragmentationProducts>(m, "FragmentationProducts")
-    .def(nb::init<const MolecularCluster &, const ClusterSpec &, double, double>(),
-         "daughter"_a, "neutral"_a, "bin_width"_a, "energy_max"_a);
+    .def(nb::init<const MolecularCluster &, const ClusterSpec &, double, double, std::optional<Eigen::ArrayXXd>>(),
+         "daughter"_a, "neutral"_a, "bin_width"_a, "energy_max"_a, "log_dos"_a = nb::none())
+    .def_prop_ro("log_dos", &FragmentationProducts::log_dos);
   nb::class_<MassSpecInputFragmentationPathway>(m, "MassSpecInputFragmentationPathway")
     .def(nb::init<const MolecularCluster &, const MolecularCluster &, const ClusterSpec &, const Histogram &, std::optional<double>, FragmentationProductsPtr>(),
          "cluster_0"_a,

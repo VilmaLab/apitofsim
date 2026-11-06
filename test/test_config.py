@@ -185,13 +185,13 @@ def test_legacy_optional_quadrupole():
     assert "quadrupole" not in legacy.into_json_config()
 
 
-def test_public_runner_preparation(inputs):
+def test_public_runner_preparation(inputs, monkeypatch):
     inputs.update(
         bin_width=Q_(1000, "K"),
         energy_max=Q_(100_000, "K"),
         energy_max_rate=Q_(50_000, "K"),
     )
-    config = build_config(**inputs)
+    config = build_config(**inputs, fragmentation_state_method="phase-space")
     db = ExperimentDatabase(":memory:")
     try:
         db.create_tables()
@@ -204,6 +204,15 @@ def test_public_runner_preparation(inputs):
         db.insert_pathway(1, 2, 3)
         config_id = db.insert_config("built", config)
         runner = ExperimentRunner(db)
+
+        def no_fragmentation_preparation(*args, **kwargs):
+            pytest.fail("Single-cluster preparation must ignore phase-space sampling")
+
+        monkeypatch.setattr(
+            runner.preparer,
+            "_prepare_fragmentation_products",
+            no_fragmentation_preparation,
+        )
         runner.start_run(config_id)
         prepared = runner.prepare_from_config(config)
         assert_same(vars(prepared.mass_spec.quadrupole), vars(config["quadrupole"]))
@@ -361,8 +370,11 @@ def test_builder_simulation_options(inputs):
 
 @pytest.mark.parametrize("atomic", [False, True])
 @pytest.mark.parametrize("daughter_first", [False, True])
-def test_phase_space_tree_preparation_and_cached_rates(inputs, atomic, daughter_first):
+def test_phase_space_tree_preparation_and_cached_rates(
+    inputs, atomic, daughter_first, monkeypatch, capsys
+):
     from apitofsim import FragmentationStateMethod
+    from apitofsim import apitofsimraw as raw
 
     config = build_config(
         **{
@@ -401,14 +413,31 @@ def test_phase_space_tree_preparation_and_cached_rates(inputs, atomic, daughter_
         clusters, names, pathways = db.get_all_lookups()
         runner = ExperimentRunner(db)
         rates, densities = runner.preparer.run_densityandrate(
-            config, clusters, pathways, name_lookup=names, show_progress=False
+            config, clusters, pathways, name_lookup=names, show_progress=True
         )
+        assert "Fragmentation DOS" in capsys.readouterr().out
+        snapshot = runner.preparer.fragmentation_products[2, 4].log_dos
+        assert db.db.execute("select count(*) from fragmentation_dos").fetchone() == (
+            1,
+        )
+        real_products = raw.FragmentationProducts
+
+        def restore_only(*args):
+            assert len(args) == 5  # Warm preparation must not run the recurrence.
+            return real_products(*args)
+
+        monkeypatch.setattr(raw, "FragmentationProducts", restore_only)
+        # Discard the prepared objects; the database must supply the next ones.
+        runner.preparer.fragmentation_products.clear()
         cached_rates, cached_densities = runner.preparer.get_cached_densityandrate(
             clusters,
             runner.preparer.dos_histogram_id,
             runner.preparer.rate_histogram_id,
             pathways,
             config,
+        )
+        np.testing.assert_array_equal(
+            runner.preparer.fragmentation_products[2, 4].log_dos, snapshot
         )
         for source_rates, source_densities in (
             (rates, densities),
