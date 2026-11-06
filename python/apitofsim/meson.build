@@ -61,7 +61,17 @@ python.install_sources([
 ], subdir: 'apitofsim/workflow/sql', pure : false)
 
 install_data(
-  'licenses/nanoarrow.LICENSE.txt', 'licenses/nanoarrow.NOTICE.txt',
+  'licenses/NOTICE.txt',
+  'licenses/concurrentqueue.LICENSE.txt',
+  'licenses/eigen.APACHE.LICENSE.txt',
+  'licenses/eigen.BSD.LICENSE.txt',
+  'licenses/eigen.MINPACK.LICENSE.txt',
+  'licenses/eigen.MPL2.LICENSE.txt',
   'licenses/flatcc.LICENSE.txt',
+  'licenses/lightweightsemaphore.LICENSE.txt',
+  'licenses/magic_enum.LICENSE.txt',
+  'licenses/nanoarrow.LICENSE.txt',
+  'licenses/nanobind.LICENSE.txt',
+  'licenses/robin-map.LICENSE.txt',
   install_dir: python.get_install_dir(pure: false) / 'apitofsim' / 'licenses',
 )

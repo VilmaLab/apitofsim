@@ -1,0 +1,44 @@
+Third-party code included in the apitofsim native extension
+
+The extension contains compiled code from the projects listed below,
+including code instantiated from headers. Their license texts are in this
+directory. These links identify the upstream source repositories and the
+versions pinned by the bundled build configuration.
+
+Apache Arrow nanoarrow (Apache-2.0)
+Source: https://github.com/apache/arrow-nanoarrow/tree/apache-arrow-nanoarrow-0.9.0
+
+Apache Arrow nanoarrow
+Copyright 2023 The Apache Software Foundation
+
+This product includes software developed at
+The Apache Software Foundation (http://www.apache.org/).
+
+flatcc (Apache-2.0), vendored by nanoarrow
+Copyright 2015-2023 Mikkel F. Jørgensen, dvide.com
+Source: https://github.com/dvidelabs/flatcc
+Vendored source: https://github.com/apache/arrow-nanoarrow/tree/apache-arrow-nanoarrow-0.9.0/thirdparty/flatcc
+
+nanobind (BSD-3-Clause)
+Source: https://github.com/wjakob/nanobind/tree/v2.9.2
+
+robin-map (MIT), used by nanobind
+Source: https://github.com/Tessil/robin-map/tree/v1.4.0
+
+concurrentqueue (BSD-2-Clause or Boost-1.0)
+Source: https://github.com/cameron314/concurrentqueue/tree/v1.0.4
+
+LightweightSemaphore includes adaptations of Jeff Preshing's semaphore
+implementation under the zlib license.
+Original source: https://github.com/preshing/cpp11-on-multicore/blob/master/common/sema.h
+Adapted source: https://github.com/cameron314/concurrentqueue/blob/v1.0.4/lightweightsemaphore.h
+
+magic_enum (MIT)
+Source: https://github.com/Neargye/magic_enum/tree/v0.9.7
+
+Eigen (primarily MPL-2.0)
+Source: https://gitlab.com/libeigen/eigen
+Pinned source for builds using the Meson fallback:
+https://gitlab.com/libeigen/eigen/-/tree/5.0.0
+Builds using a separately supplied Eigen use the source corresponding to
+that package's version. Eigen's source includes component-specific notices.
