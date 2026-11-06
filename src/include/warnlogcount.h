@@ -5,6 +5,8 @@
 #include "operation_context.h"
 
 #include <fstream>
+#include <functional>
+#include <optional>
 #include <iostream>
 #include <iomanip>
 #include <cstring>
@@ -131,7 +133,7 @@ struct LogMessage
 using StreamingResultElement = std::variant<std::monostate, LogMessage, EventMessage, PartialResult>;
 class StreamingResultQueue
 {
-  BlockingConcurrentQueue<StreamingResultElement> storage;
+  std::unique_ptr<BlockingConcurrentQueue<StreamingResultElement>> storage;
   struct ProducerCount
   {
     size_t count{0};
@@ -144,16 +146,47 @@ class StreamingResultQueue
   std::atomic<bool> bounded;
 
 public:
-  explicit StreamingResultQueue(size_t capacity = 0) : capacity(capacity), chunk(std::min(size_t{1024}, std::max(size_t{1}, capacity / 2))), bounded(capacity != 0)
+  using Sink = std::function<void(StreamingResultElement &&)>;
+  // The simulation body runs synchronously on a worker for one realization.
+  inline static thread_local std::vector<StreamingResultElement> *token_items = nullptr;
+  std::optional<bool> pipeline_order;
+  bool pipeline_logs = false;
+  Sink pipeline_sink;
+
+  explicit StreamingResultQueue(size_t capacity = 0, bool queued = true) : capacity(capacity), chunk(std::min(size_t{1024}, std::max(size_t{1}, capacity / 2))), bounded(capacity != 0)
   {
     if (capacity > static_cast<size_t>(INT_MAX / 2))
       throw std::invalid_argument("Event queue capacity is too large");
+    if (queued)
+      storage = std::make_unique<BlockingConcurrentQueue<StreamingResultElement>>();
   }
 
   template <typename T>
   bool enqueue(T &&item)
   {
-    if (!storage.enqueue(std::forward<T>(item)))
+    if (pipeline_order.has_value())
+    {
+      if constexpr (std::is_same_v<std::remove_cvref_t<T>, LogMessage>)
+      {
+        if (!pipeline_logs)
+          return true;
+      }
+      if (pipeline_sink)
+      {
+        if (token_items != nullptr)
+          token_items->emplace_back(std::forward<T>(item));
+        else
+          pipeline_sink(StreamingResultElement(std::forward<T>(item)));
+      }
+      return true;
+    }
+    return enqueue_for_delivery(std::forward<T>(item));
+  }
+
+  template <typename T>
+  bool enqueue_for_delivery(T &&item)
+  {
+    if (!storage->enqueue(std::forward<T>(item)))
       throw std::bad_alloc();
     if (bounded.load(std::memory_order_relaxed))
     {
@@ -186,7 +219,7 @@ public:
 
   bool try_dequeue(StreamingResultElement &item)
   {
-    if (!storage.try_dequeue(item))
+    if (!storage->try_dequeue(item))
       return false;
     release_slot();
     return true;
@@ -194,7 +227,7 @@ public:
 
   void wait_dequeue(StreamingResultElement &item)
   {
-    storage.wait_dequeue(item);
+    storage->wait_dequeue(item);
     release_slot();
   }
 
@@ -213,7 +246,7 @@ struct DrainingStreamingResultQueue
   StreamingResultQueue queue;
   bool draining = false;
 
-  explicit DrainingStreamingResultQueue(size_t capacity = 0) : queue(capacity)
+  explicit DrainingStreamingResultQueue(size_t capacity = 0, bool queued = true) : queue(capacity, queued)
   {
   }
 
@@ -254,7 +287,8 @@ struct WarningHelper
       return;
     }
     counters[Counter::nwarnings] += 1;
-    result_queue.enqueue(LogMessage(LogMessage::warnings, msg));
+    if (!result_queue.pipeline_order.has_value() || result_queue.pipeline_logs)
+      result_queue.enqueue(LogMessage(LogMessage::warnings, msg));
   }
 };
 
@@ -271,6 +305,7 @@ struct LogHelper
     {
       return;
     }
-    result_queue.enqueue(LogMessage(type, msg));
+    if (!result_queue.pipeline_order.has_value() || result_queue.pipeline_logs)
+      result_queue.enqueue(LogMessage(type, msg));
   }
 };

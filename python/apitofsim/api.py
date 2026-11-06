@@ -882,6 +882,7 @@ def _mass_spec_legacy(
     result_callback: Callable[[numpy.ndarray], None] | None = None,
     named_tuple_counters=False,
     output_timings=False,
+    ordered=False,
 ):
     """
     This function runs the main simulation of the APi-ToF mass spectrometer.
@@ -926,6 +927,7 @@ def _mass_spec_legacy(
         collision_time=collision_time,
         strict=strict,
         logconf=logconf,
+        ordered=ordered,
     )
     if named_tuple_counters:
         counters = convert_counters(counters)
@@ -1046,6 +1048,7 @@ def _mass_spec_batches(
     initial_batch_size: int = 4096,
     max_batch_size: int = 262144,
     queue_capacity: int = 0,
+    _deferred: bool = False,
 ):
     return _MassSpecBatchIterator(
         mass_spec.into_cpp(),
@@ -1059,6 +1062,7 @@ def _mass_spec_batches(
         initial_batch_size=initial_batch_size,
         max_batch_size=max_batch_size,
         queue_capacity=queue_capacity,
+        deferred=_deferred,
     )
 
 
@@ -1096,14 +1100,30 @@ from .recording import IpcRecording as IpcRecording  # noqa: E402
 from .recording import RecordingInfo as RecordingInfo  # noqa: E402
 
 
-def mass_spec_iter(mass_spec, subs, N, *, events="batches", record_to=None, **options):
+def mass_spec_iter(
+    mass_spec,
+    subs,
+    N,
+    *,
+    events="batches",
+    record_to=None,
+    ordered: bool | None = None,
+    **options,
+):
     """Receive Arrow batches or typed events, optionally also recording natively.
 
-    Always use the returned stream as a context manager. Exhaustion completes
-    recording; early exit cancels and retains explicitly incomplete output.
+    Use ordered=True to deliver histories in realization order. Recording
+    implies ordered delivery. Always use the stream as a context manager.
+    Early exit cancels and retains explicitly incomplete output.
     """
     return start_stream(
-        mass_spec, subs, N, events=events, record_to=record_to, **options
+        mass_spec,
+        subs,
+        N,
+        events=events,
+        record_to=record_to,
+        ordered=ordered,
+        **options,
     )
 
 
@@ -1113,6 +1133,7 @@ def mass_spec(
     N,
     *,
     record_to=None,
+    ordered: bool | None = None,
     loglevel=0,
     result_callback=None,
     log_callback=None,
@@ -1133,6 +1154,7 @@ def mass_spec(
             output_timings=True,
             result_callback=result_callback,
             log_callback=log_callback,
+            ordered=bool(ordered),
             **options,
         )
         assert isinstance(counters, Counters)
@@ -1144,6 +1166,7 @@ def mass_spec(
         N,
         events=None,
         record_to=record_to,
+        ordered=ordered,
         loglevel=loglevel,
         result_callback=result_callback,
         log_callback=log_callback,
