@@ -61,6 +61,7 @@ from .config import (
     read_histogram,
     read_skimmer,
 )
+from .event_conversion import convert_events
 
 defaults = apitofsimraw.defaults
 consts = apitofsimraw.consts
@@ -75,6 +76,7 @@ __all__ = [
     "PostFragmentationEvent",
     "EscapeEvent",
     "IpcRecording",
+    "convert_events",
     "RecordingInfo",
     "MassSpecResult",
     "read_events",

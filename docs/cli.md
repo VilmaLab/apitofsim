@@ -25,6 +25,25 @@ is `database.ase.sqlite.db`. Move the files together with matching basenames.
 and relational event inserts are removed; old event databases require migration.
 Do not read the event sidecar while an append transaction is active.
 
+## Convert a completed event recording
+
+```bash
+apitofsim convert-events database.duckdb --to parquet
+```
+
+Close recording readers and writers before converting. The command stages a
+Zstandard-compressed `database.events.parquet` next to the original archive and
+uses additional disk space for the external sort. It reports the source size,
+available space and progress. Budget roughly twice the IPC size in free space for
+the output and sort combined. Actual usage depends on the data.
+
+The database stays at the same path. After validation and publication, the
+command removes the old IPC file. Re-run the same command after an interruption
+to resume publication or finish cleanup. An unrelated file at the destination
+blocks conversion. If both files exist, the database's
+committed format determines which file readers open. Move the database and its
+active sidecar together. To record additional events, use a separate database.
+
 ## Event plots
 
 `apitofsim db plot plot-events results.db plots/` writes one Matplotlib figure per recorded

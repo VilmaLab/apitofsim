@@ -174,7 +174,7 @@ when requested. Input credits and a two-batch delivery queue impose backpressure
 Cancellation releases blocked producers and consumers. Record batches own retained
 buffers; the writer's borrowed C Data arrays are used only for synchronous encoding.
 
-A database owns one `.events.arrow` sidecar. The format has fixed primitive fields,
+A database records to a `.events.arrow` sidecar by default. The IPC format has fixed primitive fields,
 a schema version/archive UUID, and per-execution footer metadata. An appender
 verifies the previous footer, retains its batch descriptors, then replaces only
 the EOS/footer and adds new batches. Existing event bodies are never copied.
@@ -187,9 +187,17 @@ committed file or restores the old ending/truncates the uncommitted append.
 Standalone files use a committed journal marker; explicit overwrite stages an
 atomic replacement. A journal is recovery state, not a second event store.
 
+Conversion uses the same exclusive lock and a disk-backed sort. It validates
+the staged Parquet payload and publishes it at `.events.parquet` before changing
+the format marker, generation and size in a DuckDB transaction. Conversion
+clears IPC batch ranges and scopes the Parquet scan by result ID instead.
+Checkpointing makes the new state visible to database file snapshots before the
+IPC sidecar is removed. A retry uses the database state to resume or clean up.
+Readers keep using the committed format throughout recovery.
+
 DuckDB keeps execution/root/tree/counter metadata. It does not insert or allocate
 IDs for event/realization rows. PyArrow datasets supply temporary DuckDB event
-views without the community nanoarrow extension. SQL IDs are opaque composite
+views for IPC. Parquet views use DuckDB's native scan. SQL IDs are opaque composite
 strings; numeric `result_id`, `realization_index`, `event_index` define order.
 Deletion is logical until explicit compaction; a schema change requires migration.
 

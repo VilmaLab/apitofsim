@@ -347,36 +347,67 @@ def start_stream(
 
 
 def read_events(path, *, events="batches", result_id=None):
-    """Read a completed standalone archive with the same batch/row vocabulary."""
-    from .recording import RecordingTransaction, archive_metadata, recording_lock
+    """Read a completed IPC or Parquet archive as batches or individual events."""
+    from pathlib import Path
+
+    from .recording import (
+        RecordingTransaction,
+        archive_metadata,
+        event_schema_metadata,
+        is_parquet,
+        recording_lock,
+    )
 
     if events not in ("batches", "individual"):
         raise ValueError("events must be batches or individual")
-    from pathlib import Path
-
-    if Path(str(path) + ".journal").exists():
+    selected = None if result_id is None else pa.scalar(result_id, pa.int64())
+    path = Path(path).resolve()
+    # Converted managed sidecars continue to use the IPC lock.
+    parquet = is_parquet(path) if path.exists() else False
+    lock_path = (
+        path.with_suffix(".arrow")
+        if parquet and path.name.endswith(".events.parquet")
+        else path
+    )
+    if not parquet and Path(str(path) + ".journal").exists():
         with recording_lock(path):
             RecordingTransaction.recover(path)
-    with recording_lock(path, shared=True):
-        archive_metadata(path)
-        with pa.OSFile(str(path), "rb") as source, pa.ipc.open_file(source) as reader:
-            for i in range(reader.num_record_batches):
-                batch = reader.get_batch(i)
-                if result_id is not None:
+
+    def deliver(batches):
+        for batch in batches:
+            if events == "batches":
+                if batch.num_rows:
+                    yield batch
+            else:
+                for j in range(batch.num_rows):
+                    yield event_at(batch, j)
+
+    with recording_lock(lock_path, shared=True):
+        if parquet:
+            import pyarrow.dataset as ds
+
+            dataset = ds.dataset(str(path), format="parquet")
+            event_schema_metadata(dataset.schema)
+            predicate = None if selected is None else ds.field("result_id") == selected
+            yield from deliver(dataset.to_batches(filter=predicate))
+        else:
+            archive_metadata(path)
+            with (
+                pa.OSFile(str(path), "rb") as source,
+                pa.ipc.open_file(source) as reader,
+            ):
+                batches = (
+                    reader.get_batch(i) for i in range(reader.num_record_batches)
+                )
+                if selected is not None:
                     import pyarrow.compute as pc
 
-                    batch = batch.filter(
-                        pc.call_function(
-                            "equal",
-                            [
-                                batch.column("result_id"),
-                                pa.scalar(result_id, pa.int64()),
-                            ],
+                    batches = (
+                        batch.filter(
+                            pc.call_function(
+                                "equal", [batch.column("result_id"), selected]
+                            )
                         )
+                        for batch in batches
                     )
-                if events == "batches":
-                    if batch.num_rows:
-                        yield batch
-                else:
-                    for j in range(batch.num_rows):
-                        yield event_at(batch, j)
+                yield from deliver(batches)

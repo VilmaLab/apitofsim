@@ -76,6 +76,8 @@ requirements:
     - ase >= 3.27.0
     - pyarrow >= 23.0.0
     - portalocker >= 3.2.0
+    - if: win
+      then: pywin32
     - click >= 8.2.0
     - questionary >= 2.1.1
     - tomlkit >= 0.14.0
