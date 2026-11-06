@@ -13,6 +13,10 @@ import pyarrow as pa
 
 from . import apitofsimraw as raw
 
+IPC_VERSION = 1
+PARQUET_VERSION = 2
+PARQUET_APPEND_ERROR = "Cannot append to a Parquet event recording. Record new events in a separate database."
+
 FLOAT_FIELDS = (
     "x y z t vx vy vz ox oy oz rot_energy vibrational_energy theta u_norm".split()
 )
@@ -54,13 +58,19 @@ def event_batch_dataset(path, ranges, columns=None):
     return ds.dataset(batches)
 
 
-def events_filename(database):
+def events_filename(database, *, parquet=False):
     path = Path(database)
+    suffix = ".events.parquet" if parquet else ".events.arrow"
     return (
-        path.with_suffix(".events.arrow")
+        path.with_suffix(suffix)
         if path.suffix == ".duckdb"
-        else Path(str(path) + ".events.arrow")
+        else Path(str(path) + suffix)
     )
+
+
+def is_parquet(path):
+    with Path(path).open("rb") as file:
+        return file.read(4) == b"PAR1"
 
 
 def sync_file(path):
@@ -81,30 +91,35 @@ def sync_directory(path):
 
 
 def recording_lock(path, *, shared=False):
+    lock_path = Path(str(path) + ".lock")
     return portalocker.Lock(
-        str(path) + ".lock",
-        mode="a+b",
+        lock_path,
+        mode="rb" if shared and lock_path.exists() else "a+b",
         timeout=0,
         flags=(portalocker.LOCK_SH if shared else portalocker.LOCK_EX)
         | portalocker.LOCK_NB,
     )
 
 
+def event_schema_metadata(schema):
+    metadata = schema.metadata or {}
+    if metadata.get(b"apitofsim:event_schema") != b"1":
+        raise ValueError(
+            "Unsupported event archive schema; an explicit migration is required"
+        )
+    # The archive may declare non-null fields, unlike the empty scan schema.
+    if [(f.name, f.type) for f in schema] != [(f.name, f.type) for f in EVENT_SCHEMA]:
+        raise ValueError("Incompatible event archive schema")
+    if not metadata.get(b"apitofsim:archive_id"):
+        raise ValueError("Event archive identity is missing")
+    return metadata
+
+
 def archive_metadata(path):
     with pa.OSFile(str(path), "rb") as source, pa.ipc.open_file(source) as reader:
-        metadata = reader.schema.metadata or {}
-        if metadata.get(b"apitofsim:event_schema") != b"1":
-            raise ValueError(
-                "Unsupported event archive schema; an explicit migration is required"
-            )
-        if not reader.schema.equals(EVENT_SCHEMA, check_metadata=False):
-            # Non-nullability is part of the on-disk schema, not pa.schema's
-            # nullable defaults used to construct an empty scan.
-            if [(f.name, f.type) for f in reader.schema] != [
-                (f.name, f.type) for f in EVENT_SCHEMA
-            ]:
-                raise ValueError("Incompatible event archive schema")
-        identity = metadata[b"apitofsim:archive_id"].decode()
+        identity = event_schema_metadata(reader.schema)[
+            b"apitofsim:archive_id"
+        ].decode()
         executions = json.loads(
             (reader.metadata or {}).get(b"apitofsim:executions", b"{}")
         )
@@ -180,8 +195,8 @@ class RecordingTransaction:
         sync_directory(self.path.parent)
 
     @staticmethod
-    def recover(path, *, generation=None, expected_archive_id=None):
-        """Called only with the archive's exclusive lock held."""
+    def recover(path, *, generation=None, expected_archive_id=None, readonly=False):
+        """Recover under an exclusive lock, or verify a committed journal read-only."""
         path = Path(path)
         journal_path = Path(str(path) + ".journal")
         if not journal_path.exists():
@@ -214,6 +229,10 @@ class RecordingTransaction:
             identity, _, _, _ = archive_metadata(path)
             if identity != data["archive_id"]:
                 raise ValueError("Event archive identity mismatch during recovery")
+        elif readonly:
+            raise ValueError(
+                "Interrupted event append; open the database writable to recover it"
+            )
         elif data["old_size"]:
             tail = base64.b64decode(data["tail"], validate=True)
             if (
@@ -229,6 +248,8 @@ class RecordingTransaction:
                 os.fsync(file.fileno())
         else:
             path.unlink(missing_ok=True)
+        if readonly:
+            return committed
         journal_path.unlink()
         Path(str(journal_path) + ".new").unlink(missing_ok=True)
         sync_directory(path.parent)
@@ -239,9 +260,11 @@ class RecordingTransaction:
         try:
             db = self.database
             if db is not None:
-                identity, generation, size = db.db.execute(
-                    "select archive_id,generation,file_size from event_recording_state"
+                version, identity, generation, size = db.db.execute(
+                    "select schema_version,archive_id,generation,file_size from event_recording_state"
                 ).fetchall()[0]
+                if version == PARQUET_VERSION:
+                    raise ValueError(PARQUET_APPEND_ERROR)
                 self.archive_id, self.generation = identity, generation + 1
                 self.recover(
                     self.path, generation=generation, expected_archive_id=identity
@@ -253,6 +276,8 @@ class RecordingTransaction:
             else:
                 self.recover(self.path)
                 self.recover(Path(str(self.path) + ".replacement"))
+                if self.path.is_file() and is_parquet(self.path):
+                    raise ValueError(PARQUET_APPEND_ERROR)
             if self.spec.mode == "overwrite":
                 if self.path.exists():
                     try:

@@ -6,7 +6,10 @@ from tempfile import TemporaryDirectory
 
 import apitofsim
 import pyarrow as pa
-from apitofsim.recording import RecordingTransaction
+from apitofsim.recording import RecordingTransaction, recording_lock
+from apitofsim.workflow import ExperimentDatabase
+from archive_fixtures import publish_events
+from portalocker.exceptions import LockException
 
 assert apitofsim.precompute_mesh(100.0, 1.0, quantities_strict=False).size == 100
 with TemporaryDirectory() as directory:
@@ -25,3 +28,27 @@ with TemporaryDirectory() as directory:
                 json.loads(reader.metadata[b"apitofsim:executions"])["1"]["status"]
                 == status
             )
+
+# Exercise publication and shared locking with the platform's filesystem.
+with TemporaryDirectory() as directory:
+    database = Path(directory) / "évents.duckdb"
+    with ExperimentDatabase(database) as db:
+        db.create_tables()
+        db.begin_execution(1, 1, None, [], result_id=1, recorded=True)
+        publish_events(
+            db, [dict(result_id=1, event_kind=0, realization_index=0, event_index=0)]
+        )
+        ipc = db.events_path
+        try:
+            with recording_lock(ipc):
+                raise AssertionError("Acquired exclusive lock while a reader was open")
+        except LockException:
+            pass
+    parquet = apitofsim.convert_events(database)
+    assert parquet.is_file() and not ipc.exists()
+    with ExperimentDatabase(database, readonly=True) as db:
+        assert db.events_path == parquet
+        assert db.events_query(result_id=1).select("event_id").fetchall() == [
+            ("1:0:0",)
+        ]
+    assert apitofsim.convert_events(database) == parquet
