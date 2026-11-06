@@ -46,52 +46,94 @@ Eigen::Vector3d direction(double cosine, double azimuth, const Eigen::Vector3d &
 }
 } // namespace
 
+FragmentationDos::FragmentationDos(const Eigen::ArrayXd &frequencies, double bin_width, double energy_max,
+                                   std::optional<Eigen::ArrayXd> log_counts)
+    : bin_width(bin_width), energy_max(energy_max)
+{
+  if (!std::isfinite(bin_width) || bin_width <= 0 || !std::isfinite(energy_max) || energy_max < bin_width || energy_max / bin_width >= std::numeric_limits<int>::max())
+    throw ApiTofArgumentError("Fragmentation sampling requires a positive DOS grid");
+  const int count = static_cast<int>(std::round(energy_max / bin_width));
+  if (log_counts)
+  {
+    if (log_counts->size() != count || (*log_counts)[0] != 0 ||
+        !(log_counts->isFinite() || (*log_counts == -std::numeric_limits<double>::infinity())).all())
+      throw ApiTofArgumentError("Invalid prepared fragmentation log DOS");
+    counts_ = std::move(*log_counts);
+  }
+  else
+  {
+    counts_ = Eigen::ArrayXd::Constant(count, -std::numeric_limits<double>::infinity());
+    counts_[0] = 0;
+    add_oscillators(counts_, frequencies, bin_width);
+  }
+}
+
+FragmentationDosPtr FragmentationDos::extend(const Eigen::ArrayXd &frequencies) const
+{
+  auto result = std::make_shared<FragmentationDos>(*this);
+  add_oscillators(result->counts_, frequencies, bin_width);
+  return result;
+}
+
+namespace
+{
+void validate_products(const MolecularCluster &daughter_cluster, const ClusterSpec &neutral_cluster,
+                       const ClusterDerived &daughter, const ClusterDerived &neutral)
+{
+  if (daughter.mass <= 0 || daughter.inertia_moment <= 0 || !std::isfinite(daughter.inertia_moment) || neutral.mass <= 0 || neutral.inertia_moment < 0 || !std::isfinite(neutral.inertia_moment) || daughter_cluster.charge == 0 || std::visit([](const auto &cluster)
+  { return cluster.charge; }, neutral_cluster) != 0)
+    throw ApiTofArgumentError("Fragmentation sampling requires a charged molecular daughter and a neutral product");
+}
+} // namespace
+
 FragmentationProducts::FragmentationProducts(const MolecularCluster &daughter_cluster, const ClusterSpec &neutral_cluster,
                                              double bin_width, double energy_max, std::optional<Eigen::ArrayXXd> log_dos)
     : bin_width(bin_width), daughter(compute_derived(daughter_cluster)), neutral(compute_derived(neutral_cluster))
 {
-  if (!std::isfinite(bin_width) || bin_width <= 0 || !std::isfinite(energy_max) || energy_max < bin_width || energy_max / bin_width >= std::numeric_limits<int>::max() || daughter.mass <= 0 || daughter.inertia_moment <= 0 || !std::isfinite(daughter.inertia_moment) || neutral.mass <= 0 || neutral.inertia_moment < 0 || !std::isfinite(neutral.inertia_moment) || daughter_cluster.charge == 0 || std::visit([](const auto &cluster)
-  { return cluster.charge; }, neutral_cluster) != 0)
-    throw ApiTofArgumentError("Fragmentation sampling requires a charged molecular daughter, a neutral product, and a positive DOS grid");
-  // Ground-inclusive Beyer–Swinehart recurrence. The existing rate DOS omit
-  // the ground state and cannot consistently supply both product marginals.
-  const int count = static_cast<int>(std::round(energy_max / bin_width));
+  validate_products(daughter_cluster, neutral_cluster, daughter, neutral);
+  const auto *molecule = std::get_if<MolecularCluster>(&neutral_cluster);
   if (log_dos)
   {
-    const bool molecular = std::holds_alternative<MolecularCluster>(neutral_cluster);
-    if (log_dos->rows() != count || log_dos->cols() != 3 ||
-        !((log_dos->isFinite()) || (*log_dos == -std::numeric_limits<double>::infinity())).all() ||
-        (*log_dos)(0, 0) != 0 || (*log_dos)(0, 2) != 0 ||
-        (molecular ? (*log_dos)(0, 1) != 0 : !(log_dos->col(1) == -std::numeric_limits<double>::infinity()).all()))
+    if (log_dos->cols() != 3 || (molecule == nullptr && !(log_dos->col(1) == -std::numeric_limits<double>::infinity()).all()))
       throw ApiTofArgumentError("Invalid prepared fragmentation log DOS");
-    daughter_log_dos = log_dos->col(0);
-    if (molecular)
-      neutral_log_dos = log_dos->col(1);
-    combined_log_dos = log_dos->col(2);
-    return;
+    daughter_dos_ = std::make_shared<FragmentationDos>(daughter_cluster.frequencies, bin_width, energy_max, log_dos->col(0));
+    if (molecule != nullptr)
+      neutral_dos_ = std::make_shared<FragmentationDos>(molecule->frequencies, bin_width, energy_max, log_dos->col(1));
+    combined_dos_ = std::make_shared<FragmentationDos>(Eigen::ArrayXd{}, bin_width, energy_max, log_dos->col(2));
   }
-  daughter_log_dos = Eigen::ArrayXd::Constant(count, -std::numeric_limits<double>::infinity());
-  daughter_log_dos[0] = 0;
-  add_oscillators(daughter_log_dos, daughter_cluster.frequencies, bin_width);
-  combined_log_dos = daughter_log_dos;
-  if (const auto *molecule = std::get_if<MolecularCluster>(&neutral_cluster))
+  else
   {
-    neutral_log_dos = Eigen::ArrayXd::Constant(count, -std::numeric_limits<double>::infinity());
-    neutral_log_dos[0] = 0;
-    add_oscillators(neutral_log_dos, molecule->frequencies, bin_width);
-    add_oscillators(combined_log_dos, molecule->frequencies, bin_width);
+    daughter_dos_ = std::make_shared<FragmentationDos>(daughter_cluster.frequencies, bin_width, energy_max);
+    if (molecule != nullptr)
+      neutral_dos_ = std::make_shared<FragmentationDos>(molecule->frequencies, bin_width, energy_max);
+    combined_dos_ = molecule != nullptr ? daughter_dos_->extend(molecule->frequencies) : daughter_dos_;
   }
+}
+
+FragmentationProducts::FragmentationProducts(const MolecularCluster &daughter_cluster, const ClusterSpec &neutral_cluster,
+                                             FragmentationDosPtr daughter_dos_, FragmentationDosPtr neutral_dos_,
+                                             FragmentationDosPtr combined_dos_)
+    : bin_width(daughter_dos_ ? daughter_dos_->bin_width : 0.),
+      daughter_dos_(std::move(daughter_dos_)), neutral_dos_(std::move(neutral_dos_)), combined_dos_(std::move(combined_dos_)),
+      daughter(compute_derived(daughter_cluster)), neutral(compute_derived(neutral_cluster))
+{
+  validate_products(daughter_cluster, neutral_cluster, daughter, neutral);
+  const bool molecular = std::holds_alternative<MolecularCluster>(neutral_cluster);
+  const auto matches = [&](const FragmentationDosPtr &dos)
+  { return dos && this->daughter_dos_ && dos->bin_width == bin_width && dos->energy_max == this->daughter_dos_->energy_max; };
+  if (!matches(this->combined_dos_) || (molecular ? !matches(this->neutral_dos_) : this->neutral_dos_ != nullptr))
+    throw ApiTofArgumentError("Fragmentation DOS must match the product kinds and grid");
 }
 
 Eigen::ArrayXXd FragmentationProducts::log_dos() const
 {
-  Eigen::ArrayXXd result(daughter_log_dos.size(), 3);
-  result.col(0) = daughter_log_dos;
-  if (neutral_log_dos.size() != 0)
-    result.col(1) = neutral_log_dos;
+  Eigen::ArrayXXd result(daughter_dos_->counts().size(), 3);
+  result.col(0) = daughter_dos_->counts();
+  if (neutral_dos_)
+    result.col(1) = neutral_dos_->counts();
   else
     result.col(1).setConstant(-std::numeric_limits<double>::infinity());
-  result.col(2) = combined_log_dos;
+  result.col(2) = combined_dos_->counts();
   return result;
 }
 
@@ -99,6 +141,8 @@ std::optional<FragmentationState> FragmentationProducts::sample(
   std::mt19937 &gen, double available_energy, const Eigen::Vector3d &momentum,
   const Eigen::Vector3d &velocity, OperationContext &operation) const
 {
+  const auto &daughter_log_dos = daughter_dos_->counts();
+  const auto &combined_log_dos = combined_dos_->counts();
   if (!std::isfinite(available_energy) || available_energy <= 0 || !momentum.allFinite() || !velocity.allFinite())
     throw ApiTofArgumentError("Fragmentation requires positive finite available energy and finite motion");
   const double max_energy = bin_width * static_cast<double>(combined_log_dos.size());
@@ -145,7 +189,7 @@ std::optional<FragmentationState> FragmentationProducts::sample(
   {
     logs.resize(total_bin + 1);
     for (int i = 0; i <= total_bin; ++i)
-      logs[i] = daughter_log_dos[i] + neutral_log_dos[total_bin - i];
+      logs[i] = daughter_log_dos[i] + neutral_dos_->counts()[total_bin - i];
     daughter_bin = distribution(logs)(gen);
   }
 

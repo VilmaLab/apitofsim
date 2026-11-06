@@ -874,10 +874,21 @@ NB_MODULE(apitofsimraw, m)
     .def("frequency", &CollisionProfile::frequency, "z"_a, "velocity"_a);
 
   nb_magic_enum<FragmentationStateMethod>(m, "FragmentationStateMethod");
+  nb::class_<FragmentationDos>(m, "FragmentationDos")
+    .def(nb::init<const Eigen::ArrayXd &, double, double, std::optional<Eigen::ArrayXd>>(),
+         "frequencies"_a, "bin_width"_a, "energy_max"_a, "log_counts"_a = nb::none())
+    .def_prop_ro("log_counts", [](const FragmentationDos &dos)
+  { return Eigen::ArrayXd(dos.counts()); })
+    .def("extend", &FragmentationDos::extend, "frequencies"_a);
   nb::class_<FragmentationProducts>(m, "FragmentationProducts")
     .def(nb::init<const MolecularCluster &, const ClusterSpec &, double, double, std::optional<Eigen::ArrayXXd>>(),
          "daughter"_a, "neutral"_a, "bin_width"_a, "energy_max"_a, "log_dos"_a = nb::none())
-    .def_prop_ro("log_dos", &FragmentationProducts::log_dos);
+    .def(nb::init<const MolecularCluster &, const ClusterSpec &, FragmentationDosPtr, FragmentationDosPtr, FragmentationDosPtr>(),
+         "daughter"_a, "neutral"_a, "daughter_dos"_a, "neutral_dos"_a.none(), "combined_dos"_a)
+    .def_prop_ro("log_dos", &FragmentationProducts::log_dos)
+    .def_prop_ro("daughter_dos", &FragmentationProducts::daughter_dos)
+    .def_prop_ro("neutral_dos", &FragmentationProducts::neutral_dos, nb::sig("def neutral_dos(self) -> FragmentationDos | None"))
+    .def_prop_ro("combined_dos", &FragmentationProducts::combined_dos);
   nb::class_<MassSpecInputFragmentationPathway>(m, "MassSpecInputFragmentationPathway")
     .def(nb::init<const MolecularCluster &, const MolecularCluster &, const ClusterSpec &, const Histogram &, std::optional<double>, FragmentationProductsPtr>(),
          "cluster_0"_a,

@@ -30,6 +30,8 @@ def test_fragmentation_cache_persists_and_tracks_inputs(tmp_path, monkeypatch, a
         3: cluster(20, 0, atomic),
         4: cluster(80, -1),
     }
+    if not atomic:
+        clusters[3].frequencies = np.array([40.0, 50.0])
     pathways = {1: (1, 2, 3), 2: (2, 4, 3), 3: (1, 2, 3)}
     densities = {1: np.ones(100), 2: np.ones(100)}
     config = {
@@ -46,21 +48,21 @@ def test_fragmentation_cache_persists_and_tracks_inputs(tmp_path, monkeypatch, a
         assert list(preparer.fragmentation_products) == [(2, 3)]
         snapshot = preparer.fragmentation_products[2, 3].log_dos
         assert db.db.execute("select count(*) from fragmentation_dos").fetchone() == (
-            1,
+            1 if atomic else 3,
         )
 
-    real_products = raw.FragmentationProducts
+    real_dos = raw.FragmentationDos
     calls = []
 
     def construct(*args):
         calls.append(len(args))
-        return real_products(*args)
+        return real_dos(*args)
 
-    monkeypatch.setattr(raw, "FragmentationProducts", construct)
+    monkeypatch.setattr(raw, "FragmentationDos", construct)
     with closing(ExperimentDatabase(path)) as db:
         preparer = DerivedDataPreparer(db)
         preparer._prepare_fragmentation_products(config, clusters, pathways, densities)
-        assert calls == [5]
+        assert calls == [4] * (1 if atomic else 3)
         np.testing.assert_array_equal(
             preparer.fragmentation_products[2, 3].log_dos, snapshot
         )
@@ -70,20 +72,39 @@ def test_fragmentation_cache_persists_and_tracks_inputs(tmp_path, monkeypatch, a
         ).fetchone()[0]
         config["bin_width"] = api.Q_(5, "K")
         preparer._prepare_fragmentation_products(config, clusters, pathways, densities)
-        assert calls[-1] == 5
+        assert calls[-1] == 4
+        calls.clear()
         clusters[2].frequencies = np.array([20.0, 47.0])
         preparer._prepare_fragmentation_products(config, clusters, pathways, densities)
-        assert calls[-1] == 4
+        assert calls == ([3] if atomic else [3, 4])
         # The same number of bins at another width is a different cache entry.
         preparer.dos_histogram_id = None
         config["energy_max"] = api.Q_(500, "K")
         preparer._prepare_fragmentation_products(config, clusters, pathways, densities)
-        assert calls[-1] == 4
+        assert calls[-1] == 3
         assert db.db.execute("select count(*) from fragmentation_dos").fetchone() == (
-            3,
+            3 if atomic else 8,
         )
         preparer._prepare_fragmentation_products({}, clusters, pathways, densities)
         assert preparer.fragmentation_products == {}
+
+        # A second neutral pair shares the daughter's allocation and cache row.
+        clusters[5] = cluster(20, 0)
+        clusters[5].frequencies = np.array([60.0, 70.0])
+        pathways[4] = (1, 2, 5)
+        preparer._prepare_fragmentation_products(config, clusters, pathways, densities)
+        assert (
+            preparer.fragmentation_products[2, 3].daughter_dos
+            is preparer.fragmentation_products[2, 5].daughter_dos
+        )
+        if atomic:
+            assert (
+                preparer.fragmentation_products[2, 3].combined_dos
+                is preparer.fragmentation_products[2, 3].daughter_dos
+            )
+        assert db.db.execute("select count(*) from fragmentation_dos").fetchone() == (
+            5 if atomic else 10,
+        )
 
 
 @pytest.mark.parametrize("atomic", [False, True])
@@ -105,6 +126,31 @@ def test_fragmentation_snapshot_validation_and_ownership(atomic):
     for invalid in (snapshot, original.log_dos[:-1], original.log_dos[:, :2]):
         with pytest.raises(raw.ApiTofArgumentError, match="Invalid prepared"):
             raw.FragmentationProducts(daughter, neutral, width, 100 * width, invalid)
+
+
+def test_shared_fragmentation_marginals_and_lifetime():
+    daughter = raw.MolecularCluster(100, 0, np.ones(3), np.array([1.6, 2.3]), -1)
+    neutral = raw.MolecularCluster(20, 0, np.ones(3), np.array([3.7, 1000.0]), 0)
+    width = raw.consts.boltzmann
+    d = raw.FragmentationDos(daughter.frequencies, width, 100 * width)
+    n = raw.FragmentationDos(neutral.frequencies, width, 100 * width)
+    combined = d.extend(neutral.frequencies)
+    first = raw.FragmentationProducts(daughter, neutral, d, n, combined)
+    second = raw.FragmentationProducts(daughter, neutral, d, n, combined)
+    reference = raw.FragmentationProducts(daughter, neutral, width, 100 * width)
+    assert first.daughter_dos is second.daughter_dos
+    assert first.neutral_dos is second.neutral_dos
+    assert first.combined_dos is second.combined_dos
+    np.testing.assert_array_equal(first.log_dos, reference.log_dos)
+    d.log_counts[:] = np.nan  # Exposed arrays are independent snapshots.
+    del d, n, combined, first
+    gc.collect()
+    np.testing.assert_array_equal(second.log_dos, reference.log_dos)
+    wrong_grid = raw.FragmentationDos(daughter.frequencies, width, 50 * width)
+    with pytest.raises(raw.ApiTofArgumentError, match="grid"):
+        raw.FragmentationProducts(
+            daughter, neutral, wrong_grid, second.neutral_dos, second.combined_dos
+        )
 
 
 def make_tree(method=None, *, atomic=False):
