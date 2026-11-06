@@ -18,18 +18,50 @@ struct FragmentationState
   double vibrational_energy{}, neutral_vibrational_energy{};
 };
 
+// One immutable ground-inclusive log-count table, shared by product pairs.
+class FragmentationDos
+{
+  Eigen::ArrayXd counts_;
+
+public:
+  const double bin_width, energy_max;
+  FragmentationDos(const Eigen::ArrayXd &frequencies, double bin_width, double energy_max,
+                   std::optional<Eigen::ArrayXd> log_counts = std::nullopt);
+  const Eigen::ArrayXd &counts() const
+  {
+    return counts_;
+  }
+  std::shared_ptr<const FragmentationDos> extend(const Eigen::ArrayXd &frequencies) const;
+};
+using FragmentationDosPtr = std::shared_ptr<const FragmentationDos>;
+
 // Immutable, shared across realizations. DOS bins represent excitation i * dE,
 // including the ground state at zero. Runtime energies are in joules.
 class FragmentationProducts
 {
-  Eigen::ArrayXd daughter_log_dos, neutral_log_dos, combined_log_dos;
   double bin_width;
+  FragmentationDosPtr daughter_dos_, neutral_dos_, combined_dos_;
 
 public:
   const ClusterDerived daughter, neutral;
+  const FragmentationDosPtr &daughter_dos() const
+  {
+    return daughter_dos_;
+  }
+  const FragmentationDosPtr &neutral_dos() const
+  {
+    return neutral_dos_;
+  }
+  const FragmentationDosPtr &combined_dos() const
+  {
+    return combined_dos_;
+  }
 
   FragmentationProducts(const MolecularCluster &daughter, const ClusterSpec &neutral,
                         double bin_width, double energy_max, std::optional<Eigen::ArrayXXd> log_dos = std::nullopt);
+  FragmentationProducts(const MolecularCluster &daughter, const ClusterSpec &neutral,
+                        FragmentationDosPtr daughter_dos, FragmentationDosPtr neutral_dos,
+                        FragmentationDosPtr combined_dos);
 
   // Cache snapshot: daughter, neutral, combined log counts. Atom-like neutral
   // columns are -infinity; these are counts, not the rate DOS densities.

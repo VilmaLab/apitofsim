@@ -418,15 +418,15 @@ def test_phase_space_tree_preparation_and_cached_rates(
         assert "Fragmentation DOS" in capsys.readouterr().out
         snapshot = runner.preparer.fragmentation_products[2, 4].log_dos
         assert db.db.execute("select count(*) from fragmentation_dos").fetchone() == (
-            1,
+            1 if atomic else 2,
         )
-        real_products = raw.FragmentationProducts
+        real_dos = raw.FragmentationDos
 
         def restore_only(*args):
-            assert len(args) == 5  # Warm preparation must not run the recurrence.
-            return real_products(*args)
+            assert len(args) == 4  # Warm preparation must not run the recurrence.
+            return real_dos(*args)
 
-        monkeypatch.setattr(raw, "FragmentationProducts", restore_only)
+        monkeypatch.setattr(raw, "FragmentationDos", restore_only)
         # Discard the prepared objects; the database must supply the next ones.
         runner.preparer.fragmentation_products.clear()
         cached_rates, cached_densities = runner.preparer.get_cached_densityandrate(

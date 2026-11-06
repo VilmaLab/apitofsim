@@ -635,7 +635,39 @@ class DerivedDataPreparer:
             return
         self.db.ensure_fragmentation_dos_cache()
         parents = {parent for parent, _, _ in pathways.values()}
+        prepared = {}
         hits = misses = 0
+
+        def cache_key(identity):
+            return hashlib.sha256(json.dumps(identity).encode()).hexdigest()
+
+        def prepare(identity, grid, build):
+            nonlocal hits, misses
+            key = cache_key(identity)
+            if key not in prepared:
+                rows = self.db.db.execute(
+                    "select data from fragmentation_dos where key = ?", [key]
+                ).to_arrow_table()
+                if rows.num_rows:
+                    prepared[key] = raw.FragmentationDos(
+                        numpy.empty(0),
+                        grid.bin_width,
+                        grid.x_max,
+                        rows["data"][0].values.to_numpy(),
+                    )
+                    hits += 1
+                else:
+                    prepared[key] = build()
+                    data = prepared[key].log_counts
+                    insert_via_arrow(
+                        self.db.db,
+                        "fragmentation_dos",
+                        key=[key],
+                        data=pa.FixedSizeListArray.from_arrays(data, len(data)),
+                    )
+                    misses += 1
+            return key, prepared[key]
+
         for parent, first, second in pathways.values():
             if clusters[parent].charge == 0:
                 continue
@@ -647,45 +679,43 @@ class DerivedDataPreparer:
                 continue
             daughter = clusters[first].into_cpp()
             neutral = clusters[second].into_cpp()
-            # Use exactly the same SI grid as the former tree-assembly path,
-            # including the selected cached histogram rather than config defaults.
+            # Match the former tree-assembly SI grid, including selected caches.
             grid = scaled_density(self.histogram(config, densities[first])).into_cpp(
                 mass_spec_stage=True
             )
-            identity = (
-                1,  # Phase-space recurrence/cache convention version.
-                grid.bin_width.hex(),
-                grid.x_max.hex(),
-                daughter.frequencies.tolist(),
-                neutral.frequencies.tolist()
-                if isinstance(neutral, raw.MolecularCluster)
-                else None,
+
+            def marginal(cluster):
+                return prepare(
+                    (
+                        2,
+                        "marginal",
+                        grid.bin_width.hex(),
+                        grid.x_max.hex(),
+                        cluster.frequencies.tolist(),
+                    ),
+                    grid,
+                    lambda: raw.FragmentationDos(
+                        cluster.frequencies, grid.bin_width, grid.x_max
+                    ),
+                )
+
+            daughter_key, daughter_dos = marginal(daughter)
+            neutral_dos = None
+            combined_dos = daughter_dos
+            if isinstance(neutral, raw.MolecularCluster):
+                neutral_key, neutral_dos = marginal(neutral)
+                _, combined_dos = prepare(
+                    (2, "combined", daughter_key, neutral_key),
+                    grid,
+                    lambda: daughter_dos.extend(neutral.frequencies),
+                )
+            self.fragmentation_products[first, second] = raw.FragmentationProducts(
+                daughter, neutral, daughter_dos, neutral_dos, combined_dos
             )
-            key = hashlib.sha256(json.dumps(identity).encode()).hexdigest()
-            rows = self.db.db.execute(
-                "select data from fragmentation_dos where key = ?", [key]
-            ).to_arrow_table()
-            if rows.num_rows:
-                data = rows["data"][0].values.to_numpy().reshape((-1, 3), order="F")
-                products = raw.FragmentationProducts(
-                    daughter, neutral, grid.bin_width, grid.x_max, data
-                )
-                hits += 1
-            else:
-                products = raw.FragmentationProducts(
-                    daughter, neutral, grid.bin_width, grid.x_max
-                )
-                data = products.log_dos.flatten("F")
-                insert_via_arrow(
-                    self.db.db,
-                    "fragmentation_dos",
-                    key=[key],
-                    data=pa.FixedSizeListArray.from_arrays(data, len(data)),
-                )
-                misses += 1
-            self.fragmentation_products[first, second] = products
             if status_table is not None:
-                status_table["Description"] = f"{hits} retrieved; {misses} computed"
+                status_table["Description"] = (
+                    f"{hits} tables retrieved; {misses} computed"
+                )
 
     def _fragmentation_preliminary(
         self,

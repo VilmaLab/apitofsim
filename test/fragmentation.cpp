@@ -18,12 +18,17 @@ TEST_CASE("fragmentation phase space conserves energy and both momenta")
     const ClusterSpec neutral = atomic ? ClusterSpec(AtomLikeCluster{20, 0., 0}) : ClusterSpec(molecule(20, 0));
     const FragmentationProducts products(daughter, neutral, consts::boltzmann, 100 * consts::boltzmann);
     const FragmentationProducts restored(daughter, neutral, consts::boltzmann, 100 * consts::boltzmann, products.log_dos());
+    const auto daughter_dos = std::make_shared<FragmentationDos>(daughter.frequencies, consts::boltzmann, 100 * consts::boltzmann);
+    const auto neutral_dos = atomic ? nullptr : std::make_shared<FragmentationDos>(std::get<MolecularCluster>(neutral).frequencies, consts::boltzmann, 100 * consts::boltzmann);
+    const auto combined_dos = atomic ? daughter_dos : daughter_dos->extend(std::get<MolecularCluster>(neutral).frequencies);
+    const FragmentationProducts shared(daughter, neutral, daughter_dos, neutral_dos, combined_dos);
+    CHECK((products.log_dos() == shared.log_dos()).all());
     const double id = products.daughter.inertia_moment, in = products.neutral.inertia_moment;
     const double md = products.daughter.mass, mn = products.neutral.mass;
     const double q = 70 * consts::boltzmann;
     const Eigen::Vector3d velocity{30., -20., 1000.};
     OperationContext operation;
-    std::mt19937 gen(42), repeat(42);
+    std::mt19937 gen(42), repeat(42), shared_gen(42);
     for (double angular_scale : {0., 1., 100.})
     {
       const Eigen::Vector3d angular_momentum = Eigen::Vector3d{1., 2., 3.}.normalized() * angular_scale * std::sqrt(2 * id * q);
@@ -32,7 +37,16 @@ TEST_CASE("fragmentation phase space conserves energy and both momenta")
         const auto sampled = products.sample(gen, q, angular_momentum, velocity, operation);
         REQUIRE(sampled.has_value());
         const auto identical = restored.sample(repeat, q, angular_momentum, velocity, operation);
+        const auto shared_state = shared.sample(shared_gen, q, angular_momentum, velocity, operation);
         REQUIRE(identical.has_value());
+        REQUIRE(shared_state.has_value());
+        CHECK(shared_state->velocity == identical->velocity);
+        CHECK(shared_state->omega == identical->omega);
+        CHECK(shared_state->neutral_velocity == identical->neutral_velocity);
+        CHECK(shared_state->neutral_omega == identical->neutral_omega);
+        CHECK(shared_state->orbital_momentum == identical->orbital_momentum);
+        CHECK(shared_state->vibrational_energy == identical->vibrational_energy);
+        CHECK(shared_state->neutral_vibrational_energy == identical->neutral_vibrational_energy);
         const auto &state = *sampled;
         CHECK(state.velocity == identical->velocity);
         CHECK(state.omega == identical->omega);
