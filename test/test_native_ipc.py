@@ -40,9 +40,53 @@ def test_recording_and_nonrecording_same_counters(prepared_case, tmp_path):
         assert read.schema.metadata[b"apitofsim:event_schema"] == b"1"
         states = json.loads(read.metadata[b"apitofsim:executions"])
         assert states["1"]["status"] == "complete"
+        assert states["1"]["ordered"] is True
         assert len(read.read_all()) == recorded.recording.event_count
     with pytest.raises(FileExistsError, match="append or overwrite"):
         api.mass_spec(ms, substance, 1, strict=False, record_to=path)
+
+
+def test_ordered_stream_and_recording_match(prepared_case, tmp_path):
+    ms, substance = inputs(prepared_case)
+    path = tmp_path / "ordered.arrow"
+    with pytest.raises(ValueError, match="requires ordered"):
+        api.mass_spec(ms, substance, 8, record_to=path, ordered=False)
+    assert not path.exists()
+    with api.mass_spec_iter(
+        ms,
+        substance,
+        8,
+        strict=False,
+        ordered=True,
+        initial_batch_size=2,
+        max_batch_size=7,
+    ) as stream:
+        live = pa.Table.from_batches(list(stream))
+    api.mass_spec(ms, substance, 8, strict=False, record_to=path)
+    with pa.ipc.open_file(path) as reader:
+        recorded = reader.read_all()
+    assert live.to_pydict() == ordered(live)
+    assert recorded.to_pydict() == ordered(recorded)
+    assert (
+        live.drop(["result_id"]).to_pydict() == recorded.drop(["result_id"]).to_pydict()
+    )
+
+
+def test_recording_callbacks_run_on_caller(prepared_case, tmp_path):
+    from threading import get_ident
+
+    ms, substance = inputs(prepared_case)
+    callbacks = []
+    result = api.mass_spec(
+        ms,
+        substance,
+        8,
+        strict=False,
+        record_to=tmp_path / "callbacks.arrow",
+        result_callback=lambda counters: callbacks.append((get_ident(), counters)),
+    )
+    assert callbacks and all(thread == get_ident() for thread, _ in callbacks)
+    assert_counters(callbacks[-1][1], result.counters)
 
 
 @pytest.mark.parametrize("delivery", ["batches", "individual"])

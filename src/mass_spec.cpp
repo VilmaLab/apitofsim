@@ -23,6 +23,8 @@
 
 #include <oneapi/tbb/blocked_range.h>
 #include <oneapi/tbb/parallel_reduce.h>
+#include <oneapi/tbb/parallel_pipeline.h>
+#include <oneapi/tbb/task_arena.h>
 
 using namespace std;
 using magic_enum::enum_count;
@@ -249,6 +251,84 @@ template <typename GenT>
 double onedimMaxwell(GenT &gen, normal_distribution<double> &gauss, double m, double kT);
 double mean_free_path(double R, double kT, double pressure);
 double eval_solid_angle_stokes(double R, double L, double xx, double yy, double zz);
+
+namespace
+{
+template <typename Simulate>
+Eigen::ArrayXi run_realizations(int count, const Eigen::ArrayXi &identity, Simulate simulate,
+                                StreamingResultQueue &output, OperationContext &operation)
+{
+  using namespace oneapi::tbb;
+  using Range = blocked_range<int>;
+  if (!output.pipeline_order.has_value())
+    return parallel_reduce(Range(0, count), identity, simulate,
+                           [](Eigen::ArrayXi left, const Eigen::ArrayXi &right)
+    { return (left + right).eval(); }, operation.tbb_context());
+
+  struct Token
+  {
+    Eigen::ArrayXi counters;
+    std::vector<StreamingResultElement> items;
+    std::exception_ptr failure;
+  };
+  Eigen::ArrayXi counters = identity;
+  std::exception_ptr failure;
+  int next = 0;
+  const auto parallelism = std::min(static_cast<size_t>(this_task_arena::max_concurrency()),
+                                    global_control::active_value(global_control::max_allowed_parallelism));
+  // Final-only summaries can amortize scheduling and counter allocations.
+  // Event and callback tokens retain realization granularity.
+  const auto grain = output.pipeline_sink ? 1 : std::clamp(count / (4 * static_cast<int>(parallelism)), 1, 32);
+  // Stop admission cooperatively. A cancelled scheduler context could discard
+  // issued tokens before the writer sees their partial events.
+  task_group_context pipeline_context(task_group_context::isolated);
+  parallel_pipeline(
+    2 * parallelism,
+    make_filter<void, int>(filter_mode::serial_in_order, [&](flow_control &control)
+  {
+    if (next >= count || !operation.checkpoint())
+    {
+      control.stop();
+      return 0;
+    }
+    const auto begin = next;
+    next += std::min(grain, count - next);
+    return begin;
+  }) & make_filter<int, Token>(filter_mode::parallel, [&](int index)
+  {
+    Token token;
+    auto *previous = std::exchange(StreamingResultQueue::token_items, &token.items);
+    try
+    {
+      token.counters = simulate(Range(index, index + std::min(grain, count - index)), identity);
+    }
+    catch (...)
+    {
+      token.failure = std::current_exception();
+      operation.request_cancel();
+    }
+    StreamingResultQueue::token_items = previous;
+    return token;
+  }) & make_filter<Token, void>(*output.pipeline_order ? filter_mode::serial_in_order : filter_mode::serial_out_of_order, [&](Token token)
+  {
+    if (!token.failure)
+      counters += token.counters;
+    if (!failure && token.failure)
+      failure = token.failure;
+    if (output.pipeline_sink)
+    {
+      for (auto &item : token.items)
+        output.pipeline_sink(std::move(item));
+      if (!token.failure && token.counters[Counter::n_realizations] != 0)
+        output.pipeline_sink(PartialResult(std::move(token.counters)));
+    }
+  }),
+    pipeline_context);
+  if (failure)
+    std::rethrow_exception(failure);
+  return counters;
+}
+} // namespace
 
 template <typename GasCollSamplerT, typename VibEnergySamplerT>
 SimulationResult apitof_mass_spec(
@@ -735,9 +815,8 @@ SimulationResult apitof_mass_spec(
   // All firstprivate variables *should* be constant within the loop
   // Truly private variables are declared in the loop
   auto loop_start = std::chrono::high_resolution_clock::now();
-  Eigen::ArrayXi counters = oneapi::tbb::parallel_reduce(
-    oneapi::tbb::blocked_range<int>(0, N),
-    identity,
+  Eigen::ArrayXi counters = run_realizations(
+    N, identity,
     [&, gas_coll_sampler, vib_energy_sampler](const oneapi::tbb::blocked_range<int> &range, Eigen::ArrayXi counters)
   {
     auto local_vib_energy_sampler = vib_energy_sampler;
@@ -875,16 +954,13 @@ SimulationResult apitof_mass_spec(
         realization_counters[Counter::ncoll_total] += ncoll;
         realization_counters[Counter::n_realizations]++;
         counters += realization_counters;
-        result_queue.enqueue(PartialResult(realization_counters));
+        if (!result_queue.pipeline_order.has_value())
+          result_queue.enqueue(PartialResult(realization_counters));
       }
     }
     return counters;
   },
-    [](Eigen::ArrayXi left, const Eigen::ArrayXi &right)
-  {
-    return (left + right).eval();
-  },
-    operation.tbb_context());
+    result_queue, operation);
   // End of parallel loop
 
   auto end = std::chrono::high_resolution_clock::now();
@@ -965,9 +1041,8 @@ SimulationResult apitof_mass_spec(
   // All firstprivate variables *should* be constant within the loop
   // Truly private variables are declared in the loop
   auto loop_start = std::chrono::high_resolution_clock::now();
-  Eigen::ArrayXi counters = oneapi::tbb::parallel_reduce(
-    oneapi::tbb::blocked_range<int>(0, N),
-    identity,
+  Eigen::ArrayXi counters = run_realizations(
+    N, identity,
     [&, gas_coll_sampler](const oneapi::tbb::blocked_range<int> &range, Eigen::ArrayXi counters)
   {
     auto local_gas_coll_sampler = gas_coll_sampler;
@@ -1149,16 +1224,13 @@ SimulationResult apitof_mass_spec(
         realization_counters[Counter::n_realizations]++;
         realization_counters[Counter::n_fragmented_total + last_pathway_index]++;
         counters += realization_counters;
-        result_queue.enqueue(PartialResult(realization_counters));
+        if (!result_queue.pipeline_order.has_value())
+          result_queue.enqueue(PartialResult(realization_counters));
       }
     }
     return counters;
   },
-    [](Eigen::ArrayXi left, const Eigen::ArrayXi &right)
-  {
-    return (left + right).eval();
-  },
-    operation.tbb_context());
+    result_queue, operation);
   // End of parallel loop
 
   auto end = std::chrono::high_resolution_clock::now();
