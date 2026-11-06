@@ -496,6 +496,7 @@ class SuperClusterDatabase(ClusterDatabase):
         sql_files.histograms,
         sql_files.vib_energy_index,
         sql_files.rf_basis,
+        sql_files.fragmentation_dos,
     ]
     VIEWS = [
         sql_files.pathway_report,
@@ -510,6 +511,14 @@ class SuperClusterDatabase(ClusterDatabase):
             self.db.table("vib_energy_index")
         except duckdb.CatalogException:
             self.db.execute(sql_files.vib_energy_index)
+
+    def ensure_fragmentation_dos_cache(self):
+        # Lazily upgrade existing writable databases; warmed read-only caches
+        # need no DDL.
+        try:
+            self.db.table("fragmentation_dos")
+        except duckdb.CatalogException:
+            self.db.execute(sql_files.fragmentation_dos)
 
     def get_histogram_params(self, histogram_id):
         row = (
@@ -861,6 +870,7 @@ class ExperimentDatabase(SuperClusterDatabase, _EventQueries):
         sql_files.histograms,
         sql_files.vib_energy_index,
         sql_files.rf_basis,
+        sql_files.fragmentation_dos,
         sql_files.experiment,
         sql_files.event_recording,
     ]
@@ -1621,8 +1631,10 @@ class ExperimentDatabase(SuperClusterDatabase, _EventQueries):
                 self.db.execute(f"truncate {tbl}")
 
         if derived:
-            if "vib_energy_index" in self.db.sql("show tables").fetchnumpy()["name"]:
-                self.db.execute("truncate vib_energy_index")
+            tables = self.db.sql("show tables").fetchnumpy()["name"]
+            for table in ("vib_energy_index", "fragmentation_dos"):
+                if table in tables:
+                    self.db.execute(f"truncate {table}")
             for tbl in ["cluster_dos", "products_dos", "k_rate"]:
                 self.db.execute(f"truncate {tbl}")
 

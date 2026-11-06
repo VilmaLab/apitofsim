@@ -29,7 +29,11 @@ public:
   const ClusterDerived daughter, neutral;
 
   FragmentationProducts(const MolecularCluster &daughter, const ClusterSpec &neutral,
-                        double bin_width, double energy_max);
+                        double bin_width, double energy_max, std::optional<Eigen::ArrayXXd> log_dos = std::nullopt);
+
+  // Cache snapshot: daughter, neutral, combined log counts. Atom-like neutral
+  // columns are -infinity; these are counts, not the rate DOS densities.
+  Eigen::ArrayXXd log_dos() const;
 
   // Fixed-J spherical phase space, with the paper's unlimited capture parameter.
   // Returns nullopt on cancellation. Does not change the fragmentation hazard.

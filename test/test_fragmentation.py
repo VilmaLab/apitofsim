@@ -9,6 +9,104 @@ from apitofsim import apitofsimraw as raw
 from apitofsim.config import import_raw_config, simulation_option
 
 
+@pytest.mark.parametrize("atomic", [False, True])
+def test_fragmentation_cache_persists_and_tracks_inputs(tmp_path, monkeypatch, atomic):
+    from contextlib import closing
+
+    from apitofsim.workflow import DerivedDataPreparer, ExperimentDatabase
+
+    def cluster(mass, charge, atom=False):
+        return api.ClusterData(
+            api.Q_(mass, "amu"),
+            api.Q_(0, "hartree"),
+            np.ones(3),
+            np.array([] if atom else [20.0, 36.0]),
+            charge,
+        )
+
+    clusters = {
+        1: cluster(120, -1),
+        2: cluster(100, -1),
+        3: cluster(20, 0, atomic),
+        4: cluster(80, -1),
+    }
+    pathways = {1: (1, 2, 3), 2: (2, 4, 3), 3: (1, 2, 3)}
+    densities = {1: np.ones(100), 2: np.ones(100)}
+    config = {
+        "fragmentation_state_method": "phase-space",
+        "bin_width": api.Q_(10, "K"),
+        "energy_max": api.Q_(1000, "K"),
+    }
+    path = str(tmp_path / "cache.duckdb")
+    with closing(ExperimentDatabase(path)) as db:
+        db.create_tables()
+        db.db.execute("drop table fragmentation_dos")  # Upgrade an older database.
+        preparer = DerivedDataPreparer(db)
+        preparer._prepare_fragmentation_products(config, clusters, pathways, densities)
+        assert list(preparer.fragmentation_products) == [(2, 3)]
+        snapshot = preparer.fragmentation_products[2, 3].log_dos
+        assert db.db.execute("select count(*) from fragmentation_dos").fetchone() == (
+            1,
+        )
+
+    real_products = raw.FragmentationProducts
+    calls = []
+
+    def construct(*args):
+        calls.append(len(args))
+        return real_products(*args)
+
+    monkeypatch.setattr(raw, "FragmentationProducts", construct)
+    with closing(ExperimentDatabase(path)) as db:
+        preparer = DerivedDataPreparer(db)
+        preparer._prepare_fragmentation_products(config, clusters, pathways, densities)
+        assert calls == [5]
+        np.testing.assert_array_equal(
+            preparer.fragmentation_products[2, 3].log_dos, snapshot
+        )
+        # The cached histogram's actual grid overrides requested config defaults.
+        preparer.dos_histogram_id = db.db.execute(
+            "insert into histogram_params values (default, 10, 1000) returning id"
+        ).fetchone()[0]
+        config["bin_width"] = api.Q_(5, "K")
+        preparer._prepare_fragmentation_products(config, clusters, pathways, densities)
+        assert calls[-1] == 5
+        clusters[2].frequencies = np.array([20.0, 47.0])
+        preparer._prepare_fragmentation_products(config, clusters, pathways, densities)
+        assert calls[-1] == 4
+        # The same number of bins at another width is a different cache entry.
+        preparer.dos_histogram_id = None
+        config["energy_max"] = api.Q_(500, "K")
+        preparer._prepare_fragmentation_products(config, clusters, pathways, densities)
+        assert calls[-1] == 4
+        assert db.db.execute("select count(*) from fragmentation_dos").fetchone() == (
+            3,
+        )
+        preparer._prepare_fragmentation_products({}, clusters, pathways, densities)
+        assert preparer.fragmentation_products == {}
+
+
+@pytest.mark.parametrize("atomic", [False, True])
+def test_fragmentation_snapshot_validation_and_ownership(atomic):
+    daughter = raw.MolecularCluster(100, 0, np.ones(3), np.array([1.6, 2.3]), -1)
+    neutral = (
+        raw.AtomLikeCluster(20, 0, 0)
+        if atomic
+        else raw.MolecularCluster(20, 0, np.ones(3), np.array([3.7, 1000.0]), 0)
+    )
+    width = raw.consts.boltzmann
+    original = raw.FragmentationProducts(daughter, neutral, width, 100 * width)
+    snapshot = original.log_dos
+    restored = raw.FragmentationProducts(
+        daughter, neutral, width, 100 * width, snapshot
+    )
+    snapshot[:] = np.nan  # Snapshots and restored payloads own their arrays.
+    np.testing.assert_array_equal(restored.log_dos, original.log_dos)
+    for invalid in (snapshot, original.log_dos[:-1], original.log_dos[:, :2]):
+        with pytest.raises(raw.ApiTofArgumentError, match="Invalid prepared"):
+            raw.FragmentationProducts(daughter, neutral, width, 100 * width, invalid)
+
+
 def make_tree(method=None, *, atomic=False):
     def molecule(mass, charge):
         return raw.MolecularCluster(mass, 0, np.ones(3), np.array([100.0]), charge)

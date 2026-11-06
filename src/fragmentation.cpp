@@ -47,7 +47,7 @@ Eigen::Vector3d direction(double cosine, double azimuth, const Eigen::Vector3d &
 } // namespace
 
 FragmentationProducts::FragmentationProducts(const MolecularCluster &daughter_cluster, const ClusterSpec &neutral_cluster,
-                                             double bin_width, double energy_max)
+                                             double bin_width, double energy_max, std::optional<Eigen::ArrayXXd> log_dos)
     : bin_width(bin_width), daughter(compute_derived(daughter_cluster)), neutral(compute_derived(neutral_cluster))
 {
   if (!std::isfinite(bin_width) || bin_width <= 0 || !std::isfinite(energy_max) || energy_max < bin_width || energy_max / bin_width >= std::numeric_limits<int>::max() || daughter.mass <= 0 || daughter.inertia_moment <= 0 || !std::isfinite(daughter.inertia_moment) || neutral.mass <= 0 || neutral.inertia_moment < 0 || !std::isfinite(neutral.inertia_moment) || daughter_cluster.charge == 0 || std::visit([](const auto &cluster)
@@ -56,6 +56,20 @@ FragmentationProducts::FragmentationProducts(const MolecularCluster &daughter_cl
   // Ground-inclusive Beyer–Swinehart recurrence. The existing rate DOS omit
   // the ground state and cannot consistently supply both product marginals.
   const int count = static_cast<int>(std::round(energy_max / bin_width));
+  if (log_dos)
+  {
+    const bool molecular = std::holds_alternative<MolecularCluster>(neutral_cluster);
+    if (log_dos->rows() != count || log_dos->cols() != 3 ||
+        !((log_dos->isFinite()) || (*log_dos == -std::numeric_limits<double>::infinity())).all() ||
+        (*log_dos)(0, 0) != 0 || (*log_dos)(0, 2) != 0 ||
+        (molecular ? (*log_dos)(0, 1) != 0 : !(log_dos->col(1) == -std::numeric_limits<double>::infinity()).all()))
+      throw ApiTofArgumentError("Invalid prepared fragmentation log DOS");
+    daughter_log_dos = log_dos->col(0);
+    if (molecular)
+      neutral_log_dos = log_dos->col(1);
+    combined_log_dos = log_dos->col(2);
+    return;
+  }
   daughter_log_dos = Eigen::ArrayXd::Constant(count, -std::numeric_limits<double>::infinity());
   daughter_log_dos[0] = 0;
   add_oscillators(daughter_log_dos, daughter_cluster.frequencies, bin_width);
@@ -67,6 +81,18 @@ FragmentationProducts::FragmentationProducts(const MolecularCluster &daughter_cl
     add_oscillators(neutral_log_dos, molecule->frequencies, bin_width);
     add_oscillators(combined_log_dos, molecule->frequencies, bin_width);
   }
+}
+
+Eigen::ArrayXXd FragmentationProducts::log_dos() const
+{
+  Eigen::ArrayXXd result(daughter_log_dos.size(), 3);
+  result.col(0) = daughter_log_dos;
+  if (neutral_log_dos.size() != 0)
+    result.col(1) = neutral_log_dos;
+  else
+    result.col(1).setConstant(-std::numeric_limits<double>::infinity());
+  result.col(2) = combined_log_dos;
+  return result;
 }
 
 std::optional<FragmentationState> FragmentationProducts::sample(

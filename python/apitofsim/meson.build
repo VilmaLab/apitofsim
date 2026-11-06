@@ -54,6 +54,7 @@ python.install_sources([
 'workflow/sql/histograms.sql',
 'workflow/sql/vib_energy_index.sql',
 'workflow/sql/rf_basis.sql',
+'workflow/sql/fragmentation_dos.sql',
 'workflow/sql/pathway.sql',
 'workflow/sql/pathway_report.sql',
 'workflow/sql/event_recording.sql',

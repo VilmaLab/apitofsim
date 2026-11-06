@@ -17,6 +17,7 @@ TEST_CASE("fragmentation phase space conserves energy and both momenta")
     const auto daughter = molecule(100, -1);
     const ClusterSpec neutral = atomic ? ClusterSpec(AtomLikeCluster{20, 0., 0}) : ClusterSpec(molecule(20, 0));
     const FragmentationProducts products(daughter, neutral, consts::boltzmann, 100 * consts::boltzmann);
+    const FragmentationProducts restored(daughter, neutral, consts::boltzmann, 100 * consts::boltzmann, products.log_dos());
     const double id = products.daughter.inertia_moment, in = products.neutral.inertia_moment;
     const double md = products.daughter.mass, mn = products.neutral.mass;
     const double q = 70 * consts::boltzmann;
@@ -30,12 +31,16 @@ TEST_CASE("fragmentation phase space conserves energy and both momenta")
       {
         const auto sampled = products.sample(gen, q, angular_momentum, velocity, operation);
         REQUIRE(sampled.has_value());
-        const auto identical = products.sample(repeat, q, angular_momentum, velocity, operation);
+        const auto identical = restored.sample(repeat, q, angular_momentum, velocity, operation);
         REQUIRE(identical.has_value());
         const auto &state = *sampled;
         CHECK(state.velocity == identical->velocity);
         CHECK(state.omega == identical->omega);
         CHECK(state.vibrational_energy == identical->vibrational_energy);
+        CHECK(state.neutral_velocity == identical->neutral_velocity);
+        CHECK(state.neutral_omega == identical->neutral_omega);
+        CHECK(state.neutral_vibrational_energy == identical->neutral_vibrational_energy);
+        CHECK(state.orbital_momentum == identical->orbital_momentum);
         const Eigen::Vector3d relative = state.velocity - state.neutral_velocity;
         const double energy = state.vibrational_energy + state.neutral_vibrational_energy + (0.5 * id * state.omega.squaredNorm()) + (0.5 * in * state.neutral_omega.squaredNorm()) + (0.5 * md * mn / (md + mn) * relative.squaredNorm());
         CHECK(energy / q == doctest::Approx(1.).epsilon(1e-10));

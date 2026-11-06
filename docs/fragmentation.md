@@ -8,6 +8,19 @@ simulation_mode = "cluster-tree"
 fragmentation_state_method = "phase-space"
 ```
 
+Product DOS tables are prepared in the **Fragmentation DOS** preliminary step
+and saved in the database's `fragmentation_dos` cache. Warm preparation loads
+these tables without repeating the oscillator recurrence; tree assembly reuses
+the prepared product objects. Only continuing transitions need these tables.
+The cache identifies the ordered product frequencies, atom/molecule kind, actual
+selected DOS grid and algorithm version. Existing databases acquire the cache
+when phase-space preparation first runs.
+
+These are separate, ground-inclusive logarithmic state counts, not the normal
+rate DOS. Caching preserves the existing phase-space sampling law and leaves
+rates and other energy samplers unchanged. `use_old_dos_impl` still controls only
+uncached normal DOS calculations and can be used with phase-space sampling.
+
 The default, `fragmentation_state_method = "zero"`, retains the previous reset of
 velocity, angular velocity and vibrational energy. The setting is saved with the
 experiment configuration. It only affects continuing tree transitions; terminal
