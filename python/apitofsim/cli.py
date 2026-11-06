@@ -685,7 +685,7 @@ def plot_events(database, dirout, panels, rescale):
     """
     import matplotlib.pyplot as plt
 
-    from apitofsim.plotting.events import plot_events_experiment
+    from apitofsim.plotting.events import NoRecordedEventsError, plot_events_experiment
     from apitofsim.workflow.db import ExperimentDatabase
 
     if len(panels) > 3 or len(set(panels)) != len(panels):
@@ -698,18 +698,21 @@ def plot_events(database, dirout, panels, rescale):
                 "Event plotting is not supported for single pathway experiments"
             )
 
-        dirout.mkdir(exist_ok=True, parents=True)
-        for parent_name, fig in plot_events_experiment(
-            db, experiment_id, is_single_pathway, rescale=rescale, panels=panels
-        ):
-            pngout = dirout / f"{parent_name}.png"
-            fig.savefig(
-                str(pngout),
-                dpi=150,
-                facecolor=fig.get_facecolor(),
-                bbox_inches="tight",
-            )
-            plt.close(fig)
+        try:
+            for parent_name, fig in plot_events_experiment(
+                db, experiment_id, is_single_pathway, rescale=rescale, panels=panels
+            ):
+                dirout.mkdir(exist_ok=True, parents=True)
+                pngout = dirout / f"{parent_name}.png"
+                fig.savefig(
+                    str(pngout),
+                    dpi=150,
+                    facecolor=fig.get_facecolor(),
+                    bbox_inches="tight",
+                )
+                plt.close(fig)
+        except NoRecordedEventsError as error:
+            raise click.ClickException(str(error)) from error
 
 
 @db.command(short_help="Produce an Excel-friendly CSV report from the database")

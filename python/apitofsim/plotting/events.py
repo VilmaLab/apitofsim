@@ -5,6 +5,10 @@ REGIONS = ("First chamber", "Skimmer", "C2 pre", "Quadrupole", "C2 post")
 COLORS = {"fragmentation": "#d62728", "escape": "#2ca02c"}
 
 
+class NoRecordedEventsError(ValueError):
+    """The selected run or cluster has no recorded events."""
+
+
 def get_geometry(db, experiment_run_id):
     import orjson
 
@@ -59,6 +63,11 @@ def get_events(db, experiment_run_id, is_single_pathway=False, cluster_id=None):
             "Event plotting is not supported for single pathway experiments"
         )
     events = db.events_query(run_id=experiment_run_id, parent=cluster_id).fetchdf()
+    if events.empty:
+        scope = f"experiment run #{experiment_run_id}"
+        if cluster_id is not None:
+            scope += f", cluster #{cluster_id}"
+        raise NoRecordedEventsError(f"No recorded events for {scope}")
     names = (
         db.clusters_query()
         .select("id as cluster_id, common_name as parent_name")
@@ -266,8 +275,8 @@ def plot_events_experiment(
     panels=PANELS,
 ):
     """Yield a (parent name, figure) pair for each recorded cluster in a run."""
-    cumulative_lengths = lengths_to_cumulative_lengths(get_geometry(db, experiment_id))
     events = get_events(db, experiment_id, is_single_pathway)
+    cumulative_lengths = lengths_to_cumulative_lengths(get_geometry(db, experiment_id))
     realizations = db.realizations_query(run_id=experiment_id).fetchdf()
     names = dict(db.clusters_query().select("id, common_name").fetchall())
     for cluster_id, members in realizations.groupby("cluster_id"):
@@ -292,8 +301,8 @@ def plot_events_cluster(
     panels=PANELS,
 ):
     """Plot one recorded cluster cohort."""
-    cumulative_lengths = lengths_to_cumulative_lengths(get_geometry(db, experiment_id))
     events = get_events(db, experiment_id, is_single_pathway, cluster_id=cluster_id)
+    cumulative_lengths = lengths_to_cumulative_lengths(get_geometry(db, experiment_id))
     members = db.realizations_query(run_id=experiment_id, parent=cluster_id).fetchdf()
     return plot_events_from_df(
         events,

@@ -105,3 +105,79 @@ def test_run_scope_and_missing_histories(monkeypatch, tmp_path):
         )
         assert db.events_query(run_id=run_id).count("*").fetchone() == (1,)
         assert db.events_query(run_id=999).count("*").fetchone() == (0,)
+
+
+def test_plot_requires_events_in_selected_run_or_cluster(tmp_path, monkeypatch):
+    from apitofsim import cli
+    from apitofsim.plotting.events import (
+        NoRecordedEventsError,
+        plot_events_cluster,
+        plot_events_experiment,
+    )
+    from archive_fixtures import publish_events
+    from click.testing import CliRunner
+
+    path = tmp_path / "plot.duckdb"
+    out = tmp_path / "plots"
+    with ExperimentDatabase(path) as db:
+        db.create_tables()
+        db.insert_cluster("parent", 100, -1, 0, [1, 1, 1], [])
+        db.insert_cluster("other", 100, -1, 0, [1, 1, 1], [])
+        config = db.insert_config("events", "{}")
+        recorded = db.insert_run(config)
+        unrecorded = db.insert_run(config)
+        result = db.begin_execution(recorded, 1, None, [], recorded=True)
+        db.begin_execution(unrecorded, 2, None, [], recorded=False)
+        publish_events(
+            db,
+            [dict(result_id=result, realization_index=0, event_index=0, event_kind=5)],
+        )
+        with pytest.raises(
+            NoRecordedEventsError, match=f"experiment run #{unrecorded}"
+        ):
+            list(plot_events_experiment(db, unrecorded))
+        with pytest.raises(NoRecordedEventsError, match="cluster #2"):
+            plot_events_cluster(db, recorded, False, 2)
+
+    monkeypatch.setattr(cli, "select_experiment", lambda db: (unrecorded, False))
+    result = CliRunner().invoke(cli.plot_events, [str(path), str(out)])
+    assert result.exit_code == 1
+    assert f"No recorded events for experiment run #{unrecorded}" in result.output
+    assert not out.exists()
+
+
+def test_event_report_requires_recorded_events(tmp_path):
+    from apitofsim.cli import report
+    from archive_fixtures import publish_events
+    from click.testing import CliRunner
+
+    path = tmp_path / "report.duckdb"
+    out = tmp_path / "events.csv"
+    with ExperimentDatabase(path) as db:
+        db.create_tables()
+        db.insert_cluster("parent", 100, -1, 0, [1, 1, 1], [])
+        run = db.insert_run(db.insert_config("events", "{}"))
+        db.begin_execution(run, 1, None, [], recorded=False)
+
+    runner = CliRunner()
+    result = runner.invoke(report, ["event-report", str(path), str(out)])
+    assert result.exit_code == 1
+    assert "No recorded events in the database" in result.output
+    assert not out.exists()
+
+    with ExperimentDatabase(path) as db:
+        result_id = db.begin_execution(run, 1, None, [], recorded=True)
+        publish_events(
+            db,
+            [
+                dict(
+                    result_id=result_id,
+                    realization_index=0,
+                    event_index=0,
+                    event_kind=5,
+                )
+            ],
+        )
+    result = runner.invoke(report, ["event-report", str(path), str(out)])
+    assert result.exit_code == 0, result.output
+    assert pd.read_csv(out)["event_type"].tolist() == ["escape"]
