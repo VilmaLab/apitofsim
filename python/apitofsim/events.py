@@ -208,7 +208,9 @@ class MassSpecIterator:
         if error is not None:
             error.__dict__["recording"] = info
             if transaction is not None:
-                transaction.pending_failures.append(error)
+                transaction.failure_rollbacks.append(
+                    lambda: setattr(error, "recording", None)
+                )
 
     def _read(self, *, discard=False):
         from .api import (
@@ -373,7 +375,8 @@ def read_events(path, *, events="batches", result_id=None):
                         )
                     )
                 if events == "batches":
-                    yield batch
+                    if batch.num_rows:
+                        yield batch
                 else:
                     for j in range(batch.num_rows):
                         yield event_at(batch, j)
