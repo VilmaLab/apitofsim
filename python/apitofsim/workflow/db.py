@@ -701,6 +701,14 @@ class _EventQueries:
                 )
         return query
 
+    def _execution_query(self, run_id, parent, result_id):
+        query = self.db.table("event_execution").select("""
+            result_id as experiment_result_id, run_id as experiment_run_id,
+            cluster_id, pathway_id, pathway_ids, pathway_id is not null as is_single_pathway,
+            status, recorded, batch_start, batch_count
+        """)
+        return self._scope_query(query, run_id, parent, result_id)
+
     def results_query(self, run_id=None, parent=None, result_id=None):
         """Return results, scoped by run, root cluster ID and/or result ID.
 
@@ -710,10 +718,9 @@ class _EventQueries:
         results appear once, including results with no pathway_fragmentation rows.
         All supplied scope filters are intersected; omitted filters select all rows.
         """
-        query = self.db.table("event_execution").select(
-            "result_id as experiment_result_id, run_id as experiment_run_id, cluster_id, pathway_id, pathway_id is not null as is_single_pathway, status"
+        return self._execution_query(run_id, parent, result_id).select(
+            "experiment_result_id, experiment_run_id, cluster_id, pathway_id, is_single_pathway, status"
         )
-        return self._scope_query(query, run_id, parent, result_id)
 
     def realizations_query(self, run_id=None, parent=None, result_id=None):
         """Return recorded realizations with result, run and parent IDs.
@@ -721,22 +728,24 @@ class _EventQueries:
         Includes observed histories from complete, cancelled and failed executions.
         All supplied filters intersect; event identity is scoped to its execution.
         """
-        self._ensure_event_reader()
-        query = (
-            self.db.table("realization")
+        archive, execution = self._recorded_events(
+            run_id,
+            parent,
+            result_id,
+            columns=("realization_index", "result_id"),
+        )
+        return (
+            archive.aggregate("result_id, realization_index")
             .set_alias("r")
             .join(
-                self.results_query().set_alias("results"),
-                "results.experiment_result_id = r.experiment_result_id",
-                how="left",
+                execution.set_alias("execution"),
+                "execution.experiment_result_id = r.result_id",
             )
             .select("""
-                r.id as realization_id, r.experiment_result_id,
-                results.experiment_run_id, results.cluster_id,
-                results.pathway_id, results.is_single_pathway
+                concat_ws(':', r.result_id, r.realization_index) as realization_id,
+                experiment_result_id, experiment_run_id, cluster_id, pathway_id, is_single_pathway
             """)
         )
-        return self._scope_query(query, run_id, parent, result_id)
 
     def events_query(self, run_id=None, parent=None, result_id=None, *, sort=False):
         """Return raw event state, cohort IDs and optional subtype fields.
@@ -745,18 +754,19 @@ class _EventQueries:
         order by numeric result, realization and event indices; timestamps may tie.
         The default leaves ordering to the caller.
         """
-        self._ensure_event_reader()
+        archive, execution = self._recorded_events(run_id, parent, result_id)
         query = (
-            self.db.table("event_details")
-            .set_alias("e")
+            archive.set_alias("e")
             .join(
-                self.realizations_query(run_id, parent, result_id).set_alias("cohort"),
-                "cohort.realization_id = e.realization_id",
+                execution.set_alias("execution"),
+                "execution.experiment_result_id = e.result_id",
+            )
+            .select(
+                sql_files.event_columns
+                + ", experiment_result_id, experiment_run_id, cluster_id, is_single_pathway"
             )
             .select("""
-                e.id as event_id, e.* exclude (id),
-                cohort.experiment_result_id, cohort.experiment_run_id,
-                cohort.cluster_id, cohort.is_single_pathway
+                id as event_id, * exclude (id)
             """)
         )
         if sort:
@@ -847,10 +857,8 @@ class _EventQueries:
         presence; a realization with multiple such events is counted once.
         Empty scopes return zero counts. With no filters, scope is this database.
         """
-        realizations = self.realizations_query(run_id, parent, result_id).aggregate(
-            "count(*) as realization_count"
-        )
-        events = self.events_query(run_id, parent, result_id).aggregate("""
+        return self.events_query(run_id, parent, result_id).aggregate("""
+            count(distinct realization_id) as realization_count,
             count(*) as event_count,
             count(*) filter (where event_type = 'escape') as escape_count,
             count(*) filter (where event_type = 'collision') as collision_event_count,
@@ -861,7 +869,6 @@ class _EventQueries:
                 where event_type in ('escape', 'fragmentation')
             ) as terminal_realization_count
         """)
-        return realizations.join(events, "true")
 
 
 class ExperimentDatabase(SuperClusterDatabase, _EventQueries):
@@ -996,8 +1003,28 @@ class ExperimentDatabase(SuperClusterDatabase, _EventQueries):
             self.db.register(
                 "_event_archive", pa.Table.from_batches([], schema=EVENT_SCHEMA)
             )
-        self.db.execute(sql_files.event_views)
+        self.db.execute(
+            sql_files.event_views.format(event_columns=sql_files.event_columns)
+        )
         self._event_reader_ready = True
+
+    def _recorded_events(self, run_id, parent, result_id, *, columns=None):
+        from apitofsim.recording import event_batch_dataset
+
+        self._ensure_event_reader()
+        execution = self._execution_query(run_id, parent, result_id).filter("recorded")
+        if run_id is None and parent is None and result_id is None:
+            return self.db.table("_event_archive"), execution
+        ranges = (
+            execution.filter("batch_count > 0")
+            .select("batch_start, batch_count")
+            .order("batch_start")
+            .fetchall()
+        )
+        return (
+            self.db.from_arrow(event_batch_dataset(self.events_path, ranges, columns)),
+            execution,
+        )
 
     def close(self):
         if getattr(self, "_recording", None) is not None:

@@ -1,7 +1,10 @@
 """Composite event identity and persisted tree mappings across shared IPC roots."""
 
+import re
+
 import pytest
 from apitofsim import apitofsimraw as raw
+from apitofsim import recording
 from apitofsim.workflow import ExperimentDatabase
 from archive_fixtures import publish_events
 
@@ -37,7 +40,7 @@ def start(db):
     )
 
 
-def test_shared_archive_tree_identity_and_order(tmp_path):
+def test_shared_archive_tree_identity_and_order(tmp_path, monkeypatch):
     path = tmp_path / "trees.duckdb"
     with ExperimentDatabase(path) as db:
         db.create_tables()
@@ -92,7 +95,9 @@ def test_shared_archive_tree_identity_and_order(tmp_path):
                 )
                 if destination >= 0:
                     emit(4, destination)
-        publish_events(db, rows)
+        publish_events(
+            db, rows, batch_size=8, statuses={first: "cancelled", second: "failed"}
+        )
         histories = db.tree_events_query().fetchall()
         assert len(histories) == len(rows)
         assert db.realizations_query().count("*").fetchone() == (3,)
@@ -116,6 +121,65 @@ def test_shared_archive_tree_identity_and_order(tmp_path):
     (tmp_path / "trees.events.arrow").rename(tmp_path / "renamed.events.arrow")
     with ExperimentDatabase(renamed, readonly=True) as reopened:
         assert reopened.events_query(sort=True).fetchall() == expected
+        reads = []
+        open_file = recording.pa.ipc.open_file
+
+        class TracedReader:
+            def __init__(self, source, options):
+                self.reader = open_file(source, options=options)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                self.reader.__exit__(*exc)
+
+            def get_batch(self, index):
+                batch = self.reader.get_batch(index)
+                reads.append((index, batch.schema.names))
+                return batch
+
+        monkeypatch.setattr(recording.pa.ipc, "open_file", TracedReader)
+        scope = dict(run_id=2, parent=10, result_id=second)
+        scoped_events = reopened.events_query(**scope, sort=True)
+        assert [index for index, _ in reads] == [3, 4]
+        reads.clear()
+        scoped_tree = reopened.tree_events_query(**scope)
+        assert [index for index, _ in reads] == [3, 4]
+        reads.clear()
+        scoped_realizations = reopened.realizations_query(**scope)
+        assert reads == [
+            (index, ["realization_index", "result_id"]) for index in (3, 4)
+        ]
+        reads.clear()
+
+        expected_events = [row for row in expected if row[2] == second]
+        assert scoped_events.fetchall() == expected_events
+        assert scoped_tree.fetchall() == [row for row in histories if row[2] == second]
+        assert scoped_realizations.fetchall() == [
+            (f"{second}:0", second, 2, 10, None, False)
+        ]
+        assert scoped_events.fetchall() == expected_events
+        assert reads == []
+        assert len(re.findall(r"│\s+ARROW_SCAN\s+│", scoped_tree.explain())) == 1
+        assert reopened.recorded_output_query(**scope).fetchone() == (
+            1,
+            12,
+            0,
+            3,
+            3,
+            3,
+            3,
+            1,
+        )
+
+        assert reopened.tree_events_query(parent=10).fetchall() == histories
+        reads.clear()
+        empty = dict(run_id=1, parent=10, result_id=second)
+        assert reopened.events_query(**empty).fetchall() == []
+        assert reopened.tree_events_query(**empty).fetchall() == []
+        assert reopened.realizations_query(**empty).fetchall() == []
+        assert reads == []
 
 
 def test_reject_legacy_event_database(tmp_path):
