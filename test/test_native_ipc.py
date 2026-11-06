@@ -98,6 +98,10 @@ def test_reopen_append_and_explicit_overwrite(prepared_case, tmp_path):
     combined = list(api.read_events(path, events="individual"))
     assert [event for event in combined if event.result_id == 1] == original
     assert {event.result_id for event in combined} == {1, 2}
+    batches = list(api.read_events(path, result_id=1))
+    assert batches and all(batch.num_rows for batch in batches)
+    assert sum(batch.num_rows for batch in batches) == len(original)
+    assert list(api.read_events(path, result_id=999)) == []
     replaced = api.mass_spec(
         ms,
         substance,
@@ -550,3 +554,75 @@ def test_overwrite_preserves_unmanaged_staging_file(tmp_path):
             pass
     assert path.read_bytes() == b"original destination"
     assert staging.read_bytes() == b"unrelated file"
+
+
+def test_failed_reader_open_closes_connection(tmp_path):
+    import duckdb
+    from archive_fixtures import publish_events
+
+    path = tmp_path / "missing-sidecar.duckdb"
+    with ExperimentDatabase(path) as db:
+        db.create_tables()
+        publish_events(db, [])
+        sidecar = db.events_path
+    sidecar.unlink()
+
+    connection = duckdb.connect(path, read_only=True)
+    cleaned = []
+
+    def cleanup():
+        with pytest.raises(duckdb.ConnectionException, match="closed"):
+            connection.execute("select 1")
+        cleaned.append(True)
+
+    with pytest.raises(FileNotFoundError, match="matching .events.arrow") as error:
+        ExperimentDatabase(
+            (connection, cleanup), readonly=True, events_filename=sidecar
+        )
+    assert error.value.__traceback__ is not None
+    assert cleaned == [True]
+    with duckdb.connect(path) as writable:
+        assert writable.execute("select 1").fetchone() == (1,)
+
+
+@pytest.mark.parametrize("outer_transaction", [False, True])
+def test_rolled_back_failure_metadata_is_cleared(
+    prepared_case, monkeypatch, outer_transaction
+):
+    from contextlib import nullcontext
+    from dataclasses import replace
+
+    import numpy as np
+    from apitofsim.workflow import recorded_failure
+
+    db, runner, _, _ = prepared_case
+    prepared = prepare(prepared_case, pathways=[1])
+    prepared = replace(
+        prepared,
+        mass_spec=replace(
+            prepared.mass_spec,
+            voltages=api.Q_(-np.arange(5.0) * 1000, "V"),
+            pressures=api.Q_(np.array([0.001, 0.001]), "Pa"),
+            radius_pinhole=None,
+        ),
+    )
+
+    def fail_sync(file):
+        raise OSError("simulated sidecar sync failure")
+
+    monkeypatch.setattr(persistence, "sync_file", fail_sync)
+    scope = db.recording_transaction() if outer_transaction else nullcontext()
+    with pytest.raises(api.ApiTofParticleEscapeError) as error:
+        with scope:
+            with runner.iter_mass_spec(
+                prepared, prepared.groups[0], 8, record_events=True
+            ) as stream:
+                list(stream)
+
+    assert any(
+        "simulated sidecar sync failure" in note for note in error.value.__notes__
+    )
+    assert recorded_failure(error.value) is None
+    assert stream.failure is None
+    assert error.value.recording is None
+    assert db.db.table("experiment_failure").count("*").fetchone() == (0,)

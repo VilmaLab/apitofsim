@@ -126,12 +126,12 @@ class ClusterDatabase:
         if self.closed:
             return
         self.closed = True
-        if hasattr(self, "cleanup") and self.cleanup is not None:
-            self.cleanup()
         if hasattr(self, "db"):
             self.db.close()
         if hasattr(self, "ase_db") and self.ase_db is not None:
             self.ase_db.__exit__(None, None, None)
+        if hasattr(self, "cleanup") and self.cleanup is not None:
+            self.cleanup()
 
     def __enter__(self):
         return self
@@ -917,7 +917,11 @@ class ExperimentDatabase(SuperClusterDatabase, _EventQueries):
                 "Unsupported experiment schema: create a new database or migrate explicitly"
             )
         if "event_recording_state" in physical:
-            self._ensure_event_reader()
+            try:
+                self._ensure_event_reader()
+            except BaseException:
+                self.close()
+                raise
 
     def create_tables(self, *, foreign_keys=False):
         super().create_tables(foreign_keys=foreign_keys)

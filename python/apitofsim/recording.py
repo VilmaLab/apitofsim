@@ -136,7 +136,7 @@ class RecordingTransaction:
         self.next_result_id = 1
         self.generation = 0
         self.executions = {}
-        self.pending_failures = []
+        self.failure_rollbacks = []
         self.active_execution = None
 
     def _write_journal(self):
@@ -325,6 +325,7 @@ class RecordingTransaction:
             sync_directory(self.path.parent)
         self.done = True
         self.committed = True
+        self.failure_rollbacks.clear()
         try:
             self.journal_path.unlink()
             sync_directory(self.path.parent)
@@ -357,18 +358,23 @@ class RecordingTransaction:
             generation = self.database.db.execute(
                 "select generation from event_recording_state"
             ).fetchall()[0][0]
-        if self.journal is not None:
-            self.committed = bool(
-                self.recover(
-                    self.work_path,
-                    generation=generation,
-                    expected_archive_id=self.archive_id,
+        if generation is not None:
+            self.committed = generation == self.generation
+        try:
+            if self.journal is not None:
+                self.committed = bool(
+                    self.recover(
+                        self.work_path,
+                        generation=generation,
+                        expected_archive_id=self.archive_id,
+                    )
                 )
-            )
-        self.done = True
-        if not self.committed:
-            for error in self.pending_failures:
-                error.__dict__["recording"] = None
+            self.done = True
+        finally:
+            callbacks, self.failure_rollbacks = self.failure_rollbacks, []
+            if not self.committed:
+                for clear_failure in callbacks:
+                    clear_failure()
         self.lock.release()
 
     def __exit__(self, exc_type, exc, tb):

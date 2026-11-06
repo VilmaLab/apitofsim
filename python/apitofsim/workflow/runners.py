@@ -97,9 +97,10 @@ class RecordedFailure:
 def recorded_failure(error: BaseException) -> RecordedFailure | None:
     """Return this exception's inserted failure, including startup errors.
 
-    Return None if insertion failed or the error is consumer-owned. The same
-    reference is available as stream.failure, even if event linking fails.
-    Reusing an exception replaces its reference. Enrich before serialization,
+    Return None if insertion failed, was rolled back, or the error is
+    consumer-owned. The same reference is available as stream.failure, even
+    if event linking fails. Inside an open recording transaction it is
+    provisional until commit. Enrich before serialization,
     or forward the reference explicitly; serializers may drop exception state.
     """
     return error.__dict__.get("_apitofsim_recorded_failure")
@@ -216,11 +217,15 @@ class RecordingMassSpecIterator:
     def __iter__(self):
         return self
 
-    def _finish_scope(self):
+    def _finish_scope(self, error=None):
         scope, self._scope = self._scope, None
         try:
             if scope is not None:
-                scope.__exit__(None, None, None)
+                scope.__exit__(
+                    type(error) if error is not None else None,
+                    error,
+                    error.__traceback__ if error is not None else None,
+                )
         finally:
             transaction, self._recording_transaction = self._recording_transaction, None
             if transaction is not None:
@@ -349,13 +354,23 @@ class RecordingMassSpecIterator:
                         [failure_id, self.tree_result_id],
                     ),
                 )
-            self.failure = RecordedFailure(
+            failure = RecordedFailure(
                 failure_id, self.run_id, self.cluster_id, self.pathway_ids
             )
-            error.__dict__["_apitofsim_recorded_failure"] = self.failure
+            self.failure = failure
+            error.__dict__["_apitofsim_recorded_failure"] = failure
+            transaction = self.db._recording
+            if transaction is not None:
+
+                def clear_failure():
+                    if recorded_failure(error) is failure:
+                        error.__dict__.pop("_apitofsim_recorded_failure", None)
+                    self.failure = None
+
+                transaction.failure_rollbacks.append(clear_failure)
         # A healthy writer retains partial events; I/O failure rolls back the
         # whole pending append, and remains visible to the caller.
-        self._finish_scope()
+        self._finish_scope(error)
 
     def __enter__(self):
         return self
