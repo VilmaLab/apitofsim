@@ -28,7 +28,9 @@ _ROW_GROUP_SIZE = 65_536
 
 
 def _parquet_file(path, identity, generation):
-    archive = pq.ParquetFile(path, page_checksum_verification=True)
+    # Checksum validation scans every row group. Keep Arrow from prefetching
+    # the full payload when opening the batch reader.
+    archive = pq.ParquetFile(path, pre_buffer=False, page_checksum_verification=True)
     try:
         metadata = event_schema_metadata(archive.schema_arrow)
         if (
