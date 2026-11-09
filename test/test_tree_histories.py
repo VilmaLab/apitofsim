@@ -4,7 +4,7 @@ import re
 
 import pytest
 from apitofsim import apitofsimraw as raw
-from apitofsim import recording
+from apitofsim import convert_events, recording
 from apitofsim.workflow import ExperimentDatabase
 from archive_fixtures import publish_events
 
@@ -40,7 +40,8 @@ def start(db):
     )
 
 
-def test_shared_archive_tree_identity_and_order(tmp_path, monkeypatch):
+@pytest.mark.parametrize("parquet", [False, True])
+def test_shared_archive_tree_identity_and_order(tmp_path, monkeypatch, parquet):
     path = tmp_path / "trees.duckdb"
     with ExperimentDatabase(path) as db:
         db.create_tables()
@@ -119,6 +120,8 @@ def test_shared_archive_tree_identity_and_order(tmp_path, monkeypatch):
     renamed = tmp_path / "renamed.duckdb"
     path.rename(renamed)
     (tmp_path / "trees.events.arrow").rename(tmp_path / "renamed.events.arrow")
+    if parquet:
+        convert_events(renamed)
     with ExperimentDatabase(renamed, readonly=True) as reopened:
         assert reopened.events_query(sort=True).fetchall() == expected
         reads = []
@@ -139,18 +142,21 @@ def test_shared_archive_tree_identity_and_order(tmp_path, monkeypatch):
                 reads.append((index, batch.schema.names))
                 return batch
 
-        monkeypatch.setattr(recording.pa.ipc, "open_file", TracedReader)
+        if not parquet:
+            monkeypatch.setattr(recording.pa.ipc, "open_file", TracedReader)
         scope = dict(run_id=2, parent=10, result_id=second)
         scoped_events = reopened.events_query(**scope, sort=True)
-        assert [index for index, _ in reads] == [3, 4]
+        assert [index for index, _ in reads] == ([] if parquet else [3, 4])
         reads.clear()
         scoped_tree = reopened.tree_events_query(**scope)
-        assert [index for index, _ in reads] == [3, 4]
+        assert [index for index, _ in reads] == ([] if parquet else [3, 4])
         reads.clear()
         scoped_realizations = reopened.realizations_query(**scope)
-        assert reads == [
-            (index, ["realization_index", "result_id"]) for index in (3, 4)
-        ]
+        assert reads == (
+            []
+            if parquet
+            else [(index, ["realization_index", "result_id"]) for index in (3, 4)]
+        )
         reads.clear()
 
         expected_events = [row for row in expected if row[2] == second]
@@ -161,7 +167,8 @@ def test_shared_archive_tree_identity_and_order(tmp_path, monkeypatch):
         ]
         assert scoped_events.fetchall() == expected_events
         assert reads == []
-        assert len(re.findall(r"│\s+ARROW_SCAN\s+│", scoped_tree.explain())) == 1
+        if not parquet:
+            assert len(re.findall(r"│\s+ARROW_SCAN\s+│", scoped_tree.explain())) == 1
         assert reopened.recorded_output_query(**scope).fetchone() == (
             1,
             12,

@@ -191,24 +191,28 @@ date formatting belong to callers.
 ### Event storage and read queries
 
 `ExperimentDatabase` stores configuration, tree topology, summaries and failure
-information. Native event payloads are stored in its automatically named IPC
-sidecar: `results.duckdb` uses `results.events.arrow`. The optional ASE sidecar
+information. `results.duckdb` uses `results.events.arrow` for native IPC
+recording, or `results.events.parquet` or `results.events.vortex` after conversion.
+The database selects the committed format if several sidecars exist. Pass `events_filename=` to
+`ExperimentDatabase` to open a relocated archive. The optional ASE sidecar
 retains its `results.ase.sqlite.db` naming. Move the files together with matching
-basenames. An archive UUID and committed length detect mismatched sidecars.
+basenames. Readers verify the archive UUID and committed size, plus the
+generation for converted sidecars.
 
 There are no physical `event_info`, `realization`, `collision_event` or
 `fragmentation_event` tables. `event_execution` contains one metadata row per
 execution, with its result ID, status, event count and batch range. Status is
 `running`, `complete`, `cancelled` or `failed`; whole-experiment status is also
-persisted in `experiment_run.execution_status`. Incomplete executions are never
-inserted into successful-result aggregates. The event reader registers a PyArrow
-IPC dataset with DuckDB, without downloading a DuckDB extension.
+persisted in `experiment_run.execution_status`. Successful-result aggregates
+exclude incomplete executions. IPC uses a PyArrow dataset. Parquet and Vortex
+use DuckDB scans.
 
 `results_query()`, `realizations_query()`, `events_query()` and
 `recorded_output_query()` return DuckDB relations. Filters `run_id`, `parent`
 (root cluster ID) and `result_id` intersect. Scoped event and realization queries
-read only the IPC batches for matching executions. Failed/cancelled executions retain
-their recorded events. Realization counts count observed histories, including
+use IPC batch ranges or filters on result IDs. Parquet and Vortex also support
+projection and realization-index filter pushdown. Failed and cancelled
+executions retain their recorded events. Realization counts count observed histories, including
 histories interrupted before a completed-realization counter was emitted.
 
 ```python
@@ -219,12 +223,39 @@ with ExperimentDatabase("results.duckdb", readonly=True) as db:
     histories = db.fragmentation_histories_query(run_id=3).fetchdf()
 ```
 
+Close the database and its readers before converting an existing IPC recording.
+
+```python
+from apitofsim import convert_events
+
+parquet_path = convert_events("results.duckdb", compression="zstd", progress=print)
+```
+
+Conversion retains event identities, recorded partial executions and query
+schemas. It writes row groups of up to 65,536 rows in IPC order. New IPC
+recordings already group events by realization within each execution, which
+helps Parquet skip row groups for selective reads. Older interleaved recordings
+retain their original order and may benefit less from realization filters.
+The default is `compression="none"`. Pass `compression="zstd"` to compress
+the Parquet pages. The converter stages the output next to the recording and
+removes IPC after publication. Re-running keeps any completed Parquet output.
+Record additional events in a separate database.
+`read_events(parquet_path)` can also stream raw event batches.
+
+For an IPC recording, `convert_events("results.duckdb", format="vortex")`
+creates `results.events.vortex` using Vortex's native encodings. Install the
+Vortex extension for the same DuckDB version before converting or reading. The converter checks
+event values and physical order against IPC. Database queries and
+`read_events()` recognize the new sidecar. The Vortex file contains one
+reserved archive identity column, which the apitofsim readers hide.
+[DuckDB Vortex extension](https://duckdb.org/docs/current/core_extensions/vortex)
+
 Every event has numeric `result_id`, `realization_index` and `event_index`.
 The latter is monotonically increasing within one realization, including tied
-timestamps. These three fields are the identity; ordering between realizations
-is not stable. SQL's convenience `event_id` and `realization_id` are opaque
-colon-separated strings of their components. Sort by the numeric components,
-not the textual IDs. `events_query(sort=True)` does this automatically.
+timestamps. These three fields are the identity. A query without an explicit
+order can return realizations in any order. SQL's convenience `event_id` and
+`realization_id` are opaque colon-separated strings of their components.
+`events_query(sort=True)` orders by the numeric components.
 
 `event_details`, `event_info`, `realization` and `event_report` are temporary read
 views created by the database wrapper. `event_details` exposes position/time and
@@ -233,8 +264,8 @@ fields. A collision holds its before-state; `postcollision` holds its accepted
 after-state. Continuing splits similarly emit `postfragmentation`; terminal
 splits have no after-event. No event associations are inferred from timestamps.
 
-Readers hold a shared sidecar lock. A recording transaction requires exclusive
-access; close other readers before appending. Event queries on the writing
+Readers hold a shared sidecar lock. A recording transaction and conversion require exclusive
+access. Close other readers before appending or converting. Event queries on the writing
 connection are unavailable during an append; use live Python delivery instead.
 Finish existing query scans before appending and do not execute retained event
 relations inside the recording transaction. Locks coordinate library-managed

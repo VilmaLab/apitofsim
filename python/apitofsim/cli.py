@@ -19,6 +19,44 @@ def cli():
     logging.getLogger("ase.io.gaussian").setLevel(logging.ERROR)
 
 
+@cli.command(short_help="Convert a database's IPC event sidecar in place")
+@click.argument(
+    "database", type=click.Path(exists=True, dir_okay=False, path_type=pathlib.Path)
+)
+@click.option(
+    "--to",
+    type=click.Choice(["parquet", "vortex"]),
+    default="parquet",
+    show_default=True,
+)
+@click.option(
+    "--compression",
+    type=click.Choice(["none", "zstd"]),
+    default="none",
+    show_default=True,
+    help="Parquet page compression.",
+)
+def convert_events(database, to, compression):
+    from duckdb import Error
+    from portalocker.exceptions import LockException
+
+    from apitofsim.event_conversion import convert_events as convert
+
+    try:
+        convert(
+            database,
+            format=to,
+            compression=compression,
+            progress=lambda message: click.echo(message, err=True),
+        )
+    except LockException as error:
+        raise click.ClickException(
+            "Close other recording readers and writers before converting."
+        ) from error
+    except (Error, OSError, ValueError) as error:
+        raise click.ClickException(str(error)) from error
+
+
 @cli.group(short_help="Commands to work with the database-backed workflow")
 def db():
     """
