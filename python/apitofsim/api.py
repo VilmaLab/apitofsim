@@ -1012,6 +1012,11 @@ class _MassSpecBatchIterator(_MassSpecIterator):
             [self._convert_item(item) for item in batch.items],
         )
 
+    def final_item(self) -> MassSpecFinalResult:
+        result = self._convert_item(self.run_result())
+        assert isinstance(result, MassSpecFinalResult)
+        return result
+
     def _convert_item(self, val):
         if isinstance(val, tuple):
             if len(val) == 2:
@@ -1048,7 +1053,7 @@ def _mass_spec_batches(
     initial_batch_size: int = 4096,
     max_batch_size: int = 262144,
     queue_capacity: int = 0,
-    _deferred: bool = False,
+    _stream: apitofsimraw.StreamDelivery | None = None,
 ):
     return _MassSpecBatchIterator(
         mass_spec.into_cpp(),
@@ -1062,7 +1067,7 @@ def _mass_spec_batches(
         initial_batch_size=initial_batch_size,
         max_batch_size=max_batch_size,
         queue_capacity=queue_capacity,
-        deferred=_deferred,
+        stream=_stream,
     )
 
 

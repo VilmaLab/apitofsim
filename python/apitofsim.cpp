@@ -346,6 +346,16 @@ struct MassSpecBatch
   std::vector<MassSpecItem> items;
 };
 
+struct StreamDelivery
+{
+  std::shared_ptr<IpcEventWriter> writer;
+  int64_t result_id;
+  bool events;
+  bool ordered;
+  bool progress;
+  bool logs;
+};
+
 struct MassSpecIterator
 {
   DrainingStreamingResultQueue result_queue;
@@ -365,20 +375,18 @@ struct MassSpecIterator
   bool first_batch{true};
   std::shared_ptr<const MassSpectrometer> raw_ms;
   std::shared_ptr<const void> raw_subs;
-  std::function<SimulationResult()> execute;
-  std::jthread execution_thread;
-  std::shared_ptr<IpcEventWriter> event_writer;
   std::mutex delivery_mutex;
   std::condition_variable delivery_changed;
   std::deque<MassSpecBatch> delivery;
   std::exception_ptr writer_error;
   bool pump_done{false};
-  bool has_pump{false};
+  const bool has_pump;
   bool discard_delivery{false};
-  bool deliver_events{false};
+  const bool deliver_events;
   size_t delivery_capacity;
   size_t delivery_rows = 0;
-  std::jthread recording_thread;
+  std::optional<std::array<int64_t, 3>> recording_range;
+  std::jthread execution_thread;
 
   static size_t validate_batch_size(size_t initial, size_t maximum)
   {
@@ -400,28 +408,39 @@ struct MassSpecIterator
     size_t initial_batch_size = 4096,
     size_t max_batch_size = 262144,
     size_t queue_capacity = 0,
-    bool deferred = false) : result_queue(queue_capacity, !deferred),
-                             partial_counters(mk_partial_counters(*subs)),
-                             requested_realizations(N),
-                             initial_batch_size(validate_batch_size(initial_batch_size, max_batch_size)),
-                             max_batch_size(max_batch_size),
-                             delivery_capacity(queue_capacity)
+    std::optional<StreamDelivery> stream = std::nullopt) : result_queue(queue_capacity, !stream),
+                                                           partial_counters(mk_partial_counters(*subs)),
+                                                           requested_realizations(N),
+                                                           initial_batch_size(validate_batch_size(initial_batch_size, max_batch_size)),
+                                                           max_batch_size(max_batch_size),
+                                                           raw_ms(ms),
+                                                           raw_subs(subs),
+                                                           has_pump(stream.has_value()),
+                                                           deliver_events(stream && stream->events),
+                                                           delivery_capacity(queue_capacity)
   {
-    if (deferred)
+    if (stream)
     {
-      execute = [this, ms = std::move(ms), subs = std::move(subs), N, seed, sample_mode, strict, logconf, collision_time]
+      if (stream->result_id < 0)
+        throw std::invalid_argument("A stream requires a nonnegative result ID");
+      std::optional<IpcEventWriter::Lease> writer;
+      if (stream->writer)
+        writer.emplace(stream->writer->acquire());
+      auto execute = [this, instrument = ms.get(), substance = subs.get(), N, seed, sample_mode, strict, logconf, collision_time]
       {
-        return apitof_mass_spec(*ms, *subs, N, root_seed(seed), result_queue.queue,
+        return apitof_mass_spec(*instrument, *substance, N, root_seed(seed), result_queue.queue,
                                 sample_mode, strict, MassSpecLogConf(std::get<0>(logconf), std::get<1>(logconf)),
                                 operation, collision_time.value_or(CollisionTimeOptions{}));
       };
+      execution_thread = std::jthread(
+        [this, execute, result_id = stream->result_id, ordered = stream->ordered,
+         progress = stream->progress, logs = stream->logs, writer = std::move(writer)]() mutable
+      { pump(execute, result_id, ordered, progress, logs, writer); });
     }
     else
     {
       // Keep the inputs alive for the raw iterator, which can start before a
       // consumer is attached and supports joining before reading.
-      raw_ms = ms;
-      raw_subs = subs;
       execution_thread = run_mass_spec_in_thread<MassSpecSubstanceT>(final_result, operation, exception_transport, *ms, *subs, N, seed, result_queue.queue, sample_mode, strict, logconf, collision_time.value_or(CollisionTimeOptions{}), [this]
       { completed = true; });
     }
@@ -467,8 +486,6 @@ struct MassSpecIterator
   {
     if (has_pump)
       return read_recorded_batch();
-    if (execute)
-      throw std::logic_error("Start deferred delivery before reading the stream");
     if (max_items == 0)
     {
       throw std::invalid_argument("max_items must be positive");
@@ -545,6 +562,13 @@ struct MassSpecIterator
 
   void join_if_joinable()
   {
+    if (has_pump)
+      require_stopped();
+    join_worker();
+  }
+
+  void join_worker()
+  {
     std::scoped_lock lock(join_mutex);
     if (execution_thread.joinable())
     {
@@ -562,25 +586,29 @@ struct MassSpecIterator
     delivery_changed.notify_all();
   }
 
-  void record_to(std::shared_ptr<IpcEventWriter> writer, int64_t result_id, bool python_events,
-                 bool ordered = false, bool progress = true, bool logs = true)
+  void close()
   {
-    if (!first_batch || has_pump || result_id < 0)
-      throw std::invalid_argument("Recording must start before consuming a stream, with a nonnegative result ID");
-    if (!execute)
-      throw std::invalid_argument("Recording requires a deferred iterator; use mass_spec_iter");
-    has_pump = true;
-    event_writer = std::move(writer);
-    deliver_events = python_events;
-    recording_thread = std::jthread([this, result_id, ordered, progress, logs]
-    { pump(result_id, ordered, progress, logs); });
+    request_cancel();
+    if (has_pump)
+    {
+      {
+        std::scoped_lock lock(delivery_mutex);
+        discard_delivery = true;
+        delivery.clear();
+        delivery_rows = 0;
+      }
+      delivery_changed.notify_all();
+    }
+    join_worker();
   }
 
-  void pump(int64_t result_id, bool ordered, bool progress, bool logs)
+  void pump(const auto &execute, int64_t result_id, bool ordered, bool progress, bool logs,
+            std::optional<IpcEventWriter::Lease> &writer)
   {
+    const auto start = writer ? writer->counts() : std::array<int64_t, 2>{};
     try
     {
-      const bool capture_events = event_writer || deliver_events;
+      const bool capture_events = writer || deliver_events;
       std::vector<int64_t> ordinals(capture_events ? static_cast<size_t>(std::max(0, requested_realizations)) : 0, 0);
       auto columns = std::make_shared<EventColumns>();
       const auto maximum = std::min(max_batch_size, size_t{65536});
@@ -593,11 +621,11 @@ struct MassSpecIterator
       auto flush = [&]
       {
         const auto rows = columns->event_indices.size();
-        if (event_writer && rows != 0)
+        if (writer && rows != 0)
         {
           try
           {
-            event_writer->write(*columns, result_id, columns->event_indices);
+            writer->write(*columns, result_id, columns->event_indices);
           }
           catch (...)
           {
@@ -668,7 +696,7 @@ struct MassSpecIterator
         }
       };
 
-      result_queue.queue.pipeline_order = ordered || event_writer != nullptr;
+      result_queue.queue.pipeline_order = ordered || writer.has_value();
       result_queue.queue.pipeline_logs = logs;
       if (capture_events || progress || logs)
         result_queue.queue.pipeline_sink = consume;
@@ -686,7 +714,12 @@ struct MassSpecIterator
     {
       writer_error = std::current_exception();
       request_cancel();
-      join_if_joinable();
+    }
+    if (writer)
+    {
+      const auto end = writer->counts();
+      recording_range = {start[0], end[0] - start[0], end[1] - start[1]};
+      writer.reset();
     }
     completed = true;
     {
@@ -715,36 +748,33 @@ struct MassSpecIterator
         return batch;
       }
       lock.unlock();
-      if (recording_thread.joinable())
-        recording_thread.join();
+      join_worker();
     }
     finished = true;
+    batch.items.emplace_back(run_result());
+    return batch;
+  }
+
+  void require_stopped()
+  {
+    std::scoped_lock lock(delivery_mutex);
+    if (!has_pump || !pump_done)
+      throw std::logic_error("Drain or close the stream before reading its outcome");
+  }
+
+  SimulationResult run_result()
+  {
+    require_stopped();
     if (writer_error)
       std::rethrow_exception(writer_error);
     operation.rethrow_pending_signal();
     exception_transport.rethrow();
-    batch.items.emplace_back(final_result);
-    return batch;
+    return final_result;
   }
 
   ~MassSpecIterator()
   {
-    if (has_pump)
-    {
-      request_cancel();
-      {
-        std::scoped_lock lock(delivery_mutex);
-        discard_delivery = true;
-      }
-      delivery_changed.notify_all();
-      if (recording_thread.joinable())
-        recording_thread.join();
-    }
-    else
-    {
-      request_cancel();
-    }
-    join_if_joinable();
+    close();
   }
 };
 
@@ -1239,16 +1269,21 @@ NB_MODULE(apitofsimraw, m)
   { return event_batch::export_columns(batch.events); })
     .def_ro("items", &MassSpecBatch::items);
 
+  nb::exception<IpcWriterBusy>(m, "IpcWriterBusy", PyExc_RuntimeError);
   nb::class_<IpcEventWriter>(m, "IpcEventWriter")
     .def(nb::init<const std::string &, bool, const std::string &>(), "path"_a, "append"_a, "archive_id"_a)
-    .def("close", &IpcEventWriter::close, nb::call_guard<nb::gil_scoped_release>())
+    .def("close", &IpcEventWriter::close, "metadata"_a = std::nullopt, nb::call_guard<nb::gil_scoped_release>())
     .def("abort", &IpcEventWriter::abort, nb::call_guard<nb::gil_scoped_release>())
     .def("set_metadata", &IpcEventWriter::set_metadata, "metadata"_a)
     .def_prop_ro("batch_count", &IpcEventWriter::batch_count)
     .def_prop_ro("rows_written", &IpcEventWriter::rows_written);
 
+  nb::class_<StreamDelivery>(m, "StreamDelivery")
+    .def(nb::init<std::shared_ptr<IpcEventWriter>, int64_t, bool, bool, bool, bool>(),
+         "writer"_a.none(), "result_id"_a, "events"_a, "ordered"_a, "progress"_a, "logs"_a);
+
   nb::class_<MassSpecIterator>(m, "MassSpecIterator")
-    .def(nb::init<std::shared_ptr<const MassSpectrometer>, std::shared_ptr<const MassSpecSubstanceSingleInput>, int, unsigned long long, SampleMode, bool, std::tuple<int, bool>, std::optional<CollisionTimeOptions>, size_t, size_t, size_t, bool>(),
+    .def(nb::init<std::shared_ptr<const MassSpectrometer>, std::shared_ptr<const MassSpecSubstanceSingleInput>, int, unsigned long long, SampleMode, bool, std::tuple<int, bool>, std::optional<CollisionTimeOptions>, size_t, size_t, size_t, std::optional<StreamDelivery>>(),
          nb::call_guard<nb::gil_scoped_release>(),
          "ms"_a,
          "subs"_a,
@@ -1261,8 +1296,8 @@ NB_MODULE(apitofsimraw, m)
          "initial_batch_size"_a = 4096,
          "max_batch_size"_a = 262144,
          "queue_capacity"_a = 0,
-         "deferred"_a = false)
-    .def(nb::init<std::shared_ptr<const MassSpectrometer>, std::shared_ptr<const MassSpecSubstanceTreeInput>, int, unsigned long long, SampleMode, bool, std::tuple<int, bool>, std::optional<CollisionTimeOptions>, size_t, size_t, size_t, bool>(),
+         "stream"_a = std::nullopt)
+    .def(nb::init<std::shared_ptr<const MassSpectrometer>, std::shared_ptr<const MassSpecSubstanceTreeInput>, int, unsigned long long, SampleMode, bool, std::tuple<int, bool>, std::optional<CollisionTimeOptions>, size_t, size_t, size_t, std::optional<StreamDelivery>>(),
          nb::call_guard<nb::gil_scoped_release>(),
          "ms"_a,
          "subs"_a,
@@ -1275,19 +1310,23 @@ NB_MODULE(apitofsimraw, m)
          "initial_batch_size"_a = 4096,
          "max_batch_size"_a = 262144,
          "queue_capacity"_a = 0,
-         "deferred"_a = false)
-    .def("record_to", &MassSpecIterator::record_to, "writer"_a.none(), "result_id"_a, "python_events"_a,
-         "ordered"_a = false, "progress"_a = true, "logs"_a = true)
+         "stream"_a = std::nullopt)
     .def("__next__", &MassSpecIterator::__next__)
     .def("read_batch", &MassSpecIterator::read_batch, "max_items"_a = 262144)
     .def("join_if_joinable", &MassSpecIterator::join_if_joinable, nb::call_guard<nb::gil_scoped_release>())
     .def("request_cancel", &MassSpecIterator::request_cancel)
-    .def_prop_ro("cancelled", [](const MassSpecIterator &stream)
-  { return stream.cancelled.load(); })
-    .def_prop_ro("partial_counters", [](const MassSpecIterator &stream)
+    .def("close", &MassSpecIterator::close, nb::call_guard<nb::gil_scoped_release>())
+    .def("run_result", &MassSpecIterator::run_result)
+    .def_prop_ro("recording_range", [](MassSpecIterator &stream)
   {
-    if (stream.has_pump && !stream.finished)
-      throw std::runtime_error("Partial counters are available after draining the stream");
+    stream.require_stopped();
+    return stream.recording_range;
+  }).def_prop_ro("cancelled", [](const MassSpecIterator &stream)
+  { return stream.cancelled.load(); })
+    .def_prop_ro("partial_counters", [](MassSpecIterator &stream)
+  {
+    if (stream.has_pump)
+      stream.require_stopped();
     return Eigen::ArrayXi(stream.partial_counters);
   });
 

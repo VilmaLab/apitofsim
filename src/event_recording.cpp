@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <fstream>
 #include <limits>
+#include <mutex>
 #include <stdexcept>
 #include <string_view>
 #include <utility>
@@ -40,6 +41,9 @@ std::array<char, 4> little_endian(uint32_t value)
 
 struct IpcEventWriter::Impl
 {
+  std::mutex mutex;
+  bool leased{false};
+  bool sealed{false};
   std::filesystem::path path;
   std::fstream file;
   nanoarrow::ipc::UniqueEncoder encoder;
@@ -52,6 +56,17 @@ struct IpcEventWriter::Impl
   bool closed{false};
   bool write_failed{false};
   std::string executions{"{}"};
+
+  void require_idle() const
+  {
+    if (leased)
+      throw IpcWriterBusy();
+  }
+
+  std::array<int64_t, 2> counts() const
+  {
+    return {footer->record_batch_blocks.size_bytes / static_cast<int64_t>(sizeof(ArrowIpcFileBlock)), rows};
+  }
 
   Impl(const std::string &path, bool append, const std::string &archive_id) : path(std::u8string(path.begin(), path.end()))
   {
@@ -253,11 +268,35 @@ struct IpcEventWriter::Impl
   }
 };
 
-IpcEventWriter::IpcEventWriter(const std::string &path, bool append, const std::string &archive_id) : impl(std::make_unique<Impl>(path, append, archive_id))
+IpcEventWriter::IpcEventWriter(const std::string &path, bool append, const std::string &archive_id) : impl(std::make_shared<Impl>(path, append, archive_id))
 {
 }
 IpcEventWriter::~IpcEventWriter() = default;
-void IpcEventWriter::write(const EventColumns &columns, int64_t result_id, const std::vector<int64_t> &event_indices)
+
+IpcEventWriter::Lease::Lease(std::shared_ptr<Impl> state) : impl(std::move(state))
+{
+}
+IpcEventWriter::Lease::Lease(Lease &&) noexcept = default;
+IpcEventWriter::Lease::~Lease()
+{
+  if (impl)
+  {
+    std::scoped_lock lock(impl->mutex);
+    impl->leased = false;
+  }
+}
+
+IpcEventWriter::Lease IpcEventWriter::acquire()
+{
+  std::scoped_lock lock(impl->mutex);
+  impl->require_idle();
+  if (impl->sealed || impl->write_failed)
+    throw std::runtime_error("Event IPC: writer is closed or has a failed write");
+  impl->leased = true;
+  return Lease(impl);
+}
+
+void IpcEventWriter::Lease::write(const EventColumns &columns, int64_t result_id, const std::vector<int64_t> &event_indices)
 {
   try
   {
@@ -275,25 +314,52 @@ void IpcEventWriter::write(const EventColumns &columns, int64_t result_id, const
     throw;
   }
 }
-void IpcEventWriter::close()
+
+std::array<int64_t, 2> IpcEventWriter::Lease::counts() const
 {
+  return impl->counts();
+}
+
+void IpcEventWriter::write(const EventColumns &columns, int64_t result_id, const std::vector<int64_t> &event_indices)
+{
+  acquire().write(columns, result_id, event_indices);
+}
+
+void IpcEventWriter::close(const std::optional<std::string> &metadata)
+{
+  std::scoped_lock lock(impl->mutex);
+  impl->require_idle();
+  if (impl->sealed && !impl->closed)
+    throw std::runtime_error("Event IPC: previous close failed; abort the writer");
+  if (metadata)
+    impl->executions = *metadata;
+  impl->sealed = true;
   impl->close();
 }
 int64_t IpcEventWriter::batch_count() const
 {
-  return impl->footer->record_batch_blocks.size_bytes / static_cast<int64_t>(sizeof(ArrowIpcFileBlock));
+  std::scoped_lock lock(impl->mutex);
+  impl->require_idle();
+  return impl->counts()[0];
 }
 int64_t IpcEventWriter::rows_written() const
 {
-  return impl->rows;
+  std::scoped_lock lock(impl->mutex);
+  impl->require_idle();
+  return impl->counts()[1];
 }
 
 void IpcEventWriter::set_metadata(const std::string &metadata)
 {
+  std::scoped_lock lock(impl->mutex);
+  impl->require_idle();
   impl->executions = metadata;
 }
 void IpcEventWriter::abort()
 {
+  std::scoped_lock lock(impl->mutex);
+  impl->require_idle();
+  impl->sealed = true;
   impl->file.exceptions(std::ios::goodbit);
   if (impl->file.is_open())
     impl->file.close();
