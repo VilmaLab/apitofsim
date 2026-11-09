@@ -192,25 +192,25 @@ date formatting belong to callers.
 
 `ExperimentDatabase` stores configuration, tree topology, summaries and failure
 information. `results.duckdb` uses `results.events.arrow` for native IPC
-recording and `results.events.parquet` after conversion. The database selects the
-committed format even if both files exist. Pass `events_filename=` to
+recording, or `results.events.parquet` or `results.events.vortex` after conversion.
+The database selects the committed format if several sidecars exist. Pass `events_filename=` to
 `ExperimentDatabase` to open a relocated archive. The optional ASE sidecar
 retains its `results.ase.sqlite.db` naming. Move the files together with matching
 basenames. Readers verify the archive UUID and committed size, plus the
-generation for Parquet.
+generation for converted sidecars.
 
 There are no physical `event_info`, `realization`, `collision_event` or
 `fragmentation_event` tables. `event_execution` contains one metadata row per
 execution, with its result ID, status, event count and batch range. Status is
 `running`, `complete`, `cancelled` or `failed`; whole-experiment status is also
 persisted in `experiment_run.execution_status`. Successful-result aggregates
-exclude incomplete executions. IPC uses a PyArrow dataset, and Parquet uses
-DuckDB's native Parquet scan.
+exclude incomplete executions. IPC uses a PyArrow dataset. Parquet and Vortex
+use DuckDB scans.
 
 `results_query()`, `realizations_query()`, `events_query()` and
 `recorded_output_query()` return DuckDB relations. Filters `run_id`, `parent`
 (root cluster ID) and `result_id` intersect. Scoped event and realization queries
-use IPC batch ranges or Parquet filters on result IDs. Parquet also supports
+use IPC batch ranges or filters on result IDs. Parquet and Vortex also support
 projection and realization-index filter pushdown. Failed and cancelled
 executions retain their recorded events. Realization counts count observed histories, including
 histories interrupted before a completed-realization counter was emitted.
@@ -241,6 +241,14 @@ the Parquet pages. The converter stages the output next to the recording and
 removes IPC after publication. Re-running keeps any completed Parquet output.
 Record additional events in a separate database.
 `read_events(parquet_path)` can also stream raw event batches.
+
+For an IPC recording, `convert_events("results.duckdb", format="vortex")`
+creates `results.events.vortex` using Vortex's native encodings. Install the
+Vortex extension for the same DuckDB version before converting or reading. The converter checks
+event values and physical order against IPC. Database queries and
+`read_events()` recognize the new sidecar. The Vortex file contains one
+reserved archive identity column, which the apitofsim readers hide.
+[DuckDB Vortex extension](https://duckdb.org/docs/current/core_extensions/vortex)
 
 Every event has numeric `result_id`, `realization_index` and `event_index`.
 The latter is monotonically increasing within one realization, including tied

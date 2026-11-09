@@ -25,10 +25,9 @@ def cli():
 )
 @click.option(
     "--to",
-    type=click.Choice(["parquet"]),
+    type=click.Choice(["parquet", "vortex"]),
     default="parquet",
     show_default=True,
-    expose_value=False,
 )
 @click.option(
     "--compression",
@@ -37,7 +36,7 @@ def cli():
     show_default=True,
     help="Parquet page compression.",
 )
-def convert_events(database, compression):
+def convert_events(database, to, compression):
     from duckdb import Error
     from portalocker.exceptions import LockException
 
@@ -46,6 +45,7 @@ def convert_events(database, compression):
     try:
         convert(
             database,
+            format=to,
             compression=compression,
             progress=lambda message: click.echo(message, err=True),
         )

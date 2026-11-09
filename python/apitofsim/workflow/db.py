@@ -903,7 +903,7 @@ class ExperimentDatabase(SuperClusterDatabase, _EventQueries):
         self._recording = None
         self._event_read_lock = None
         self._event_reader_ready = False
-        self._parquet_events = False
+        self._event_format = "arrow"
         self._explicit_events_path = (
             Path(events_filename).resolve() if events_filename is not None else None
         )
@@ -926,11 +926,11 @@ class ExperimentDatabase(SuperClusterDatabase, _EventQueries):
             if _database_path is not None
             else None
         )
-        self._parquet_path = (
-            sidecar_name(_database_path, parquet=True).resolve()
+        self._converted_paths = {
+            format: sidecar_name(_database_path, format=format).resolve()
+            for format in ("parquet", "vortex")
             if _database_path is not None
-            else None
-        )
+        }
         self.events_path = self._explicit_events_path or self._ipc_path
         physical = {
             row[0]
@@ -961,7 +961,7 @@ class ExperimentDatabase(SuperClusterDatabase, _EventQueries):
 
     def _release_event_reader(self):
         if self._event_reader_ready and not self.closed:
-            if self._parquet_events:
+            if self._event_format != "arrow":
                 self.db.execute("drop view _event_archive")
             else:
                 self.db.unregister("_event_archive")
@@ -975,9 +975,9 @@ class ExperimentDatabase(SuperClusterDatabase, _EventQueries):
         import pyarrow.dataset as ds
 
         from apitofsim.recording import (
+            EVENT_FORMATS,
             EVENT_SCHEMA,
             IPC_VERSION,
-            PARQUET_VERSION,
             RecordingTransaction,
             archive_metadata,
             recording_lock,
@@ -990,9 +990,9 @@ class ExperimentDatabase(SuperClusterDatabase, _EventQueries):
         if self._event_reader_ready:
             return
 
-        # The standard IPC lock guards both formats, including the switch.
+        # The standard IPC lock guards every managed format, including the switch.
         lock_path = self._explicit_events_path or self._ipc_path
-        if self._explicit_events_path == self._parquet_path:
+        if self._explicit_events_path in self._converted_paths.values():
             lock_path = self._ipc_path
         try:
             if lock_path is not None:
@@ -1001,17 +1001,17 @@ class ExperimentDatabase(SuperClusterDatabase, _EventQueries):
             version, identity, generation, size = self.db.execute(
                 "select schema_version,archive_id,generation,file_size from event_recording_state"
             ).fetchall()[0]
-            if version not in (IPC_VERSION, PARQUET_VERSION):
+            if version not in EVENT_FORMATS:
                 raise ValueError(
                     "Unsupported event recording schema; explicit migration is required"
                 )
-            self._parquet_events = version == PARQUET_VERSION
-            path = self._explicit_events_path or (
-                self._parquet_path if self._parquet_events else self._ipc_path
+            self._event_format = EVENT_FORMATS[version]
+            path = self._explicit_events_path or self._converted_paths.get(
+                self._event_format, self._ipc_path
             )
             self.events_path = path
             if (
-                not self._parquet_events
+                self._event_format == "arrow"
                 and path is not None
                 and Path(str(path) + ".journal").exists()
             ):
@@ -1036,25 +1036,29 @@ class ExperimentDatabase(SuperClusterDatabase, _EventQueries):
                                 expected_archive_id=current[0],
                             )
                     return self._ensure_event_reader()
-            if size or self._parquet_events:
+            if size or self._event_format != "arrow":
                 if path is None or not path.is_file():
-                    suffix = "parquet" if self._parquet_events else "arrow"
+                    suffix = self._event_format
                     raise FileNotFoundError(
                         f"Recorded events require the matching .events.{suffix} sidecar (or explicit events_filename)"
                     )
                 if path.stat().st_size != size or (
-                    not self._parquet_events and archive_metadata(path)[0] != identity
+                    self._event_format == "arrow"
+                    and archive_metadata(path)[0] != identity
                 ):
                     raise ValueError(
                         "Event sidecar identity/size does not match this database"
                     )
-                if self._parquet_events:
-                    from apitofsim.event_conversion import validate_parquet
+                if self._event_format != "arrow":
+                    from apitofsim.event_conversion import validate_parquet, vortex_scan
 
-                    validate_parquet(path, identity, generation)
-                    # The archive is immutable while the shared lock is held.
-                    self.db.execute("set parquet_metadata_cache=true")
-                    scan = self.db.read_parquet(str(path), hive_partitioning=False)
+                    if self._event_format == "vortex":
+                        scan, _ = vortex_scan(self.db, path, identity, generation)
+                    else:
+                        validate_parquet(path, identity, generation)
+                        # The archive is immutable while the shared lock is held.
+                        self.db.execute("set parquet_metadata_cache=true")
+                        scan = self.db.read_parquet(str(path), hive_partitioning=False)
                     self.db.execute(
                         f"create or replace temp view _event_archive as {scan.sql_query()}"
                     )
@@ -1080,7 +1084,7 @@ class ExperimentDatabase(SuperClusterDatabase, _EventQueries):
         self._ensure_event_reader()
         execution = self._execution_query(run_id, parent, result_id).filter("recorded")
         unscoped = run_id is None and parent is None and result_id is None
-        if self._parquet_events:
+        if self._event_format != "arrow":
             # DuckDB 1.4 can materialize views passed to .table() eagerly.
             archive = self.db.sql("from _event_archive")
             if unscoped:
@@ -1121,9 +1125,9 @@ class ExperimentDatabase(SuperClusterDatabase, _EventQueries):
     @contextmanager
     def recording_transaction(self):
         from apitofsim.recording import (
-            PARQUET_APPEND_ERROR,
             IpcRecording,
             RecordingTransaction,
+            converted_append_error,
         )
 
         if self.readonly:
@@ -1135,8 +1139,8 @@ class ExperimentDatabase(SuperClusterDatabase, _EventQueries):
             raise ValueError(
                 "Recording requires a file-backed database or an explicit events_filename"
             )
-        if self._parquet_events:
-            raise ValueError(PARQUET_APPEND_ERROR)
+        if self._event_format != "arrow":
+            raise ValueError(converted_append_error(self._event_format))
         self._release_event_reader()
         transaction = RecordingTransaction(
             IpcRecording(self.events_path, "append"), database=self
@@ -1684,7 +1688,7 @@ class ExperimentDatabase(SuperClusterDatabase, _EventQueries):
         return json.loads(row[0]) if row and row[0] is not None else {}
 
     def report_df(self, tbl_name):
-        if tbl_name == "event_report" and self._parquet_events:
+        if tbl_name == "event_report" and self._event_format != "arrow":
             return self.db.sql("from event_report").fetchdf()
         return self.db.table(tbl_name).fetchdf()
 

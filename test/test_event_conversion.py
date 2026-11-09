@@ -17,6 +17,15 @@ from portalocker.exceptions import LockException
 
 
 @pytest.fixture
+def vortex_extension():
+    with duckdb.connect() as db:
+        try:
+            db.load_extension("vortex")
+        except duckdb.Error:
+            pytest.skip("DuckDB Vortex extension is not installed")
+
+
+@pytest.fixture
 def recording(tmp_path):
     path = tmp_path / "experiment.duckdb"
     with ExperimentDatabase(path) as db:
@@ -159,6 +168,56 @@ def test_convert_empty_archive(tmp_path):
         assert snapshot(db) == before
 
 
+def test_vortex_conversion(recording, vortex_extension):
+    ipc = events_filename(recording)
+    with ExperimentDatabase(recording, readonly=True) as db:
+        before = snapshot(db)
+    result = CliRunner().invoke(
+        cli, ["convert-events", str(recording), "--to", "vortex"]
+    )
+    assert result.exit_code == 0, result.output
+    destination = events_filename(recording, format="vortex")
+    assert not ipc.exists()
+    with ExperimentDatabase(recording) as db:
+        assert db.events_path == destination
+        assert snapshot(db) == before
+        assert "VORTEX" in db.events_query(result_id=1).explain().upper()
+        with pytest.raises(ValueError, match="separate database"):
+            with db.recording_transaction():
+                pytest.fail("Append opened")
+    assert convert_events(recording, format="vortex") == destination
+    assert [
+        (event.realization_index, event.event_index)
+        for event in read_events(destination, events="individual", result_id=1)
+    ] == [(2, 1), (2, 0), (0, 0)]
+    assert np.signbit(next(read_events(destination, events="individual")).x)
+    with pytest.raises(ValueError, match="already vortex"):
+        convert_events(recording)
+
+    relocated = destination.with_name("relocated'archive")
+    destination.rename(relocated)
+    with ExperimentDatabase(recording, readonly=True, events_filename=relocated) as db:
+        assert snapshot(db) == before
+    relocated.rename(destination)
+    with duckdb.connect(recording) as db:
+        db.execute("update event_recording_state set generation=generation+1")
+    with pytest.raises(ValueError, match="identity/generation"):
+        ExperimentDatabase(recording, readonly=True)
+
+
+def test_vortex_empty_archive(tmp_path, vortex_extension):
+    path = tmp_path / "empty.duckdb"
+    with ExperimentDatabase(path) as db:
+        db.create_tables()
+        publish_events(db, [])
+    with pytest.raises(ValueError, match="Parquet"):
+        convert_events(path, format="vortex", compression="zstd")
+    destination = convert_events(path, format="vortex")
+    assert list(read_events(destination)) == []
+    with ExperimentDatabase(path, readonly=True) as db:
+        assert db.events_query().fetchall() == []
+
+
 def test_conversion_splits_large_batches_without_reordering(tmp_path, monkeypatch):
     path = tmp_path / "ordered.duckdb"
     with ExperimentDatabase(path) as db:
@@ -220,8 +279,11 @@ def test_unrelated_destination_and_locking(recording):
 
 
 @pytest.mark.parametrize("after_commit", [False, True])
-def test_interrupted_publication(recording, monkeypatch, after_commit):
-    destination = events_filename(recording, parquet=True)
+@pytest.mark.parametrize("format", ["parquet", "vortex"])
+def test_interrupted_publication(recording, monkeypatch, after_commit, format, request):
+    if format == "vortex":
+        request.getfixturevalue("vortex_extension")
+    destination = events_filename(recording, format=format)
     source = events_filename(recording)
     with ExperimentDatabase(recording) as db:
         before = snapshot(db)
@@ -246,14 +308,14 @@ def test_interrupted_publication(recording, monkeypatch, after_commit):
 
             patch.setattr(event_conversion, "sync_directory", fail_publication)
         with pytest.raises(OSError, match="interrupted"):
-            convert_events(recording)
+            convert_events(recording, format=format)
 
     assert destination.exists() and source.exists()
     with ExperimentDatabase(recording, readonly=True) as db:
         assert db.events_path == (destination if after_commit else source)
         assert snapshot(db) == before
     assert source.exists()
-    assert convert_events(recording) == destination
+    assert convert_events(recording, format=format) == destination
     assert not source.exists()
     with ExperimentDatabase(recording, readonly=True) as db:
         assert snapshot(db) == before

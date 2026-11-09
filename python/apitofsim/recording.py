@@ -15,7 +15,18 @@ from . import apitofsimraw as raw
 
 IPC_VERSION = 1
 PARQUET_VERSION = 2
-PARQUET_APPEND_ERROR = "Cannot append to a Parquet event recording. Record new events in a separate database."
+VORTEX_VERSION = 3
+EVENT_FORMATS = {
+    IPC_VERSION: "arrow",
+    PARQUET_VERSION: "parquet",
+    VORTEX_VERSION: "vortex",
+}
+
+
+def converted_append_error(format):
+    name = {"parquet": "Parquet", "vortex": "Vortex"}[format]
+    return f"Cannot append to a {name} event recording. Record new events in a separate database."
+
 
 FLOAT_FIELDS = (
     "x y z t vx vy vz ox oy oz rot_energy vibrational_energy theta u_norm".split()
@@ -58,9 +69,10 @@ def event_batch_dataset(path, ranges, columns=None):
     return ds.dataset(batches)
 
 
-def events_filename(database, *, parquet=False):
+def events_filename(database, *, parquet=False, format=None):
     path = Path(database)
-    suffix = ".events.parquet" if parquet else ".events.arrow"
+    format = format or ("parquet" if parquet else "arrow")
+    suffix = f".events.{format}"
     return (
         path.with_suffix(suffix)
         if path.suffix == ".duckdb"
@@ -68,9 +80,9 @@ def events_filename(database, *, parquet=False):
     )
 
 
-def is_parquet(path):
+def event_file_format(path):
     with Path(path).open("rb") as file:
-        return file.read(4) == b"PAR1"
+        return {b"PAR1": "parquet", b"VTXF": "vortex"}.get(file.read(4), "arrow")
 
 
 def sync_file(path):
@@ -263,8 +275,8 @@ class RecordingTransaction:
                 version, identity, generation, size = db.db.execute(
                     "select schema_version,archive_id,generation,file_size from event_recording_state"
                 ).fetchall()[0]
-                if version == PARQUET_VERSION:
-                    raise ValueError(PARQUET_APPEND_ERROR)
+                if version in (PARQUET_VERSION, VORTEX_VERSION):
+                    raise ValueError(converted_append_error(EVENT_FORMATS[version]))
                 self.archive_id, self.generation = identity, generation + 1
                 self.recover(
                     self.path, generation=generation, expected_archive_id=identity
@@ -276,8 +288,10 @@ class RecordingTransaction:
             else:
                 self.recover(self.path)
                 self.recover(Path(str(self.path) + ".replacement"))
-                if self.path.is_file() and is_parquet(self.path):
-                    raise ValueError(PARQUET_APPEND_ERROR)
+                if self.path.is_file():
+                    format = event_file_format(self.path)
+                    if format != "arrow":
+                        raise ValueError(converted_append_error(format))
             if self.spec.mode == "overwrite":
                 if self.path.exists():
                     try:

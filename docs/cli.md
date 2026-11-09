@@ -31,12 +31,21 @@ Do not read the event sidecar while an append transaction is active.
 apitofsim convert-events database.duckdb --to parquet
 # Opt in to Zstandard compression.
 apitofsim convert-events database.duckdb --to parquet --compression zstd
+# With DuckDB's vortex extension installed.
+apitofsim convert-events database.duckdb --to vortex
 ```
 
 Close recording readers and writers before converting. The command streams IPC
 batches into `database.events.parquet` in their original order. The default
 is uncompressed Parquet. It reports source size, available space and progress.
 Budget roughly the IPC size for uncompressed output until publication.
+
+Vortex writes `database.events.vortex` with its native encodings and verifies
+event values and order against the IPC source before publication. Run
+`INSTALL vortex` in the same DuckDB version used for conversion and reads.
+Extension availability depends on platform. The extension tested with
+DuckDB 1.5.6 requires Vortex paths without whitespace. The `--compression`
+option controls Parquet pages. [DuckDB Vortex extension](https://duckdb.org/docs/current/core_extensions/vortex)
 
 The database stays at the same path. After validation and publication, the
 command removes the old IPC file. Re-run the same command after an interruption

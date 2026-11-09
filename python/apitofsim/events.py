@@ -377,8 +377,8 @@ def read_events(path, *, events="batches", result_id=None):
     from .recording import (
         RecordingTransaction,
         archive_metadata,
+        event_file_format,
         event_schema_metadata,
-        is_parquet,
         recording_lock,
     )
 
@@ -387,13 +387,13 @@ def read_events(path, *, events="batches", result_id=None):
     selected = None if result_id is None else pa.scalar(result_id, pa.int64())
     path = Path(path).resolve()
     # Converted managed sidecars continue to use the IPC lock.
-    parquet = is_parquet(path) if path.exists() else False
+    format = event_file_format(path) if path.exists() else "arrow"
     lock_path = (
         path.with_suffix(".arrow")
-        if parquet and path.name.endswith(".events.parquet")
+        if format != "arrow" and path.name.endswith(f".events.{format}")
         else path
     )
-    if not parquet and Path(str(path) + ".journal").exists():
+    if format == "arrow" and Path(str(path) + ".journal").exists():
         with recording_lock(path):
             RecordingTransaction.recover(path)
 
@@ -407,7 +407,18 @@ def read_events(path, *, events="batches", result_id=None):
                     yield event_at(batch, j)
 
     with recording_lock(lock_path, shared=True):
-        if parquet:
+        if format == "vortex":
+            import duckdb
+
+            from .event_conversion import vortex_batches, vortex_scan
+
+            with duckdb.connect(config={"threads": "1"}) as db:
+                scan, _ = vortex_scan(db, path)
+                if selected is not None:
+                    scan = scan.filter(f"result_id = {selected.as_py()}")
+                with vortex_batches(scan) as batches:
+                    yield from deliver(batches)
+        elif format == "parquet":
             import pyarrow.dataset as ds
 
             dataset = ds.dataset(str(path), format="parquet")
