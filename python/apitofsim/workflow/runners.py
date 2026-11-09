@@ -1,6 +1,6 @@
 from collections import deque
 from dataclasses import dataclass, field
-from functools import cache
+from functools import cache, partial
 from operator import index
 from typing import Any, Callable, Optional, Tuple
 
@@ -173,9 +173,13 @@ class RecordingMassSpecIterator:
             if self.record_events and db._recording is None:
                 self._scope = db.recording_transaction()
                 self._scope.__enter__()
+            transaction = None
+            writer = None
             if self.record_events:
                 transaction = db._recording
                 assert transaction is not None
+                writer = transaction.writer
+                assert writer is not None
                 transaction.active_execution = self
                 self._recording_transaction = transaction
             if tree_cluster_ids is not None:
@@ -201,17 +205,21 @@ class RecordingMassSpecIterator:
                 if self.record_events or python_events
                 else 0,
                 logconf=(level, self.record_events or python_events),
-                _deferred=True,
+                _stream=raw.StreamDelivery(
+                    writer=writer,
+                    result_id=self.execution_id,
+                    events=python_events,
+                    ordered=ordered,
+                    progress=_progress,
+                    logs=_logs,
+                ),
                 **options,
             )
             self._controller = MassSpecIterator(
                 self._stream,
                 events="batches" if python_events else None,
-                recording=db._recording if self.record_events else None,
+                recording=transaction,
                 result_id=self.execution_id,
-                ordered=ordered,
-                progress=_progress,
-                logs=_logs,
             )
         except BaseException as error:
             self._abort(error)
@@ -257,47 +265,51 @@ class RecordingMassSpecIterator:
                 self._ready.extend(batch.items)
             item = self._ready.popleft()
             if isinstance(item, MassSpecFinalResult):
-                from apitofsim.events import MassSpecResult
-
-                if self._controller is not None:
-                    self._controller._completion(item)
-                    result = self._controller.result
-                    assert result is not None
-                else:
-                    result = MassSpecResult(
-                        item.counters,
-                        item.timings,
-                        item.cancelled,
-                        status="cancelled" if item.cancelled else "complete",
-                    )
-                if not result.cancelled:
-                    self.db.record_result(
-                        self.run_id,
-                        item.counters,
-                        item.timings,
-                        cluster_id=self.cluster_id,
-                        pathway_id=self.pathway_id,
-                        pathway_ids=self.pathway_ids,
-                        tree_result_id=self.tree_result_id,
-                        result_id=self.execution_id,
-                    )
-                self.db.finish_execution(
-                    self.execution_id, result.status, recording=result.recording
-                )
-                self._finish_scope()
-                self.result = RecordedMassSpecResult(
-                    self.run_id,
-                    self.cluster_id,
-                    self.pathway_ids,
-                    self.execution_id,
-                    result,
-                )
-                self._done = True
-                return self.result
+                return self._complete(item)
             return item
         except BaseException as error:
             self._abort(error)
             raise
+
+    def _complete(self, item):
+        assert self.execution_id is not None
+        from apitofsim.events import MassSpecResult
+
+        if self._controller is not None:
+            self._controller._completion(item)
+            result = self._controller.result
+            assert result is not None
+        else:
+            result = MassSpecResult(
+                item.counters,
+                item.timings,
+                item.cancelled,
+                status="cancelled" if item.cancelled else "complete",
+            )
+        if not result.cancelled:
+            self.db.record_result(
+                self.run_id,
+                item.counters,
+                item.timings,
+                cluster_id=self.cluster_id,
+                pathway_id=self.pathway_id,
+                pathway_ids=self.pathway_ids,
+                tree_result_id=self.tree_result_id,
+                result_id=self.execution_id,
+            )
+        self.db.finish_execution(
+            self.execution_id, result.status, recording=result.recording
+        )
+        self._finish_scope()
+        self.result = RecordedMassSpecResult(
+            self.run_id,
+            self.cluster_id,
+            self.pathway_ids,
+            self.execution_id,
+            result,
+        )
+        self._done = True
+        return self.result
 
     @staticmethod
     def _cleanup_step(error, action):
@@ -316,16 +328,7 @@ class RecordingMassSpecIterator:
         self._ready.clear()
         error.__dict__.pop("_apitofsim_recorded_failure", None)
         if self._stream is not None:
-            self.request_cancel()
-            try:
-                while True:
-                    next(self._stream)
-            except StopIteration:
-                pass
-            except BaseException as secondary:
-                if secondary is not error:
-                    error.add_note(f"Draining simulation: {secondary}")
-            self._cleanup_step(error, self._stream.join_if_joinable)
+            self._stream.close()
         info = None
         controller = self._controller
         if controller is not None:
@@ -384,16 +387,16 @@ class RecordingMassSpecIterator:
 
     def __exit__(self, exc_type, exc, tb):
         if not self._done:
-            self.request_cancel()
+            assert self._stream is not None
+            self._ready.clear()
             try:
-                for _ in self:
-                    pass
+                self._stream.close()
+                self._complete(self._stream.final_item())
             except BaseException as cleanup:
+                self._cleanup_step(cleanup, partial(self._abort, cleanup))
                 if exc is None:
                     raise
                 exc.add_note(f"Simulation cleanup: {cleanup}")
-        if self._stream is not None:
-            self._stream.join_if_joinable()
 
 
 class WorkflowEventIterator:
@@ -616,7 +619,11 @@ class ExperimentEventIterator:
             self._batch = None
             self._batches.clear()
             if self._current is not None:
-                self._current.__exit__(exc_type, exc, tb)
+                try:
+                    self._current.__exit__(exc_type, exc, tb)
+                except BaseException as cleanup:
+                    self._complete(cleanup)
+                    raise
                 if self._current.result is not None:
                     self._results.append(self._current.result)
                 self._current = None

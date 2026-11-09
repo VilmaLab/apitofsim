@@ -334,8 +334,7 @@ class RecordingTransaction:
             return
         assert self.writer is not None
         assert self.journal is not None
-        self.writer.set_metadata(json.dumps(self.executions))
-        self.writer.close()
+        self.writer.close(json.dumps(self.executions))
         sync_file(self.work_path)
         sync_directory(self.path.parent)
         self.journal["new_size"] = self.work_path.stat().st_size
@@ -409,15 +408,25 @@ class RecordingTransaction:
         self.lock.release()
 
     def __exit__(self, exc_type, exc, tb):
+        keep_open = False
         try:
-            if not self.done:
-                if exc is None:
-                    self.finish()
-                else:
-                    self.rollback()
-        except BaseException:
-            self.rollback()
+            try:
+                if not self.done:
+                    if exc is None:
+                        self.finish()
+                    else:
+                        self.rollback()
+            except raw.IpcWriterBusy:
+                raise
+            except BaseException:
+                self.rollback()
+                raise
+        except raw.IpcWriterBusy:
+            # A live run still owns the writer. Preserve the transaction and
+            # archive lock so the caller can stop the run and retry.
+            keep_open = True
             raise
         finally:
-            self.writer = None
-            self.lock.release()
+            if not keep_open:
+                self.writer = None
+                self.lock.release()

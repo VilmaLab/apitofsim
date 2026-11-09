@@ -118,7 +118,7 @@ class MassSpecIterator:
     """A single lossless Python consumer, independent of the native IPC sink.
 
     Exhaustion finishes owned persistence. Early context exit cooperatively
-    cancels, drains without delivering further Python events, then joins. User
+    cancels, discards further Python delivery, then joins. User
     exceptions propagate; successful cleanup does not turn them into success.
     """
 
@@ -132,9 +132,6 @@ class MassSpecIterator:
         result_id=0,
         result_callback=None,
         log_callback=None,
-        ordered=False,
-        progress=None,
-        logs=None,
     ):
         if events not in (None, "batches", "individual"):
             raise ValueError("events must be batches or individual")
@@ -151,16 +148,6 @@ class MassSpecIterator:
         self._row_batch = None
         self._row = 0
         self._done = False
-        self._batch_start = recording.writer.batch_count if recording is not None else 0
-        self._row_start = recording.writer.rows_written if recording is not None else 0
-        source.record_to(
-            recording.writer if recording is not None else None,
-            result_id,
-            events is not None,
-            ordered=ordered,
-            progress=result_callback is not None if progress is None else progress,
-            logs=log_callback is not None if logs is None else logs,
-        )
 
     def request_cancel(self):
         self.source.request_cancel()
@@ -181,14 +168,14 @@ class MassSpecIterator:
         info = None
         transaction = self.recording
         if transaction is not None:
-            writer = transaction.writer
+            batch_start, batch_count, event_count = self.source.recording_range
             info = RecordingInfo(
                 transaction.path,
                 transaction.archive_id,
                 self.result_id,
-                writer.rows_written - self._row_start,
-                self._batch_start,
-                writer.batch_count - self._batch_start,
+                event_count,
+                batch_start,
+                batch_count,
                 status,
             )
             transaction.executions[str(self.result_id)] = dict(
@@ -225,7 +212,7 @@ class MassSpecIterator:
                     lambda: setattr(error, "recording", None)
                 )
 
-    def _read(self, *, discard=False, callbacks=True):
+    def _read(self, *, discard=False):
         from .api import (
             MassSpecFinalResult,
             MassSpecIntermediateCounter,
@@ -237,23 +224,14 @@ class MassSpecIterator:
         except BaseException as error:
             if isinstance(error, StopIteration):
                 error = RuntimeError("Simulation ended without a final result")
-            self.failure = error
-            self._done = True
-            try:
-                self._completion(error=error)
-            except BaseException as cleanup:
-                error.add_note(f"Finishing event recording: {cleanup}")
+            self._fail(error)
             raise error
         for item in batch.items:
             if isinstance(item, MassSpecFinalResult):
                 self._completion(item)
-            elif (
-                callbacks
-                and isinstance(item, MassSpecIntermediateCounter)
-                and self.result_callback
-            ):
+            elif isinstance(item, MassSpecIntermediateCounter) and self.result_callback:
                 self.result_callback(item.counters)
-            elif callbacks and isinstance(item, MassSpecLogItem) and self.log_callback:
+            elif isinstance(item, MassSpecLogItem) and self.log_callback:
                 self.log_callback(item.type, item.name)
         if not discard and self.events is not None and len(batch.events):
             table = batch.events.rename_columns(
@@ -283,28 +261,45 @@ class MassSpecIterator:
 
     def finish(self):
         """Drain remaining delivery and wait for native execution/persistence."""
-        return self._finish(callbacks=True)
-
-    def _finish(self, *, callbacks):
         self._ready.clear()
         self._row_batch = None
         while not self._done:
-            self._read(discard=True, callbacks=callbacks)
+            self._read(discard=True)
+        return self.result
+
+    def _fail(self, error):
+        self.source.close()
+        self.failure = error
+        self._done = True
+        try:
+            self._completion(error=error)
+        except BaseException as cleanup:
+            error.add_note(f"Finishing event recording: {cleanup}")
+
+    def close(self):
+        """Cancel and wait for native writing, without converting queued batches."""
+        self._ready.clear()
+        self._row_batch = None
+        if not self._done:
+            self.source.close()
+            try:
+                final = self.source.final_item()
+            except BaseException as error:
+                self._fail(error)
+                raise
+            self._completion(final)
         return self.result
 
     def __enter__(self):
         return self
 
     def __exit__(self, exc_type, exc, tb):
-        if not self._done:
-            self.request_cancel()
-            try:
-                self._finish(callbacks=False)
-            except BaseException as cleanup:
-                if exc is None:
-                    raise
-                exc.add_note(f"Simulation cleanup: {cleanup}")
-        self.source.join_if_joinable()
+        try:
+            self.close()
+        except BaseException as cleanup:
+            if exc is None:
+                raise
+            exc.add_note(f"Simulation cleanup: {cleanup}")
 
 
 def start_stream(
@@ -321,6 +316,7 @@ def start_stream(
     **options,
 ):
     from .api import _mass_spec_batches
+    from .apitofsimraw import StreamDelivery
 
     if events not in (None, "batches", "individual"):
         raise ValueError("events must be batches or individual")
@@ -337,15 +333,24 @@ def start_stream(
     if record_to is not None:
         transaction = RecordingTransaction(record_to)
         transaction.__enter__()
+    source = None
     try:
         loglevel = options.pop("loglevel", 0)
+        result_id = transaction.next_result_id if transaction is not None else 0
         source = _mass_spec_batches(
             ms,
             substance,
             N,
             logconf=(loglevel, transaction is not None or events is not None),
             queue_capacity=max_pending_events,
-            _deferred=True,
+            _stream=StreamDelivery(
+                writer=transaction.writer if transaction is not None else None,
+                result_id=result_id,
+                events=events is not None,
+                ordered=ordered,
+                progress=result_callback is not None,
+                logs=log_callback is not None,
+            ),
             **options,
         )
         return MassSpecIterator(
@@ -353,12 +358,13 @@ def start_stream(
             events=events,
             recording=transaction,
             owns_recording=transaction is not None,
-            result_id=transaction.next_result_id if transaction is not None else 0,
+            result_id=result_id,
             result_callback=result_callback,
             log_callback=log_callback,
-            ordered=ordered,
         )
     except BaseException:
+        if source is not None:
+            source.close()
         if transaction is not None:
             transaction.rollback()
         raise
