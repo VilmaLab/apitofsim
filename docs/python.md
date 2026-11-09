@@ -445,9 +445,10 @@ cancellation or failure ends it early. New IPC footer entries mark ordered
 executions. Appending leaves the layout of earlier executions intact.
 
 Use the iterator as a context manager. `request_cancel()` is thread-safe and
-nonblocking. Early exit stops admitting realizations, drains partial histories,
-saves an incomplete status, and joins. A write failure rolls back the pending
-append. During normal Python event delivery, backpressure limits the handoff
+nonblocking. Calling `stream.close()` or exiting the context early stops
+admitting realizations, discards queued Python delivery, and waits for native
+recording to stop. Partial recordings retain an incomplete status. A write
+failure rolls back the pending append. During normal Python event delivery, backpressure limits the handoff
 to two pending batches and the `max_pending_events` credit limit (default 262144). One batch may
 exceed that credit limit. The pipeline separately bounds the number of in-flight
 histories, whose sizes depend on the simulation.
