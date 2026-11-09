@@ -590,6 +590,106 @@ def test_recorded_roots_cannot_share_writer_concurrently(prepared_case):
     assert first.result.result.status == second.result.result.status == "complete"
 
 
+def test_writer_lease_rejects_overlapping_runs_and_finalization(
+    prepared_case, tmp_path
+):
+    ms, substance = inputs(prepared_case)
+    path = tmp_path / "leased.arrow"
+    with persistence.RecordingTransaction(path) as transaction:
+        writer = transaction.writer
+
+        def start(result_id):
+            return api._mass_spec_batches(
+                ms,
+                substance,
+                8,
+                strict=False,
+                logconf=(0, True),
+                initial_batch_size=1,
+                max_batch_size=1,
+                queue_capacity=1,
+                _stream=api.apitofsimraw.StreamDelivery(
+                    writer, result_id, True, True, False, False
+                ),
+            )
+
+        first = start(1)
+        try:
+            for action in (
+                lambda: start(2),
+                transaction.finish,
+                transaction.rollback,
+                lambda: transaction.__exit__(None, None, None),
+                lambda: writer.rows_written,
+                lambda: writer.set_metadata("{}"),
+            ):
+                with pytest.raises(api.apitofsimraw.IpcWriterBusy):
+                    action()
+            assert transaction.writer is writer and not transaction.done
+        finally:
+            first.close()
+        first.close()
+        first_range = first.recording_range
+        second = start(2)
+        try:
+            for _ in second:
+                pass
+        finally:
+            second.close()
+        assert second.recording_range[0] == first_range[1]
+        assert first.recording_range == first_range
+    with pa.ipc.open_file(path) as reader:
+        assert reader.num_record_batches == first_range[1] + second.recording_range[1]
+
+
+@pytest.mark.parametrize("workflow", [False, True])
+def test_batch_conversion_failure_stops_recording(
+    prepared_case, tmp_path, monkeypatch, workflow
+):
+    db, runner, _, _ = prepared_case
+    prepared = prepare(prepared_case, pathways=[1])
+    group = prepared.groups[0]
+    path = db.events_path if workflow else tmp_path / "failed-conversion.arrow"
+    if workflow:
+        stream = runner.iter_mass_spec(
+            prepared,
+            group,
+            8,
+            strict_dos=False,
+            record_events=True,
+            max_batch_items=1,
+            max_pending_events=1,
+        )
+        transaction = db._recording
+    else:
+        stream = api.mass_spec_iter(
+            prepared.mass_spec,
+            group.substance,
+            8,
+            strict=False,
+            record_to=path,
+            initial_batch_size=1,
+            max_batch_size=1,
+            max_pending_events=1,
+        )
+        transaction = stream.recording
+
+    def fail_conversion(self, batch):
+        with pytest.raises(api.apitofsimraw.IpcWriterBusy):
+            transaction.writer.close()
+        raise ValueError("injected batch conversion failure")
+
+    monkeypatch.setattr(api._MassSpecBatchIterator, "_convert_batch", fail_conversion)
+    with pytest.raises(ValueError, match="injected batch conversion failure"):
+        with stream:
+            next(stream)
+    assert transaction.committed
+    with pa.ipc.open_file(path) as reader:
+        states = json.loads(reader.metadata[b"apitofsim:executions"])
+        assert list(states.values())[0]["status"] == "failed"
+        assert list(states.values())[0]["event_count"] == len(reader.read_all()) > 0
+
+
 def test_overwrite_preserves_unmanaged_staging_file(tmp_path):
     path = tmp_path / "events.arrow"
     staging = Path(str(path) + ".replacement")

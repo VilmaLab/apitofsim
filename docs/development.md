@@ -177,6 +177,12 @@ use a bounded handoff for events and callbacks. The raw iterator retains its eag
 for join-before-read callers. Record batches own retained buffers, and the
 writer borrows C Data arrays for synchronous encoding.
 
+Managed streams acquire an exclusive IPC writer lease before starting the
+worker. The run releases it after its last write and batch-range
+snapshot. An active lease prevents a second run, writer finalization, and
+reads of mutable writer counters. Stream shutdown discards pending Python
+delivery, wakes the producer, and joins it before transaction cleanup.
+
 A database owns one `.events.arrow` sidecar. The format has fixed primitive fields,
 a schema version/archive UUID, and per-execution footer metadata. An appender
 verifies the previous footer, retains its batch descriptors, then replaces only
