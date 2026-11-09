@@ -11,7 +11,7 @@ if [[ ! -f "${tbb_root}/include/oneapi/tbb/version.h" ]]; then
   trap 'rm -rf "${tbb_tmp}"' EXIT
   tbb_archive="${tbb_tmp}/oneTBB-${tbb_commit}.tar.gz"
 
-  curl -L --fail --silent --show-error \
+  curl -L --fail --silent --show-error --retry 4 \
     "https://github.com/uxlfoundation/oneTBB/archive/${tbb_commit}.tar.gz" \
     -o "${tbb_archive}"
   echo "${tbb_sha256}  ${tbb_archive}" | shasum -a 256 --check

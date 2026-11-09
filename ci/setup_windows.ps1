@@ -13,6 +13,7 @@ if (-not (Test-Path (Join-Path $TbbRoot "lib\cmake\tbb\TBBConfig.cmake"))) {
     try {
         Invoke-WebRequest `
             -Uri "https://github.com/uxlfoundation/oneTBB/releases/download/v$TbbVersion/oneapi-tbb-$TbbVersion-win.zip" `
+            -MaximumRetryCount 4 -RetryIntervalSec 5 `
             -OutFile $TbbArchive
         $ActualSha256 = (Get-FileHash -Algorithm SHA256 $TbbArchive).Hash
         if ($ActualSha256 -ne $TbbSha256) {

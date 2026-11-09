@@ -10,7 +10,7 @@ if [[ ! -f "${tbb_root}/lib/pkgconfig/tbb.pc" ]]; then
   tbb_tmp=$(mktemp -d)
   trap 'rm -rf "${tbb_tmp}"' EXIT
   tbb_archive="${tbb_tmp}/oneapi-tbb-${tbb_version}-lin.tgz"
-  curl -L --fail --silent --show-error \
+  curl -L --fail --silent --show-error --retry 4 \
     "https://github.com/uxlfoundation/oneTBB/releases/download/v${tbb_version}/oneapi-tbb-${tbb_version}-lin.tgz" \
     -o "${tbb_archive}"
   echo "${tbb_sha256}  ${tbb_archive}" | sha256sum --check -
