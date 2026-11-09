@@ -108,7 +108,7 @@ class MassSpecResult:
     status: str = "complete"
 
 
-def ordered_delivery(ordered: bool | None, recording: bool) -> bool:
+def need_ordered_delivery(ordered: bool | None, recording: bool) -> bool:
     if recording and ordered is False:
         raise ValueError("Event recording requires ordered delivery")
     return recording or bool(ordered)
@@ -332,7 +332,7 @@ def start_stream(
         raise ValueError(
             "N must be nonnegative and max_pending_events must be positive"
         )
-    ordered = ordered_delivery(ordered, record_to is not None)
+    ordered = need_ordered_delivery(ordered, record_to is not None)
     transaction = None
     if record_to is not None:
         transaction = RecordingTransaction(record_to)

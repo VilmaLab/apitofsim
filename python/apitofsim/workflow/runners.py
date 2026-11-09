@@ -135,7 +135,7 @@ class RecordingMassSpecIterator:
         **options,
     ):
         from apitofsim.api import _mass_spec_batches
-        from apitofsim.events import MassSpecIterator, ordered_delivery
+        from apitofsim.events import MassSpecIterator, need_ordered_delivery
 
         self.max_batch_items = index(max_batch_items)
         max_pending_events = index(max_pending_events)
@@ -160,7 +160,7 @@ class RecordingMassSpecIterator:
         self.record_events = (
             db.record_events if record_events is None else record_events
         )
-        ordered = ordered_delivery(ordered, self.record_events)
+        ordered = need_ordered_delivery(ordered, self.record_events)
         if hasattr(substance, "tree_nodes") and tree_cluster_ids is None:
             raise ValueError("Tree execution requires tree_cluster_ids")
         if (
@@ -486,11 +486,11 @@ class ExperimentEventIterator:
             runner.db.record_events if record_events is None else record_events
         )
         self.result_callback, self.log_callback = result_callback, log_callback
-        from apitofsim.events import ordered_delivery
+        from apitofsim.events import need_ordered_delivery
 
         self.options = dict(
             options,
-            ordered=ordered_delivery(ordered, self.record),
+            ordered=need_ordered_delivery(ordered, self.record),
             _progress=result_callback is not None,
             _logs=log_callback is not None,
         )
