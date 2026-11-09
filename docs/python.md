@@ -191,8 +191,8 @@ date formatting belong to callers.
 ### Event storage and read queries
 
 `ExperimentDatabase` stores configuration, tree topology, summaries and failure
-information. Native event payloads are stored in its automatically named IPC
-sidecar: `results.duckdb` uses `results.events.arrow`. The optional ASE sidecar
+information. Native event payloads are stored in `results.events.arrow` or
+`results.events.parquet` alongside `results.duckdb`. The optional ASE sidecar
 retains its `results.ase.sqlite.db` naming. Move the files together with matching
 basenames. An archive UUID and committed length detect mismatched sidecars.
 
@@ -201,13 +201,14 @@ There are no physical `event_info`, `realization`, `collision_event` or
 execution, with its result ID, status, event count and batch range. Status is
 `running`, `complete`, `cancelled` or `failed`; whole-experiment status is also
 persisted in `experiment_run.execution_status`. Incomplete executions are never
-inserted into successful-result aggregates. The event reader registers a PyArrow
-IPC dataset with DuckDB, without downloading a DuckDB extension.
+inserted into successful-result aggregates. The event reader uses a PyArrow
+IPC dataset or DuckDB's built-in Parquet scan according to the archive format.
 
 `results_query()`, `realizations_query()`, `events_query()` and
 `recorded_output_query()` return DuckDB relations. Filters `run_id`, `parent`
 (root cluster ID) and `result_id` intersect. Scoped event and realization queries
-read only the IPC batches for matching executions. Failed/cancelled executions retain
+read only the IPC batches for matching executions or push result ID filters
+into the Parquet scan. Failed/cancelled executions retain
 their recorded events. Realization counts count observed histories, including
 histories interrupted before a completed-realization counter was emitted.
 
@@ -218,6 +219,15 @@ with ExperimentDatabase("results.duckdb", readonly=True) as db:
     events = db.events_query(run_id=3, parent=17, sort=True).fetchdf()
     histories = db.fragmentation_histories_query(run_id=3).fetchdf()
 ```
+
+With the optional Apache C++ writer enabled, use
+`ExperimentDatabase("results.duckdb", recording_format="parquet",
+recording_compression="zstd", parquet_column_workers=4)` and request
+`record_events=True` when running. A Parquet sidecar starts in a database without
+recorded events and is immutable after publication. Use
+`db.recording_transaction()` to group multiple runs into one sidecar. Standalone
+`record_to=` recording uses Arrow IPC. `read_events()` accepts either format.
+
 
 Every event has numeric `result_id`, `realization_index` and `event_index`.
 The latter is monotonically increasing within one realization, including tied

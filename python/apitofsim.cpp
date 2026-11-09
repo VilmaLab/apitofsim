@@ -621,11 +621,12 @@ struct MassSpecIterator
       auto flush = [&]
       {
         const auto rows = columns->event_indices.size();
+        bool handed_to_writer = false;
         if (writer && rows != 0)
         {
           try
           {
-            writer->write(*columns, result_id, columns->event_indices);
+            handed_to_writer = writer->write(columns, result_id);
           }
           catch (...)
           {
@@ -636,10 +637,11 @@ struct MassSpecIterator
         if (updated && progress)
           items.emplace_back(partial_counters);
         updated = false;
-        if ((deliver_events && rows != 0) || !items.empty())
+        const bool has_delivery = (deliver_events && rows != 0) || !items.empty();
+        if (has_delivery)
         {
           auto delivered = deliver_events ? columns : std::make_shared<EventColumns>();
-          if (deliver_events)
+          if (deliver_events && delivered->result_ids.empty())
             delivered->result_ids.assign(rows, result_id);
           std::unique_lock lock(delivery_mutex);
           // A single batch may exceed the credit limit. Let it through
@@ -656,10 +658,10 @@ struct MassSpecIterator
           }
           lock.unlock();
           delivery_changed.notify_all();
-          if (deliver_events)
-            columns = std::make_shared<EventColumns>();
           items.clear();
         }
+        if (handed_to_writer || (deliver_events && has_delivery))
+          columns = std::make_shared<EventColumns>();
         if (rows != 0)
           limit = maximum;
         if (capture_events)
@@ -1270,8 +1272,15 @@ NB_MODULE(apitofsimraw, m)
     .def_ro("items", &MassSpecBatch::items);
 
   nb::exception<IpcWriterBusy>(m, "IpcWriterBusy", PyExc_RuntimeError);
+#ifdef APITOFSIM_WITH_PARQUET
+  m.attr("NATIVE_PARQUET") = true;
+#else
+  m.attr("NATIVE_PARQUET") = false;
+#endif
   nb::class_<IpcEventWriter>(m, "IpcEventWriter")
     .def(nb::init<const std::string &, bool, const std::string &>(), "path"_a, "append"_a, "archive_id"_a)
+    .def(nb::init<const std::string &, const std::string &, int64_t, bool, int>(),
+         "path"_a, "archive_id"_a, "generation"_a, "zstd"_a, "column_workers"_a)
     .def("close", &IpcEventWriter::close, "metadata"_a = std::nullopt, nb::call_guard<nb::gil_scoped_release>())
     .def("abort", &IpcEventWriter::abort, nb::call_guard<nb::gil_scoped_release>())
     .def("set_metadata", &IpcEventWriter::set_metadata, "metadata"_a)

@@ -354,7 +354,27 @@ def prepare(mode, config, database, db_type, ase, warm, foreign_keys):
 @click.option(
     "--record-events/--no-record-events",
     default=False,
-    help="Record native IPC events in the database .events.arrow sidecar",
+    help="Record events in the database sidecar",
+)
+@click.option(
+    "--event-format",
+    type=click.Choice(["arrow", "parquet"]),
+    default="arrow",
+    show_default=True,
+)
+@click.option(
+    "--event-compression",
+    type=click.Choice(["none", "zstd"]),
+    default="none",
+    show_default=True,
+    help="Parquet page compression.",
+)
+@click.option(
+    "--parquet-column-workers",
+    type=click.IntRange(1, 2**31 - 1),
+    default=1,
+    show_default=True,
+    help="Number of workers encoding Parquet columns.",
 )
 def run(
     database,
@@ -365,16 +385,34 @@ def run(
     simulation_mode,
     verbose,
     record_events,
+    event_format,
+    event_compression,
+    parquet_column_workers,
 ):
     """
     Run simulation according to the configurations in DATABASE.
     """
+    from apitofsim import apitofsimraw
+    from apitofsim.recording import validate_recording_options
     from apitofsim.workflow import (
         ExperimentDatabase,
         ExperimentRunner,
         auto_db_type,
     )
 
+    try:
+        validate_recording_options(
+            event_format, event_compression, parquet_column_workers
+        )
+    except ValueError as error:
+        raise click.UsageError(str(error)) from error
+    if event_format == "parquet":
+        if not record_events:
+            raise click.UsageError("--event-format parquet requires --record-events")
+        if not apitofsimraw.NATIVE_PARQUET:
+            raise click.ClickException(
+                "Parquet recording requires a build with -Dnative_parquet_writer=enabled"
+            )
     with connection_scope(auto_db_type, database) as db:
         if not isinstance(db, ExperimentDatabase):
             raise click.ClickException(
@@ -388,6 +426,9 @@ def run(
             raise click.ClickException(
                 "The specified database does not contain experiment_config. Did you create it as an experiment database?"
             )
+        db.recording_format = event_format
+        db.recording_compression = event_compression
+        db.parquet_column_workers = parquet_column_workers
         runner = ExperimentRunner(db)
         runner.run_prepared_config(
             name=filter_config or None,

@@ -1,4 +1,5 @@
 from collections import deque
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from functools import cache, partial
 from operator import index
@@ -2460,14 +2461,25 @@ class ExperimentRunner:
         from pprint import pprint
 
         configs = list(self.db.iter_configs(name))
-        for idx, row in enumerate(configs):
-            print(f"# Running experiment config: {row.name} [{idx + 1}/{len(configs)}]")
-            pprint(row.config)
-            print()
-            self.start_run(
-                row.id,
-                simulation_mode=kwargs.get("mode")
-                or simulation_option(row.config, "simulation_mode"),
-            )
-            self.run_from_config(row.config, run_started=True, **kwargs)
-            print()
+        recording = kwargs.get("record_events")
+        if recording is None:
+            recording = self.db.record_events
+        # Parquet publishes one immutable sidecar for all selected configurations.
+        with (
+            self.db.recording_transaction()
+            if configs and recording and self.db.recording_format == "parquet"
+            else nullcontext()
+        ):
+            for idx, row in enumerate(configs):
+                print(
+                    f"# Running experiment config: {row.name} [{idx + 1}/{len(configs)}]"
+                )
+                pprint(row.config)
+                print()
+                self.start_run(
+                    row.id,
+                    simulation_mode=kwargs.get("mode")
+                    or simulation_option(row.config, "simulation_mode"),
+                )
+                self.run_from_config(row.config, run_started=True, **kwargs)
+                print()

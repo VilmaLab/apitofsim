@@ -61,6 +61,17 @@ magic_enum = dependency(
 
 nanoarrow = dependency('nanoarrow', include_type : 'system')
 
+parquet_option = get_option('native_parquet_writer')
+arrow_cpp = dependency('arrow', version : '>=26.0.0', required : parquet_option,
+                       allow_fallback : false, include_type : 'system')
+parquet_cpp = dependency('parquet', version : '>=26.0.0', required : parquet_option,
+                         allow_fallback : false, include_type : 'system')
+native_parquet = arrow_cpp.found() and parquet_cpp.found()
+if native_parquet
+  add_project_dependencies(arrow_cpp, parquet_cpp, language : 'cpp')
+  add_project_arguments('-DAPITOFSIM_WITH_PARQUET', language : 'cpp')
+endif
+
 subdir('src')
 
 if python_feat.enabled()

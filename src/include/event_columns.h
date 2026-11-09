@@ -5,6 +5,10 @@
 #include <vector>
 #include "warnlogcount.h"
 
+inline constexpr std::array event_column_names{
+  "x", "y", "z", "t", "vx", "vy", "vz", "ox", "oy", "oz", "rot_energy", "vibrational_energy", "theta", "u_norm",
+  "realization_index", "event_kind", "particle_index", "transition_index", "next_particle_index", "accepted", "result_id", "event_index"};
+
 // Columns stay owned by the returned arrays. A retained Python/Arrow batch must
 // never be overwritten, even after its iterator has advanced or been destroyed.
 struct EventColumns

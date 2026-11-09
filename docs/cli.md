@@ -25,6 +25,19 @@ is `database.ase.sqlite.db`. Move the files together with matching basenames.
 and relational event inserts are removed; old event databases require migration.
 Do not read the event sidecar while an append transaction is active.
 
+With the optional Apache C++ Parquet writer enabled, record directly to
+`database.events.parquet`.
+
+```bash
+apitofsim db run database.duckdb --record-events --event-format parquet \
+    --event-compression zstd --parquet-column-workers 4
+```
+
+Parquet recording starts in a database without recorded events and publishes
+one immutable sidecar for the selected configurations. Page compression
+defaults to `none`, and the column worker count defaults to one. Readers
+automatically open the format selected by the database.
+
 ## Event plots
 
 `apitofsim db plot plot-events results.db plots/` writes one Matplotlib figure per recorded

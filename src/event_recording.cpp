@@ -1,4 +1,7 @@
 #include "event_recording.h"
+#ifdef APITOFSIM_WITH_PARQUET
+#include "parquet_event_writer.h"
+#endif
 
 #include <array>
 #include <cstring>
@@ -16,8 +19,7 @@
 
 namespace
 {
-constexpr std::array names{"x", "y", "z", "t", "vx", "vy", "vz", "ox", "oy", "oz", "rot_energy", "vibrational_energy", "theta", "u_norm",
-                           "realization_index", "event_kind", "particle_index", "transition_index", "next_particle_index", "accepted", "result_id", "event_index"};
+constexpr auto &names = event_column_names;
 
 void check(int status, const ArrowError &error = {})
 {
@@ -56,6 +58,15 @@ struct IpcEventWriter::Impl
   bool closed{false};
   bool write_failed{false};
   std::string executions{"{}"};
+#ifdef APITOFSIM_WITH_PARQUET
+  std::unique_ptr<ParquetEventWriter> parquet;
+
+  Impl(const std::string &path, const std::string &archive_id, int64_t generation, bool zstd, int column_workers)
+      : parquet(std::make_unique<ParquetEventWriter>(
+          path, archive_id, generation, zstd, column_workers))
+  {
+  }
+#endif
 
   void require_idle() const
   {
@@ -65,6 +76,10 @@ struct IpcEventWriter::Impl
 
   std::array<int64_t, 2> counts() const
   {
+#ifdef APITOFSIM_WITH_PARQUET
+    if (parquet)
+      return {0, rows};
+#endif
     return {footer->record_batch_blocks.size_bytes / static_cast<int64_t>(sizeof(ArrowIpcFileBlock)), rows};
   }
 
@@ -165,6 +180,10 @@ struct IpcEventWriter::Impl
 
   void write(const EventColumns &columns, int64_t result_id, const std::vector<int64_t> &indices)
   {
+#ifdef APITOFSIM_WITH_PARQUET
+    if (parquet)
+      throw std::invalid_argument("Analytical event writing requires an owned batch");
+#endif
     if (closed)
       throw std::runtime_error("Event IPC: writer is closed");
     const auto count = static_cast<int64_t>(indices.size());
@@ -210,6 +229,14 @@ struct IpcEventWriter::Impl
       throw std::runtime_error("Event IPC: cannot publish after a failed write");
     if (closed)
       return;
+#ifdef APITOFSIM_WITH_PARQUET
+    if (parquet)
+    {
+      parquet->close();
+      closed = true;
+      return;
+    }
+#endif
     const auto continuation = little_endian(UINT32_MAX);
     const auto zero = little_endian(0);
     file.write(continuation.data(), continuation.size());
@@ -271,6 +298,22 @@ struct IpcEventWriter::Impl
 IpcEventWriter::IpcEventWriter(const std::string &path, bool append, const std::string &archive_id) : impl(std::make_shared<Impl>(path, append, archive_id))
 {
 }
+IpcEventWriter::IpcEventWriter(const std::string &path, const std::string &archive_id,
+                               int64_t generation, bool zstd, int column_workers)
+#ifdef APITOFSIM_WITH_PARQUET
+    : impl(std::make_shared<Impl>(path, archive_id, generation, zstd, column_workers))
+{
+}
+#else
+{
+  (void)path;
+  (void)archive_id;
+  (void)generation;
+  (void)zstd;
+  (void)column_workers;
+  throw std::runtime_error("Parquet recording requires a build with -Dnative_parquet_writer=enabled");
+}
+#endif
 IpcEventWriter::~IpcEventWriter() = default;
 
 IpcEventWriter::Lease::Lease(std::shared_ptr<Impl> state) : impl(std::move(state))
@@ -313,6 +356,29 @@ void IpcEventWriter::Lease::write(const EventColumns &columns, int64_t result_id
       impl->write_failed = true;
     throw;
   }
+}
+
+bool IpcEventWriter::Lease::write(const std::shared_ptr<EventColumns> &columns, int64_t result_id)
+{
+#ifdef APITOFSIM_WITH_PARQUET
+  if (impl->parquet)
+  {
+    try
+    {
+      columns->result_ids.assign(columns->event_indices.size(), result_id);
+      impl->parquet->write(columns);
+      impl->rows += static_cast<int64_t>(columns->event_indices.size());
+    }
+    catch (...)
+    {
+      impl->write_failed = true;
+      throw;
+    }
+    return true;
+  }
+#endif
+  write(*columns, result_id, columns->event_indices);
+  return false;
 }
 
 std::array<int64_t, 2> IpcEventWriter::Lease::counts() const
@@ -360,6 +426,10 @@ void IpcEventWriter::abort()
   std::scoped_lock lock(impl->mutex);
   impl->require_idle();
   impl->sealed = true;
+#ifdef APITOFSIM_WITH_PARQUET
+  if (impl->parquet)
+    impl->parquet->abort();
+#endif
   impl->file.exceptions(std::ios::goodbit);
   if (impl->file.is_open())
     impl->file.close();

@@ -1,3 +1,5 @@
 option('python', type : 'feature', value : 'enabled')
 option('stubgen', type : 'feature', value : 'enabled')
 option('ittnotify', type : 'feature', value : 'disabled')
+option('native_parquet_writer', type : 'feature', value : 'disabled',
+       description : 'Build the Apache Arrow C++ Parquet event writer')

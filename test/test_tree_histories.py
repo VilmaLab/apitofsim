@@ -40,7 +40,8 @@ def start(db):
     )
 
 
-def test_shared_archive_tree_identity_and_order(tmp_path, monkeypatch):
+@pytest.mark.parametrize("format", ["arrow", "parquet"])
+def test_shared_archive_tree_identity_and_order(tmp_path, monkeypatch, format):
     path = tmp_path / "trees.duckdb"
     with ExperimentDatabase(path) as db:
         db.create_tables()
@@ -96,7 +97,11 @@ def test_shared_archive_tree_identity_and_order(tmp_path, monkeypatch):
                 if destination >= 0:
                     emit(4, destination)
         publish_events(
-            db, rows, batch_size=8, statuses={first: "cancelled", second: "failed"}
+            db,
+            rows,
+            batch_size=8,
+            statuses={first: "cancelled", second: "failed"},
+            format=format,
         )
         histories = db.tree_events_query().fetchall()
         assert len(histories) == len(rows)
@@ -118,7 +123,7 @@ def test_shared_archive_tree_identity_and_order(tmp_path, monkeypatch):
     # Both the database and its sidecar remain relocatable as a pair.
     renamed = tmp_path / "renamed.duckdb"
     path.rename(renamed)
-    (tmp_path / "trees.events.arrow").rename(tmp_path / "renamed.events.arrow")
+    (tmp_path / f"trees.events.{format}").rename(tmp_path / f"renamed.events.{format}")
     with ExperimentDatabase(renamed, readonly=True) as reopened:
         assert reopened.events_query(sort=True).fetchall() == expected
         reads = []
@@ -139,18 +144,21 @@ def test_shared_archive_tree_identity_and_order(tmp_path, monkeypatch):
                 reads.append((index, batch.schema.names))
                 return batch
 
-        monkeypatch.setattr(recording.pa.ipc, "open_file", TracedReader)
+        if format == "arrow":
+            monkeypatch.setattr(recording.pa.ipc, "open_file", TracedReader)
         scope = dict(run_id=2, parent=10, result_id=second)
         scoped_events = reopened.events_query(**scope, sort=True)
-        assert [index for index, _ in reads] == [3, 4]
+        assert [index for index, _ in reads] == ([3, 4] if format == "arrow" else [])
         reads.clear()
         scoped_tree = reopened.tree_events_query(**scope)
-        assert [index for index, _ in reads] == [3, 4]
+        assert [index for index, _ in reads] == ([3, 4] if format == "arrow" else [])
         reads.clear()
         scoped_realizations = reopened.realizations_query(**scope)
-        assert reads == [
-            (index, ["realization_index", "result_id"]) for index in (3, 4)
-        ]
+        assert reads == (
+            [(index, ["realization_index", "result_id"]) for index in (3, 4)]
+            if format == "arrow"
+            else []
+        )
         reads.clear()
 
         expected_events = [row for row in expected if row[2] == second]
@@ -161,7 +169,8 @@ def test_shared_archive_tree_identity_and_order(tmp_path, monkeypatch):
         ]
         assert scoped_events.fetchall() == expected_events
         assert reads == []
-        assert len(re.findall(r"│\s+ARROW_SCAN\s+│", scoped_tree.explain())) == 1
+        if format == "arrow":
+            assert len(re.findall(r"│\s+ARROW_SCAN\s+│", scoped_tree.explain())) == 1
         assert reopened.recorded_output_query(**scope).fetchone() == (
             1,
             12,
