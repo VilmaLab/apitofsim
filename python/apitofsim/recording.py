@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 from dataclasses import dataclass
+from operator import index
 from pathlib import Path
 from uuid import uuid4
 
@@ -12,6 +13,34 @@ import portalocker
 import pyarrow as pa
 
 from . import apitofsimraw as raw
+
+IPC_VERSION = 1
+PARQUET_VERSION = 2
+EVENT_FORMATS = {
+    IPC_VERSION: "arrow",
+    PARQUET_VERSION: "parquet",
+}
+EVENT_VERSIONS = {name: version for version, name in EVENT_FORMATS.items()}
+
+
+def validate_recording_options(format, compression, column_workers):
+    if format not in EVENT_VERSIONS:
+        raise ValueError("Recording format must be arrow or parquet")
+    if compression not in ("none", "zstd") or (
+        format != "parquet" and compression != "none"
+    ):
+        raise ValueError("Only Parquet recording supports the zstd compression option")
+
+    workers = index(column_workers)
+    if not 1 <= workers <= 2**31 - 1:
+        raise ValueError("Parquet column workers must be a positive C++ int")
+    if format != "parquet" and workers != 1:
+        raise ValueError("Column workers apply to Parquet recording")
+    return workers
+
+
+PARQUET_APPEND_ERROR = "Cannot append to a Parquet event recording. Record new events in a separate database."
+
 
 FLOAT_FIELDS = (
     "x y z t vx vy vz ox oy oz rot_energy vibrational_energy theta u_norm".split()
@@ -54,13 +83,24 @@ def event_batch_dataset(path, ranges, columns=None):
     return ds.dataset(batches)
 
 
-def events_filename(database):
+def events_filename(database, *, format="arrow"):
     path = Path(database)
+    suffix = f".events.{format}"
     return (
-        path.with_suffix(".events.arrow")
+        path.with_suffix(suffix)
         if path.suffix == ".duckdb"
-        else Path(str(path) + ".events.arrow")
+        else Path(str(path) + suffix)
     )
+
+
+def event_file_format(path):
+    with Path(path).open("rb") as file:
+        return "parquet" if file.read(4) == b"PAR1" else "arrow"
+
+
+def event_lock_anchor(path):
+    # Both formats use the same lock for a managed archive.
+    return path.with_suffix(".arrow") if path.name.endswith(".events.parquet") else path
 
 
 def sync_file(path):
@@ -81,30 +121,50 @@ def sync_directory(path):
 
 
 def recording_lock(path, *, shared=False):
+    lock_path = Path(str(path) + ".lock")
     return portalocker.Lock(
-        str(path) + ".lock",
-        mode="a+b",
+        lock_path,
+        mode="rb" if shared and lock_path.exists() else "a+b",
         timeout=0,
         flags=(portalocker.LOCK_SH if shared else portalocker.LOCK_EX)
         | portalocker.LOCK_NB,
     )
 
 
+def event_schema_metadata(schema):
+    metadata = schema.metadata or {}
+    if metadata.get(b"apitofsim:event_schema") != b"1":
+        raise ValueError(
+            "Unsupported event archive schema; an explicit migration is required"
+        )
+    # The archive may declare non-null fields, unlike the empty scan schema.
+    if [(f.name, f.type) for f in schema] != [(f.name, f.type) for f in EVENT_SCHEMA]:
+        raise ValueError("Incompatible event archive schema")
+    if not metadata.get(b"apitofsim:archive_id"):
+        raise ValueError("Event archive identity is missing")
+    return metadata
+
+
+def validate_parquet(path, identity, generation):
+    """Check the footer and its binding to the database without scanning events."""
+    import pyarrow.parquet as pq
+
+    with pq.ParquetFile(path) as archive:
+        metadata = event_schema_metadata(archive.schema_arrow)
+        if (
+            metadata[b"apitofsim:archive_id"] != identity.encode()
+            or metadata.get(b"apitofsim:generation") != str(generation).encode()
+        ):
+            raise ValueError(
+                "Parquet event sidecar identity/generation does not match this database"
+            )
+
+
 def archive_metadata(path):
     with pa.OSFile(str(path), "rb") as source, pa.ipc.open_file(source) as reader:
-        metadata = reader.schema.metadata or {}
-        if metadata.get(b"apitofsim:event_schema") != b"1":
-            raise ValueError(
-                "Unsupported event archive schema; an explicit migration is required"
-            )
-        if not reader.schema.equals(EVENT_SCHEMA, check_metadata=False):
-            # Non-nullability is part of the on-disk schema, not pa.schema's
-            # nullable defaults used to construct an empty scan.
-            if [(f.name, f.type) for f in reader.schema] != [
-                (f.name, f.type) for f in EVENT_SCHEMA
-            ]:
-                raise ValueError("Incompatible event archive schema")
-        identity = metadata[b"apitofsim:archive_id"].decode()
+        identity = event_schema_metadata(reader.schema)[
+            b"apitofsim:archive_id"
+        ].decode()
         executions = json.loads(
             (reader.metadata or {}).get(b"apitofsim:executions", b"{}")
         )
@@ -143,20 +203,45 @@ class RecordingTransaction:
     journal marker. Only archives produced by this implementation are appended.
     """
 
-    def __init__(self, destination, *, database=None):
+    def __init__(
+        self,
+        destination,
+        *,
+        database=None,
+        format="arrow",
+        compression="none",
+        column_workers=1,
+    ):
+        self.column_workers = validate_recording_options(
+            format, compression, column_workers
+        )
+        if database is None and format != "arrow":
+            raise ValueError("Parquet recording requires an experiment database")
+        if format == "parquet" and not raw.NATIVE_PARQUET:
+            raise RuntimeError(
+                "Parquet recording requires a build with -Dnative_parquet_writer=enabled"
+            )
         self.spec = (
             destination
             if isinstance(destination, IpcRecording)
             else IpcRecording(destination)
         )
+        if format != "arrow" and self.spec.mode == "overwrite":
+            raise ValueError("Parquet recording requires a new sidecar")
         self.path = Path(self.spec.path).resolve()
         self.database = database
+        self.format = format
+        self.compression = compression
+        self.output_path = (
+            self.path if format == "arrow" else self.path.with_suffix(f".{format}")
+        )
         self.work_path = (
             Path(str(self.path) + ".replacement")
             if self.spec.mode == "overwrite"
-            else self.path
+            else self.output_path
         )
-        self.journal_path = Path(str(self.work_path) + ".journal")
+        self.journal_anchor = self.work_path if format == "arrow" else self.path
+        self.journal_path = Path(str(self.journal_anchor) + ".journal")
         self.lock = recording_lock(self.path)
         self.writer = None
         self.done = False
@@ -180,8 +265,8 @@ class RecordingTransaction:
         sync_directory(self.path.parent)
 
     @staticmethod
-    def recover(path, *, generation=None, expected_archive_id=None):
-        """Called only with the archive's exclusive lock held."""
+    def recover(path, *, generation=None, expected_archive_id=None, readonly=False):
+        """Recover under an exclusive lock, or verify a committed journal read-only."""
         path = Path(path)
         journal_path = Path(str(path) + ".journal")
         if not journal_path.exists():
@@ -193,6 +278,10 @@ class RecordingTransaction:
             )
         if data["version"] != 1:
             raise ValueError("Unsupported event recovery journal")
+        format = data.get("format", "arrow")
+        if format not in EVENT_VERSIONS or (format != "arrow" and data["old_size"]):
+            raise ValueError("Invalid event recovery journal format")
+        payload = path if format == "arrow" else path.with_suffix(f".{format}")
         if (
             expected_archive_id is not None
             and data["archive_id"] != expected_archive_id
@@ -209,11 +298,16 @@ class RecordingTransaction:
             else generation == data["generation"]
         )
         if committed:
-            if not path.exists() or path.stat().st_size != data["new_size"]:
+            if not payload.exists() or payload.stat().st_size != data["new_size"]:
                 raise ValueError("Committed event archive is missing or truncated")
-            identity, _, _, _ = archive_metadata(path)
-            if identity != data["archive_id"]:
+            if format != "arrow":
+                validate_parquet(payload, data["archive_id"], data["generation"])
+            elif archive_metadata(path)[0] != data["archive_id"]:
                 raise ValueError("Event archive identity mismatch during recovery")
+        elif readonly:
+            raise ValueError(
+                "Interrupted event recording. Open the database writable to recover it"
+            )
         elif data["old_size"]:
             tail = base64.b64decode(data["tail"], validate=True)
             if (
@@ -228,7 +322,9 @@ class RecordingTransaction:
                 file.flush()
                 os.fsync(file.fileno())
         else:
-            path.unlink(missing_ok=True)
+            payload.unlink(missing_ok=True)
+        if readonly:
+            return committed
         journal_path.unlink()
         Path(str(journal_path) + ".new").unlink(missing_ok=True)
         sync_directory(path.parent)
@@ -239,9 +335,11 @@ class RecordingTransaction:
         try:
             db = self.database
             if db is not None:
-                identity, generation, size = db.db.execute(
-                    "select archive_id,generation,file_size from event_recording_state"
+                version, identity, generation, size = db.db.execute(
+                    "select schema_version,archive_id,generation,file_size from event_recording_state"
                 ).fetchall()[0]
+                if version == PARQUET_VERSION:
+                    raise ValueError(PARQUET_APPEND_ERROR)
                 self.archive_id, self.generation = identity, generation + 1
                 self.recover(
                     self.path, generation=generation, expected_archive_id=identity
@@ -250,9 +348,18 @@ class RecordingTransaction:
                     raise ValueError(
                         "Event sidecar does not match the database's committed size"
                     )
+                if self.format != "arrow":
+                    if size or os.path.lexists(self.path):
+                        raise ValueError(
+                            "Parquet recording requires a database without an IPC sidecar"
+                        )
+                    self._open_parquet()
+                    return self
             else:
                 self.recover(self.path)
                 self.recover(Path(str(self.path) + ".replacement"))
+                if self.path.is_file() and event_file_format(self.path) == "parquet":
+                    raise ValueError(PARQUET_APPEND_ERROR)
             if self.spec.mode == "overwrite":
                 if self.path.exists():
                     try:
@@ -329,12 +436,38 @@ class RecordingTransaction:
             self.rollback()
             raise
 
+    def _open_parquet(self):
+        if os.path.lexists(self.work_path):
+            raise FileExistsError(f"Event archive already exists: {self.work_path}")
+        assert self.database is not None
+        self.journal = dict(
+            version=1,
+            owner="database",
+            archive_id=self.archive_id,
+            generation=self.generation,
+            old_size=0,
+            format=self.format,
+        )
+        self._write_journal()
+        self.database.db.execute("begin")
+        self.started = True
+        self.writer = raw.IpcEventWriter(
+            str(self.work_path),
+            self.archive_id,
+            self.generation,
+            self.compression == "zstd",
+            self.column_workers,
+        )
+
     def finish(self):
         if self.done:
             return
         assert self.writer is not None
         assert self.journal is not None
         self.writer.close(json.dumps(self.executions))
+        db = self.database
+        if self.format == "parquet":
+            validate_parquet(self.work_path, self.archive_id, self.generation)
         sync_file(self.work_path)
         sync_directory(self.path.parent)
         self.journal["new_size"] = self.work_path.stat().st_size
@@ -342,11 +475,14 @@ class RecordingTransaction:
             self.database is None and self.spec.mode != "overwrite"
         )
         self._write_journal()
-        db = self.database
         if db is not None:
             db.db.execute(
-                "update event_recording_state set generation=?,file_size=?",
-                [self.generation, self.journal["new_size"]],
+                "update event_recording_state set schema_version=?,generation=?,file_size=?",
+                [
+                    EVENT_VERSIONS[self.format],
+                    self.generation,
+                    self.journal["new_size"],
+                ],
             )
             db.db.execute("commit")
             self.started = False
@@ -394,7 +530,7 @@ class RecordingTransaction:
             if self.journal is not None:
                 self.committed = bool(
                     self.recover(
-                        self.work_path,
+                        self.journal_anchor,
                         generation=generation,
                         expected_archive_id=self.archive_id,
                     )

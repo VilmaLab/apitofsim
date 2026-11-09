@@ -29,6 +29,8 @@ public:
     Lease(Lease &&) noexcept;
     ~Lease();
     void write(const EventColumns &columns, int64_t result_id, const std::vector<int64_t> &event_indices);
+    // True when the writer takes shared ownership of the batch.
+    bool write(const std::shared_ptr<EventColumns> &columns, int64_t result_id);
     [[nodiscard]] std::array<int64_t, 2> counts() const;
 
   private:
@@ -38,6 +40,8 @@ public:
   };
 
   IpcEventWriter(const std::string &path, bool append, const std::string &archive_id);
+  IpcEventWriter(const std::string &path, const std::string &archive_id,
+                 int64_t generation, bool zstd, int column_workers);
   ~IpcEventWriter();
   IpcEventWriter(const IpcEventWriter &) = delete;
   IpcEventWriter &operator=(const IpcEventWriter &) = delete;

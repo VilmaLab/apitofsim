@@ -162,11 +162,18 @@ uv run meson test --print-errorlogs -C build
 uv run meson test --benchmark --num-processes 1 -C build
 ```
 
-### Native IPC event storage
+### Native event storage
 
 The small, pinned Apache nanoarrow static dependency encodes IPC in C/C++ and
-is built through a Meson wrap/overlay. No Arrow C++ runtime ABI or PyArrow version
-pin is introduced. The project now requires a C compiler as well as C++20.
+is built through a Meson wrap/overlay. The standard build uses nanoarrow and
+supports both event readers. The project requires a C compiler as well as C++20.
+
+Build with `-Dnative_parquet_writer=enabled` to add the Apache C++ recorder.
+Supply Arrow and Parquet C++ libraries version 26 or later through the
+`arrow` and `parquet` dependencies. Use libraries matching PyArrow when
+loading both in one process. The Parquet recorder imports the ordered
+nanoarrow stream, caps row groups at 65,536 rows, and uses level 3 for
+Zstandard. A worker count above one uses a private Arrow column encoder pool.
 
 `EventColumns` is the common native column layout. A oneTBB pipeline assigns
 realization IDs, simulates histories in parallel, and delivers completed tokens
@@ -183,28 +190,30 @@ snapshot. An active lease prevents a second run, writer finalization, and
 reads of mutable writer counters. Stream shutdown discards pending Python
 delivery, wakes the producer, and joins it before transaction cleanup.
 
-A database owns one `.events.arrow` sidecar. The format has fixed primitive fields,
+A database owns one event sidecar. Arrow IPC has fixed primitive fields,
 a schema version/archive UUID, and per-execution footer metadata. An appender
 verifies the previous footer, retains its batch descriptors, then replaces only
 the EOS/footer and adds new batches. Existing event bodies are never copied.
+The Parquet writer streams the same columns into a fresh `.events.parquet` file.
 
 Publication uses an exclusive portable sidecar lock and a durable small journal
 containing the old ending and committed length. Event data, its footer and parent
 directory are synced before committing DuckDB's archive generation/length and
 execution metadata. Reopening compares generations and either retains the
-committed file or restores the old ending/truncates the uncommitted append.
+committed file, restores the old IPC ending, or removes an uncommitted
+Parquet file.
 Standalone files use a committed journal marker; explicit overwrite stages an
 atomic replacement. A journal is recovery state, not a second event store.
 
 DuckDB keeps execution/root/tree/counter metadata. It does not insert or allocate
-IDs for event/realization rows. PyArrow datasets supply temporary DuckDB event
-views without the community nanoarrow extension. SQL IDs are opaque composite
+IDs for event/realization rows. PyArrow IPC datasets and built-in Parquet
+scans supply temporary DuckDB event views. SQL IDs are opaque composite
 strings; numeric `result_id`, `realization_index`, `event_index` define order.
 Deletion is logical until explicit compaction; a schema change requires migration.
 
 Downstream changes required before updating their dependency pins:
 
-- `apitofsim-resultviewer` must use `ExperimentDatabase`, transport/open the IPC
+- `apitofsim-resultviewer` must use `ExperimentDatabase`, transport/open the event
   sidecar, and sort on numeric identity components instead of opaque event IDs.
 - `apitofsim-web` must replace `RealizationDatabase` construction, pass an explicit
   events filename for attached/in-memory result connections, and store/download

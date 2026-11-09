@@ -1,5 +1,5 @@
--- Event payloads live in the native IPC sidecar. These rows are publication
--- metadata only: there are no per-event or per-realization SQL inserts.
+-- Schema version 1 selects the Arrow IPC event sidecar and version 2 selects
+-- Parquet. Batch ranges apply only to IPC.
 create table event_recording_state (
     schema_version integer primary key,
     archive_id varchar not null,
