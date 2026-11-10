@@ -91,7 +91,6 @@ jobs:
       - name: Build and exercise the native writer
         run: |
           uv sync --no-install-project
-          uv pip install 'pyarrow==26.0.1'
           uv pip install --no-build-isolation --no-deps .
           uv run --no-sync python -c 'from apitofsim import apitofsimraw; assert apitofsimraw.NATIVE_PARQUET'
           DATA_DIR="$PWD/test/data" uv run --no-sync python -X dev -m pytest test/test_parquet_recording.py

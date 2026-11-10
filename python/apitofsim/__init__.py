@@ -1,4 +1,3 @@
-from . import _pyarrow_runtime as _pyarrow_runtime
 from . import apitofsimraw
 from .api import (
     ClusterData,
