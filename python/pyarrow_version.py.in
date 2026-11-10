@@ -1,0 +1,1 @@
+PYARROW_PARQUET_VERSION = "@pyarrow_version@"
