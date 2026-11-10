@@ -242,7 +242,8 @@ class RecordingTransaction:
         )
         self.journal_anchor = self.work_path if format == "arrow" else self.path
         self.journal_path = Path(str(self.journal_anchor) + ".journal")
-        self.lock = recording_lock(self.path)
+        self._lock_path = event_lock_anchor(self.path)
+        self.lock = recording_lock(self._lock_path)
         self.writer = None
         self.done = False
         self.committed = False
@@ -356,22 +357,41 @@ class RecordingTransaction:
                     self._open_parquet()
                     return self
             else:
+                if (
+                    self._lock_path != self.path
+                    and Path(str(self._lock_path) + ".journal").exists()
+                ):
+                    raise ValueError(
+                        "Open the owning experiment database writable to recover this recording"
+                    )
                 self.recover(self.path)
                 self.recover(Path(str(self.path) + ".replacement"))
-                if self.path.is_file() and event_file_format(self.path) == "parquet":
+                if (
+                    self.spec.mode != "overwrite"
+                    and self.path.is_file()
+                    and event_file_format(self.path) == "parquet"
+                ):
                     raise ValueError(PARQUET_APPEND_ERROR)
             if self.spec.mode == "overwrite":
                 if self.path.exists():
-                    try:
-                        with (
-                            pa.OSFile(str(self.path), "rb") as source,
-                            pa.ipc.open_file(source) as existing,
-                        ):
-                            identity = (existing.schema.metadata or {}).get(
+                    if event_file_format(self.path) == "parquet":
+                        import pyarrow.parquet as pq
+
+                        with pq.ParquetFile(self.path) as existing:
+                            identity = (existing.schema_arrow.metadata or {}).get(
                                 b"apitofsim:archive_id", b""
                             )
-                    except pa.ArrowInvalid:
-                        identity = b""
+                    else:
+                        try:
+                            with (
+                                pa.OSFile(str(self.path), "rb") as source,
+                                pa.ipc.open_file(source) as existing,
+                            ):
+                                identity = (existing.schema.metadata or {}).get(
+                                    b"apitofsim:archive_id", b""
+                                )
+                        except pa.ArrowInvalid:
+                            identity = b""
                     if identity.startswith(b"database:"):
                         raise ValueError(
                             "Overwrite database-owned sidecars through their database workflow"

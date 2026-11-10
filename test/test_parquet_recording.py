@@ -93,6 +93,32 @@ def test_parquet_reader_discovers_and_scopes_archive(tmp_path):
         ExperimentDatabase(path, readonly=True)
 
 
+def test_standalone_overwrite_replaces_unrelated_parquet(tmp_path):
+    path = tmp_path / "standalone.events.parquet"
+    pq.write_table(pa.table({"value": [1]}), path)
+    with pytest.raises(ValueError, match="Cannot append to a Parquet"):
+        with recording.RecordingTransaction(recording.IpcRecording(path, "append")):
+            pytest.fail("Unexpected Parquet append")
+
+    original = path.read_bytes()
+    with recording.RecordingTransaction(recording.IpcRecording(path, "overwrite")):
+        assert path.read_bytes() == original
+    assert recording.archive_metadata(path)[0].startswith("standalone:")
+
+
+def test_standalone_overwrite_rejects_database_owned_parquet(tmp_path):
+    with ExperimentDatabase(tmp_path / "managed.duckdb") as db:
+        db.create_tables()
+        publish_events(db, [], format="parquet")
+        path = db.events_path
+
+    original = path.read_bytes()
+    with pytest.raises(ValueError, match="database-owned"):
+        with recording.RecordingTransaction(recording.IpcRecording(path, "overwrite")):
+            pytest.fail("Unexpected overwrite of database-owned Parquet")
+    assert path.read_bytes() == original
+
+
 @pytest.mark.parametrize("compression, workers", [("none", 1), ("zstd", 4)])
 def test_native_parquet_recording(prepared_case, compression, workers):
     if not api.apitofsimraw.NATIVE_PARQUET:
@@ -205,6 +231,11 @@ def test_recover_uncommitted_parquet(tmp_path):
     )
     with pytest.raises(ValueError, match="owning experiment database"):
         next(api.read_events(archive))
+    with pytest.raises(ValueError, match="owning experiment database"):
+        with recording.RecordingTransaction(
+            recording.IpcRecording(archive, "overwrite")
+        ):
+            pytest.fail("Unexpected overwrite of interrupted database recording")
     with pytest.raises(ValueError, match="Open the database writable"):
         ExperimentDatabase(path, readonly=True)
     with ExperimentDatabase(path) as db:
