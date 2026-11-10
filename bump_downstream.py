@@ -65,6 +65,17 @@ def sha256(asset: dict) -> str:
     return match.group(1)
 
 
+def wheel_platform(asset: str) -> tuple[str, str]:
+    """Match wheels by ABI, platform family and architecture."""
+    _, abi, platform = asset.removesuffix(".whl").rsplit("-", 2)
+    platform = re.sub(
+        r"^(manylinux|musllinux|macosx)_?\d+(?:_\d+)?_",
+        r"\1_",
+        platform.split(".")[0],
+    )
+    return abi, platform
+
+
 def rewrite(
     path: Path, tag: str, version: str, assets: dict[str, str]
 ) -> tuple[str, Counter]:
@@ -86,7 +97,19 @@ def rewrite(
         suffix = match["asset"].split("-", 2)[2]
         name = f"apitofsim-{version}-{suffix}"
         if name not in assets:
-            raise SystemExit(f"{path}: release {tag} has no asset named {name}")
+            candidates = [
+                asset
+                for asset in assets
+                if asset.startswith(f"apitofsim-{version}-")
+                and asset.endswith(".whl")
+                and wheel_platform(asset) == wheel_platform(match["asset"])
+            ]
+            if len(candidates) != 1:
+                raise SystemExit(
+                    f"{path}: release {tag} needs one replacement for {name}; "
+                    f"found {candidates}"
+                )
+            name = candidates[0]
         return f"{DOWNLOAD}/{tag}/{name}"
 
     def hashed(match: re.Match[str]) -> str:
