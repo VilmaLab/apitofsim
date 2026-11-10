@@ -9,10 +9,6 @@
 #include <string>
 #include <thread>
 
-struct ArrowArray;
-struct ArrowArrayStream;
-struct ArrowSchema;
-
 class ParquetEventWriter
 {
 public:
@@ -37,8 +33,5 @@ private:
 
   void run(const std::string &path, const std::string &archive_id,
            int64_t generation, bool zstd, int column_workers);
-  static int get_schema(ArrowArrayStream * /*unused*/, ArrowSchema *out);
-  static int get_next(ArrowArrayStream *stream, ArrowArray *out);
-  static const char *get_last_error(ArrowArrayStream * /*unused*/);
-  static void release(ArrowArrayStream *stream);
+  std::shared_ptr<EventColumns> next();
 };

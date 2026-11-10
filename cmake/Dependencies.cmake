@@ -32,15 +32,3 @@ else()
     FetchContent_MakeAvailable(magic_enum)
   endif()
 endif()
-
-# Build nanoarrow privately with IPC and the existing symbol prefix. The writer
-# also includes flatcc_generated.h by its path in the nanoarrow source tree.
-set(NANOARROW_NAMESPACE apitofsim_ CACHE INTERNAL "Private nanoarrow symbol prefix")
-set(NANOARROW_IPC ON CACHE INTERNAL "Build nanoarrow IPC")
-set(NANOARROW_INSTALL_SHARED OFF CACHE INTERNAL "Use static nanoarrow")
-FetchContent_Declare(nanoarrow
-  URL https://github.com/apache/arrow-nanoarrow/archive/refs/tags/apache-arrow-nanoarrow-0.9.0.tar.gz
-  URL_HASH SHA256=22c3edeaa5cb384c6da091f32a4e1c937779f2d62f84d646028de658b03d4385
-  EXCLUDE_FROM_ALL
-)
-FetchContent_MakeAvailable(nanoarrow)

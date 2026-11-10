@@ -1,12 +1,14 @@
 #include <doctest/doctest.h>
 #include <chrono>
-#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <random>
 #include <string>
-#include <nanoarrow/nanoarrow_ipc.hpp>
+#include <arrow/array.h>
+#include <arrow/io/memory.h>
+#include <arrow/ipc/reader.h>
+#include <arrow/record_batch.h>
 #include "event_recording.h"
 
 namespace
@@ -71,24 +73,23 @@ TEST_CASE("Native IPC appends batches without rewriting committed event payloads
   }
   const auto appended = contents(fixture.path);
   REQUIRE(appended.size() > original.size());
-  // Both batches and the original float data remain readable by the independent
-  // nanoarrow decoder. Python tests additionally use PyArrow's file reader.
-  nanoarrow::ipc::UniqueDecoder decoder;
-  REQUIRE(ArrowIpcDecoderInit(decoder.get()) == NANOARROW_OK);
-  ArrowError error{};
-  ArrowBufferView input{};
-  input.data.data = appended.data();
-  input.size_bytes = static_cast<int64_t>(appended.size());
-  REQUIRE(ArrowIpcDecoderVerifyFooter(decoder.get(), input, &error) == NANOARROW_OK);
-  REQUIRE(ArrowIpcDecoderDecodeFooter(decoder.get(), input, &error) == NANOARROW_OK);
-  REQUIRE(decoder->footer->schema.n_children == 22);
-  REQUIRE(decoder->footer->record_batch_blocks.size_bytes == 2 * sizeof(ArrowIpcFileBlock));
-  const auto *blocks = reinterpret_cast<const ArrowIpcFileBlock *>(decoder->footer->record_batch_blocks.data);
-  const auto first_end = static_cast<size_t>(blocks[0].offset + blocks[0].metadata_length + blocks[0].body_length);
+  // All bytes before the original EOS marker must survive append.
+  const auto trailer = original.size() - 10;
+  uint32_t footer_size = 0;
+  for (unsigned int i = 0; i < 4; ++i)
+    footer_size |= static_cast<uint32_t>(static_cast<unsigned char>(original[trailer + i])) << (8U * i);
+  REQUIRE(footer_size < trailer - 8);
+  const auto first_end = trailer - footer_size - 8;
   CHECK(original.substr(0, first_end) == appended.substr(0, first_end));
-  double value = 0;
-  std::memcpy(&value, appended.data() + blocks[0].offset + blocks[0].metadata_length, sizeof(value));
-  CHECK(value == 1.5);
+
+  auto input = std::make_shared<arrow::io::BufferReader>(arrow::Buffer::Wrap(appended.data(), appended.size()));
+  auto reader = arrow::ipc::RecordBatchFileReader::Open(input);
+  REQUIRE(reader.ok());
+  CHECK((*reader)->schema()->num_fields() == 22);
+  REQUIRE((*reader)->num_record_batches() == 2);
+  auto first = (*reader)->ReadRecordBatch(0);
+  REQUIRE(first.ok());
+  CHECK(dynamic_cast<const arrow::DoubleArray &>(*(*first)->column(0)).Value(0) == 1.5);
   CHECK_THROWS_AS(IpcEventWriter(fixture.path.string(), true, "wrong-archive"), std::runtime_error);
   CHECK(contents(fixture.path) == appended);
 }

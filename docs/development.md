@@ -31,8 +31,8 @@ wheel includes the native executables and generated Python type stubs.
 
 For an installed dependency environment such as conda-forge, configure with
 `-DAPITOFSIM_USE_VCPKG=OFF` in a fresh build directory. CMake discovers Eigen,
-oneTBB and the optional Arrow libraries through the environment's package
-prefix. For pip builds, pass `-Ccmake.define.APITOFSIM_USE_VCPKG=OFF`.
+oneTBB, Arrow C++ 26, and the optional Parquet library through the environment's
+package prefix. For pip builds, pass `-Ccmake.define.APITOFSIM_USE_VCPKG=OFF`.
 
 ## Development
 
@@ -170,8 +170,9 @@ benchmark executables are under `builds/test/test`. Set
 
 ### Native event storage
 
-The standard build compiles a pinned, namespaced copy of Apache nanoarrow with
-IPC support. To build the Apache C++ Parquet writer, add
+The IPC recorder requires Arrow C++ 26. CMake checks for its exported
+`arrow::ipc::internal::WriteFileFooter` symbol, which the recorder uses for
+in-place append. To build the Apache C++ Parquet writer, add
 `-DAPITOFSIM_NATIVE_PARQUET=ON` to CMake, or use
 `-Ccmake.define.APITOFSIM_NATIVE_PARQUET=ON` for a pip build. vcpkg then enables
 the `parquet` manifest feature and supplies Arrow C++ with Zstandard support.
@@ -180,7 +181,7 @@ Conda packages enable the writer using matching conda-forge dependencies.
 GitHub Release wheels use `APITOFSIM_PYARROW_PARQUET=ON` to link the Python
 extension directly against the Arrow and Parquet libraries in the pinned PyArrow
 wheel. The Python CLI can use the native writer. The standalone C++ executables
-shipped with the wheel use the IPC build and can start independently of PyArrow.
+shipped with the wheel link to the simulation core and can start independently of PyArrow.
 The macOS arm64 wheel requires macOS 12, matching PyArrow.
 
 When updating the PyArrow pin, update the build and runtime requirements and the
@@ -188,7 +189,7 @@ macOS wheel repair environment together. The release wheel tests install the
 repaired wheel, check both import orders, and exercise Zstandard and parallel
 column encoding.
 
-The Parquet recorder imports the ordered nanoarrow stream, caps row groups at
+The Parquet recorder consumes Arrow record batches directly, caps row groups at
 65,536 rows, and uses level 3 for Zstandard. A worker count above one uses a
 private Arrow column encoder pool.
 
@@ -198,8 +199,8 @@ through a serial output stage. Recording uses in-order output and the stage
 coalesces events directly into IPC batches. Final-only summaries can group
 realizations and reduce counters without collecting events. Python iterators
 use a bounded handoff for events and callbacks. The raw iterator retains its eager queue
-for join-before-read callers. Record batches own retained buffers, and the
-writer borrows C Data arrays for synchronous encoding.
+for join-before-read callers. Retained record batches own their buffers. The IPC
+writer borrows the event vectors for synchronous encoding.
 
 Managed streams acquire an exclusive IPC writer lease before starting the
 worker. The run releases it after its last write and batch-range
