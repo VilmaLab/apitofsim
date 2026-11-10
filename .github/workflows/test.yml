@@ -45,6 +45,8 @@ jobs:
             -DCMAKE_BUILD_TYPE=RelWithDebInfo -DAPITOFSIM_STRICT_WARNINGS=ON \
             -DAPITOFSIM_BUILD_PYTHON=ON -DAPITOFSIM_GENERATE_STUBS=OFF \
             -DPython_EXECUTABLE="$PWD/.venv/bin/python" \
+            -DCMAKE_BUILD_RPATH="$(clang-20 -print-runtime-dir)" \
+            -DCMAKE_C_FLAGS="-fsanitize=address,undefined,float-divide-by-zero" \
             -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined,float-divide-by-zero -shared-libasan -fno-omit-frame-pointer"
           uv run --no-sync cmake --build build
       - name: Run native and Python tests
