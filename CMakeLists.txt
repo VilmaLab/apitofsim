@@ -3,10 +3,14 @@ cmake_minimum_required(VERSION 3.28)
 option(APITOFSIM_USE_VCPKG "Acquire native dependencies using VCPKG_ROOT" ON)
 option(APITOFSIM_BUILD_PYTHON "Build the Python extension" OFF)
 option(APITOFSIM_GENERATE_STUBS "Generate Python type stubs" ON)
+option(APITOFSIM_PYARROW_PARQUET "Link the Python Parquet writer to PyArrow" OFF)
 option(APITOFSIM_NATIVE_PARQUET "Build the Apache Arrow C++ Parquet writer" OFF)
 option(APITOFSIM_ITTNOTIFY "Link Intel's ITT profiling API" OFF)
 option(APITOFSIM_STRICT_WARNINGS "Enable extra warnings and treat them as errors" OFF)
 option(BUILD_TESTING "Build the test suite and benchmarks" ON)
+if(APITOFSIM_PYARROW_PARQUET AND (NOT APITOFSIM_BUILD_PYTHON OR APITOFSIM_NATIVE_PARQUET))
+  message(FATAL_ERROR "APITOFSIM_PYARROW_PARQUET requires Python and is exclusive with APITOFSIM_NATIVE_PARQUET.")
+endif()
 if(APITOFSIM_USE_VCPKG)
   if(NOT CMAKE_TOOLCHAIN_FILE)
     if(DEFINED ENV{CMAKE_TOOLCHAIN_FILE})
@@ -39,7 +43,7 @@ include(CTest)
 include(CheckCXXCompilerFlag)
 include(cmake/Dependencies.cmake)
 
-add_library(apitofsim STATIC
+add_library(apitofsim_core OBJECT
   src/apitofsim.cpp
   src/skimmer.cpp
   src/densityandrate.cpp
@@ -48,21 +52,45 @@ add_library(apitofsim STATIC
   src/trajectory.cpp
   src/samplers.cpp
   src/operation_context.cpp
-  src/event_recording.cpp
 )
-target_include_directories(apitofsim PUBLIC src/include)
-# Arrow's package prefix can also contain unprefixed nanoarrow headers.
-target_include_directories(apitofsim BEFORE PRIVATE "${nanoarrow_SOURCE_DIR}/src" "${nanoarrow_BINARY_DIR}/src")
-target_link_libraries(apitofsim PUBLIC
+target_include_directories(apitofsim_core PUBLIC src/include)
+target_link_libraries(apitofsim_core PUBLIC
   Eigen3::Eigen TBB::tbb concurrentqueue::concurrentqueue magic_enum::magic_enum
-  nanoarrow_ipc_static
-  PRIVATE flatccrt
+  nanoarrow_ipc_static flatccrt
 )
 if(APITOFSIM_ITTNOTIFY)
   find_package(PkgConfig REQUIRED)
   pkg_check_modules(ITTNOTIFY REQUIRED IMPORTED_TARGET ittnotify)
-  target_link_libraries(apitofsim PRIVATE PkgConfig::ITTNOTIFY)
+  target_link_libraries(apitofsim_core PUBLIC PkgConfig::ITTNOTIFY)
 endif()
+
+if(MSVC)
+  target_compile_options(apitofsim_core PUBLIC /wd4068)
+else()
+  target_compile_options(apitofsim_core PUBLIC -fno-math-errno -Wno-unknown-pragmas)
+  foreach(flag IN ITEMS -fopenmp-simd -Wno-pass-failed)
+    # Check the positive warning form, since GCC accepts unknown -Wno-* flags.
+    string(REPLACE "-Wno-" "-W" check_flag "${flag}")
+    check_cxx_compiler_flag("${check_flag}" "APITOFSIM_SUPPORTS_${check_flag}")
+    if(APITOFSIM_SUPPORTS_${check_flag})
+      target_compile_options(apitofsim_core PUBLIC "${flag}")
+    endif()
+  endforeach()
+endif()
+
+if(APITOFSIM_STRICT_WARNINGS)
+  if(MSVC)
+    target_compile_options(apitofsim_core PUBLIC /W4 /WX)
+  else()
+    target_compile_options(apitofsim_core PUBLIC -Wall -Wextra -Wpedantic -Werror)
+  endif()
+endif()
+
+add_library(apitofsim STATIC src/event_recording.cpp)
+target_link_libraries(apitofsim PUBLIC apitofsim_core)
+# Arrow's package prefix can also contain unprefixed nanoarrow headers.
+target_include_directories(apitofsim BEFORE PRIVATE "${nanoarrow_SOURCE_DIR}/src" "${nanoarrow_BINARY_DIR}/src")
+
 if(APITOFSIM_NATIVE_PARQUET)
   find_package(Arrow 26 CONFIG REQUIRED)
   find_package(Parquet 26 CONFIG REQUIRED)
@@ -72,28 +100,6 @@ if(APITOFSIM_NATIVE_PARQUET)
     target_link_libraries(apitofsim PRIVATE Arrow::arrow_shared Parquet::parquet_shared)
   else()
     target_link_libraries(apitofsim PRIVATE Arrow::arrow_static Parquet::parquet_static)
-  endif()
-endif()
-
-if(MSVC)
-  target_compile_options(apitofsim PUBLIC /wd4068)
-else()
-  target_compile_options(apitofsim PUBLIC -fno-math-errno -Wno-unknown-pragmas)
-  foreach(flag IN ITEMS -fopenmp-simd -Wno-pass-failed)
-    # Check the positive warning form, since GCC accepts unknown -Wno-* flags.
-    string(REPLACE "-Wno-" "-W" check_flag "${flag}")
-    check_cxx_compiler_flag("${check_flag}" "APITOFSIM_SUPPORTS_${check_flag}")
-    if(APITOFSIM_SUPPORTS_${check_flag})
-      target_compile_options(apitofsim PUBLIC "${flag}")
-    endif()
-  endforeach()
-endif()
-
-if(APITOFSIM_STRICT_WARNINGS)
-  if(MSVC)
-    target_compile_options(apitofsim PUBLIC /W4 /WX)
-  else()
-    target_compile_options(apitofsim PUBLIC -Wall -Wextra -Wpedantic -Werror)
   endif()
 endif()
 
@@ -131,6 +137,16 @@ endforeach()
 
 if(APITOFSIM_BUILD_PYTHON)
   find_package(Python 3.12 REQUIRED COMPONENTS Interpreter Development.Module Development.SABIModule)
+  set(apitofsim_python_core apitofsim)
+  if(APITOFSIM_PYARROW_PARQUET)
+    include(cmake/PyArrow.cmake)
+    add_library(apitofsim_pyarrow STATIC src/event_recording.cpp src/parquet_event_writer.cpp)
+    target_link_libraries(apitofsim_pyarrow PUBLIC apitofsim_core
+      PRIVATE PyArrow::Arrow PyArrow::Parquet)
+    target_include_directories(apitofsim_pyarrow BEFORE PRIVATE "${nanoarrow_SOURCE_DIR}/src" "${nanoarrow_BINARY_DIR}/src")
+    target_compile_definitions(apitofsim_pyarrow PUBLIC APITOFSIM_WITH_PARQUET)
+    set(apitofsim_python_core apitofsim_pyarrow)
+  endif()
   add_subdirectory(python)
 endif()
 if(BUILD_TESTING)

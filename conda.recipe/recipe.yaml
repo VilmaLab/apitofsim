@@ -81,7 +81,7 @@ requirements:
     - orjson >= 3.11.4
     - progress-table >= 3.2.2
     - ase >= 3.27.0
-    - pyarrow 26.*
+    - pyarrow ==26.0.1
     - portalocker >= 3.2.0
     - if: win
       then: pywin32

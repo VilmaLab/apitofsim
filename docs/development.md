@@ -157,7 +157,16 @@ IPC support. To build the Apache C++ Parquet writer, add
 the `parquet` manifest feature and supplies Arrow C++ with Zstandard support.
 Use PyArrow matching the native Arrow version when loading both in one process.
 Conda packages enable the writer using matching conda-forge dependencies.
-PyPI wheels use the standard IPC build.
+GitHub Release wheels use `APITOFSIM_PYARROW_PARQUET=ON` to link the Python
+extension directly against the Arrow and Parquet libraries in the pinned PyArrow
+wheel. The Python CLI can use the native writer. The standalone C++ executables
+shipped with the wheel use the IPC build and can start independently of PyArrow.
+The macOS arm64 wheel requires macOS 12, matching PyArrow.
+
+When updating the PyArrow pin, update the build and runtime requirements and the
+macOS wheel repair environment together. The release wheel tests install the
+repaired wheel, check both import orders, and exercise Zstandard and parallel
+column encoding.
 
 The Parquet recorder imports the ordered nanoarrow stream, caps row groups at
 65,536 rows, and uses level 3 for Zstandard. A worker count above one uses a
