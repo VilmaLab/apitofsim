@@ -101,11 +101,18 @@ if(APITOFSIM_NATIVE_PARQUET)
   endif()
 endif()
 
+if(APITOFSIM_USE_VCPKG AND VCPKG_TARGET_TRIPLET MATCHES "-osx-wheel$")
+  include(cmake/PrivateArrow.cmake)
+endif()
+
 # The installed Arrow headers omit the declaration for this exported IPC API.
 include(CheckCXXSourceCompiles)
 block()
   set(CMAKE_REQUIRED_INCLUDES "${PROJECT_SOURCE_DIR}/src")
   set(CMAKE_REQUIRED_LIBRARIES "${apitofsim_arrow}")
+  foreach(definition IN LISTS apitofsim_private_arrow_definitions)
+    list(APPEND CMAKE_REQUIRED_DEFINITIONS "-D${definition}")
+  endforeach()
   unset(APITOFSIM_ARROW_HAS_WRITE_FILE_FOOTER CACHE)
   check_cxx_source_compiles([=[
     #include "arrow_ipc_footer.h"
@@ -121,6 +128,7 @@ endblock()
 
 add_library(apitofsim STATIC src/event_recording.cpp)
 target_link_libraries(apitofsim PUBLIC apitofsim_core "${apitofsim_arrow}")
+target_compile_definitions(apitofsim PUBLIC ${apitofsim_private_arrow_definitions})
 if(APITOFSIM_NATIVE_PARQUET)
   target_sources(apitofsim PRIVATE src/parquet_event_writer.cpp)
   target_compile_definitions(apitofsim PUBLIC APITOFSIM_WITH_PARQUET)

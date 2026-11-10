@@ -1,0 +1,8 @@
+set(VCPKG_BUILD_TYPE release)
+set(VCPKG_LIBRARY_LINKAGE dynamic)
+set(VCPKG_OSX_DEPLOYMENT_TARGET 12.0)
+if(PORT STREQUAL "arrow")
+  include("${CMAKE_CURRENT_LIST_DIR}/../PrivateArrow.cmake")
+  string(JOIN " -D" private_arrow_flags ${apitofsim_private_arrow_definitions})
+  string(APPEND VCPKG_CXX_FLAGS " -D${private_arrow_flags}")
+endif()

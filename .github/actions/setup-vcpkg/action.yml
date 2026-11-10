@@ -7,7 +7,9 @@ runs:
       with:
         path: ${{ runner.temp }}/vcpkg-cache
         key: vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('vcpkg.json', 'cmake/triplets/*') }}-${{ github.job }}
-        restore-keys: vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('vcpkg.json', 'cmake/triplets/*') }}-
+        restore-keys: |
+          vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('vcpkg.json', 'cmake/triplets/*') }}-
+          vcpkg-${{ runner.os }}-${{ runner.arch }}-
     - shell: bash
       env:
         VCPKG_ROOT: ${{ runner.temp }}/apitofsim-vcpkg
