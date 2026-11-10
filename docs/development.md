@@ -36,6 +36,29 @@ prefix. For pip builds, pass `-Ccmake.define.APITOFSIM_USE_VCPKG=OFF`.
 
 ## Development
 
+### CMake build presets
+
+The shared [CMake presets](https://cmake.org/cmake/help/v3.28/manual/cmake-presets.7.html)
+provide three native Clang builds, each with its own directory under `builds/`.
+All three use Ninja and treat compiler warnings as errors.
+
+- `clang-release` optimizes for the host CPU and disables assertions.
+- `clang-profile` uses the same optimization with debug symbols for profiling.
+- `clang-debug` keeps assertions enabled and builds with `-O2` and debug
+  symbols for use with GDB or LLDB.
+
+```bash
+cmake --preset clang-profile
+cmake --build builds/cmake-clang-profile --parallel
+./test.sh --test-dir builds/cmake-clang-profile
+```
+
+Use an untracked `CMakeUserPresets.json` to inherit a preset and customize
+compiler paths, the linker, or a compiler launcher such as `ccache`. Keep the
+platform-default C++ standard library to match oneTBB. For a single-threaded
+simulation build, include `-DAPITOFSIM_MAX_PARALLELISM=1` in `CMAKE_CXX_FLAGS`
+alongside any existing flags.
+
 ### Editable installation
 
 ```bash
@@ -53,12 +76,9 @@ build-dir = "builds/uvbuild"
 "cmake.build-type" = "RelWithDebInfo"
 ```
 
-Use `CC=clang CXX=clang++` when first configuring to select Clang, and keep the
-platform-default C++ standard library to match oneTBB. For native builds,
-`Debug` enables assertions with minimal optimization and `RelWithDebInfo`
-keeps symbols for profiling. To reproduce the old single-thread build, add
-`-DCMAKE_CXX_FLAGS=-DAPITOFSIM_MAX_PARALLELISM=1`. An optional
-`-DAPITOFSIM_STRICT_WARNINGS=ON` matches CI's warnings-as-errors checks.
+For editable builds, set compiler choices separately from the native presets.
+For example, use `CC=clang CXX=clang++` on the first `uv sync` in a fresh build
+directory, and use `cmake.define.*` entries in `uv.toml` for CMake options.
 
 For clangd, symlink `compile_commands.json` from your build directory:
 
