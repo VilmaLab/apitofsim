@@ -10,5 +10,6 @@ endif()
 # Some compilers default to AVX. The Snappy port disables the feature checks
 # that would otherwise include the intrinsics header for that code path.
 if(PORT STREQUAL "snappy")
+  string(APPEND VCPKG_C_FLAGS " -mno-avx")
   string(APPEND VCPKG_CXX_FLAGS " -mno-avx")
 endif()
