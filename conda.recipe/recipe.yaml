@@ -33,6 +33,8 @@ build:
     - if: win
       then: |
         set "CMAKE_GENERATOR=Ninja"
+        set "CMAKE_GENERATOR_PLATFORM="
+        set "CMAKE_GENERATOR_TOOLSET="
         set "CMAKE_ARGS=-DPython_FIND_REGISTRY=NEVER -DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl"
         set "LDFLAGS=%LDFLAGS:/link=%"
         set "CXXFLAGS=%CXXFLAGS% /Ot -march=x86-64-v2 -mtune=generic"
