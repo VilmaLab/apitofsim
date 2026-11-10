@@ -97,7 +97,7 @@ repair-wheel-command = [
 # The official PyArrow arm64 wheel requires macOS 12.
 before-build = "pip install pyarrow==26.0.1"
 environment = { MACOSX_DEPLOYMENT_TARGET = "12.0", SKBUILD_CMAKE_DEFINE = "APITOFSIM_PYARROW_PARQUET=ON" }
-repair-wheel-command = """DYLD_LIBRARY_PATH="$(python -c 'import pathlib, pyarrow; print(pathlib.Path(pyarrow.__file__).parent)')" delocate-wheel --require-archs {delocate_archs} --exclude libarrow. --exclude libparquet. --no-sanitize-rpaths -w {dest_dir} -v {wheel}"""
+repair-wheel-command = """DYLD_FALLBACK_LIBRARY_PATH="$(python -c 'import pathlib, pyarrow; print(pathlib.Path(pyarrow.__file__).parent)')" delocate-wheel --require-archs {delocate_archs} --exclude libarrow. --exclude libparquet. --no-sanitize-rpaths -w {dest_dir} -v {wheel}"""
 
 [tool.cibuildwheel.windows]
 before-build = "pip install delvewheel"
@@ -109,6 +109,11 @@ repair-wheel-command = "delvewheel repair --ignore-existing --exclude \"arrow.dl
 select = "*-x86_64"
 inherit.environment = "append"
 environment.CXXFLAGS = "-march=x86-64-v3"
+
+[[tool.cibuildwheel.overrides]]
+select = "*-macosx_arm64"
+inherit.environment = "append"
+environment._PYTHON_HOST_PLATFORM = "macosx-12.0-arm64"
 
 [tool.pyright]
 reportConstantRedefinition = false

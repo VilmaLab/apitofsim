@@ -1,9 +1,10 @@
 """Exercise the Parquet writer and its PyArrow dependency in installed wheels."""
 
 import os
+import platform
 import subprocess
 import sys
-from importlib.metadata import files, requires, version
+from importlib.metadata import distribution, version
 from pathlib import Path
 
 import pytest
@@ -24,9 +25,12 @@ for imports in (
     )
 
 assert PYARROW_PARQUET_VERSION == version("pyarrow")
-assert f"pyarrow=={PYARROW_PARQUET_VERSION}" in (requires("apitofsim") or [])
+wheel = distribution("apitofsim")
+assert f"pyarrow=={PYARROW_PARQUET_VERSION}" in (wheel.requires or [])
+if sys.platform == "darwin" and platform.machine() == "arm64":
+    assert "macosx_12_0_arm64" in (wheel.read_text("WHEEL") or "")
 
-installed_files = files("apitofsim")
+installed_files = wheel.files
 assert installed_files is not None
 assert not any(
     file.name.startswith(("libarrow", "libparquet"))
