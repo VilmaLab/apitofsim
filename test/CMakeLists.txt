@@ -67,5 +67,13 @@ if(CLANG_TIDY)
   if(APITOFSIM_BUILD_PYTHON)
     list(APPEND tidy_sources "${PROJECT_SOURCE_DIR}/python/apitofsim.cpp")
   endif()
-  add_custom_target(clang-tidy COMMAND "${CLANG_TIDY}" -p "${PROJECT_BINARY_DIR}" ${tidy_sources} VERBATIM)
+  if(CLANG_TIDY_RUNNER)
+    add_custom_target(clang-tidy
+      COMMAND "${CLANG_TIDY_RUNNER}" -j 2 -clang-tidy-binary "${CLANG_TIDY}"
+        -p "${PROJECT_BINARY_DIR}" ${tidy_sources}
+      WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+      VERBATIM)
+  else()
+    add_custom_target(clang-tidy COMMAND "${CLANG_TIDY}" -p "${PROJECT_BINARY_DIR}" ${tidy_sources} VERBATIM)
+  endif()
 endif()

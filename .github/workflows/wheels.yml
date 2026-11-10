@@ -11,6 +11,10 @@ on:
   release:
     types: [published]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: write
 
@@ -33,16 +37,25 @@ jobs:
 
   methods_pdf:
     name: Build simulation methods PDF
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v4
 
+      - name: Cache methods PDF
+        id: methods-pdf
+        uses: actions/cache@v4
+        with:
+          path: docs/simulation-methods.pdf
+          key: methods-pdf-ubuntu-26.04-${{ hashFiles('docs/simulation-methods.tex', 'ci/build-methods.sh', '.github/workflows/wheels.yml') }}
+
       - name: Install LaTeX
+        if: steps.methods-pdf.outputs.cache-hit != 'true'
         run: |
           sudo apt-get update
-          sudo apt-get install -y latexmk texlive-latex-extra texlive-fonts-recommended
+          sudo apt-get install -y --no-install-recommends latexmk lmodern texlive-pictures
 
       - name: Build methods PDF
+        if: steps.methods-pdf.outputs.cache-hit != 'true'
         run: bash ci/build-methods.sh "$RUNNER_TEMP/simulation-methods"
 
       - name: Upload methods PDF
