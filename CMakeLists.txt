@@ -51,6 +51,8 @@ add_library(apitofsim STATIC
   src/event_recording.cpp
 )
 target_include_directories(apitofsim PUBLIC src/include)
+# Arrow's package prefix can also contain unprefixed nanoarrow headers.
+target_include_directories(apitofsim BEFORE PRIVATE "${nanoarrow_SOURCE_DIR}/src" "${nanoarrow_BINARY_DIR}/src")
 target_link_libraries(apitofsim PUBLIC
   Eigen3::Eigen TBB::tbb concurrentqueue::concurrentqueue magic_enum::magic_enum
   nanoarrow_ipc_static
