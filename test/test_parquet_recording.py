@@ -138,6 +138,24 @@ def test_native_parquet_recording(prepared_case, compression, workers):
             pytest.fail("Unexpected Parquet append")
 
 
+def test_grouped_parquet_run_returns_sidecar_path(prepared_case):
+    if not api.apitofsimraw.NATIVE_PARQUET:
+        pytest.skip("Native Parquet writer is disabled")
+    db, runner, _, _ = prepared_case
+    prepared = prepare(prepared_case, pathways=[1])
+    ipc = db.events_path
+    archive = ipc.with_suffix(".parquet")
+    db.recording_format = "parquet"
+
+    with db.recording_transaction():
+        result = runner.run_experiment(prepared, N=4)
+        assert db.events_path == ipc
+        assert result.events_path == archive
+
+    assert result.events_path == db.events_path
+    assert pq.read_metadata(result.events_path).num_rows > 0
+
+
 def test_parquet_rollback_after_failed_sync(prepared_case, monkeypatch):
     if not api.apitofsimraw.NATIVE_PARQUET:
         pytest.skip("Native Parquet writer is disabled")

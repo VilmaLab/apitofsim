@@ -530,7 +530,8 @@ class ExperimentEventIterator:
             return
         self._done = True
         status = "failed" if error else "cancelled" if self._cancel else "complete"
-        self.runner.db.db.execute(
+        db = self.runner.db
+        db.db.execute(
             "update experiment_run set execution_status=? where id=?",
             [status, self.prepared.run_id],
         )
@@ -541,11 +542,17 @@ class ExperimentEventIterator:
                 error,
                 error.__traceback__ if error else None,
             )
+        events_path = None
+        if self.record:
+            transaction = db._recording
+            events_path = (
+                transaction.output_path if transaction is not None else db.events_path
+            )
         self.result = ExperimentResult(
             self.prepared.run_id,
             tuple(self._results),
             status,
-            self.runner.db.events_path if self.record else None,
+            events_path,
         )
 
     def __iter__(self):
