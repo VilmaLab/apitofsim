@@ -8,8 +8,11 @@ find_package(nanobind CONFIG REQUIRED)
 nanobind_add_module(apitofsimraw STABLE_ABI NOMINSIZE NB_SUPPRESS_WARNINGS apitofsim.cpp)
 target_link_libraries(apitofsimraw PRIVATE apitofsim)
 if(SKBUILD AND APITOFSIM_USE_VCPKG AND TARGET Arrow::arrow_shared)
-  # Wheel repair finds the vcpkg libraries and rewrites the runtime paths.
-  set_property(TARGET apitofsimraw PROPERTY INSTALL_RPATH_USE_LINK_PATH ON)
+  # CMake omits link directories inside the build tree from the install RPATH.
+  # Give the repair tools the vcpkg path so they can bundle and relink the libraries.
+  if(UNIX)
+    set_property(TARGET apitofsimraw APPEND PROPERTY INSTALL_RPATH "$<TARGET_FILE_DIR:Arrow::arrow_shared>")
+  endif()
   file(GLOB vcpkg_notices "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/share/*/copyright")
   foreach(notice IN LISTS vcpkg_notices)
     get_filename_component(port "${notice}" DIRECTORY)
