@@ -9,6 +9,10 @@ on:
     branches:
       - main
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   typecheck_python:
     name: Typecheck Python
@@ -75,14 +79,15 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang-tidy-20 clang-format-20 clang-20
+          sudo apt-get install -y clang-tools-20 clang-tidy-20 clang-format-20 clang-20
           pip install 'nanobind==2.9.2'
 
       - name: Build with Clang and run native QA
         run: |
           CC=clang-20 CXX=clang++-20 cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release -DAPITOFSIM_STRICT_WARNINGS=ON \
-            -DAPITOFSIM_BUILD_PYTHON=ON -DCLANG_FORMAT=clang-format-20 -DCLANG_TIDY=clang-tidy-20
+            -DAPITOFSIM_BUILD_PYTHON=ON -DCLANG_FORMAT=clang-format-20 -DCLANG_TIDY=clang-tidy-20 \
+            -DCLANG_TIDY_RUNNER=run-clang-tidy-20
           cmake --build build
           cmake --build build --target clang-format-check
           cmake --build build --target clang-tidy

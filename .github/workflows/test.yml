@@ -9,6 +9,10 @@ on:
     branches:
       - main
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   build_test_gcc:
     name: Native build and tests with GCC
@@ -109,4 +113,4 @@ jobs:
         run: |
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DAPITOFSIM_STRICT_WARNINGS=ON
           cmake --build build
-          ./test.sh --test-dir build -T memcheck --overwrite MemoryCheckCommand=/usr/bin/valgrind
+          ./test.sh --test-dir build --parallel 2 -T memcheck --overwrite MemoryCheckCommand=/usr/bin/valgrind
