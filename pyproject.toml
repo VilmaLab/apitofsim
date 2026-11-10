@@ -21,8 +21,8 @@ dependencies = [
 ]
 
 [build-system]
-build-backend = 'mesonpy'
-requires = ["meson-python", "meson >= 1.10.0"]
+build-backend = "scikit_build_core.build"
+requires = ["scikit-build-core>=0.11", "nanobind==2.9.2"]
 
 [project.optional-dependencies]
 reflink = ["reflink>=0.2.2"]
@@ -40,7 +40,10 @@ apitofsim = "apitofsim.cli:cli"
 
 [dependency-groups]
 dev = [
-  "meson-python>=0.18.0",
+  "scikit-build-core>=0.11",
+  "nanobind==2.9.2",
+  "cmake>=3.28",
+  "ninja",
   "pip>=25.2",
   "basedpyright",
   "ruff>=0.15.2",
@@ -61,12 +64,14 @@ extend-exclude = ["*.mo.py"]
 select = ["E", "F", "I"]
 ignore = ["E501"]
 
-[tool.meson-python]
-limited-api = true
-
-[tool.meson-python.args]
-install = ['--skip-subprojects']
-setup = ['-Dpython=enabled']
+[tool.scikit-build]
+minimum-version = "build-system.requires"
+cmake.version = ">=3.28"
+cmake.define.BUILD_TESTING = "OFF"
+cmake.define.APITOFSIM_BUILD_PYTHON = "ON"
+wheel.packages = ["python/apitofsim"]
+wheel.py-api = "cp312"
+sdist.exclude = ["builds", ".cache"]
 
 [tool.cibuildwheel]
 manylinux-x86_64-image = "quay.io/pypa/manylinux_2_34_x86_64:latest"
@@ -76,8 +81,8 @@ archs = ["auto64"]
 test-command = "python {project}/test/wheel_smoke.py"
 
 [tool.cibuildwheel.linux]
-before-build = "bash ci/setup_linux.sh"
-config-settings = { setup-args = "--native-file=../meson/pkg/clangwheel.ini" }
+before-all = "bash ci/setup_linux.sh"
+environment = { VCPKG_ROOT = "/opt/apitofsim-vcpkg", CC = "clang", CXX = "clang++" }
 repair-wheel-command = [
   "auditwheel repair --disable-isa-ext-check -w {dest_dir} {wheel}",
   "auditwheel show {dest_dir}/*.whl",
@@ -85,15 +90,12 @@ repair-wheel-command = [
 ]
 
 [tool.cibuildwheel.macos]
-before-all = "bash {package}/ci/setup_macos.sh"
-environment = { CMAKE_PREFIX_PATH = "/tmp/apitofsim-oneapi-tbb" }
+environment = { MACOSX_DEPLOYMENT_TARGET = "11.0" }
 
 [tool.cibuildwheel.windows]
-before-all = 'pwsh -NoProfile -File "{package}\ci\setup_windows.ps1"'
 before-build = "pip install delvewheel"
-config-settings = { setup-args = "--native-file=..\\meson\\pkg\\windowswheel.ini" }
-environment = { APITOFSIM_DLL_DIRECTORY = "C:/apitofsim-oneapi-tbb/oneapi-tbb-2023.1.0/redist/intel64/vc14", CMAKE_PREFIX_PATH = "C:/apitofsim-oneapi-tbb/oneapi-tbb-2023.1.0" }
-repair-wheel-command = "delvewheel repair --add-path C:/apitofsim-oneapi-tbb/oneapi-tbb-2023.1.0/redist/intel64/vc14 -w {dest_dir} {wheel}"
+environment = { CMAKE_ARGS = "-DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl" }
+repair-wheel-command = "delvewheel repair -w {dest_dir} {wheel}"
 
 [[tool.cibuildwheel.overrides]]
 select = "*-x86_64"

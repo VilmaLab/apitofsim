@@ -2,103 +2,87 @@
 
 This page includes instructions for building the source code from source, and a number of notes for debugging/profiling when developing the package.
 
-## Building the sources for users
+## Building from source
 
-This section describes how to build the sources from scratch.
-
-### Using Meson to compile the package
-
-**Note: You need Meson 1.10 or later and oneTBB 2023.0 or later to build the package. You can install Meson with `uv tool install meson`; install the oneTBB development package supplied by your platform.**
-
-You can build with slightly older versions of Meson by disabling typestub generation by passing `-Dstubgen=disabled` to `meson setup` or adding it to your `setup-args` in `uv.toml` (see below).
-
-To compile using your system's default compiler:
+Install CMake 3.28 or later, Ninja, and a C/C++20 toolchain. Bootstrap the vcpkg
+revision pinned in `vcpkg.json`, then set `VCPKG_ROOT` to that checkout. The
+following commands use Bash, including Git Bash on Windows.
 
 ```bash
-meson setup --buildtype release build
-meson compile -C build
+export VCPKG_ROOT="$HOME/.scratch/apitofsim-vcpkg"
+bash ci/setup_vcpkg.sh "$VCPKG_ROOT"
 ```
 
-The binaries are then in `build/src/cli`.
-You add this directory to your PATH or symlink to them.
-You can also add `build/python` to your `PYTHONPATH` to use the compiled Python extension, or else see the next section for a pip/uv based approach.
-
-### Using python-meson to compile the Python extension
-
-[meson-python](https://mesonbuild.com/meson-python/) is used to build the Python extension. Since this works as a normal Python build backend you can install using one of the following:
+Configure and build the native executables:
 
 ```bash
-pip install git+https://github.com/VilmaLab/apitofsim
-pip install /path/to/apitofsim
+cmake -S . -B builds/release -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build builds/release --parallel
 ```
 
-Or using [uv](https://docs.astral.sh/uv/):
+The three executables are in `builds/release`. Use `cmake --install` to install
+them under the configured prefix. On Windows, keep the vcpkg runtime DLLs on
+`PATH` if installing the native executables outside their build directory.
 
-```
-uv add git+https://github.com/VilmaLab/apitofsim
-uv add /path/to/apitofsim
-```
+For a Python source build, use Python 3.12 or later and run `uv pip install .`
+or `pip install .` with the same `VCPKG_ROOT`. Scikit-build-core invokes CMake
+and builds the nanobind extension with the CPython 3.12 stable ABI. The built
+wheel includes the native executables and generated Python type stubs.
 
-See the next section for `--editable` installs
+For an installed dependency environment such as conda-forge, configure with
+`-DAPITOFSIM_USE_VCPKG=OFF` in a fresh build directory. CMake discovers Eigen,
+oneTBB and the optional Arrow libraries through the environment's package
+prefix. For pip builds, pass `-Ccmake.define.APITOFSIM_USE_VCPKG=OFF`.
 
 ## Development
 
-This section is currently just a selection of tips for setting up a development environment.
-
-### Clangd based IDE completions
-
-You might need to symlink `compile_commands.json` to the root of the repository for your IDE to pick it up:
+### Editable installation
 
 ```bash
-ln -sf build/compile_commands.json compile_commands.json
-```
-
-### Meson native files
-
-Meson can be configured through so-called ["native build configuration" native files](https://mesonbuild.com/Native-environments.html).
-A number of these are provided, with many based on Clang and tested on Linux, with `meson/test` containing configurations for automated tests and `meson/pkg` having configurations for building packages, both of which are run in continuous integration with GitHub Actions.
-Use the platform-default C++ standard library so it matches the installed oneTBB package: normally libstdc++ on Linux and libc++ on macOS.
-
-The directory `meson/dev` contains a number of configurations including `clangrelease.ini` which builds the fastest configuration for running locally, `clangprofile.ini`, which includes minimal debugging symbols and no asserts for profiling, `clangdebug.ini` an optimized debug with asserts build for debugging with `gdb` or `lldb`, `clangsingle.ini` a fast single-threaded build which can be run deterministically, and `clangslow.ini`, which is a single threaded unoptimized build, providing the most deterministic and debug-friendly build.
-
-Parallel work is scheduled by oneTBB. Applications that need a scoped limit should use `oneapi::tbb::global_control` or `oneapi::tbb::task_arena`; the single-threaded native files use the same `global_control` mechanism internally. `OMP_NUM_THREADS` is no longer read, and the removed `openmp` Meson option has no replacement.
-
-The native Python extension retains a oneTBB scheduler handle and finalizes it through `Py_AtExit`, before native library teardown. This also covers direct extension imports. If other scheduler users prevent finalization, it prints a native diagnostic to stderr. Unfinished simulation work still needs to complete before interpreter shutdown; cooperative application cleanup is tracked in [issue #85](https://github.com/VilmaLab/apitofsim/issues/85).
-
-OpenMP is not a runtime dependency. The remaining `#pragma omp simd` directives are compiler vectorization hints only; Meson enables them with the compiler-checked `-fopenmp-simd` flag where supported.
-
-Long-running simulations cooperatively cancel on `SIGINT` and `SIGTERM`, restore the previous signal handler, and then re-raise the signal on the calling thread. `SIGABRT` is intentionally not intercepted and remains immediately fatal.
-
-### Configuring meson-python for development
-
-You need to disable build isolation to install this as a development/editable package which will recompile at import:
-
-Using [uv](https://docs.astral.sh/uv/):
-
-```bash
-cd /path/to/apitofsim
 uv sync
-uv pip install --no-build-isolation -e .
 ```
 
-During development you can use a native file, and add options to show compiler errors when imports trigger recompilation.
-If you are using uv.toml, this can all be specified in `uv.toml`.
-For example:
+Python changes are visible immediately. For C++ rebuilds on import, add the
+following to your local `uv.toml`. Replace old Meson-specific config settings
+and use a fresh build directory.
 
 ```toml
-no-build-isolation-package = ["apitofsim"]
-
-[pip]
-python = "3.13"
-
 [config-settings]
-editable-verbose = "true"
-setup-args = [
-  "--native-file=/path/to/apitofsim/meson/dev/clangdebug.ini",
-  "-Dbuildtype=debug",
-]
-build-dir = "uvbuild"
+build-dir = "builds/uvbuild"
+"editable.rebuild" = "true"
+"cmake.build-type" = "RelWithDebInfo"
 ```
+
+Use `CC=clang CXX=clang++` when first configuring to select Clang, and keep the
+platform-default C++ standard library to match oneTBB. For native builds,
+`Debug` enables assertions with minimal optimization and `RelWithDebInfo`
+keeps symbols for profiling. To reproduce the old single-thread build, add
+`-DCMAKE_CXX_FLAGS=-DAPITOFSIM_MAX_PARALLELISM=1`. An optional
+`-DAPITOFSIM_STRICT_WARNINGS=ON` matches CI's warnings-as-errors checks.
+
+For clangd, symlink `compile_commands.json` from your build directory:
+
+```bash
+ln -sf builds/uvbuild/compile_commands.json compile_commands.json
+```
+
+Parallel work is scheduled by oneTBB. Applications that need a scoped limit
+should use `oneapi::tbb::global_control` or `oneapi::tbb::task_arena`. The
+single-threaded build uses the same `global_control` mechanism internally.
+`OMP_NUM_THREADS` has no effect. CMake enables the remaining OpenMP SIMD hints
+with `-fopenmp-simd` when supported by the compiler.
+
+The native Python extension retains a oneTBB scheduler handle and finalizes it
+through `Py_AtExit`, before native library teardown. This also covers direct
+extension imports. If other scheduler users prevent finalization, it prints a
+native diagnostic to stderr. Unfinished simulation work still needs to
+complete before interpreter shutdown. Cooperative application cleanup is
+tracked in [issue #85](https://github.com/VilmaLab/apitofsim/issues/85).
+
+Long-running simulations cooperatively cancel on `SIGINT` and `SIGTERM`,
+restore the previous signal handler, and then re-raise the signal on the
+calling thread. `SIGABRT` is intentionally not intercepted and remains
+immediately fatal.
 
 ### Using debug Python builds
 
@@ -133,13 +117,13 @@ The following will run a live-reloading Zensical server:
 
 ```bash
 uv sync --group docs
-PYTHONPATH=./python/ uv run --group docs zensical serve
+uv run --group docs zensical serve
 ```
 
 To build the static site in `site/`:
 
 ```bash
-PYTHONPATH=./python/ uv run --group docs zensical build --clean
+uv run --group docs zensical build --clean
 ```
 
 Site settings, navigation, Markdown extensions, and watched source directories are
@@ -147,33 +131,37 @@ configured in `zensical.toml`.
 
 ### Running tests
 
-Given the `uv.toml` given above, you can run the tests like so:
-
-```
-uv run meson test --print-errorlogs -C uvbuild
-```
-
-This should run the C++ tests and Python tests as two separate test items.
-
-The C++ suite runs once with a one-thread limit and once at oneTBB's default concurrency. Benchmarks cover both modes:
+To build and test the C++ and Python targets together, use the project's Python
+environment so CTest can find pytest and the runtime dependencies:
 
 ```bash
-uv run meson test --print-errorlogs -C build
-uv run meson test --benchmark --num-processes 1 -C build
+uv sync --no-install-project
+uv run --no-sync cmake -S . -B builds/test -G Ninja \
+  -DCMAKE_BUILD_TYPE=RelWithDebInfo -DAPITOFSIM_BUILD_PYTHON=ON \
+  -DPython_EXECUTABLE="$PWD/.venv/bin/python"
+cmake --build builds/test --parallel
+./test.sh --test-dir builds/test
 ```
+
+The C++ suite runs with one thread and again at oneTBB's default concurrency.
+CTest supplies the native signal helper to the Python suite. The native
+benchmark executables are under `builds/test/test`. Set
+`APITOFSIM_BENCH_CONCURRENCY=1` to run them with a one-thread limit.
 
 ### Native event storage
 
-The small, pinned Apache nanoarrow static dependency encodes IPC in C/C++ and
-is built through a Meson wrap/overlay. The standard build uses nanoarrow and
-supports both event readers. The project requires a C compiler as well as C++20.
+The standard build compiles a pinned, namespaced copy of Apache nanoarrow with
+IPC support. To build the Apache C++ Parquet writer, add
+`-DAPITOFSIM_NATIVE_PARQUET=ON` to CMake, or use
+`-Ccmake.define.APITOFSIM_NATIVE_PARQUET=ON` for a pip build. vcpkg then enables
+the `parquet` manifest feature and supplies Arrow C++ with Zstandard support.
+Use PyArrow matching the native Arrow version when loading both in one process.
+Conda packages enable the writer using matching conda-forge dependencies.
+PyPI wheels use the standard IPC build.
 
-Build with `-Dnative_parquet_writer=enabled` to add the Apache C++ recorder.
-Supply Arrow and Parquet C++ libraries version 26 or later through the
-`arrow` and `parquet` dependencies. Use libraries matching PyArrow when
-loading both in one process. The Parquet recorder imports the ordered
-nanoarrow stream, caps row groups at 65,536 rows, and uses level 3 for
-Zstandard. A worker count above one uses a private Arrow column encoder pool.
+The Parquet recorder imports the ordered nanoarrow stream, caps row groups at
+65,536 rows, and uses level 3 for Zstandard. A worker count above one uses a
+private Arrow column encoder pool.
 
 `EventColumns` is the common native column layout. A oneTBB pipeline assigns
 realization IDs, simulates histories in parallel, and delivers completed tokens

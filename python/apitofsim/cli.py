@@ -411,7 +411,7 @@ def run(
             raise click.UsageError("--event-format parquet requires --record-events")
         if not apitofsimraw.NATIVE_PARQUET:
             raise click.ClickException(
-                "Parquet recording requires a build with -Dnative_parquet_writer=enabled"
+                "Parquet recording requires a build with -DAPITOFSIM_NATIVE_PARQUET=ON"
             )
     with connection_scope(auto_db_type, database) as db:
         if not isinstance(db, ExperimentDatabase):

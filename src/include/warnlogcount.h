@@ -19,7 +19,11 @@
 #include <oneapi/tbb/enumerable_thread_specific.h>
 #include <Eigen/Dense>
 #include <magic_enum/magic_enum.hpp>
+#if __has_include(<moodycamel/blockingconcurrentqueue.h>)
+#include <moodycamel/blockingconcurrentqueue.h>
+#else
 #include <blockingconcurrentqueue.h>
+#endif
 
 using magic_enum::enum_count;
 using moodycamel::BlockingConcurrentQueue;

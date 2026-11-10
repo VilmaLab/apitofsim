@@ -1,5 +1,5 @@
 #define DOCTEST_CONFIG_IMPLEMENT
-#include <doctest.h>
+#include <doctest/doctest.h>
 
 #include <oneapi/tbb/blocked_range.h>
 #include <oneapi/tbb/parallel_for.h>

@@ -6,15 +6,8 @@
 #SBATCH --mem=0
 #SBATCH --nodes=1
 
-# Make sure to clone the repository to ~/apitofsim and put the following at ~/apitofsim/uv.toml
-#
-# no-build-isolation-package = ["apitofsim"]
-# [config-settings]
-# setup-args = [
-#   "--native-file=~/apitofsim/meson/dev/clangrelease.ini",
-#   "-Dbuildtype=release",
-#]
-
+# Bootstrap the pinned vcpkg checkout and export VCPKG_ROOT before submitting.
+# See docs/development.md for source build and uv configuration.
 set -euo pipefail
 IFS=$'\n\t'
 
@@ -24,7 +17,8 @@ echo "  Nodes: $SLURM_JOB_NODELIST"
 echo "  CPUs: $SLURM_CPUS_ON_NODE"
 echo "  Memory: $SLURM_MEM_PER_NODE MB"
 
-module load LLVM/18.1.8-GCCcore-13.3.0; module load Meson/1.8.2-GCCcore-14.3.0
+module load LLVM/18.1.8-GCCcore-13.3.0
+export CC=clang CXX=clang++
 
 cd ~/apitofsim
 export PTABLE_INTERACTIVE=0
