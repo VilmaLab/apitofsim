@@ -57,7 +57,7 @@ requirements:
     - pip
     - python-build
     - scikit-build-core >=0.11
-    - nanobind 2.9.2
+    - nanobind ==2.9.2
     - eigen
     - tbb-devel >=2023.0
     - libarrow 26.*
