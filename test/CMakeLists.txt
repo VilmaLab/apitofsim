@@ -23,10 +23,6 @@ set_tests_properties(apitofsim-tests apitofsim-tests-parallel PROPERTIES
   TIMEOUT 900
 )
 set_property(TEST apitofsim-tests APPEND PROPERTY ENVIRONMENT APITOFSIM_TEST_CONCURRENCY=1)
-if(WIN32 AND APITOFSIM_PYARROW_PARQUET)
-  set_tests_properties(apitofsim-tests apitofsim-tests-parallel PROPERTIES
-    ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:${pyarrow_libdir}")
-endif()
 
 if(APITOFSIM_BUILD_PYTHON)
   execute_process(COMMAND "${Python_EXECUTABLE}" -c "import pytest, pint"

@@ -12,7 +12,7 @@ dependencies = [
   "pandas",
   "pint>=0.25.1",
   "progress-table>=3.2.2",
-  "pyarrow==26.0.1",
+  "pyarrow>=26.0.1",
   "portalocker>=3.2.0",
   "pywin32; sys_platform == 'win32'",
   "questionary>=2.1.1",
@@ -22,7 +22,7 @@ dependencies = [
 
 [build-system]
 build-backend = "scikit_build_core.build"
-requires = ["scikit-build-core>=0.11", "nanobind==2.9.2", "pyarrow==26.0.1"]
+requires = ["scikit-build-core>=0.11", "nanobind==2.9.2"]
 
 [project.optional-dependencies]
 reflink = ["reflink>=0.2.2"]
@@ -78,32 +78,30 @@ manylinux-x86_64-image = "quay.io/pypa/manylinux_2_34_x86_64:latest"
 build = "cp313-*"
 skip = "*-manylinux_i686 cp3??t-* *-musllinux_*"
 archs = ["auto64"]
+# Keep the vcpkg libraries available to the repair tools after the build.
+config-settings.build-dir = "builds/wheel"
 test-requires = ["pytest"]
 test-command = [
   "python {project}/test/wheel_smoke.py",
-  "python {project}/test/pyarrow_wheel_smoke.py",
+  "python {project}/test/parquet_wheel_smoke.py",
 ]
 
 [tool.cibuildwheel.linux]
 before-all = "bash ci/setup_linux.sh"
-environment = { VCPKG_ROOT = "/opt/apitofsim-vcpkg", CC = "clang", CXX = "clang++", SKBUILD_CMAKE_DEFINE = "APITOFSIM_PYARROW_PARQUET=ON" }
+environment = { VCPKG_ROOT = "/opt/apitofsim-vcpkg", CC = "clang", CXX = "clang++", SKBUILD_CMAKE_DEFINE = "APITOFSIM_NATIVE_PARQUET=ON;VCPKG_TARGET_TRIPLET=x64-linux-wheel" }
 repair-wheel-command = [
-  "auditwheel repair --disable-isa-ext-check --exclude 'libarrow.so.*' --exclude 'libparquet.so.*' -w {dest_dir} {wheel}",
+  "auditwheel repair --disable-isa-ext-check -w {dest_dir} {wheel}",
   "auditwheel show {dest_dir}/*.whl",
   "pipx run abi3audit --strict --report {wheel} --assume-minimum-abi3 3.12",
 ]
 
 [tool.cibuildwheel.macos]
-# The official PyArrow arm64 wheel requires macOS 12.
-before-build = "pip install pyarrow==26.0.1"
-environment = { MACOSX_DEPLOYMENT_TARGET = "12.0", SKBUILD_CMAKE_DEFINE = "APITOFSIM_PYARROW_PARQUET=ON" }
-repair-wheel-command = """DYLD_FALLBACK_LIBRARY_PATH="$(python -c 'import pathlib, pyarrow; print(pathlib.Path(pyarrow.__file__).parent)')" delocate-wheel --require-archs {delocate_archs} --exclude libarrow. --exclude libparquet. --no-sanitize-rpaths -w {dest_dir} -v {wheel}"""
+environment = { MACOSX_DEPLOYMENT_TARGET = "12.0", SKBUILD_CMAKE_DEFINE = "APITOFSIM_NATIVE_PARQUET=ON;VCPKG_TARGET_TRIPLET=arm64-osx-wheel" }
 
 [tool.cibuildwheel.windows]
-before-build = "pip install delvewheel"
-environment = { CMAKE_ARGS = "-DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl", SKBUILD_CMAKE_DEFINE = "APITOFSIM_PYARROW_PARQUET=ON" }
+environment = { CMAKE_ARGS = "-DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl", SKBUILD_CMAKE_DEFINE = "APITOFSIM_NATIVE_PARQUET=ON;VCPKG_TARGET_TRIPLET=x64-windows-wheel" }
 # CMake already installs oneTBB next to the extension and native executables.
-repair-wheel-command = "delvewheel repair --ignore-existing --exclude \"arrow.dll;parquet.dll\" -w {dest_dir} {wheel}"
+repair-wheel-command = 'delvewheel repair --ignore-existing --add-path "{package}/builds/wheel/vcpkg_installed/x64-windows-wheel/bin" -w {dest_dir} {wheel}'
 
 [[tool.cibuildwheel.overrides]]
 select = "*-x86_64"
@@ -114,6 +112,12 @@ environment.CXXFLAGS = "-march=x86-64-v3"
 select = "*-macosx_arm64"
 inherit.environment = "append"
 environment._PYTHON_HOST_PLATFORM = "macosx-12.0-arm64"
+
+[[tool.cibuildwheel.overrides]]
+select = "*-macosx_x86_64"
+inherit.environment = "append"
+config-settings.build-dir = "builds/wheel-x86_64"
+environment.SKBUILD_CMAKE_DEFINE = "APITOFSIM_NATIVE_PARQUET=ON;VCPKG_TARGET_TRIPLET=x64-osx-wheel"
 
 [tool.pyright]
 reportConstantRedefinition = false

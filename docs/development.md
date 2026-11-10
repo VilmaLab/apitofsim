@@ -176,18 +176,19 @@ in-place append. To build the Apache C++ Parquet writer, add
 `-DAPITOFSIM_NATIVE_PARQUET=ON` to CMake, or use
 `-Ccmake.define.APITOFSIM_NATIVE_PARQUET=ON` for a pip build. vcpkg then enables
 the `parquet` manifest feature and supplies Arrow C++ with Zstandard support.
-Use PyArrow matching the native Arrow version when loading both in one process.
+Use matching PyArrow and Arrow C++ versions when they share one installation.
 Conda packages enable the writer using matching conda-forge dependencies.
-GitHub Release wheels use `APITOFSIM_PYARROW_PARQUET=ON` to link the Python
-extension directly against the Arrow and Parquet libraries in the pinned PyArrow
-wheel. The Python CLI can use the native writer. The standalone C++ executables
-shipped with the wheel link to the simulation core and can start independently of PyArrow.
-The macOS arm64 wheel requires macOS 12, matching PyArrow.
 
-When updating the PyArrow pin, update the build and runtime requirements and the
-macOS wheel repair environment together. The release wheel tests install the
-repaired wheel, check both import orders, and exercise Zstandard and parallel
-column encoding.
+GitHub Release wheels link the Python extension to shared Arrow and Parquet
+libraries built with vcpkg. Wheel repair bundles those libraries and their
+runtime dependencies. The standalone C++ executables link to the simulation
+core. The macOS arm64 wheel requires macOS 12.
+
+PyArrow remains a Python runtime dependency for reading and processing event
+data. In release wheels its version can vary independently of the bundled
+libraries. The release wheel tests load the native writer by itself, check
+both import orders with PyArrow, and exercise Zstandard and parallel column
+encoding.
 
 The Parquet recorder consumes Arrow record batches directly, caps row groups at
 65,536 rows, and uses level 3 for Zstandard. A worker count above one uses a
