@@ -1,6 +1,2 @@
 CompileFlags:
-  Add: [-std=c++17]
-If:
-  PathMatch: subprojects/.*
-Index:
-  Background: Skip
+  Add: [-std=c++20]

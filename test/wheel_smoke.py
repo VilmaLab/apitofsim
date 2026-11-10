@@ -1,6 +1,7 @@
-"""Exercise native IPC and PyArrow interoperability in every platform wheel."""
+"""Exercise the native CLI and PyArrow interoperability in every platform wheel."""
 
 import json
+import subprocess
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -10,6 +11,16 @@ from apitofsim.recording import RecordingTransaction
 
 assert apitofsim.precompute_mesh(100.0, 1.0, quantities_strict=False).size == 100
 with TemporaryDirectory() as directory:
+    cli = subprocess.run(
+        ["apitofsim-mass-spec"],
+        input="invalid configuration\n",
+        capture_output=True,
+        text=True,
+        cwd=directory,
+        timeout=10,
+        check=False,
+    )
+    assert "Error while reading input configuration" in cli.stderr, cli
     path = Path(directory) / "évents.arrow"
     for mode, status in [
         ("create", "cancelled"),

@@ -26,15 +26,15 @@ build:
         CPPFLAGS=${CPPFLAGS//-O2/}
         CPPFLAGS="${CPPFLAGS} -O3"
         export CPPFLAGS
-        pip install --config-settings=setup-args=--native-file=$SRC_DIR/meson/pkg/unixconda.ini .
+        python -m pip install --no-build-isolation --no-deps -Ccmake.define.APITOFSIM_USE_VCPKG=OFF -Ccmake.define.APITOFSIM_NATIVE_PARQUET=ON -Ccmake.define.CMAKE_PREFIX_PATH="$PREFIX" .
     - if: osx or (linux and aarch64)
       then: |
-        pip install --config-settings=setup-args=--native-file=$SRC_DIR/meson/pkg/unixconda.ini .
+        python -m pip install --no-build-isolation --no-deps -Ccmake.define.APITOFSIM_USE_VCPKG=OFF -Ccmake.define.APITOFSIM_NATIVE_PARQUET=ON -Ccmake.define.CMAKE_PREFIX_PATH="$PREFIX" .
     - if: win
       then: |
         set "LDFLAGS=%LDFLAGS:/link=%"
         set "CXXFLAGS=%CXXFLAGS% /Ot -march=x86-64-v2 -mtune=generic"
-        pip install --config-settings=setup-args=--native-file=%SRC_DIR%\meson\pkg\windowsconda.ini .
+        python -m pip install --no-build-isolation --no-deps -Ccmake.define.APITOFSIM_USE_VCPKG=OFF -Ccmake.define.APITOFSIM_NATIVE_PARQUET=ON -Ccmake.define.CMAKE_PREFIX_PATH="%LIBRARY_PREFIX%" .
   python:
     version_independent: true
     entry_points:
@@ -44,6 +44,8 @@ requirements:
   build:
     - ${{ compiler('c') }}
     - ${{ compiler('cxx') }}
+    - cmake >=3.28
+    - ninja
     - if: microarch_level|int > 0
       then: x86_64-microarch-level ==${{ microarch_level }}
     - if: linux and x86_64
@@ -54,11 +56,12 @@ requirements:
     - python-abi3 ${{ python_min }}.*
     - pip
     - python-build
-    - meson-python
-    - ninja
-    - nanobind
+    - scikit-build-core >=0.11
+    - nanobind 2.9.2
     - eigen
     - tbb-devel >=2023.0
+    - libarrow 26.*
+    - libparquet 26.*
     - if: linux and x86_64
       then:
         - libstdcxx-devel_linux-64 15.2.0.*
@@ -74,7 +77,7 @@ requirements:
     - orjson >= 3.11.4
     - progress-table >= 3.2.2
     - ase >= 3.27.0
-    - pyarrow >= 23.0.0
+    - pyarrow 26.*
     - portalocker >= 3.2.0
     - if: win
       then: pywin32
@@ -97,6 +100,7 @@ tests:
         then: DATA_DIR=$(pwd)/test/data pytest ./test
       - if: win
         then: set "DATA_DIR=%CD%/test/data" && pytest ./test
+      - python -c "from apitofsim import apitofsimraw; assert apitofsimraw.NATIVE_PARQUET"
       - python test/wheel_smoke.py
     requirements:
       run:

@@ -16,6 +16,9 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - if: runner.os != 'Linux'
+        uses: ./.github/actions/setup-vcpkg
+
       - name: Build wheels
         uses: pypa/cibuildwheel@v4.2.1
 

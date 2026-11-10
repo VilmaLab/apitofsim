@@ -10,152 +10,98 @@ on:
       - main
 
 jobs:
-  # This checks it's possible to build with the default Ubuntu compiler and run C++ tests
   build_test_gcc:
-    name: Full build with default compiler then C++ tests
+    name: Native build and tests with GCC
     runs-on: ubuntu-26.04
-
     steps:
-      - name: Checkout source code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-vcpkg
+      - name: Build and test
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DAPITOFSIM_STRICT_WARNINGS=ON
+          cmake --build build
+          ./test.sh --test-dir build
 
-      - uses: actions/setup-python@v6
+  build_test_llvm:
+    name: Native and Python tests with Clang sanitizers
+    runs-on: ubuntu-latest
+    env:
+      CC: clang-20
+      CXX: clang++-20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v7
         with:
           python-version: '3.13'
-
+      - uses: ./.github/actions/setup-vcpkg
       - name: Install dependencies
         run: |
-          sudo bash ci/install_tbb.sh
-          sudo pip install meson
-
+          sudo apt-get update
+          sudo apt-get install -y clang-20 lld-20
+          uv sync --no-install-project
       - name: Build
         run: |
-          meson setup --warnlevel 3 --werror build
-          meson compile -C build
-
-      - name: Test
+          uv run --no-sync cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo -DAPITOFSIM_STRICT_WARNINGS=ON \
+            -DAPITOFSIM_BUILD_PYTHON=ON -DAPITOFSIM_GENERATE_STUBS=OFF \
+            -DPython_EXECUTABLE="$PWD/.venv/bin/python" \
+            -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined,float-divide-by-zero -shared-libasan -fno-omit-frame-pointer"
+          uv run --no-sync cmake --build build
+      - name: Run native and Python tests
         run: |
-          meson test --print-errorlogs -C build
+          export LD_LIBRARY_PATH="$(clang-20 -print-runtime-dir)${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          ./test.sh --test-dir build -E apitofsim-python-tests
+          ASAN_OPTIONS=detect_leaks=0 LD_PRELOAD="$(clang-20 -print-file-name=libclang_rt.asan-x86_64.so)" \
+            ./test.sh --test-dir build -R apitofsim-python-tests --no-tests=error
 
-  # This compiles with Clang against many LLVM sanitisers (common ones except for memory and thread) and runs the test suite for C++/Python
-  build_test_llvm:
-    name: Full build with Clang then C++/Python tests under LLVM sanitisers
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout source code
-        uses: actions/checkout@v4
-
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang-tidy-20 clang-format-20 clang-20 lld-20
-          sudo bash ci/install_tbb.sh
-          sudo ln -sf /usr/bin/clang-tidy-20 /usr/bin/clang-tidy
-          sudo ln -sf /usr/bin/clang-format-20 /usr/bin/clang-format
-          sudo ln -sf /usr/bin/clang++-20 /usr/bin/clang++
-          sudo ln -sf /usr/bin/lld-20 /usr/bin/lld
-          sudo pip install meson
-
-      - uses: astral-sh/setup-uv@v7
-
-      - name: Install Python dependencies
-        run: |
-          uv sync --no-install-project
-
-      - name: Setup/compile with meson
-        run: |
-          uv run meson setup --native-file=meson/test/manysan.ini build
-          uv run meson compile -C build
-
-      - name: Run tests
-        run: |
-          uv run meson test --print-errorlogs -C build
-
-  # This compiles with the default compiler via uv/meson-python and runs the Python test suite using the -X dev option
   build_test_x_dev:
-    name: Full build with default compiler via meson-python then Python tests with -X dev
+    name: Python tests with -X dev
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout source code
-        uses: actions/checkout@v4
-
+      - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v7
-
-      - name: Install Python dependencies
+        with:
+          python-version: '3.13'
+      - uses: ./.github/actions/setup-vcpkg
+      - name: Install and test
         run: |
-          sudo bash ci/install_tbb.sh
           uv sync
-
-      - name: Run tests
-        run: |
-          DATA_DIR=$(pwd)/test/data uv run python -X dev -m pytest test/
+          DATA_DIR="$PWD/test/data" uv run --no-sync python -X dev -m pytest test/
 
   build_test_parquet:
-    name: Build and test the Apache Parquet recorder
+    name: Build and test the Apache Parquet recorder with vcpkg
     runs-on: ubuntu-latest
-
+    env:
+      SKBUILD_CMAKE_DEFINE: APITOFSIM_NATIVE_PARQUET=ON
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v6
-        with:
-          python-version: '3.13'
+      - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v7
-
-      - name: Install dependencies
-        run: |
-          sudo bash ci/install_tbb.sh
-          uv sync --no-install-project
-          uv pip install 'pyarrow>=26.0.0' meson ninja
-
-      - name: Build and test with the matching Arrow C++ libraries
-        run: |
-          . .venv/bin/activate
-          arrow_dir=$(python -c 'import pyarrow; print(pyarrow.get_library_dirs()[0])')
-          version=$(python -c 'import pyarrow; print(pyarrow.__version__)')
-          mkdir -p "$RUNNER_TEMP/parquet-pkgconfig"
-          for name in arrow parquet; do
-            libs=("$arrow_dir/lib$name.so."*)
-            printf 'Name: %s\nDescription: Apache %s C++\nVersion: %s\nLibs: %s\nCflags: -I%s/include\n' \
-              "$name" "$name" "$version" "${libs[0]}" "$arrow_dir" > "$RUNNER_TEMP/parquet-pkgconfig/$name.pc"
-          done
-          export PKG_CONFIG_PATH="$RUNNER_TEMP/parquet-pkgconfig:${PKG_CONFIG_PATH:-}"
-          export LD_LIBRARY_PATH="$arrow_dir:${LD_LIBRARY_PATH:-}"
-          meson setup --warnlevel 3 --werror --buildtype=release -Dnative_parquet_writer=enabled build
-          meson compile -C build
-          export PYTHONPATH="$PWD/python:$PWD/build/python"
-          python -c 'from apitofsim import apitofsimraw; assert apitofsimraw.NATIVE_PARQUET'
-          DATA_DIR="$PWD/test/data" python -X dev -m pytest test/test_parquet_recording.py
-
-  # This builds with Clang and runs Valgrind on C++ tests only (slow -- takes around 8 mins at the moment)
-  # It may be that this needs to change to manually triggered or run a subset of tests later on
-  test_valgrind:
-    name: C++ only build with Clang then C++ tests under Valgrind
-    runs-on: ubuntu-26.04
-
-    steps:
-      - name: Checkout source code
-        uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v6
         with:
           python-version: '3.13'
+      - uses: ./.github/actions/setup-vcpkg
+      - name: Build and exercise the native writer
+        run: |
+          uv sync --no-install-project
+          uv pip install 'pyarrow==26.0.1'
+          uv pip install --no-build-isolation --no-deps .
+          uv run --no-sync python -c 'from apitofsim import apitofsimraw; assert apitofsimraw.NATIVE_PARQUET'
+          DATA_DIR="$PWD/test/data" uv run --no-sync python -X dev -m pytest test/test_parquet_recording.py
 
-      - name: Install dependencies
+  test_valgrind:
+    name: Native tests under Valgrind
+    runs-on: ubuntu-26.04
+    env:
+      CC: clang-20
+      CXX: clang++-20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-vcpkg
+      - name: Install Clang and Valgrind
         run: |
           sudo apt-get update
-          sudo apt-get install -y meson clang-tidy-20 clang-format-20 clang-20 lld-20 valgrind
-          sudo bash ci/install_tbb.sh
-          sudo ln -sf /usr/bin/clang-tidy-20 /usr/bin/clang-tidy
-          sudo ln -sf /usr/bin/clang-format-20 /usr/bin/clang-format
-          sudo ln -sf /usr/bin/clang++-20 /usr/bin/clang++
-          sudo ln -sf /usr/bin/lld-20 /usr/bin/lld
-
-      - name: Setup meson
+          sudo apt-get install -y clang-20 valgrind
+      - name: Build and test
         run: |
-          meson setup --native-file=meson/test/valgrind.ini build
-
-      - name: Test with valgrind
-        run: |
-          meson test --print-errorlogs --wrapper=valgrind -C build
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DAPITOFSIM_STRICT_WARNINGS=ON
+          cmake --build build
+          ./test.sh --test-dir build -T memcheck --overwrite MemoryCheckCommand=/usr/bin/valgrind

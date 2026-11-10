@@ -262,7 +262,7 @@ def test_parquet_recording_requires_native_build(tmp_path):
     path = tmp_path / "unavailable.duckdb"
     with ExperimentDatabase(path, recording_format="parquet") as db:
         db.create_tables()
-        with pytest.raises(RuntimeError, match="native_parquet_writer=enabled"):
+        with pytest.raises(RuntimeError, match="APITOFSIM_NATIVE_PARQUET=ON"):
             with db.recording_transaction():
                 pytest.fail("Unexpected Parquet writer")
     assert not recording.events_filename(path, format="parquet").exists()

@@ -18,30 +18,26 @@ jobs:
       - uses: actions/checkout@v5
 
       - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: '3.13'
 
-      - name: Install dependencies
-        run: |
-          sudo apt-get install -y ninja-build
-          sudo bash ci/install_tbb.sh
-          uv tool install basedpyright
+      - uses: ./.github/actions/setup-vcpkg
 
-      - name: Setup virtualenv
-        run: |
-          uv venv fullinstallenv
-          VIRTUAL_ENV=fullinstallenv uv run --active pip install .[plot,notebooks]
+      - name: Install the package with plotting and notebook extras
+        run: uv sync --no-editable --extra plot --extra notebooks
 
       - name: Run basedpyright
         run: |
-          basedpyright --pythonpath fullinstallenv/bin/python --level=error $(fullinstallenv/bin/python -c 'import apitofsim; import os; print(os.path.dirname(apitofsim.__file__))')
+          .venv/bin/basedpyright --pythonpath .venv/bin/python --level=error $(.venv/bin/python -c 'import apitofsim; import os; print(os.path.dirname(apitofsim.__file__))')
 
       - name: Run basedpyright with warnings
         run: |
-          basedpyright --pythonpath fullinstallenv/bin/python $(fullinstallenv/bin/python -c 'import apitofsim; import os; print(os.path.dirname(apitofsim.__file__))')
+          .venv/bin/basedpyright --pythonpath .venv/bin/python $(.venv/bin/python -c 'import apitofsim; import os; print(os.path.dirname(apitofsim.__file__))')
 
       - name: Run basedpyright coverage
         run: |
           # For some reason modifying the PATH like this is the only thing that seems to work
-          PATH="$(pwd)/fullinstallenv/bin:$PATH" basedpyright --verifytypes apitofsim || true # Ignore failures for now
+          PATH="$(pwd)/.venv/bin:$PATH" basedpyright --verifytypes apitofsim || true # Ignore failures for now
 
   lint_python:
     name: Style check Python
@@ -74,26 +70,19 @@ jobs:
         with:
           python-version: '3.13'
 
+      - uses: ./.github/actions/setup-vcpkg
+
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang-tidy-20 clang-format-20 clang-20 lld-20
-          sudo bash ci/install_tbb.sh
-          sudo ln -sf /usr/bin/clang-tidy-20 /usr/bin/clang-tidy
-          sudo ln -sf /usr/bin/clang-format-20 /usr/bin/clang-format
-          sudo ln -sf /usr/bin/clang++-20 /usr/bin/clang++
-          sudo ln -sf /usr/bin/lld-20 /usr/bin/lld
-          sudo pip install meson
+          sudo apt-get install -y clang-tidy-20 clang-format-20 clang-20
+          pip install 'nanobind==2.9.2'
 
-      - name: Build with meson
+      - name: Build with Clang and run native QA
         run: |
-          CXX="clang++" LD="lld" meson setup --warnlevel 3 --werror build
-          meson compile -C build
-
-      - name: Run clang-format-check
-        run: |
-          ninja -C build clang-format-check
-
-      - name: Run clang-tidy
-        run: |
-          ninja -C build clang-tidy
+          CC=clang-20 CXX=clang++-20 cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DAPITOFSIM_STRICT_WARNINGS=ON \
+            -DAPITOFSIM_BUILD_PYTHON=ON -DCLANG_FORMAT=clang-format-20 -DCLANG_TIDY=clang-tidy-20
+          cmake --build build
+          cmake --build build --target clang-format-check
+          cmake --build build --target clang-tidy
