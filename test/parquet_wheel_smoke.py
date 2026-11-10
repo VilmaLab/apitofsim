@@ -60,7 +60,8 @@ for imports in (
         [
             sys.executable,
             "-c",
-            f"{imports}; assert apitofsim.apitofsimraw.NATIVE_PARQUET",
+            f"{imports}; assert apitofsim.apitofsimraw.NATIVE_PARQUET; "
+            "from pyarrow.fs import LocalFileSystem; LocalFileSystem()",
         ],
         check=True,
         timeout=30,
