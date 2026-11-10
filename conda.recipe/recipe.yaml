@@ -32,6 +32,8 @@ build:
         python -m pip install --no-build-isolation --no-deps -Ccmake.define.APITOFSIM_USE_VCPKG=OFF -Ccmake.define.APITOFSIM_NATIVE_PARQUET=ON -Ccmake.define.CMAKE_PREFIX_PATH="$PREFIX" .
     - if: win
       then: |
+        set "CMAKE_GENERATOR=Ninja"
+        set "CMAKE_ARGS=-DPython_FIND_REGISTRY=NEVER -DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl"
         set "LDFLAGS=%LDFLAGS:/link=%"
         set "CXXFLAGS=%CXXFLAGS% /Ot -march=x86-64-v2 -mtune=generic"
         python -m pip install --no-build-isolation --no-deps -Ccmake.define.APITOFSIM_USE_VCPKG=OFF -Ccmake.define.APITOFSIM_NATIVE_PARQUET=ON -Ccmake.define.CMAKE_PREFIX_PATH="%LIBRARY_PREFIX%" .

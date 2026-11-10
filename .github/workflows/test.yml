@@ -37,23 +37,26 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang-20 lld-20
+          sudo apt-get install -y clang-20 lld-20 libclang-rt-20-dev
           uv sync --no-install-project
       - name: Build
         run: |
+          asan_runtime=$(find -L "$(clang-20 -print-resource-dir)" -name "libclang_rt.asan*.so" -print -quit)
+          test -f "$asan_runtime"
+          echo "APITOFSIM_ASAN_RUNTIME=$asan_runtime" >> "$GITHUB_ENV"
+          export LD_LIBRARY_PATH="$(dirname "$asan_runtime")${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
           uv run --no-sync cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=RelWithDebInfo -DAPITOFSIM_STRICT_WARNINGS=ON \
             -DAPITOFSIM_BUILD_PYTHON=ON -DAPITOFSIM_GENERATE_STUBS=OFF \
             -DPython_EXECUTABLE="$PWD/.venv/bin/python" \
-            -DCMAKE_BUILD_RPATH="$(clang-20 -print-runtime-dir)" \
             -DCMAKE_C_FLAGS="-fsanitize=address,undefined,float-divide-by-zero" \
             -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined,float-divide-by-zero -shared-libasan -fno-omit-frame-pointer"
           uv run --no-sync cmake --build build
       - name: Run native and Python tests
         run: |
-          export LD_LIBRARY_PATH="$(clang-20 -print-runtime-dir)${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          export LD_LIBRARY_PATH="$(dirname "$APITOFSIM_ASAN_RUNTIME")${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
           ./test.sh --test-dir build -E apitofsim-python-tests
-          ASAN_OPTIONS=detect_leaks=0 LD_PRELOAD="$(clang-20 -print-file-name=libclang_rt.asan-x86_64.so)" \
+          ASAN_OPTIONS=detect_leaks=0 LD_PRELOAD="$APITOFSIM_ASAN_RUNTIME" \
             ./test.sh --test-dir build -R apitofsim-python-tests --no-tests=error
 
   build_test_x_dev:
