@@ -5,20 +5,6 @@ including code instantiated from headers. Their license texts are in this
 directory. These links identify the upstream source repositories and the
 versions pinned by the bundled build configuration.
 
-Apache Arrow nanoarrow (Apache-2.0)
-Source: https://github.com/apache/arrow-nanoarrow/tree/apache-arrow-nanoarrow-0.9.0
-
-Apache Arrow nanoarrow
-Copyright 2023 The Apache Software Foundation
-
-This product includes software developed at
-The Apache Software Foundation (http://www.apache.org/).
-
-flatcc (Apache-2.0), vendored by nanoarrow
-Copyright 2015-2023 Mikkel F. Jørgensen, dvide.com
-Source: https://github.com/dvidelabs/flatcc
-Vendored source: https://github.com/apache/arrow-nanoarrow/tree/apache-arrow-nanoarrow-0.9.0/thirdparty/flatcc
-
 nanobind (BSD-3-Clause)
 Source: https://github.com/wjakob/nanobind/tree/v2.9.2
 

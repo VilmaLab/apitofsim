@@ -7,6 +7,10 @@
       "description": "Build the native test suite",
       "dependencies": ["doctest"]
     },
+    "arrow": {
+      "description": "Build the Arrow IPC event recorder",
+      "dependencies": [{ "name": "arrow", "default-features": false, "version>=": "26.0.0" }]
+    },
     "parquet": {
       "description": "Build the native Apache Arrow Parquet writer",
       "dependencies": [
