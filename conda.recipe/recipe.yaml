@@ -50,6 +50,7 @@ requirements:
     - ${{ compiler('cxx') }}
     - cmake >=3.28
     - ninja
+    - git
     - if: microarch_level|int > 0
       then: x86_64-microarch-level ==${{ microarch_level }}
     - if: linux and x86_64
@@ -67,8 +68,7 @@ requirements:
     - zstd
     - zlib
     - lz4-c
-    - if: osx or win
-      then: llvm-openmp
+    - llvm-openmp
     - if: linux and x86_64
       then:
         - libstdcxx-devel_linux-64 15.2.0.*
