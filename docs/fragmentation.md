@@ -108,8 +108,8 @@ The current rate DOS routine omits the all-ground-state contribution; the sample
 therefore does not reuse its values. This setting changes neither those tables nor
 the rates computed from them. Collision sampling also retains its existing
 bin-centre convention. Refine `bin_width` when assessing convergence. All runtime
-energies are joules. Counts and weights are evaluated in logarithms to avoid
-overflow, including during DOS preparation.
+energies are joules. Counts are stored in logarithms and sampling weights are
+evaluated in log space. DOS preparation switches to log space before counts overflow.
 Out-of-range energies or missing/invalid product data raise errors; they do not
 silently fall back to zeroing or clip away energy.
 
