@@ -6,12 +6,9 @@
     { "name": "tbb", "default-features": false },
     "concurrentqueue",
     "magic-enum",
-    {
-      "name": "arrow",
-      "default-features": false,
-      "features": ["parquet"],
-      "version>=": "26.0.0"
-    }
+    "zstd",
+    "zlib",
+    "lz4"
   ],
   "features": {
     "tests": {

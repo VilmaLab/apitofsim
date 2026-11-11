@@ -32,6 +32,9 @@ jobs:
     env:
       CC: clang-20
       CXX: clang++-20
+      # libomp's x2APIC topology probe leaks on some hybrid CPUs. Keep leak
+      # checks enabled while avoiding that optional runtime affinity probe.
+      KMP_AFFINITY: disabled
     steps:
       - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v7
@@ -41,7 +44,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang-20 lld-20 libclang-rt-20-dev
+          sudo apt-get install -y clang-20 lld-20 libclang-rt-20-dev libomp-20-dev
           uv sync --no-install-project
       - name: Build
         run: |
@@ -78,7 +81,7 @@ jobs:
           DATA_DIR="$PWD/test/data" uv run --no-sync python -X dev -m pytest test/
 
   build_test_parquet:
-    name: Build and test the Apache Parquet recorder with vcpkg
+    name: Build and test the carquet recorder with vcpkg
     runs-on: ubuntu-latest
     env:
       SKBUILD_CMAKE_DEFINE: VCPKG_TARGET_TRIPLET=x64-linux-release
@@ -100,13 +103,14 @@ jobs:
     env:
       CC: clang-20
       CXX: clang++-20
+      KMP_AFFINITY: disabled
     steps:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/setup-vcpkg
       - name: Install Clang and Valgrind
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang-20 valgrind
+          sudo apt-get install -y clang-20 libomp-20-dev valgrind
       - name: Build and test
         run: |
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DAPITOFSIM_STRICT_WARNINGS=ON

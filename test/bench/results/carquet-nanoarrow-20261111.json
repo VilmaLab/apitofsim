@@ -1,0 +1,142 @@
+{
+  "description": "Full-size migration recording validation using nanoarrow 0.9.0 and carquet 0.8.0. Fresh processes; same Besel2020 model, roots 1 and 35, seed 42, 5000 realizations per root. Wall time includes simulation and durable recording; setup and full-column verification excluded. Separate measurements from the initial prototype sweep, under different normal desktop load; do not compute speedups against that earlier baseline.",
+  "build": "Release, Clang 22.1.8, -O3 -DNDEBUG -march=native simulation, upstream carquet LTO disabled, dictionary encoding, 65536-row groups, Zstd level 3; shared conda zstd, system libomp 22.1.8, oneTBB 2023.1; Python 3.12.16, DuckDB 1.5.6, PyArrow 26.0.1.",
+  "validation": "All 45,762,568 rows, all 22 physical-order column SHA-256 hashes and simulation counters match the original Arrow C++/IPC baseline. All row-group limits, compression codecs and event ordinal continuity checked.",
+  "measurements": [
+    {
+      "wall_seconds": 33.08029776602052,
+      "cpu_seconds": 334.57644635699995,
+      "rss_before_kib": 1678656,
+      "peak_rss_kib": 1784764,
+      "sidecar_bytes": 8055044682,
+      "event_counts": {
+        "1": 5700886,
+        "2": 40061682
+      },
+      "counters_sha256": "d19eb65efff0a93b288db7db0850f50ee25b1904a952338fcb71607c8c29b063",
+      "roots": [
+        1,
+        35
+      ],
+      "realizations_per_root": 5000,
+      "mode": "arrow",
+      "workers": 1,
+      "duckdb": "1.5.6",
+      "pyarrow": "26.0.1",
+      "column_sha256": {
+        "x": "e841482a7b69dea8bd831394cb4f5cd9044d5017e7ee692ccf6980b9f74bea43",
+        "y": "8d9a2821a55a64d5d3233f5efcc337227a23eb51c7cbdd0ee9cb6061c8ea7010",
+        "z": "b80e4e8669bd1c5fe5529c39515a1fcc8480b3a6e9639f4153fc94ecefc09622",
+        "t": "f7d32d7d00beb78dbdb17a54a93afbc8064e45591ddc6f2d34294ae54847fb40",
+        "vx": "6e209b05f0669059498e40be4ab0cfb4346749e6207a689dc033f0284cb1580a",
+        "vy": "eba04106345e8d449bddd4956bc2265c6e531dfd39cb7bfefe5480375d3acec0",
+        "vz": "591fe360138edc800c730bf9d875804d1a6099f56fbb465ef60b4ea78a1c8a16",
+        "ox": "562e5be36f893bcbc200c9db9d93ba05d9edf2081d1f14f81ee19160be58bd49",
+        "oy": "1dd23b4ef910c5015a0aedeb86311c8b8e3b4c75df3c871547f00370f567e3b3",
+        "oz": "d6483d507beb98d8a83337b14e3cd23d1da4814f82e72802dfba3e17fe376ebf",
+        "rot_energy": "9ffa5d0b0ca91384a93ddf1f69c47b95e4d00fbbdb6d5127fdf744d0295cb657",
+        "vibrational_energy": "4cfe1a0eaf25ffd3eafdbbb8a490d989aac33f2a89b1b8ee7c32b98719b1350d",
+        "theta": "cb0d7ed6c9f0aa481fe2426114ee7f9e93fcffa704dbe30ccbde5e4576ef8164",
+        "u_norm": "bd614d08ff7f6b5e673ec0698c97d484ea977e6eb18d86f0f0ca3c9b533b53ea",
+        "realization_index": "c6ed452aae2bdf665c98c99f6175f2f57f236face54fd083a4a13c94ee98779c",
+        "event_kind": "fff4ca1dde9ff1641bdbc7b912a23104464a9f4d1aaf7a79a5e056dc1ad23d63",
+        "particle_index": "571035ab18ad2753720b688473a9e8202dd6a71e34939e29856f4b0cbdc15054",
+        "transition_index": "71476f1100ab0f82435db64b4a6af4b99bc82af3fa2e061a0eb04a6491863b63",
+        "next_particle_index": "58172fbd10b26776fd646d7af98f01f42cb9dfd7dd9e24413b812ea4dd110c3f",
+        "accepted": "f213265fcb45cba103503e82c4422ace10d98964acfe8472c0b27d44bed896f9",
+        "result_id": "facdd0b27f1fe2e975abfe9f31c2465d8b1899cfa4f9be025f3c06b811e68340",
+        "event_index": "02661056b415dc4eb4ea49ffcf7e1cd6d1c51d146ac2418d48192ed3ed673933"
+      }
+    },
+    {
+      "wall_seconds": 31.634616498020478,
+      "cpu_seconds": 375.112621123,
+      "rss_before_kib": 1676392,
+      "peak_rss_kib": 2171032,
+      "sidecar_bytes": 4345117854,
+      "event_counts": {
+        "1": 5700886,
+        "2": 40061682
+      },
+      "counters_sha256": "d19eb65efff0a93b288db7db0850f50ee25b1904a952338fcb71607c8c29b063",
+      "roots": [
+        1,
+        35
+      ],
+      "realizations_per_root": 5000,
+      "mode": "parquet",
+      "workers": 4,
+      "duckdb": "1.5.6",
+      "pyarrow": "26.0.1",
+      "column_sha256": {
+        "x": "e841482a7b69dea8bd831394cb4f5cd9044d5017e7ee692ccf6980b9f74bea43",
+        "y": "8d9a2821a55a64d5d3233f5efcc337227a23eb51c7cbdd0ee9cb6061c8ea7010",
+        "z": "b80e4e8669bd1c5fe5529c39515a1fcc8480b3a6e9639f4153fc94ecefc09622",
+        "t": "f7d32d7d00beb78dbdb17a54a93afbc8064e45591ddc6f2d34294ae54847fb40",
+        "vx": "6e209b05f0669059498e40be4ab0cfb4346749e6207a689dc033f0284cb1580a",
+        "vy": "eba04106345e8d449bddd4956bc2265c6e531dfd39cb7bfefe5480375d3acec0",
+        "vz": "591fe360138edc800c730bf9d875804d1a6099f56fbb465ef60b4ea78a1c8a16",
+        "ox": "562e5be36f893bcbc200c9db9d93ba05d9edf2081d1f14f81ee19160be58bd49",
+        "oy": "1dd23b4ef910c5015a0aedeb86311c8b8e3b4c75df3c871547f00370f567e3b3",
+        "oz": "d6483d507beb98d8a83337b14e3cd23d1da4814f82e72802dfba3e17fe376ebf",
+        "rot_energy": "9ffa5d0b0ca91384a93ddf1f69c47b95e4d00fbbdb6d5127fdf744d0295cb657",
+        "vibrational_energy": "4cfe1a0eaf25ffd3eafdbbb8a490d989aac33f2a89b1b8ee7c32b98719b1350d",
+        "theta": "cb0d7ed6c9f0aa481fe2426114ee7f9e93fcffa704dbe30ccbde5e4576ef8164",
+        "u_norm": "bd614d08ff7f6b5e673ec0698c97d484ea977e6eb18d86f0f0ca3c9b533b53ea",
+        "realization_index": "c6ed452aae2bdf665c98c99f6175f2f57f236face54fd083a4a13c94ee98779c",
+        "event_kind": "fff4ca1dde9ff1641bdbc7b912a23104464a9f4d1aaf7a79a5e056dc1ad23d63",
+        "particle_index": "571035ab18ad2753720b688473a9e8202dd6a71e34939e29856f4b0cbdc15054",
+        "transition_index": "71476f1100ab0f82435db64b4a6af4b99bc82af3fa2e061a0eb04a6491863b63",
+        "next_particle_index": "58172fbd10b26776fd646d7af98f01f42cb9dfd7dd9e24413b812ea4dd110c3f",
+        "accepted": "f213265fcb45cba103503e82c4422ace10d98964acfe8472c0b27d44bed896f9",
+        "result_id": "facdd0b27f1fe2e975abfe9f31c2465d8b1899cfa4f9be025f3c06b811e68340",
+        "event_index": "02661056b415dc4eb4ea49ffcf7e1cd6d1c51d146ac2418d48192ed3ed673933"
+      }
+    },
+    {
+      "wall_seconds": 32.494898687000386,
+      "cpu_seconds": 396.073351337,
+      "rss_before_kib": 1678400,
+      "peak_rss_kib": 2176484,
+      "sidecar_bytes": 4044017296,
+      "event_counts": {
+        "1": 5700886,
+        "2": 40061682
+      },
+      "counters_sha256": "d19eb65efff0a93b288db7db0850f50ee25b1904a952338fcb71607c8c29b063",
+      "roots": [
+        1,
+        35
+      ],
+      "realizations_per_root": 5000,
+      "mode": "zstd",
+      "workers": 4,
+      "duckdb": "1.5.6",
+      "pyarrow": "26.0.1",
+      "column_sha256": {
+        "x": "e841482a7b69dea8bd831394cb4f5cd9044d5017e7ee692ccf6980b9f74bea43",
+        "y": "8d9a2821a55a64d5d3233f5efcc337227a23eb51c7cbdd0ee9cb6061c8ea7010",
+        "z": "b80e4e8669bd1c5fe5529c39515a1fcc8480b3a6e9639f4153fc94ecefc09622",
+        "t": "f7d32d7d00beb78dbdb17a54a93afbc8064e45591ddc6f2d34294ae54847fb40",
+        "vx": "6e209b05f0669059498e40be4ab0cfb4346749e6207a689dc033f0284cb1580a",
+        "vy": "eba04106345e8d449bddd4956bc2265c6e531dfd39cb7bfefe5480375d3acec0",
+        "vz": "591fe360138edc800c730bf9d875804d1a6099f56fbb465ef60b4ea78a1c8a16",
+        "ox": "562e5be36f893bcbc200c9db9d93ba05d9edf2081d1f14f81ee19160be58bd49",
+        "oy": "1dd23b4ef910c5015a0aedeb86311c8b8e3b4c75df3c871547f00370f567e3b3",
+        "oz": "d6483d507beb98d8a83337b14e3cd23d1da4814f82e72802dfba3e17fe376ebf",
+        "rot_energy": "9ffa5d0b0ca91384a93ddf1f69c47b95e4d00fbbdb6d5127fdf744d0295cb657",
+        "vibrational_energy": "4cfe1a0eaf25ffd3eafdbbb8a490d989aac33f2a89b1b8ee7c32b98719b1350d",
+        "theta": "cb0d7ed6c9f0aa481fe2426114ee7f9e93fcffa704dbe30ccbde5e4576ef8164",
+        "u_norm": "bd614d08ff7f6b5e673ec0698c97d484ea977e6eb18d86f0f0ca3c9b533b53ea",
+        "realization_index": "c6ed452aae2bdf665c98c99f6175f2f57f236face54fd083a4a13c94ee98779c",
+        "event_kind": "fff4ca1dde9ff1641bdbc7b912a23104464a9f4d1aaf7a79a5e056dc1ad23d63",
+        "particle_index": "571035ab18ad2753720b688473a9e8202dd6a71e34939e29856f4b0cbdc15054",
+        "transition_index": "71476f1100ab0f82435db64b4a6af4b99bc82af3fa2e061a0eb04a6491863b63",
+        "next_particle_index": "58172fbd10b26776fd646d7af98f01f42cb9dfd7dd9e24413b812ea4dd110c3f",
+        "accepted": "f213265fcb45cba103503e82c4422ace10d98964acfe8472c0b27d44bed896f9",
+        "result_id": "facdd0b27f1fe2e975abfe9f31c2465d8b1899cfa4f9be025f3c06b811e68340",
+        "event_index": "02661056b415dc4eb4ea49ffcf7e1cd6d1c51d146ac2418d48192ed3ed673933"
+      }
+    }
+  ]
+}

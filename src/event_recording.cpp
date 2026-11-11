@@ -1,105 +1,41 @@
 #include "event_recording.h"
-#include "arrow_event_batch.h"
-#include "arrow_ipc_footer.h"
 #include "parquet_event_writer.h"
 
 #include <array>
 #include <cstring>
+#include <cstdlib>
+#include <flatcc/flatcc_builder.h>
+#include <nanoarrow/ipc/flatcc_generated.h>
 #include <filesystem>
 #include <fstream>
 #include <limits>
 #include <mutex>
 #include <stdexcept>
+#include <string_view>
 #include <utility>
-#include <arrow/io/memory.h>
-#include <arrow/util/endian.h>
+#include <nanoarrow/nanoarrow_ipc.hpp>
 
 namespace
 {
-using arrow::ipc::internal::FileBlock;
-constexpr std::array<char, 8> ipc_header{'A', 'R', 'R', 'O', 'W', '1', 0, 0};
-constexpr std::array<unsigned char, 8> ipc_end{255, 255, 255, 255, 0, 0, 0, 0};
-constexpr int64_t trailer_size = sizeof(int32_t) + 6;
+constexpr auto &names = event_column_names;
 
-// The stream must be seekable for append, where we overwrite the old ending.
-class IpcOutputStream final : public arrow::io::OutputStream
+void check(int status, const ArrowError &error = {})
 {
-public:
-  mutable std::fstream file;
-
-  arrow::Status Write(const void *data, int64_t length) override
-  {
-    file.write(static_cast<const char *>(data), length);
-    return arrow::Status::OK();
-  }
-
-  arrow::Result<int64_t> Tell() const override
-  {
-    return static_cast<int64_t>(file.tellp());
-  }
-
-  arrow::Status Close() override
-  {
-    file.close();
-    return arrow::Status::OK();
-  }
-
-  bool closed() const override
-  {
-    return !file.is_open();
-  }
-};
-
-template <typename T>
-T read_little_endian(const void *data)
-{
-  T value{};
-  std::memcpy(&value, data, sizeof(value));
-  return arrow::bit_util::FromLittleEndian(value);
+  if (status != NANOARROW_OK)
+    throw std::runtime_error("Event IPC: " + std::string(error.message) + " (error " + std::to_string(status) + ")");
 }
 
-// Arrow verifies the FlatBuffer before we reach this code. Its file reader
-// exposes the schema and batch count but keeps the block descriptors private.
-// Read just the two Block vectors from the verified Footer in Arrow's File.fbs.
-const uint8_t *footer_blocks(const uint8_t *footer, uint16_t slot)
+ArrowBufferView view(const void *data, int64_t size)
 {
-  const auto *table = footer + read_little_endian<uint32_t>(footer);
-  const auto *vtable = table - read_little_endian<int32_t>(table);
-  if (slot >= read_little_endian<uint16_t>(vtable))
-    return nullptr;
-  const auto field = read_little_endian<uint16_t>(vtable + slot);
-  if (field == 0)
-    return nullptr;
-  const auto *offset = table + field;
-  return offset + read_little_endian<uint32_t>(offset);
+  ArrowBufferView out{};
+  out.data.data = data; // NOLINT(cppcoreguidelines-pro-type-union-access): nanoarrow buffer view API.
+  out.size_bytes = size;
+  return out;
 }
 
-std::vector<FileBlock> read_blocks(const uint8_t *footer, int64_t end)
+std::array<char, 4> little_endian(uint32_t value)
 {
-  constexpr uint16_t dictionaries_slot = 8;
-  constexpr uint16_t record_batches_slot = 10;
-  constexpr size_t block_size = 24;
-  const auto *dictionaries = footer_blocks(footer, dictionaries_slot);
-  if (dictionaries != nullptr && read_little_endian<uint32_t>(dictionaries) != 0)
-    throw std::runtime_error("Event IPC: dictionary batches are unsupported");
-
-  const auto *batches = footer_blocks(footer, record_batches_slot);
-  if (batches == nullptr)
-    return {};
-  const auto count = read_little_endian<uint32_t>(batches);
-  std::vector<FileBlock> blocks;
-  blocks.reserve(count);
-  for (uint32_t i = 0; i < count; ++i)
-  {
-    const auto *data = batches + sizeof(uint32_t) + (i * block_size);
-    const FileBlock block{read_little_endian<int64_t>(data), read_little_endian<int32_t>(data + 8),
-                          read_little_endian<int64_t>(data + 16)};
-    if (block.offset < 8 || block.metadata_length <= 0 || block.body_length < 0 ||
-        block.offset > end - block.metadata_length || block.body_length > end - block.offset - block.metadata_length)
-      throw std::runtime_error("Event IPC: invalid batch offsets");
-    blocks.push_back(block);
-  }
-  return blocks;
+  return {static_cast<char>(value), static_cast<char>(value >> 8U), static_cast<char>(value >> 16U), static_cast<char>(value >> 24U)};
 }
 } // namespace
 
@@ -109,10 +45,13 @@ struct IpcEventWriter::Impl
   bool leased{false};
   bool sealed{false};
   std::filesystem::path path;
-  IpcOutputStream output;
-  std::shared_ptr<arrow::Schema> schema;
-  arrow::ipc::IpcWriteOptions options = arrow::ipc::IpcWriteOptions::Defaults();
-  std::vector<FileBlock> blocks;
+  std::fstream file;
+  nanoarrow::ipc::UniqueEncoder encoder;
+  nanoarrow::ipc::UniqueFooter footer;
+  nanoarrow::UniqueArrayView array;
+  nanoarrow::UniqueArray data;
+  nanoarrow::UniqueBuffer metadata;
+  nanoarrow::UniqueBuffer body;
   int64_t rows{0};
   bool closed{false};
   bool write_failed{false};
@@ -133,79 +72,116 @@ struct IpcEventWriter::Impl
 
   std::array<int64_t, 2> counts() const
   {
-    return {static_cast<int64_t>(blocks.size()), rows};
+    if (parquet)
+      return {0, rows};
+    return {footer->record_batch_blocks.size_bytes / static_cast<int64_t>(sizeof(ArrowIpcFileBlock)), rows};
   }
 
-  Impl(const std::string &path, bool append, const std::string &archive_id)
-      : path(std::u8string(path.begin(), path.end())),
-        schema(event_schema()->WithMetadata(arrow::key_value_metadata(
-          {"apitofsim:event_schema", "apitofsim:archive_id"}, {"1", archive_id})))
+  Impl(const std::string &path, bool append, const std::string &archive_id) : path(std::u8string(path.begin(), path.end()))
   {
-    auto &file = output.file;
+    ArrowError error{};
+    check(ArrowIpcEncoderInit(encoder.get()));
+    ArrowSchemaInit(&footer->schema);
+    check(ArrowSchemaSetTypeStruct(&footer->schema, names.size()));
+    for (size_t i = 0; i < names.size(); ++i)
+    {
+      auto *field = footer->schema.children[i];
+      check(ArrowSchemaSetType(field, i < 14 ? NANOARROW_TYPE_DOUBLE : NANOARROW_TYPE_INT64));
+      check(ArrowSchemaSetName(field, names[i]));
+      field->flags = 0;
+    }
+    nanoarrow::UniqueBuffer schema_metadata;
+    check(ArrowMetadataBuilderInit(schema_metadata.get(), nullptr));
+    check(ArrowMetadataBuilderAppend(schema_metadata.get(), ArrowCharView("apitofsim:event_schema"), ArrowCharView("1")));
+    check(ArrowMetadataBuilderAppend(schema_metadata.get(), ArrowCharView("apitofsim:archive_id"), ArrowCharView(archive_id.c_str())));
+    check(ArrowSchemaSetMetadata(&footer->schema, reinterpret_cast<const char *>(schema_metadata->data))); // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast): binary IPC buffer.
     file.exceptions(std::ios::failbit | std::ios::badbit);
+    if (!append)
+    {
+      std::ofstream create(this->path, std::ios::binary | std::ios::trunc);
+      create.exceptions(std::ios::failbit | std::ios::badbit);
+      create.close();
+    }
+    file.open(this->path, std::ios::binary | std::ios::in | std::ios::out);
     if (append)
     {
-      file.open(this->path, std::ios::binary | std::ios::in | std::ios::out);
-      reopen(archive_id);
+      reopen(error, archive_id);
     }
     else
     {
-      file.open(this->path, std::ios::binary | std::ios::out | std::ios::trunc);
-      check_arrow(output.Write(ipc_header.data(), ipc_header.size()));
-      const auto message = unwrap_arrow(arrow::ipc::SerializeSchema(*schema));
-      check_arrow(output.Write(message->data(), message->size()));
+      file.write("ARROW1\0\0", 8);
+      check(ArrowIpcEncoderEncodeSchema(encoder.get(), &footer->schema, &error), error);
+      check(ArrowIpcEncoderFinalizeBuffer(encoder.get(), 1, metadata.get()));
+      write_buffer(metadata.get());
     }
+    check(ArrowArrayViewInitFromSchema(array.get(), &footer->schema, &error), error);
+    check(ArrowArrayInitFromSchema(data.get(), &footer->schema, &error), error);
   }
 
-  void reopen(const std::string &archive_id)
+  void reopen(ArrowError &error, const std::string &archive_id)
   {
-    auto &file = output.file;
     file.seekg(0, std::ios::end);
     const auto size = static_cast<int64_t>(file.tellg());
-    constexpr int64_t header_size = ipc_header.size();
-    constexpr int64_t ending_size = trailer_size + ipc_end.size();
-    if (size < ending_size + header_size)
+    if (size < 26)
       throw std::runtime_error("Event IPC: truncated archive");
-    std::array<char, ipc_header.size()> header{};
+    std::array<char, 8> header{};
     file.seekg(0);
     file.read(header.data(), header.size());
-    if (header != ipc_header)
+    if (std::memcmp(header.data(), "ARROW1\0\0", header.size()) != 0)
       throw std::runtime_error("Event IPC: invalid archive header");
-    std::array<char, trailer_size> trailer{};
-    file.seekg(size - trailer_size);
-    file.read(trailer.data(), trailer.size());
-    const auto footer_size = read_little_endian<int32_t>(trailer.data());
-    if (footer_size <= 0 || footer_size > size - ending_size - header_size)
+    std::array<unsigned char, 10> ending{};
+    file.seekg(size - 10);
+    file.read(reinterpret_cast<char *>(ending.data()), ending.size()); // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast): binary IPC buffer.
+    const auto footer_size = static_cast<int64_t>(static_cast<uint32_t>(ending[0]) | (static_cast<uint32_t>(ending[1]) << 8U) |
+                                                  (static_cast<uint32_t>(ending[2]) << 16U) | (static_cast<uint32_t>(ending[3]) << 24U));
+    if (std::memcmp(ending.data() + 4, "ARROW1", 6) != 0 || footer_size > size - 26 || footer_size <= 0)
       throw std::runtime_error("Event IPC: invalid archive footer");
-    const auto end = size - ending_size - footer_size;
-
-    std::vector<char> tail(static_cast<size_t>(footer_size + ending_size));
-    file.seekg(end);
+    std::vector<char> tail(static_cast<size_t>(footer_size + 10));
+    file.seekg(size - static_cast<int64_t>(tail.size()));
     file.read(tail.data(), static_cast<std::streamsize>(tail.size()));
-    if (std::memcmp(tail.data(), ipc_end.data(), ipc_end.size()) != 0)
-      throw std::runtime_error("Event IPC: invalid end marker");
-
-    // Opening a file reader only reads the trailer and footer. Give it the
-    // same bytes we will use for the block offsets, with no batch data at all.
-    auto buffer = arrow::Buffer::Wrap(tail);
-    auto reader = unwrap_arrow(arrow::ipc::RecordBatchFileReader::Open(
-      std::make_shared<arrow::io::BufferReader>(buffer)));
-    const auto &old_schema = reader->schema();
-    if (old_schema->num_fields() != schema->num_fields())
+    nanoarrow::ipc::UniqueDecoder decoder;
+    check(ArrowIpcDecoderInit(decoder.get()));
+    auto data = view(tail.data(), static_cast<int64_t>(tail.size()));
+    check(ArrowIpcDecoderVerifyFooter(decoder.get(), data, &error), error);
+    check(ArrowIpcDecoderDecodeFooter(decoder.get(), data, &error), error);
+    const auto *old = decoder->footer;
+    if (std::cmp_not_equal(old->schema.n_children, names.size()) || old->dictionary_blocks.size_bytes != 0)
       throw std::runtime_error("Event IPC: unsupported event schema");
-    for (int i = 0; i < schema->num_fields(); ++i)
+    for (size_t i = 0; i < names.size(); ++i)
     {
-      const auto &field = old_schema->field(i);
-      const auto &expected = schema->field(i);
-      if (field->name() != expected->name() || !field->type()->Equals(expected->type()))
+      const auto *field = old->schema.children[i];
+      if (field->name == nullptr || field->format == nullptr || field->dictionary != nullptr || field->n_children != 0 ||
+          std::string_view(field->name) != names[i] || std::strcmp(field->format, footer->schema.children[i]->format) != 0)
         throw std::runtime_error("Event IPC: incompatible event schema");
     }
-    const auto &metadata = old_schema->metadata();
-    const auto identity = metadata ? metadata->Get("apitofsim:archive_id") : arrow::Status::KeyError("Missing archive identity");
-    if (!identity.ok() || *identity != archive_id)
+    ArrowStringView id{};
+    check(ArrowMetadataGetValue(old->schema.metadata, ArrowCharView("apitofsim:archive_id"), &id));
+    if (id.data == nullptr || std::string_view(id.data, static_cast<size_t>(id.size_bytes)) != archive_id)
       throw std::runtime_error("Event IPC: archive identity mismatch");
-    blocks = read_blocks(buffer->data() + ipc_end.size(), end);
-    file.seekp(end);
+    check(ArrowBufferAppend(&footer->record_batch_blocks, old->record_batch_blocks.data, old->record_batch_blocks.size_bytes));
+    // Our files always end their embedded stream with the eight-byte EOS marker.
+    const int64_t offset = size - footer_size - 18;
+    const auto count = footer->record_batch_blocks.size_bytes / static_cast<int64_t>(sizeof(ArrowIpcFileBlock));
+    for (int64_t i = 0; i < count; ++i)
+    {
+      ArrowIpcFileBlock block{};
+      std::memcpy(&block, footer->record_batch_blocks.data + (i * sizeof(block)), sizeof(block));
+      if (block.offset < 8 || block.metadata_length <= 0 || block.body_length < 0 ||
+          block.offset > offset - block.metadata_length || block.body_length > offset - block.offset - block.metadata_length)
+        throw std::runtime_error("Event IPC: invalid batch offsets");
+    }
+    std::array<unsigned char, 8> eos{};
+    file.seekg(offset);
+    file.read(reinterpret_cast<char *>(eos.data()), eos.size()); // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast): binary IPC buffer.
+    constexpr std::array<unsigned char, 8> expected_eos{255, 255, 255, 255, 0, 0, 0, 0};
+    if (eos != expected_eos)
+      throw std::runtime_error("Event IPC: invalid end marker");
+    file.seekp(offset);
+  }
+
+  void write_buffer(const ArrowBuffer *buffer)
+  {
+    file.write(reinterpret_cast<const char *>(buffer->data), buffer->size_bytes); // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast): binary IPC buffer.
   }
 
   void write(const EventColumns &columns, int64_t result_id, const std::vector<int64_t> &indices)
@@ -214,14 +190,41 @@ struct IpcEventWriter::Impl
       throw std::invalid_argument("Analytical event writing requires an owned batch");
     if (closed)
       throw std::runtime_error("Event IPC: writer is closed");
-    if (indices.empty())
+    const auto count = static_cast<int64_t>(indices.size());
+    if (count == 0)
       return;
-    const std::vector<int64_t> results(indices.size(), result_id);
-    const auto batch = event_batch(schema, columns, results, indices);
-    FileBlock block{unwrap_arrow(output.Tell()), 0, 0};
-    check_arrow(arrow::ipc::WriteRecordBatch(*batch, 0, &output, &block.metadata_length, &block.body_length, options));
-    blocks.push_back(block);
-    rows += batch->num_rows();
+    std::vector<int64_t> results(indices.size(), result_id);
+    data->length = count;
+    data->null_count = 0;
+    auto column = [&](size_t i, const auto &values)
+    {
+      if (values.size() != indices.size())
+        throw std::invalid_argument("Event IPC: inconsistent column lengths");
+      auto *child = data->children[i];
+      child->length = count;
+      child->null_count = 0;
+      child->buffers[0] = nullptr;
+      child->buffers[1] = values.data();
+    };
+    for (size_t i = 0; i < columns.values.size(); ++i)
+      column(i, columns.values[i]);
+    for (size_t i = 0; i < columns.indices.size(); ++i)
+      column(i + columns.values.size(), columns.indices[i]);
+    column(20, results);
+    column(21, indices);
+    check(ArrowBufferResize(metadata.get(), 0, 0));
+    check(ArrowBufferResize(body.get(), 0, 0));
+    ArrowError error{};
+    check(ArrowArrayViewSetArray(array.get(), data.get(), &error), error);
+    check(ArrowIpcEncoderEncodeSimpleRecordBatch(encoder.get(), array.get(), body.get(), &error), error);
+    check(ArrowIpcEncoderFinalizeBuffer(encoder.get(), 1, metadata.get()));
+    if (metadata->size_bytes > std::numeric_limits<int32_t>::max())
+      throw std::overflow_error("Event IPC: batch metadata too large");
+    const ArrowIpcFileBlock block{static_cast<int64_t>(file.tellp()), static_cast<int32_t>(metadata->size_bytes), body->size_bytes};
+    check(ArrowBufferAppend(&footer->record_batch_blocks, &block, sizeof(block)));
+    write_buffer(metadata.get());
+    write_buffer(body.get());
+    rows += count;
   }
 
   void close()
@@ -236,18 +239,59 @@ struct IpcEventWriter::Impl
       closed = true;
       return;
     }
-    check_arrow(output.Write(ipc_end.data(), ipc_end.size()));
-    const auto start = unwrap_arrow(output.Tell());
-    check_arrow(arrow::ipc::internal::WriteFileFooter(
-      *schema, {}, blocks, arrow::key_value_metadata({"apitofsim:executions"}, {executions}), &output));
-    const auto size = unwrap_arrow(output.Tell()) - start;
-    if (size <= 0 || size > std::numeric_limits<int32_t>::max())
-      throw std::overflow_error("Event IPC: invalid footer size");
-    const auto length = arrow::bit_util::ToLittleEndian(static_cast<int32_t>(size));
-    check_arrow(output.Write(&length, sizeof(length)));
-    check_arrow(output.Write(ipc_header.data(), 6));
-    const auto end = static_cast<uintmax_t>(unwrap_arrow(output.Tell()));
-    check_arrow(output.Close());
+    const auto continuation = little_endian(UINT32_MAX);
+    const auto zero = little_endian(0);
+    file.write(continuation.data(), continuation.size());
+    file.write(zero.data(), zero.size());
+    check(ArrowBufferResize(metadata.get(), 0, 0));
+    ArrowError error{};
+    check(ArrowIpcEncoderEncodeFooter(encoder.get(), footer.get(), &error), error);
+    check(ArrowIpcEncoderFinalizeBuffer(encoder.get(), 0, metadata.get()));
+    // The stable schema remains identical in the initial message and footer.
+    // Per-execution completion records belong to the footer's custom metadata.
+    struct Builder
+    {
+      flatcc_builder_t value{};
+      Builder()
+      {
+        check(flatcc_builder_init(&value));
+      }
+      ~Builder()
+      {
+        flatcc_builder_clear(&value);
+      }
+    } builder;
+    auto *b = &builder.value;
+    const auto *original = org_apache_arrow_flatbuf_Footer_as_root(metadata->data);
+    check(org_apache_arrow_flatbuf_Footer_start_as_root(b));
+    check(org_apache_arrow_flatbuf_Footer_version_pick(b, original));
+    check(org_apache_arrow_flatbuf_Footer_schema_pick(b, original));
+    check(org_apache_arrow_flatbuf_Footer_dictionaries_pick(b, original));
+    check(org_apache_arrow_flatbuf_Footer_recordBatches_pick(b, original));
+    check(org_apache_arrow_flatbuf_Footer_custom_metadata_start(b));
+    check(org_apache_arrow_flatbuf_Footer_custom_metadata_push_start(b));
+    check(org_apache_arrow_flatbuf_KeyValue_key_create_str(b, "apitofsim:executions"));
+    check(org_apache_arrow_flatbuf_KeyValue_value_create_str(b, executions.c_str()));
+    if (org_apache_arrow_flatbuf_Footer_custom_metadata_push_end(b) == nullptr)
+      throw std::bad_alloc();
+    check(org_apache_arrow_flatbuf_Footer_custom_metadata_end(b));
+    if (org_apache_arrow_flatbuf_Footer_end_as_root(b) == 0)
+      throw std::bad_alloc();
+    size_t footer_size = 0;
+    std::unique_ptr<void, decltype(&std::free)> encoded(flatcc_builder_finalize_buffer(b, &footer_size), &std::free);
+    if (!encoded)
+      throw std::bad_alloc();
+    check(ArrowBufferResize(metadata.get(), 0, 0));
+    check(ArrowBufferAppend(metadata.get(), encoded.get(), static_cast<int64_t>(footer_size)));
+    if (metadata->size_bytes > std::numeric_limits<int32_t>::max())
+      throw std::overflow_error("Event IPC: footer too large");
+    write_buffer(metadata.get());
+    const auto size = little_endian(static_cast<uint32_t>(metadata->size_bytes));
+    file.write(size.data(), size.size());
+    file.write("ARROW1", 6);
+    const auto end = static_cast<uintmax_t>(file.tellp());
+    file.flush();
+    file.close();
     std::filesystem::resize_file(path, end);
     closed = true;
   }
@@ -373,8 +417,8 @@ void IpcEventWriter::abort()
   impl->sealed = true;
   if (impl->parquet)
     impl->parquet->abort();
-  impl->output.file.exceptions(std::ios::goodbit);
-  if (impl->output.file.is_open())
-    impl->output.file.close();
+  impl->file.exceptions(std::ios::goodbit);
+  if (impl->file.is_open())
+    impl->file.close();
   impl->closed = true;
 }

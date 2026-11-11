@@ -1,4 +1,4 @@
-"""Exercise the private Arrow runtime in an installed, repaired wheel."""
+"""Exercise carquet/nanoarrow in an installed wheel without Arrow C++ libraries."""
 
 import os
 import platform
@@ -19,15 +19,12 @@ prefix, suffix = {
     "darwin": ("lib", ".dylib"),
     "win32": ("", ".dll"),
 }[sys.platform]
-library_dirs = set()
+libraries = [file for file in wheel.files if suffix in file.name]
 for name in ("arrow", "parquet"):
-    libraries = [
-        file.locate()
-        for file in wheel.files
-        if file.name.startswith(prefix + name) and suffix in file.name
-    ]
-    assert libraries, f"The wheel must bundle {name}"
-    library_dirs.update(str(file.parent) for file in libraries)
+    assert not any(file.name.startswith(prefix + name) for file in libraries), (
+        f"The wheel must not bundle Arrow C++ {name} libraries"
+    )
+library_dirs = {str(file.locate().parent) for file in libraries}
 
 # The package imports PyArrow for its Python APIs. Load the native extension on
 # its own to check that its DLLs and shared libraries work without those imports.

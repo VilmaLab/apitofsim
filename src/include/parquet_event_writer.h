@@ -33,5 +33,7 @@ private:
 
   void run(const std::string &path, const std::string &archive_id,
            int64_t generation, bool zstd, int column_workers);
+  void encode(const std::string &path, const std::string &archive_id,
+              int64_t generation, bool zstd, int column_workers);
   std::shared_ptr<EventColumns> next();
 };
