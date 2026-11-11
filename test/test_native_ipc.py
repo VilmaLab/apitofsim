@@ -26,6 +26,69 @@ def ordered(table):
     ).to_pydict()
 
 
+def test_native_appender_preserves_cpp_written_ipc(tmp_path):
+    """PyArrow uses Arrow C++ to create an archive independent of nanoarrow."""
+    from apitofsim import apitofsimraw as raw
+
+    path = tmp_path / "cpp-written.arrow"
+    schema = pa.schema(
+        [
+            pa.field(field.name, field.type, nullable=False)
+            for field in persistence.EVENT_SCHEMA
+        ],
+        metadata={b"apitofsim:event_schema": b"1", b"apitofsim:archive_id": b"compat"},
+    )
+    original = pa.RecordBatch.from_arrays(
+        [
+            pa.array(
+                [1.25] if pa.types.is_floating(field.type) else [7], type=field.type
+            )
+            for field in schema
+        ],
+        schema=schema,
+    )
+    with pa.ipc.new_file(path, schema) as writer:
+        writer.write_batch(original)
+    before = path.read_bytes()
+    footer_size = int.from_bytes(before[-10:-6], "little")
+    payload_end = len(before) - footer_size - 18
+
+    writer = raw.IpcEventWriter(str(path), True, "compat")
+    assert writer.batch_count == 1
+    writer.close('{"7":{"status":"complete"}}')
+    assert path.read_bytes()[:payload_end] == before[:payload_end]
+    with pa.ipc.open_file(path) as reader:
+        assert reader.num_record_batches == 1
+        assert reader.schema.equals(schema, check_metadata=True)
+        assert reader.get_batch(0).to_pydict() == original.to_pydict()
+        assert json.loads(reader.metadata[b"apitofsim:executions"]) == {
+            "7": {"status": "complete"}
+        }
+
+
+@pytest.mark.parametrize("case", ["missing-identity", "dictionary"])
+def test_native_appender_rejects_incompatible_cpp_schema(tmp_path, case):
+    from apitofsim import apitofsimraw as raw
+
+    path = tmp_path / "incompatible.arrow"
+    schema = persistence.EVENT_SCHEMA
+    identity = "compat"
+    if case == "dictionary":
+        index = schema.get_field_index("result_id")
+        schema = schema.set(
+            index, pa.field("result_id", pa.dictionary(pa.int64(), pa.int64()))
+        )
+        schema = schema.with_metadata({b"apitofsim:archive_id": b"compat"})
+    else:
+        identity = ""
+    with pa.ipc.new_file(path, schema):
+        pass
+    original = path.read_bytes()
+    with pytest.raises(RuntimeError, match="identity|schema"):
+        raw.IpcEventWriter(str(path), True, identity)
+    assert path.read_bytes() == original
+
+
 def test_recording_and_nonrecording_same_counters(prepared_case, tmp_path):
     ms, substance = inputs(prepared_case)
     plain = api.mass_spec(ms, substance, 3, strict=False)

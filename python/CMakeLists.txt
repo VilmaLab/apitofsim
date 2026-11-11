@@ -7,12 +7,18 @@ find_package(nanobind CONFIG REQUIRED)
 
 nanobind_add_module(apitofsimraw STABLE_ABI NOMINSIZE NB_SUPPRESS_WARNINGS apitofsim.cpp)
 target_link_libraries(apitofsimraw PRIVATE apitofsim)
-if(SKBUILD AND APITOFSIM_USE_VCPKG AND TARGET Arrow::arrow_shared)
-  # CMake omits link directories inside the build tree from the install RPATH.
-  # Give the repair tools the vcpkg path so they can bundle and relink the libraries.
-  if(UNIX)
-    set_property(TARGET apitofsimraw APPEND PROPERTY INSTALL_RPATH "$<TARGET_FILE_DIR:Arrow::arrow_shared>")
-  endif()
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  # Keep the statically linked C dependencies private to this extension.
+  target_link_options(apitofsimraw PRIVATE "LINKER:--exclude-libs,ALL")
+endif()
+if(SKBUILD AND APPLE)
+  # Let delocate find the separately built OpenMP runtime before bundling it.
+  foreach(runtime IN LISTS OpenMP_CXX_LIBRARIES)
+    get_filename_component(runtime_dir "${runtime}" DIRECTORY)
+    set_property(TARGET apitofsimraw APPEND PROPERTY INSTALL_RPATH "${runtime_dir}")
+  endforeach()
+endif()
+if(SKBUILD AND APITOFSIM_USE_VCPKG)
   file(GLOB vcpkg_notices "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/share/*/copyright")
   foreach(notice IN LISTS vcpkg_notices)
     get_filename_component(port "${notice}" DIRECTORY)
@@ -20,10 +26,7 @@ if(SKBUILD AND APITOFSIM_USE_VCPKG AND TARGET Arrow::arrow_shared)
     install(FILES "${notice}" DESTINATION apitofsim/licenses/vcpkg RENAME "${port}.txt")
   endforeach()
 endif()
-if(TARGET Arrow::arrow_static AND NOT TARGET Arrow::arrow_shared AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
-  # Keep statically linked Arrow symbols private when PyArrow is also loaded.
-  target_link_options(apitofsimraw PRIVATE "LINKER:--exclude-libs,ALL")
-endif()
+
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
   target_compile_options(apitofsimraw PRIVATE -Wno-maybe-uninitialized)
 elseif(MSVC AND CMAKE_CXX_COMPILER_ID STREQUAL "Clang")

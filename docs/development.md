@@ -31,8 +31,8 @@ wheel includes the native executables and generated Python type stubs.
 
 For an installed dependency environment such as conda-forge, configure with
 `-DAPITOFSIM_USE_VCPKG=OFF` in a fresh build directory. CMake discovers Eigen,
-oneTBB, Arrow C++ 26, and the matching Parquet library through the environment's
-package prefix. For pip builds, pass `-Ccmake.define.APITOFSIM_USE_VCPKG=OFF`.
+oneTBB and compression libraries through the environment's package prefix.
+The build fetches pinned carquet and nanoarrow sources. For pip builds, pass `-Ccmake.define.APITOFSIM_USE_VCPKG=OFF`.
 
 ## Development
 
@@ -170,28 +170,155 @@ benchmark executables are under `builds/test/test`. Set
 
 ### Native event storage
 
-The IPC recorder requires Arrow C++ 26. CMake checks for its exported
-`arrow::ipc::internal::WriteFileFooter` symbol, which the recorder uses for
-in-place append. The native Parquet writer is built unconditionally and requires
-the matching Parquet C++ package. vcpkg supplies both libraries with Zstandard
-support.
-Use matching PyArrow and Arrow C++ versions when they share one installation.
-Conda packages use matching conda-forge dependencies.
+Native event recording uses carquet for Parquet and nanoarrow 0.9.0 for Arrow
+IPC. CMake fetches pinned sources; an existing checkout can be supplied with
+`FETCHCONTENT_SOURCE_DIR_CARQUET` or `FETCHCONTENT_SOURCE_DIR_NANOARROW`.
+The native build requires Zstandard, zlib, LZ4 and OpenMP support for C and C++.
+With Clang on Linux, install the matching `libomp` development package; on macOS,
+install Homebrew `libomp` and set `OpenMP_ROOT` to its prefix. Release wheels
+build a pinned OpenMP runtime with deployment target 12.0 using
+`ci/setup_macos.sh`. vcpkg supplies the
+compression libraries. Nanoarrow uses the private `apitofsim_` symbol prefix.
+Memory-check CI jobs set `KMP_AFFINITY=disabled` to avoid a libomp x2APIC
+topology-probe allocation leak reproduced independently of carquet. Native leak
+detection remains enabled.
 
-GitHub Release wheels link the Python extension to shared Arrow and Parquet
-libraries built with vcpkg. Wheel repair bundles those libraries and their
-runtime dependencies. The standalone C++ executables link to the simulation
-core. The macOS arm64 wheel requires macOS 12.
+PyArrow remains a Python runtime dependency for event reading and processing.
+The native extension uses the Arrow C Data interface for Python delivery;
+carquet and nanoarrow are linked statically into release wheels. The wheel
+smoke tests assert that no Arrow C++/Parquet libraries are bundled, load the
+native extension without Python dependencies, check both import orders with
+PyArrow, and exercise Zstandard and parallel column encoding. The macOS arm64
+wheel requires macOS 12.
 
-PyArrow remains a Python runtime dependency for reading and processing event
-data. In release wheels its version can vary independently of the bundled
-libraries. The release wheel tests load the native writer by itself, check
-both import orders with PyArrow, and exercise Zstandard and parallel column
-encoding.
+The Parquet recorder writes `EventColumns` vectors directly through carquet's
+C API, using the existing bounded batch queue and recording transactions. It
+caps row groups at 65,536 rows and enables dictionary encoding, statistics,
+archive metadata and Zstandard level 3 where requested. `parquet_column_workers`
+controls carquet encoding concurrency through the OpenMP setting on the
+dedicated writer thread; it does not change TBB's simulation concurrency.
+Carquet also uses its default asynchronous I/O thread. Nanoarrow retains the
+in-place IPC append path and execution metadata in the footer.
 
-The Parquet recorder consumes Arrow record batches directly, caps row groups at
-65,536 rows, and uses level 3 for Zstandard. A worker count above one uses a
-private Arrow column encoder pool.
+`test/bench/parquet_matrix.py` compares separately configured Release builds
+using a cached private model database. For example:
+
+```bash
+python test/bench/parquet_matrix.py /path/to/model.duckdb "$HOME/.scratch/parquet-bench" \
+  --python /path/to/environment/bin/python \
+  --arrow-build "$HOME/.scratch/arrow-build" \
+  --carquet-build "$HOME/.scratch/carquet-build" \
+  --workers 1 2 4 8 --realizations 5000 --repeats 1
+```
+
+The Arrow comparison build must use an older revision with Arrow C++ recording
+(the recorded baseline below is `287d81c`). Both builds need
+`APITOFSIM_BUILD_PYTHON=ON` and `BUILD_TESTING=ON`, which mirrors
+the package into `python/Release` next to its extension. The benchmark selects
+cluster-tree roots 1 and 35 with seed 42. Each case runs in a fresh process;
+preparation is excluded, and execution through durable database close is
+included. Peak RSS includes preparation but excludes the subsequent full-file
+verification. Every event column is hashed in physical order, with realization
+ordering, continuous event indices, row-group limits and compression checked.
+The matrix compares those hashes and simulation counters across all cases,
+retains JSON reports and small logs, and removes its generated databases and
+sidecars after successful verification.
+
+
+#### Original carquet prototype benchmark (2026-11-11)
+
+This repeats the recording workload from [PR #173](https://github.com/VilmaLab/apitofsim/pull/173):
+a private Besel2020 model, cluster-tree roots 1 and 35, 5,000 realizations each,
+seed 42, and 45,762,568 recorded events. Each cell is one end-to-end measurement,
+including simulation, encoding, event sync, database commit/close and database
+sync. Preparation and verification are excluded. Peak RSS includes preparation
+and is sampled before verification. The OS cache was left in place, with normal
+desktop background load. Treat small differences between worker counts as noise.
+
+Hardware: Intel Core Ultra 5 225U, 14 logical CPUs, NVMe/Btrfs, Linux x86-64.
+Both simulation builds use Clang 22.1.8, Release (`-O3 -DNDEBUG -march=native`),
+and LLD. Arrow C++/Parquet 26.0.1 comes from conda-forge; carquet 0.8.0 is built
+from the pinned source with its upstream Release defaults. Both writers link the
+same conda Zstandard library. Python is 3.12.16, PyArrow 26.0.1, DuckDB 1.5.6,
+and oneTBB 2023.1. These fresh measurements use a different library build and
+background load from the original PR, so compare backends within this table.
+
+Both writers request dictionary encoding, statistics, a 65,536-row group limit
+and Zstandard level 3 where enabled. The worker count controls encoding:
+Arrow uses its private column pool, while carquet uses the writer thread's
+OpenMP concurrency setting for its internal encoding workers. Carquet also has
+its default asynchronous I/O thread. Simulation retains default TBB concurrency
+in every case; the table does not count total application threads.
+
+| Recording | Encoding workers | Wall time | Sidecar | Peak process RSS |
+|---|---:|---:|---:|---:|
+| Summary only | — | 32.4 s | — | 1.60 GiB |
+| Arrow IPC | — | 36.0 s | 7.50 GiB | 1.69 GiB |
+| Arrow C++ Parquet, none | 1 | 90.8 s | 4.01 GiB | 2.06 GiB |
+| carquet Parquet, none | 1 | 42.5 s | 4.05 GiB | 1.97 GiB |
+| Arrow C++ Parquet, none | 2 | 66.2 s | 4.01 GiB | 2.10 GiB |
+| carquet Parquet, none | 2 | 40.5 s | 4.05 GiB | 2.10 GiB |
+| Arrow C++ Parquet, none | 4 | 69.6 s | 4.01 GiB | 2.14 GiB |
+| carquet Parquet, none | 4 | 39.2 s | 4.05 GiB | 2.09 GiB |
+| Arrow C++ Parquet, none | 8 | 55.2 s | 4.01 GiB | 2.19 GiB |
+| carquet Parquet, none | 8 | 43.2 s | 4.05 GiB | 2.06 GiB |
+| Arrow C++ Parquet, Zstandard | 1 | 103.2 s | 3.74 GiB | 2.05 GiB |
+| carquet Parquet, Zstandard | 1 | 61.4 s | 3.77 GiB | 1.98 GiB |
+| Arrow C++ Parquet, Zstandard | 2 | 80.5 s | 3.74 GiB | 2.10 GiB |
+| carquet Parquet, Zstandard | 2 | 42.0 s | 3.77 GiB | 2.16 GiB |
+| Arrow C++ Parquet, Zstandard | 4 | 64.8 s | 3.74 GiB | 2.12 GiB |
+| carquet Parquet, Zstandard | 4 | 46.7 s | 3.77 GiB | 2.18 GiB |
+| Arrow C++ Parquet, Zstandard | 8 | 60.3 s | 3.74 GiB | 2.21 GiB |
+| carquet Parquet, Zstandard | 8 | 40.4 s | 3.77 GiB | 2.12 GiB |
+
+Comparing the fastest observed configurations, carquet is 1.41× faster
+uncompressed (39.2 versus 55.2 seconds) and 1.49× faster with Zstandard (40.4
+versus 60.3 seconds). Its files are about 1% larger. With Zstandard, two carquet
+encoding workers already reach 42.0 seconds; higher counts provide no consistent
+improvement in this single-run sweep. These figures measure end-to-end recording.
+
+Every recorded variant has identical simulation counters and identical SHA-256
+hashes for all 22 event columns in physical order. Verification also checks
+result/realization ordering, continuous event indices, row-group limits and
+compression. One interrupted execution-environment session was discarded and
+its incomplete case rerun successfully. The small raw report, source hashes,
+environment and QA details are in `test/bench/results/carquet-20261111.json`.
+Generated databases and sidecars were removed after successful verification.
+
+The benchmark used the initial carquet prototype before the full migration.
+The current implementation uses carquet for all Parquet recording and the
+restored nanoarrow implementation for IPC. The recording API, schema,
+transactions and bounded queue are preserved; downstream readers need no
+changes. The prototype figures above retain their original build provenance.
+
+Validation includes both native concurrency configurations for both backends,
+the full carquet-enabled Python suite (563 passed, one expected skip), strict
+warnings builds, formatting, lint/types, and ASan/UBSan writer tests. Leak
+checking was disabled because the sandbox uses ptrace. A full clang-tidy run
+found one signed-index warning, fixed and rechecked in all changed writer files;
+there were no other project diagnostics. The raw report describes validation of that prototype; the migration PR
+also runs the platform wheel and documentation workflows.
+
+
+#### Migration recording validation (2026-11-11)
+
+The migration was checked separately on the same full Besel2020 workload after
+restoring nanoarrow IPC and making carquet unconditional. Background load
+differed from the earlier sweep, so these rows validate the final recording
+paths rather than provide a new cross-backend speedup comparison. The core
+uses the same Release flags; carquet's upstream implicit LTO is disabled so
+ordinary Clang builds can use their configured linker.
+
+| Recording | Encoding workers | Wall time | Sidecar | Peak process RSS |
+|---|---:|---:|---:|---:|
+| nanoarrow IPC | — | 33.1 s | 7.50 GiB | 1.70 GiB |
+| carquet Parquet, none | 4 | 31.6 s | 4.05 GiB | 2.07 GiB |
+| carquet Parquet, Zstandard | 4 | 32.5 s | 3.77 GiB | 2.08 GiB |
+
+All 45,762,568 events match the original Arrow C++/IPC baseline in every one
+of the 22 physical-order column hashes and all simulation counters. Full-file
+checks again verify row-group limits, codecs, ordering and ordinal continuity.
+The raw records are in `test/bench/results/carquet-nanoarrow-20261111.json`.
 
 `EventColumns` is the common native column layout. A oneTBB pipeline assigns
 realization IDs, simulates histories in parallel, and delivers completed tokens

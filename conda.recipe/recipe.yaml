@@ -64,8 +64,11 @@ requirements:
     - nanobind ==2.9.2
     - eigen
     - tbb-devel >=2023.0
-    - libarrow 26.*
-    - libparquet 26.*
+    - zstd
+    - zlib
+    - lz4-c
+    - if: osx or win
+      then: llvm-openmp
     - if: linux and x86_64
       then:
         - libstdcxx-devel_linux-64 15.2.0.*
@@ -81,7 +84,7 @@ requirements:
     - orjson >= 3.11.4
     - progress-table >= 3.2.2
     - ase >= 3.27.0
-    - pyarrow ==26.0.1
+    - pyarrow >=26.0.1
     - portalocker >= 3.2.0
     - if: win
       then: pywin32
