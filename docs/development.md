@@ -177,11 +177,11 @@ The native build requires Zstandard, zlib, LZ4 and OpenMP support for C and C++.
 With Clang on Linux, install the matching `libomp` development package; on macOS,
 install Homebrew `libomp` and set `OpenMP_ROOT` to its prefix. Release wheels
 build a pinned OpenMP runtime with deployment target 12.0 using
-`ci/setup_macos.sh`. vcpkg supplies the
+`ci/setup_openmp.sh`. vcpkg supplies the
 compression libraries. Nanoarrow uses the private `apitofsim_` symbol prefix.
-Memory-check CI jobs set `KMP_AFFINITY=disabled` to avoid a libomp x2APIC
-topology-probe allocation leak reproduced independently of carquet. Native leak
-detection remains enabled.
+Memory-check CI jobs set `KMP_AFFINITY=none` and `KMP_TOPOLOGY_METHOD=flat` to
+avoid a libomp x2APIC topology-probe allocation leak reproduced independently
+of carquet. Native leak detection remains enabled.
 
 PyArrow remains a Python runtime dependency for event reading and processing.
 The native extension uses the Arrow C Data interface for Python delivery;

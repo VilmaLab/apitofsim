@@ -2,10 +2,14 @@
 
 set -euo pipefail
 
-# Homebrew bottles target newer macOS versions than our wheels. Build the small
-# OpenMP runtime separately so its deployment target also remains macOS 12.
+# Build a pinned OpenMP runtime for Clang CI and macOS wheels. This avoids
+# system package downloads and preserves the macOS 12 deployment target.
 runtime_root=$1
 runtime_version=20.1.8
+runtime_args=()
+if [[ $(uname -s) == Darwin ]]; then
+    runtime_args+=(-DCMAKE_OSX_DEPLOYMENT_TARGET=12.0)
+fi
 mkdir -p "$runtime_root/source/openmp" "$runtime_root/source/cmake"
 for component in openmp cmake; do
     archive="$runtime_root/$component.tar.xz"
@@ -23,10 +27,10 @@ done
 cmake -S "$runtime_root/source/openmp" -B "$runtime_root/build" -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_INSTALL_PREFIX="$runtime_root/install" \
-    -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0 \
     -DLLVM_COMMON_CMAKE_UTILS="$runtime_root/source/cmake" \
     -DOPENMP_ENABLE_LIBOMPTARGET=OFF \
     -DLIBOMP_INSTALL_ALIASES=OFF \
-    -DLIBOMP_OMPT_SUPPORT=OFF
+    -DLIBOMP_OMPT_SUPPORT=OFF \
+    "${runtime_args[@]}"
 cmake --build "$runtime_root/build" --parallel 3
 cmake --install "$runtime_root/build"
