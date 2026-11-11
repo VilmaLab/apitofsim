@@ -67,7 +67,8 @@ requirements:
     - tbb-devel >=2023.0
     - zstd
     - zlib
-    - lz4-c
+    # PyArrow 26 Conda builds use this runtime codec ABI.
+    - lz4-c >=1.10,<1.11
     - llvm-openmp
     - if: linux and x86_64
       then:
