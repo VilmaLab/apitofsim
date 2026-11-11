@@ -6,8 +6,29 @@
 
 namespace
 {
+void add_log_oscillator(Eigen::ArrayXd &logs, int shift)
+{
+  for (Eigen::Index i = shift; i < logs.size(); ++i)
+  {
+    const double previous = logs[i - shift];
+    if (!std::isfinite(previous))
+      continue;
+    if (!std::isfinite(logs[i]))
+      logs[i] = previous;
+    else
+      logs[i] = std::max(logs[i], previous) + std::log1p(std::exp(-std::abs(logs[i] - previous)));
+  }
+}
+
 void add_oscillators(Eigen::ArrayXd &logs, const Eigen::ArrayXd &frequencies, double bin_width)
 {
+  if (frequencies.size() == 0)
+    return;
+  // Prepared tables may contain fractional counts or exceed double's range.
+  // Keep those in log space; physical integer counts can use vectorized sums.
+  bool linear = !(logs.isFinite() && (logs < 0.)).any() && logs.maxCoeff() <= std::log(std::numeric_limits<double>::max() / 2.);
+  Eigen::ArrayXd counts;
+  double largest = 0.;
   for (double frequency : frequencies)
   {
     const double bins = frequency * consts::boltzmann / bin_width;
@@ -16,17 +37,37 @@ void add_oscillators(Eigen::ArrayXd &logs, const Eigen::ArrayXd &frequencies, do
     if (bins >= static_cast<double>(logs.size()))
       continue; // This oscillator remains in its ground state on this grid.
     const int shift = static_cast<int>(std::floor(bins + 0.5));
-    for (Eigen::Index i = shift; i < logs.size(); ++i)
+    if (shift >= logs.size())
+      continue;
+    if (linear)
     {
-      const double previous = logs[i - shift];
-      if (!std::isfinite(previous))
+      if (counts.size() == 0)
+      {
+        counts = logs.unaryExpr([](double value)
+        { return std::exp(value); });
+        largest = counts.maxCoeff();
+      }
+      // Each output sums at most this many old bins along its residue chain.
+      // Leave a factor-of-two margin for rounding and convert before overflow.
+      const Eigen::Index terms = 1 + ((counts.size() - 1) / shift);
+      if (largest <= (std::numeric_limits<double>::max() / 2.) / static_cast<double>(terms))
+      {
+        double *data = counts.data();
+        for (Eigen::Index i = shift; i < counts.size(); ++i)
+          data[i] += data[i - shift];
+        largest = counts.maxCoeff();
         continue;
-      if (!std::isfinite(logs[i]))
-        logs[i] = previous;
-      else
-        logs[i] = std::max(logs[i], previous) + std::log1p(std::exp(-std::abs(logs[i] - previous)));
+      }
+      logs = counts.unaryExpr([](double value)
+      { return std::log(value); });
+      counts.resize(0);
+      linear = false;
     }
+    add_log_oscillator(logs, shift);
   }
+  if (counts.size() != 0)
+    logs = counts.unaryExpr([](double value)
+    { return std::log(value); });
 }
 
 // Log weights avoid products of very large state counts and powers of SI energy.

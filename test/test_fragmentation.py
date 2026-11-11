@@ -128,6 +128,82 @@ def test_fragmentation_snapshot_validation_and_ownership(atomic):
             raw.FragmentationProducts(daughter, neutral, width, 100 * width, invalid)
 
 
+@pytest.mark.parametrize("batch_bytes", [64 * 1024 * 1024, 1500])
+def test_fragmentation_cache_batches_different_grids(
+    tmp_path, monkeypatch, batch_bytes
+):
+    from contextlib import closing
+
+    import pyarrow as pa
+    from apitofsim.workflow import DerivedDataPreparer, ExperimentDatabase, runners
+
+    def cluster(mass, charge):
+        return api.ClusterData(
+            api.Q_(mass, "amu"),
+            api.Q_(0, "hartree"),
+            np.ones(3),
+            np.array([float(mass), float(mass + 20)]),
+            charge,
+        )
+
+    clusters = {i: cluster(140 - 20 * i, -1) for i in (1, 2, 4, 5)}
+    clusters[3] = cluster(20, 0)
+    pathways = {1: (1, 2, 3), 2: (2, 4, 3), 3: (4, 5, 3)}
+    densities = {2: np.ones(100), 4: np.ones(50)}
+    config = {"fragmentation_state_method": "phase-space"}
+    calls = []
+    real_insert = runners.insert_via_arrow
+
+    def insert(conn, table, **kwargs):
+        if table == "fragmentation_dos":
+            assert kwargs["data"].type == pa.list_(pa.float64())
+            calls.append((list(kwargs["key"]), kwargs["data"].to_pylist()))
+        return real_insert(conn, table, **kwargs)
+
+    monkeypatch.setattr(runners, "insert_via_arrow", insert)
+    monkeypatch.setattr(runners, "_FRAGMENTATION_CACHE_BATCH_BYTES", batch_bytes)
+    path = str(tmp_path / "cache.duckdb")
+    snapshots = {}
+    for warm in (False, True):
+        with closing(ExperimentDatabase(path)) as db:
+            if not warm:
+                db.create_tables()
+            preparer = DerivedDataPreparer(db)
+            monkeypatch.setattr(
+                preparer,
+                "histogram",
+                lambda config, data: api.Histogram.from_mesh(
+                    api.Q_(10, "K"), api.Q_(10 * len(data), "K"), data
+                ),
+            )
+            calls.clear()
+            preparer._prepare_fragmentation_products(
+                config, clusters, pathways, densities
+            )
+            if warm:
+                assert calls == []
+                for key, product in preparer.fragmentation_products.items():
+                    np.testing.assert_array_equal(product.log_dos, snapshots[key])
+            else:
+                assert len(calls) == (1 if batch_bytes > 1500 else 4)
+                assert all(
+                    8 * sum(len(row) for row in data) <= batch_bytes or len(keys) == 1
+                    for keys, data in calls
+                )
+                rows = [row for keys, data in calls for row in zip(keys, data)]
+                assert len(rows) == len({key for key, _ in rows}) == 6
+                assert sorted(len(data) for _, data in rows) == [50] * 3 + [100] * 3
+                for key, data in rows:
+                    stored = db.db.execute(
+                        "select data from fragmentation_dos where key = ?", [key]
+                    ).fetchone()[0]
+                    np.testing.assert_array_equal(stored, data)
+                snapshots = {
+                    key: product.log_dos
+                    for key, product in preparer.fragmentation_products.items()
+                }
+
+
 def test_shared_fragmentation_marginals_and_lifetime():
     daughter = raw.MolecularCluster(100, 0, np.ones(3), np.array([1.6, 2.3]), -1)
     neutral = raw.MolecularCluster(20, 0, np.ones(3), np.array([3.7, 1000.0]), 0)
