@@ -1,26 +1,22 @@
 {
   "name": "apitofsim",
   "builtin-baseline": "8469b01206bff843500592f18dcab88b13331da6",
-  "dependencies": ["eigen3", { "name": "tbb", "default-features": false }, "concurrentqueue", "magic-enum"],
+  "dependencies": [
+    "eigen3",
+    { "name": "tbb", "default-features": false },
+    "concurrentqueue",
+    "magic-enum",
+    {
+      "name": "arrow",
+      "default-features": false,
+      "features": ["parquet"],
+      "version>=": "26.0.0"
+    }
+  ],
   "features": {
     "tests": {
       "description": "Build the native test suite",
       "dependencies": ["doctest"]
-    },
-    "arrow": {
-      "description": "Build the Arrow IPC event recorder",
-      "dependencies": [{ "name": "arrow", "default-features": false, "version>=": "26.0.0" }]
-    },
-    "parquet": {
-      "description": "Build the native Apache Arrow Parquet writer",
-      "dependencies": [
-        {
-          "name": "arrow",
-          "default-features": false,
-          "features": ["parquet"],
-          "version>=": "26.0.0"
-        }
-      ]
     }
   }
 }

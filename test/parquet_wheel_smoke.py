@@ -45,7 +45,6 @@ if sys.platform == "win32":
     dll_dirs = [os.add_dll_directory(path) for path in {sorted(library_dirs)!r}]
 sys.path.insert(0, {module_dir!r})
 import apitofsimraw
-assert apitofsimraw.NATIVE_PARQUET
 """,
     ],
     check=True,
@@ -60,8 +59,7 @@ for imports in (
         [
             sys.executable,
             "-c",
-            f"{imports}; assert apitofsim.apitofsimraw.NATIVE_PARQUET; "
-            "from pyarrow.fs import LocalFileSystem; LocalFileSystem()",
+            f"{imports}; from pyarrow.fs import LocalFileSystem; LocalFileSystem()",
         ],
         check=True,
         timeout=30,

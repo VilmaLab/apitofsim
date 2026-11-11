@@ -392,7 +392,6 @@ def run(
     """
     Run simulation according to the configurations in DATABASE.
     """
-    from apitofsim import apitofsimraw
     from apitofsim.recording import validate_recording_options
     from apitofsim.workflow import (
         ExperimentDatabase,
@@ -406,13 +405,8 @@ def run(
         )
     except ValueError as error:
         raise click.UsageError(str(error)) from error
-    if event_format == "parquet":
-        if not record_events:
-            raise click.UsageError("--event-format parquet requires --record-events")
-        if not apitofsimraw.NATIVE_PARQUET:
-            raise click.ClickException(
-                "Parquet recording requires a build with -DAPITOFSIM_NATIVE_PARQUET=ON"
-            )
+    if event_format == "parquet" and not record_events:
+        raise click.UsageError("--event-format parquet requires --record-events")
     with connection_scope(auto_db_type, database) as db:
         if not isinstance(db, ExperimentDatabase):
             raise click.ClickException(
