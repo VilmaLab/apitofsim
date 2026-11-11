@@ -1,6 +1,7 @@
 #include <doctest/doctest.h>
 #include "fragmentation.h"
 #include "consts.h"
+#include <limits>
 
 namespace
 {
@@ -169,4 +170,76 @@ TEST_CASE("fragmentation state counts can exceed floating point density range")
   CHECK(state->omega.allFinite());
   CHECK(state->vibrational_energy > 0);
   CHECK(state->neutral_vibrational_energy > 0);
+}
+
+TEST_CASE("fragmentation DOS matches enumerated oscillator occupations")
+{
+  constexpr int bins = 64;
+  const double width = consts::boltzmann;
+  Eigen::ArrayXd frequencies(3);
+  frequencies << 2.49, 5.01, 7.7; // Rounded shifts 2, 5, 8.
+  Eigen::ArrayXi expected = Eigen::ArrayXi::Zero(bins);
+  for (int a = 0; 2 * a < bins; ++a)
+    for (int b = 0; 2 * a + 5 * b < bins; ++b)
+      for (int c = 0; 2 * a + 5 * b + 8 * c < bins; ++c)
+        ++expected[2 * a + 5 * b + 8 * c];
+  const FragmentationDos direct(frequencies, width, bins * width);
+  const FragmentationDos marginal(frequencies.head(2), width, bins * width);
+  const auto extended = marginal.extend(frequencies.tail(1));
+  for (int i = 0; i < bins; ++i)
+  {
+    if (expected[i] == 0)
+    {
+      CHECK(direct.counts()[i] == -std::numeric_limits<double>::infinity());
+      CHECK(extended->counts()[i] == -std::numeric_limits<double>::infinity());
+    }
+    else
+    {
+      CHECK(direct.counts()[i] == doctest::Approx(std::log(expected[i])).epsilon(1e-13));
+      CHECK(extended->counts()[i] == doctest::Approx(std::log(expected[i])).epsilon(1e-13));
+    }
+  }
+  CHECK((direct.extend(Eigen::ArrayXd{})->counts() == direct.counts()).all());
+  CHECK((direct.extend(Eigen::ArrayXd::Constant(1, bins - 0.1))->counts() == direct.counts()).all());
+  for (double frequency : {0., -1., 0.49, std::numeric_limits<double>::infinity(), std::numeric_limits<double>::quiet_NaN()})
+    CHECK_THROWS_AS(direct.extend(Eigen::ArrayXd::Constant(1, frequency)), ApiTofArgumentError);
+}
+
+TEST_CASE("fragmentation DOS switches to logs before overflow without losing low bins")
+{
+  constexpr int bins = 10000;
+  const double width = consts::boltzmann;
+  const FragmentationDos marginal(Eigen::ArrayXd::Ones(200), width, bins * width);
+  const auto combined = marginal.extend(Eigen::ArrayXd::Ones(200));
+  for (const auto &[modes, counts] : {std::pair{200, &marginal.counts()}, std::pair{400, &combined->counts()}})
+  {
+    CHECK(counts->isFinite().all());
+    CHECK((*counts)[0] == 0.);
+    CHECK((*counts)[bins - 1] > std::log(std::numeric_limits<double>::max()));
+    for (int energy : {1, 9, 100, 1000, bins - 1})
+    {
+      // Identical oscillators have C(energy + modes - 1, modes - 1) states.
+      long double expected = 0.;
+      for (int k = 1; k < modes; ++k)
+        expected += std::log1p(static_cast<long double>(energy) / k);
+      CHECK(std::abs((*counts)[energy] - static_cast<double>(expected)) < 1e-10);
+    }
+  }
+}
+
+TEST_CASE("fragmentation DOS preserves fractional and enormous prepared counts")
+{
+  const double width = consts::boltzmann;
+  for (double value : {-1000., 1000.})
+  {
+    Eigen::ArrayXd logs(4);
+    logs << 0., value, -std::numeric_limits<double>::infinity(), value - 200.;
+    const FragmentationDos prepared(Eigen::ArrayXd{}, width, 4 * width, logs);
+    const auto extended = prepared.extend(Eigen::ArrayXd::Constant(1, 2.));
+    CHECK(extended->counts()[0] == 0.);
+    CHECK(extended->counts()[1] == value);
+    CHECK(extended->counts()[2] == 0.);
+    CHECK(extended->counts()[3] == doctest::Approx(value + std::log1p(std::exp(-200.))));
+    CHECK((prepared.counts() == logs).all());
+  }
 }

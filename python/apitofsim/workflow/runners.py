@@ -42,6 +42,7 @@ from .db_utils import get_or_insert, get_through_join_else, insert_via_arrow
 
 ureg = get_application_registry()
 Q_ = ureg.Quantity
+_FRAGMENTATION_CACHE_BATCH_BYTES = 64 * 1024 * 1024
 
 
 def counter_fragmented_total(counters):
@@ -667,12 +668,28 @@ class DerivedDataPreparer:
         parents = {parent for parent, _, _ in pathways.values()}
         prepared = {}
         hits = misses = 0
+        pending_keys = []
+        pending_data = []
+        pending_bytes = 0
+
+        def flush_cache():
+            nonlocal pending_bytes
+            if pending_keys:
+                insert_via_arrow(
+                    self.db.db,
+                    "fragmentation_dos",
+                    key=pending_keys,
+                    data=pa.chunked_array(pending_data),
+                )
+                pending_keys.clear()
+                pending_data.clear()
+                pending_bytes = 0
 
         def cache_key(identity):
             return hashlib.sha256(json.dumps(identity).encode()).hexdigest()
 
         def prepare(identity, grid, build):
-            nonlocal hits, misses
+            nonlocal hits, misses, pending_bytes
             key = cache_key(identity)
             if key not in prepared:
                 rows = self.db.db.execute(
@@ -689,12 +706,15 @@ class DerivedDataPreparer:
                 else:
                     prepared[key] = build()
                     data = prepared[key].log_counts
-                    insert_via_arrow(
-                        self.db.db,
-                        "fragmentation_dos",
-                        key=[key],
-                        data=pa.FixedSizeListArray.from_arrays(data, len(data)),
-                    )
+                    # Variable lists allow different prepared grids in one batch.
+                    # Avoid an autocommit/compression cycle for every table.
+                    if pending_bytes + data.nbytes > _FRAGMENTATION_CACHE_BATCH_BYTES:
+                        flush_cache()
+                    pending_keys.append(key)
+                    pending_data.append(pa.ListArray.from_arrays([0, len(data)], data))
+                    pending_bytes += data.nbytes
+                    if pending_bytes >= _FRAGMENTATION_CACHE_BATCH_BYTES:
+                        flush_cache()
                     misses += 1
             return key, prepared[key]
 
@@ -746,6 +766,7 @@ class DerivedDataPreparer:
                 status_table["Description"] = (
                     f"{hits} tables retrieved; {misses} computed"
                 )
+        flush_cache()
 
     def _fragmentation_preliminary(
         self,
