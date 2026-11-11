@@ -34,3 +34,13 @@ cmake -S "$runtime_root/source/openmp" -B "$runtime_root/build" -G Ninja \
     "${runtime_args[@]}"
 cmake --build "$runtime_root/build" --parallel 3
 cmake --install "$runtime_root/build"
+
+# FindOpenMP's Linux Clang probe uses the compiler's header and linker search
+# paths before considering OpenMP_ROOT. Make the private install visible to it.
+if [[ $(uname -s) == Linux && -n ${GITHUB_ENV:-} ]]; then
+    {
+        echo "CPATH=$runtime_root/install/include${CPATH:+:$CPATH}"
+        echo "LIBRARY_PATH=$runtime_root/install/lib${LIBRARY_PATH:+:$LIBRARY_PATH}"
+        echo "LD_LIBRARY_PATH=$runtime_root/install/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+    } >> "$GITHUB_ENV"
+fi
