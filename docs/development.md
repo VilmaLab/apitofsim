@@ -31,7 +31,7 @@ wheel includes the native executables and generated Python type stubs.
 
 For an installed dependency environment such as conda-forge, configure with
 `-DAPITOFSIM_USE_VCPKG=OFF` in a fresh build directory. CMake discovers Eigen,
-oneTBB, Arrow C++ 26, and the optional Parquet library through the environment's
+oneTBB, Arrow C++ 26, and the matching Parquet library through the environment's
 package prefix. For pip builds, pass `-Ccmake.define.APITOFSIM_USE_VCPKG=OFF`.
 
 ## Development
@@ -172,12 +172,11 @@ benchmark executables are under `builds/test/test`. Set
 
 The IPC recorder requires Arrow C++ 26. CMake checks for its exported
 `arrow::ipc::internal::WriteFileFooter` symbol, which the recorder uses for
-in-place append. To build the Apache C++ Parquet writer, add
-`-DAPITOFSIM_NATIVE_PARQUET=ON` to CMake, or use
-`-Ccmake.define.APITOFSIM_NATIVE_PARQUET=ON` for a pip build. vcpkg then enables
-the `parquet` manifest feature and supplies Arrow C++ with Zstandard support.
+in-place append. The native Parquet writer is built unconditionally and requires
+the matching Parquet C++ package. vcpkg supplies both libraries with Zstandard
+support.
 Use matching PyArrow and Arrow C++ versions when they share one installation.
-Conda packages enable the writer using matching conda-forge dependencies.
+Conda packages use matching conda-forge dependencies.
 
 GitHub Release wheels link the Python extension to shared Arrow and Parquet
 libraries built with vcpkg. Wheel repair bundles those libraries and their

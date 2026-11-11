@@ -217,10 +217,6 @@ class RecordingTransaction:
         )
         if database is None and format != "arrow":
             raise ValueError("Parquet recording requires an experiment database")
-        if format == "parquet" and not raw.NATIVE_PARQUET:
-            raise RuntimeError(
-                "Parquet recording requires a build with -DAPITOFSIM_NATIVE_PARQUET=ON"
-            )
         self.spec = (
             destination
             if isinstance(destination, IpcRecording)

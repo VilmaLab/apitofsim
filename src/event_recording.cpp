@@ -1,9 +1,7 @@
 #include "event_recording.h"
 #include "arrow_event_batch.h"
 #include "arrow_ipc_footer.h"
-#ifdef APITOFSIM_WITH_PARQUET
 #include "parquet_event_writer.h"
-#endif
 
 #include <array>
 #include <cstring>
@@ -119,7 +117,6 @@ struct IpcEventWriter::Impl
   bool closed{false};
   bool write_failed{false};
   std::string executions{"{}"};
-#ifdef APITOFSIM_WITH_PARQUET
   std::unique_ptr<ParquetEventWriter> parquet;
 
   Impl(const std::string &path, const std::string &archive_id, int64_t generation, bool zstd, int column_workers)
@@ -127,7 +124,6 @@ struct IpcEventWriter::Impl
           path, archive_id, generation, zstd, column_workers))
   {
   }
-#endif
 
   void require_idle() const
   {
@@ -214,10 +210,8 @@ struct IpcEventWriter::Impl
 
   void write(const EventColumns &columns, int64_t result_id, const std::vector<int64_t> &indices)
   {
-#ifdef APITOFSIM_WITH_PARQUET
     if (parquet)
       throw std::invalid_argument("Analytical event writing requires an owned batch");
-#endif
     if (closed)
       throw std::runtime_error("Event IPC: writer is closed");
     if (indices.empty())
@@ -236,14 +230,12 @@ struct IpcEventWriter::Impl
       throw std::runtime_error("Event IPC: cannot publish after a failed write");
     if (closed)
       return;
-#ifdef APITOFSIM_WITH_PARQUET
     if (parquet)
     {
       parquet->close();
       closed = true;
       return;
     }
-#endif
     check_arrow(output.Write(ipc_end.data(), ipc_end.size()));
     const auto start = unwrap_arrow(output.Tell());
     check_arrow(arrow::ipc::internal::WriteFileFooter(
@@ -266,20 +258,9 @@ IpcEventWriter::IpcEventWriter(const std::string &path, bool append, const std::
 }
 IpcEventWriter::IpcEventWriter(const std::string &path, const std::string &archive_id,
                                int64_t generation, bool zstd, int column_workers)
-#ifdef APITOFSIM_WITH_PARQUET
     : impl(std::make_shared<Impl>(path, archive_id, generation, zstd, column_workers))
 {
 }
-#else
-{
-  (void)path;
-  (void)archive_id;
-  (void)generation;
-  (void)zstd;
-  (void)column_workers;
-  throw std::runtime_error("Parquet recording requires a build with -Dnative_parquet_writer=enabled");
-}
-#endif
 IpcEventWriter::~IpcEventWriter() = default;
 
 IpcEventWriter::Lease::Lease(std::shared_ptr<Impl> state) : impl(std::move(state))
@@ -326,7 +307,6 @@ void IpcEventWriter::Lease::write(const EventColumns &columns, int64_t result_id
 
 bool IpcEventWriter::Lease::write(const std::shared_ptr<EventColumns> &columns, int64_t result_id)
 {
-#ifdef APITOFSIM_WITH_PARQUET
   if (impl->parquet)
   {
     try
@@ -342,7 +322,6 @@ bool IpcEventWriter::Lease::write(const std::shared_ptr<EventColumns> &columns, 
     }
     return true;
   }
-#endif
   write(*columns, result_id, columns->event_indices);
   return false;
 }
@@ -392,10 +371,8 @@ void IpcEventWriter::abort()
   std::scoped_lock lock(impl->mutex);
   impl->require_idle();
   impl->sealed = true;
-#ifdef APITOFSIM_WITH_PARQUET
   if (impl->parquet)
     impl->parquet->abort();
-#endif
   impl->output.file.exceptions(std::ios::goodbit);
   if (impl->output.file.is_open())
     impl->output.file.close();

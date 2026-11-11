@@ -121,8 +121,6 @@ def test_standalone_overwrite_rejects_database_owned_parquet(tmp_path):
 
 @pytest.mark.parametrize("compression, workers", [("none", 1), ("zstd", 4)])
 def test_native_parquet_recording(prepared_case, compression, workers):
-    if not api.apitofsimraw.NATIVE_PARQUET:
-        pytest.skip("Native Parquet writer is disabled")
     db, runner, _, _ = prepared_case
     prepared = prepare(prepared_case, pathways=[1])
     ipc = db.events_path
@@ -165,8 +163,6 @@ def test_native_parquet_recording(prepared_case, compression, workers):
 
 
 def test_grouped_parquet_run_returns_sidecar_path(prepared_case):
-    if not api.apitofsimraw.NATIVE_PARQUET:
-        pytest.skip("Native Parquet writer is disabled")
     db, runner, _, _ = prepared_case
     prepared = prepare(prepared_case, pathways=[1])
     ipc = db.events_path
@@ -183,8 +179,6 @@ def test_grouped_parquet_run_returns_sidecar_path(prepared_case):
 
 
 def test_parquet_rollback_after_failed_sync(prepared_case, monkeypatch):
-    if not api.apitofsimraw.NATIVE_PARQUET:
-        pytest.skip("Native Parquet writer is disabled")
     db, runner, _, _ = prepared_case
     prepared = prepare(prepared_case, pathways=[1])
     ipc = db.events_path
@@ -254,15 +248,3 @@ def test_parquet_workers_must_be_positive_int(tmp_path, workers):
             parquet_column_workers=workers,
         )
     assert not path.exists()
-
-
-def test_parquet_recording_requires_native_build(tmp_path):
-    if api.apitofsimraw.NATIVE_PARQUET:
-        pytest.skip("Native Parquet writer is enabled")
-    path = tmp_path / "unavailable.duckdb"
-    with ExperimentDatabase(path, recording_format="parquet") as db:
-        db.create_tables()
-        with pytest.raises(RuntimeError, match="APITOFSIM_NATIVE_PARQUET=ON"):
-            with db.recording_transaction():
-                pytest.fail("Unexpected Parquet writer")
-    assert not recording.events_filename(path, format="parquet").exists()

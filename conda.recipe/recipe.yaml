@@ -26,10 +26,10 @@ build:
         CPPFLAGS=${CPPFLAGS//-O2/}
         CPPFLAGS="${CPPFLAGS} -O3"
         export CPPFLAGS
-        python -m pip install --no-build-isolation --no-deps -Ccmake.define.APITOFSIM_USE_VCPKG=OFF -Ccmake.define.APITOFSIM_NATIVE_PARQUET=ON -Ccmake.define.CMAKE_PREFIX_PATH="$PREFIX" .
+        python -m pip install --no-build-isolation --no-deps -Ccmake.define.APITOFSIM_USE_VCPKG=OFF -Ccmake.define.CMAKE_PREFIX_PATH="$PREFIX" .
     - if: osx or (linux and aarch64)
       then: |
-        python -m pip install --no-build-isolation --no-deps -Ccmake.define.APITOFSIM_USE_VCPKG=OFF -Ccmake.define.APITOFSIM_NATIVE_PARQUET=ON -Ccmake.define.CMAKE_PREFIX_PATH="$PREFIX" .
+        python -m pip install --no-build-isolation --no-deps -Ccmake.define.APITOFSIM_USE_VCPKG=OFF -Ccmake.define.CMAKE_PREFIX_PATH="$PREFIX" .
     - if: win
       then: |
         set "CMAKE_GENERATOR=Ninja"
@@ -38,7 +38,7 @@ build:
         set "CMAKE_ARGS=-DPython_FIND_REGISTRY=NEVER -DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl"
         set "LDFLAGS=%LDFLAGS:/link=%"
         set "CXXFLAGS=%CXXFLAGS% /Ot -march=x86-64-v2 -mtune=generic"
-        python -m pip install --no-build-isolation --no-deps -Ccmake.define.APITOFSIM_USE_VCPKG=OFF -Ccmake.define.APITOFSIM_NATIVE_PARQUET=ON -Ccmake.define.CMAKE_PREFIX_PATH="%LIBRARY_PREFIX%" .
+        python -m pip install --no-build-isolation --no-deps -Ccmake.define.APITOFSIM_USE_VCPKG=OFF -Ccmake.define.CMAKE_PREFIX_PATH="%LIBRARY_PREFIX%" .
   python:
     version_independent: true
     entry_points:
@@ -104,7 +104,6 @@ tests:
         then: DATA_DIR=$(pwd)/test/data pytest ./test
       - if: win
         then: set "DATA_DIR=%CD%/test/data" && pytest ./test
-      - python -c "from apitofsim import apitofsimraw; assert apitofsimraw.NATIVE_PARQUET"
       - python test/wheel_smoke.py
     requirements:
       run:

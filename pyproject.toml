@@ -88,7 +88,7 @@ test-command = [
 
 [tool.cibuildwheel.linux]
 before-all = "bash ci/setup_linux.sh"
-environment = { VCPKG_ROOT = "/opt/apitofsim-vcpkg", CC = "clang", CXX = "clang++", SKBUILD_CMAKE_DEFINE = "APITOFSIM_NATIVE_PARQUET=ON;VCPKG_TARGET_TRIPLET=x64-linux-wheel" }
+environment = { VCPKG_ROOT = "/opt/apitofsim-vcpkg", CC = "clang", CXX = "clang++", SKBUILD_CMAKE_DEFINE = "VCPKG_TARGET_TRIPLET=x64-linux-wheel" }
 repair-wheel-command = [
   "auditwheel repair --disable-isa-ext-check -w {dest_dir} {wheel}",
   "auditwheel show {dest_dir}/*.whl",
@@ -98,10 +98,10 @@ repair-wheel-command = [
 [tool.cibuildwheel.macos]
 # Thrift uses --file-prefix-map, which the system Bison does not support.
 before-all = "brew install bison"
-environment = { PATH = "$(brew --prefix bison)/bin:$PATH", MACOSX_DEPLOYMENT_TARGET = "12.0", SKBUILD_CMAKE_DEFINE = "APITOFSIM_NATIVE_PARQUET=ON;VCPKG_TARGET_TRIPLET=arm64-osx-wheel" }
+environment = { PATH = "$(brew --prefix bison)/bin:$PATH", MACOSX_DEPLOYMENT_TARGET = "12.0", SKBUILD_CMAKE_DEFINE = "VCPKG_TARGET_TRIPLET=arm64-osx-wheel" }
 
 [tool.cibuildwheel.windows]
-environment = { CMAKE_ARGS = "-DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl", SKBUILD_CMAKE_DEFINE = "APITOFSIM_NATIVE_PARQUET=ON;VCPKG_TARGET_TRIPLET=x64-windows-wheel" }
+environment = { CMAKE_ARGS = "-DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl", SKBUILD_CMAKE_DEFINE = "VCPKG_TARGET_TRIPLET=x64-windows-wheel" }
 # CMake already installs oneTBB next to the extension and native executables.
 repair-wheel-command = 'delvewheel repair --ignore-existing --add-path "{package}/builds/wheel/vcpkg_installed/x64-windows-wheel/bin" -w {dest_dir} {wheel}'
 
@@ -119,7 +119,7 @@ environment._PYTHON_HOST_PLATFORM = "macosx-12.0-arm64"
 select = "*-macosx_x86_64"
 inherit.environment = "append"
 config-settings.build-dir = "builds/wheel-x86_64"
-environment.SKBUILD_CMAKE_DEFINE = "APITOFSIM_NATIVE_PARQUET=ON;VCPKG_TARGET_TRIPLET=x64-osx-wheel"
+environment.SKBUILD_CMAKE_DEFINE = "VCPKG_TARGET_TRIPLET=x64-osx-wheel"
 
 [tool.pyright]
 reportConstantRedefinition = false

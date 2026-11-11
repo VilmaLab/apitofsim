@@ -1272,11 +1272,6 @@ NB_MODULE(apitofsimraw, m)
     .def_ro("items", &MassSpecBatch::items);
 
   nb::exception<IpcWriterBusy>(m, "IpcWriterBusy", PyExc_RuntimeError);
-#ifdef APITOFSIM_WITH_PARQUET
-  m.attr("NATIVE_PARQUET") = true;
-#else
-  m.attr("NATIVE_PARQUET") = false;
-#endif
   nb::class_<IpcEventWriter>(m, "IpcEventWriter")
     .def(nb::init<const std::string &, bool, const std::string &>(), "path"_a, "append"_a, "archive_id"_a)
     .def(nb::init<const std::string &, const std::string &, int64_t, bool, int>(),
