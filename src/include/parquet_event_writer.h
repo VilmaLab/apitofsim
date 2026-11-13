@@ -1,6 +1,6 @@
 #pragma once
 
-#include "event_columns.h"
+#include "event_batch_storage.h"
 #include <condition_variable>
 #include <deque>
 #include <exception>
@@ -9,20 +9,22 @@
 #include <string>
 #include <thread>
 
-class ParquetEventWriter
+class ParquetWriter
 {
 public:
-  ParquetEventWriter(const std::string &path, const std::string &archive_id,
-                     int64_t generation, bool zstd, int column_workers);
-  ~ParquetEventWriter();
-  void write(const std::shared_ptr<EventColumns> &columns);
+  static constexpr bool enabled = true;
+  static constexpr bool retains_batch = true;
+  ParquetWriter(const std::string &path, const std::string &archive_id,
+                int64_t generation, bool zstd, int column_workers);
+  ~ParquetWriter();
+  void write(EventBatch columns);
   void close();
   void abort();
 
 private:
   std::mutex mutex;
   std::condition_variable changed;
-  std::deque<std::shared_ptr<EventColumns>> pending;
+  std::deque<EventBatch> pending;
   bool eof{false};
   bool cancelled{false};
   bool finished{false};
@@ -35,5 +37,5 @@ private:
            int64_t generation, bool zstd, int column_workers);
   void encode(const std::string &path, const std::string &archive_id,
               int64_t generation, bool zstd, int column_workers);
-  std::shared_ptr<EventColumns> next();
+  EventBatch next();
 };

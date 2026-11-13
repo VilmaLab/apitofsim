@@ -184,7 +184,7 @@ avoid a libomp x2APIC topology-probe allocation leak reproduced independently
 of carquet. Native leak detection remains enabled.
 
 PyArrow remains a Python runtime dependency for event reading and processing.
-The native extension uses the Arrow C Data interface for Python delivery;
+The native extension exports read-only NumPy views that Python wraps in Arrow tables;
 carquet and nanoarrow are linked statically into release wheels. The wheel
 smoke tests assert that no Arrow C++/Parquet libraries are bundled, load the
 native extension without Python dependencies, check both import orders with
@@ -320,16 +320,37 @@ of the 22 physical-order column hashes and all simulation counters. Full-file
 checks again verify row-group limits, codecs, ordering and ordinal continuity.
 The raw records are in `test/bench/results/carquet-nanoarrow-20261111.json`.
 
+`EventWriter` is the format-neutral recording session (`IpcEventWriter` remains
+an alias for compatibility). `event_recording.cpp` contains its lease, lifecycle,
+failure state and counters. Only the selected codec is constructed:
+`arrow_event_writer.cpp` owns nanoarrow IPC encoding/append/footer state, while
+`parquet_event_writer.cpp` owns carquet and its bounded asynchronous queue.
+
+`EventCollator` assembles columns and ordinals in shared, non-template code.
+Only its batch dispatch policy is templated on the writer and optional
+`CallbackArrow`/`NullCallbackArrow` delivery. IPC encoding borrows a batch
+synchronously. Parquet-only recording transfers a `unique_ptr` to its queue;
+IPC plus Python delivery encodes first, then transfers ownership to delivery.
+Only Parquet plus Python delivery promotes the batch to
+`shared_ptr<const EventColumns>` for the two independent consumers. All IDs are
+filled before dispatch, and published batches are immutable. Summary-only runs
+allocate no event columns or ordinal arrays.
+
+Python arrays retain their `MassSpecBatch` wrapper, which owns the batch.
+Repeated exports and retained arrays remain valid after iterator destruction.
+The raw iterator keeps two Python-owned batch wrappers for reuse, checking that
+the pool is the sole owner before mutating their unique column storage.
+
 `EventColumns` is the common native column layout. A oneTBB pipeline assigns
 realization IDs, simulates histories in parallel, and delivers completed tokens
 through a serial output stage. Recording uses in-order output and the stage
-coalesces events directly into IPC batches. Final-only summaries can group
+coalesces events into format-independent batches. Final-only summaries can group
 realizations and reduce counters without collecting events. Python iterators
 use a bounded handoff for events and callbacks. The raw iterator retains its eager queue
 for join-before-read callers. Retained record batches own their buffers. The IPC
 writer borrows the event vectors for synchronous encoding.
 
-Managed streams acquire an exclusive IPC writer lease before starting the
+Managed streams acquire an exclusive event writer lease before starting the
 worker. The run releases it after its last write and batch-range
 snapshot. An active lease prevents a second run, writer finalization, and
 reads of mutable writer counters. Stream shutdown discards pending Python

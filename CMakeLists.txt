@@ -98,7 +98,7 @@ if(NOT CMAKE_INTERPROCEDURAL_OPTIMIZATION AND CMAKE_C_COMPILER_ID MATCHES "Clang
   target_compile_options(carquet PRIVATE -fno-lto)
 endif()
 
-add_library(apitofsim STATIC src/event_recording.cpp src/parquet_event_writer.cpp)
+add_library(apitofsim STATIC src/event_recording.cpp src/arrow_event_writer.cpp src/parquet_event_writer.cpp)
 set_target_properties(apitofsim PROPERTIES CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON)
 set_target_properties(carquet nanoarrow_static nanoarrow_ipc_static flatccrt PROPERTIES C_VISIBILITY_PRESET hidden)
 target_link_libraries(apitofsim PUBLIC apitofsim_core nanoarrow_ipc_static flatccrt

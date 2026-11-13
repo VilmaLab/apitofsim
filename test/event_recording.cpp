@@ -49,18 +49,18 @@ EventColumns columns(size_t n)
 TEST_CASE("Native Parquet rejects malformed batches and propagates file errors")
 {
   ArchiveFixture fixture;
-  CHECK_THROWS_AS(ParquetEventWriter(fixture.path.string(), "archive", 1, false, 0), std::invalid_argument);
+  CHECK_THROWS_AS(ParquetWriter(fixture.path.string(), "archive", 1, false, 0), std::invalid_argument);
   {
-    ParquetEventWriter writer((fixture.directory / "missing" / "events.parquet").string(), "archive", 1, true, 4);
+    ParquetWriter writer((fixture.directory / "missing" / "events.parquet").string(), "archive", 1, true, 4);
     CHECK_THROWS_AS(writer.close(), std::runtime_error);
   }
   for (const int workers : {1, 4})
   {
-    ParquetEventWriter writer(fixture.path.string(), "archive", 1, true, workers);
-    auto data = std::make_shared<EventColumns>(columns(2));
+    ParquetWriter writer(fixture.path.string(), "archive", 1, true, workers);
+    auto data = std::make_unique<EventColumns>(columns(2));
     data->event_indices = {0, 1};
     data->result_ids = {1};
-    writer.write(data);
+    writer.write(std::move(data));
     CHECK_THROWS_AS(writer.close(), std::invalid_argument);
   }
 }
@@ -71,13 +71,13 @@ TEST_CASE("Native Parquet drains queued batches across row groups and closes emp
   for (const bool zstd : {false, true})
     for (const int workers : {1, 4})
     {
-      ParquetEventWriter writer(fixture.path.string(), "archive", 1, zstd, workers);
+      ParquetWriter writer(fixture.path.string(), "archive", 1, zstd, workers);
       for (const size_t size : {size_t{65530}, size_t{20}, size_t{65540}})
       {
-        auto data = std::make_shared<EventColumns>(columns(size));
+        auto data = std::make_unique<EventColumns>(columns(size));
         data->event_indices.assign(size, 0);
         data->result_ids.assign(size, 1);
-        writer.write(data); // The queue owns each batch after this scope.
+        writer.write(std::move(data)); // The queue owns each batch after this scope.
       }
       writer.close();
       writer.close();
@@ -85,7 +85,7 @@ TEST_CASE("Native Parquet drains queued batches across row groups and closes emp
       CHECK(bytes.substr(0, 4) == "PAR1");
       CHECK(bytes.substr(bytes.size() - 4) == "PAR1");
     }
-  ParquetEventWriter empty(fixture.path.string(), "archive", 1, false, 1);
+  ParquetWriter empty(fixture.path.string(), "archive", 1, false, 1);
   empty.close();
   const auto bytes = contents(fixture.path);
   CHECK(bytes.substr(0, 4) == "PAR1");

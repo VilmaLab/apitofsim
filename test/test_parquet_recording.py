@@ -1,5 +1,6 @@
 """Parquet publication and reader coverage with and without the native writer."""
 
+import gc
 import json
 from pathlib import Path
 
@@ -11,6 +12,40 @@ from apitofsim.workflow import ExperimentDatabase
 from apitofsim.workflow.db import auto_db_type
 from archive_fixtures import publish_events
 from test_recording_stream import prepare
+
+
+@pytest.mark.parametrize("format", ["arrow", "parquet"])
+@pytest.mark.parametrize("python_events", [False, True])
+def test_recording_dispatch_and_retained_delivery(prepared_case, format, python_events):
+    db, runner, _, _ = prepared_case
+    prepared = prepare(prepared_case, pathways=[1])
+    db.recording_format = format
+    db.recording_compression = "zstd" if format == "parquet" else "none"
+    db.parquet_column_workers = 4 if format == "parquet" else 1
+    retained = []
+    if python_events:
+        with runner.iter_experiment(
+            prepared, N=4, record_events=True, max_batch_items=7
+        ) as stream:
+            retained.extend(stream)
+            result = stream.finish()
+        del stream
+        gc.collect()
+    else:
+        result = runner.run_experiment(
+            prepared, N=4, record_events=True, max_batch_items=7
+        )
+    recorded = pa.Table.from_batches(list(api.read_events(db.events_path)))
+    assert recorded.num_rows == sum(
+        root.result.recording.event_count for root in result.roots
+    )
+    if python_events:
+        delivered = pa.Table.from_batches(retained)
+        assert delivered.to_pydict() == recorded.to_pydict()
+        assert all(
+            not batch.column(0).to_numpy(zero_copy_only=True).flags.writeable
+            for batch in retained
+        )
 
 
 def test_parquet_reader_discovers_and_scopes_archive(tmp_path):

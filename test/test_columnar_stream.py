@@ -38,7 +38,7 @@ def test_adaptive_native_batches_and_retained_buffers(prepared_case):
             expected.append({name: column.copy() for name, column in columns.items()})
         if len(retained) == 4:
             break
-    # Both pool slots are retained; subsequent batches must not overwrite them.
+    # Retained Python owners must prevent reuse of either pool slot.
     while True:
         try:
             controls.extend(next(stream).items)
@@ -66,6 +66,26 @@ def test_released_native_columns_are_reused(prepared_case):
     assert 1 <= len(addresses) <= 2
     stream.request_cancel()
     stream.join_if_joinable()
+
+
+def test_repeated_column_exports_keep_the_unique_batch_alive(prepared_case):
+    prepared = prepare(prepared_case, pathways=[1])
+    stream = native(prepared)
+    stream.join_if_joinable()
+    batch = next(stream)
+    first = batch.columns
+    second = batch.columns
+    saved = {name: values.copy() for name, values in first.items()}
+    assert all(np.shares_memory(first[name], second[name]) for name in first)
+    while True:
+        try:
+            next(stream)
+        except StopIteration:
+            break
+    del batch, first, stream
+    gc.collect()
+    for name, values in second.items():
+        np.testing.assert_array_equal(values, saved[name])
 
 
 @pytest.mark.parametrize("initial,maximum", [(0, 1), (1, 0), (-1, 2), (3, 2)])
