@@ -5,8 +5,8 @@
 #include <carquet/carquet.h>
 #include <omp.h>
 
-ParquetEventWriter::ParquetEventWriter(const std::string &path, const std::string &archive_id,
-                                       int64_t generation, bool zstd, int column_workers)
+ParquetWriter::ParquetWriter(const std::string &path, const std::string &archive_id,
+                             int64_t generation, bool zstd, int column_workers)
 {
   if (column_workers < 1)
     throw std::invalid_argument("Parquet column workers must be positive");
@@ -14,12 +14,12 @@ ParquetEventWriter::ParquetEventWriter(const std::string &path, const std::strin
   { run(path, archive_id, generation, zstd, column_workers); });
 }
 
-ParquetEventWriter::~ParquetEventWriter()
+ParquetWriter::~ParquetWriter()
 {
   abort();
 }
 
-void ParquetEventWriter::write(const std::shared_ptr<EventColumns> &columns)
+void ParquetWriter::write(EventBatch columns)
 {
   std::unique_lock lock(mutex);
   changed.wait(lock, [this]
@@ -28,12 +28,13 @@ void ParquetEventWriter::write(const std::shared_ptr<EventColumns> &columns)
     std::rethrow_exception(failure);
   if (finished)
     throw std::runtime_error("Parquet event writer stopped before accepting all batches");
-  pending.push_back(columns);
-  rows += static_cast<int64_t>(columns->event_indices.size());
+  const auto count = static_cast<int64_t>(columns->event_indices.size());
+  pending.push_back(std::move(columns));
+  rows += count;
   changed.notify_all();
 }
 
-void ParquetEventWriter::close()
+void ParquetWriter::close()
 {
   {
     std::scoped_lock lock(mutex);
@@ -48,7 +49,7 @@ void ParquetEventWriter::close()
     throw std::runtime_error("Parquet event writer produced the wrong row count");
 }
 
-void ParquetEventWriter::abort()
+void ParquetWriter::abort()
 {
   if (!worker.joinable())
     return;
@@ -61,8 +62,8 @@ void ParquetEventWriter::abort()
   worker.join();
 }
 
-void ParquetEventWriter::run(const std::string &path, const std::string &archive_id,
-                             int64_t generation, bool zstd, int column_workers)
+void ParquetWriter::run(const std::string &path, const std::string &archive_id,
+                        int64_t generation, bool zstd, int column_workers)
 {
   try
   {
@@ -80,7 +81,7 @@ void ParquetEventWriter::run(const std::string &path, const std::string &archive
   }
 }
 
-std::shared_ptr<EventColumns> ParquetEventWriter::next()
+EventBatch ParquetWriter::next()
 {
   std::unique_lock lock(mutex);
   changed.wait(lock, [this]
@@ -103,8 +104,8 @@ void check_carquet(carquet_status_t status)
 }
 } // namespace
 
-void ParquetEventWriter::encode(const std::string &path, const std::string &archive_id,
-                                int64_t generation, bool zstd, int column_workers)
+void ParquetWriter::encode(const std::string &path, const std::string &archive_id,
+                           int64_t generation, bool zstd, int column_workers)
 {
   // OpenMP's setting belongs to this writer thread; simulation still uses TBB.
   omp_set_dynamic(0);
@@ -134,8 +135,11 @@ void ParquetEventWriter::encode(const std::string &path, const std::string &arch
   for (size_t i = 0; i < event_column_names.size(); ++i)
     check_carquet(carquet_writer_set_column_encoding(writer.get(), static_cast<int32_t>(i), CARQUET_ENCODING_RLE_DICTIONARY));
   size_t group_rows = 0;
-  while (auto columns = next())
+  while (true)
   {
+    auto columns = next();
+    if (columns.get() == nullptr)
+      break;
     const size_t count = columns->event_indices.size();
     auto validate = [count](const auto &values)
     {

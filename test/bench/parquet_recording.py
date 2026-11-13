@@ -78,6 +78,7 @@ def main():
         "--mode", choices=("summary", "arrow", "parquet", "zstd"), required=True
     )
     parser.add_argument("--workers", type=int, default=1)
+    parser.add_argument("--python-events", action="store_true")
     parser.add_argument("--realizations", type=int, default=5000)
     parser.add_argument("--roots", type=int, nargs="+", default=[1, 35])
     args = parser.parse_args()
@@ -102,9 +103,19 @@ def main():
     prepared = replace(prepared, groups=groups)
     rss_before = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
     start, cpu_start = perf_counter(), process_time()
-    result = runner.run_experiment(
-        prepared, record_events=args.mode != "summary", seed=42
-    )
+    callback_rows = callback_batches = 0
+    if args.python_events:
+        with runner.iter_experiment(
+            prepared, events="batches", record_events=args.mode != "summary", seed=42
+        ) as stream:
+            for batch in stream:
+                callback_rows += batch.num_rows
+                callback_batches += 1
+            result = stream.finish()
+    else:
+        result = runner.run_experiment(
+            prepared, record_events=args.mode != "summary", seed=42
+        )
     sidecar = db.events_path
     db.close()
     sync_file(args.output)
@@ -120,6 +131,8 @@ def main():
         for root in result.roots
         if root.result.recording is not None
     }
+    if args.python_events and counts:
+        assert callback_rows == sum(counts.values())
     report = dict(
         wall_seconds=wall,
         cpu_seconds=cpu,
@@ -132,6 +145,9 @@ def main():
         realizations_per_root=args.realizations,
         mode=args.mode,
         workers=args.workers,
+        python_events=args.python_events,
+        callback_rows=callback_rows,
+        callback_batches=callback_batches,
         duckdb=duckdb.__version__,
         pyarrow=pa.__version__,
     )

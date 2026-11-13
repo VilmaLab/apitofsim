@@ -16,10 +16,8 @@ namespace nb = nanobind;
 
 using Columns = EventColumns;
 
-inline nb::typed<nb::dict, nb::str, nb::object> export_columns(const std::shared_ptr<Columns> &columns)
+inline nb::typed<nb::dict, nb::str, nb::object> export_columns(const Columns &columns, nb::handle owner)
 {
-  nb::capsule owner(new std::shared_ptr<Columns>(columns), [](void *pointer) noexcept
-  { delete static_cast<std::shared_ptr<Columns> *>(pointer); });
   constexpr std::array names{"x", "y", "z", "t", "vx", "vy", "vz", "ox", "oy", "oz", "rot_energy", "vibrational_energy", "theta", "u_norm"};
   constexpr std::array index_names{"realization", "event_kind", "particle_index", "transition_index", "next_particle_index", "accepted"};
   nb::typed<nb::dict, nb::str, nb::object> out;
@@ -29,13 +27,13 @@ inline nb::typed<nb::dict, nb::str, nb::object> export_columns(const std::shared
     out[name] = nb::ndarray<nb::numpy, const T, nb::ndim<1>>(data.empty() ? &empty : data.data(), {data.size()}, owner);
   };
   for (size_t i = 0; i < names.size(); ++i)
-    add(names[i], columns->values[i]);
+    add(names[i], columns.values[i]);
   for (size_t i = 0; i < index_names.size(); ++i)
-    add(index_names[i], columns->indices[i]);
-  if (!columns->event_indices.empty())
+    add(index_names[i], columns.indices[i]);
+  if (!columns.event_indices.empty())
   {
-    add("result_id", columns->result_ids);
-    add("event_index", columns->event_indices);
+    add("result_id", columns.result_ids);
+    add("event_index", columns.event_indices);
   }
   return out;
 }

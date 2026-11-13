@@ -444,9 +444,7 @@ class RecordingTransaction:
             if db is not None:
                 db.db.execute("begin")
                 self.started = True
-            self.writer = raw.IpcEventWriter(
-                str(self.work_path), exists, self.archive_id
-            )
+            self.writer = raw.EventWriter(str(self.work_path), exists, self.archive_id)
             return self
         except BaseException:
             self.rollback()
@@ -467,7 +465,7 @@ class RecordingTransaction:
         self._write_journal()
         self.database.db.execute("begin")
         self.started = True
-        self.writer = raw.IpcEventWriter(
+        self.writer = raw.EventWriter(
             str(self.work_path),
             self.archive_id,
             self.generation,

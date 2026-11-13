@@ -38,6 +38,7 @@
 #include "tree_bindings.h"
 #include "event_batch.h"
 #include "event_recording.h"
+#include "event_collator.h"
 
 using namespace std;
 
@@ -342,13 +343,13 @@ mass_spec(
 
 struct MassSpecBatch
 {
-  std::shared_ptr<event_batch::Columns> events;
+  EventBatch events;
   std::vector<MassSpecItem> items;
 };
 
 struct StreamDelivery
 {
-  std::shared_ptr<IpcEventWriter> writer;
+  std::shared_ptr<EventWriter> writer;
   int64_t result_id;
   bool events;
   bool ordered;
@@ -368,7 +369,7 @@ struct MassSpecIterator
   std::atomic<bool> cancelled{false};
   int requested_realizations;
   std::mutex join_mutex;
-  std::array<std::shared_ptr<event_batch::Columns>, 2> buffers;
+  std::array<nb::object, 2> buffers;
   std::vector<StreamingResultElement> raw_buffer;
   size_t initial_batch_size;
   size_t max_batch_size;
@@ -423,7 +424,7 @@ struct MassSpecIterator
     {
       if (stream->result_id < 0)
         throw std::invalid_argument("A stream requires a nonnegative result ID");
-      std::optional<IpcEventWriter::Lease> writer;
+      std::optional<EventWriter::Lease> writer;
       if (stream->writer)
         writer.emplace(stream->writer->acquire());
       auto execute = [this, instrument = ms.get(), substance = subs.get(), N, seed, sample_mode, strict, logconf, collision_time]
@@ -446,7 +447,7 @@ struct MassSpecIterator
     }
   }
 
-  MassSpecBatch __next__()
+  nb::typed<nb::object, MassSpecBatch> __next__()
   {
     return read_batch(max_batch_size);
   }
@@ -482,10 +483,10 @@ struct MassSpecIterator
     }
   }
 
-  MassSpecBatch read_batch(size_t max_items)
+  nb::typed<nb::object, MassSpecBatch> read_batch(size_t max_items)
   {
     if (has_pump)
-      return read_recorded_batch();
+      return nb::cast(read_recorded_batch());
     if (max_items == 0)
     {
       throw std::invalid_argument("max_items must be positive");
@@ -524,22 +525,26 @@ struct MassSpecIterator
         }
       }
     }
-    std::shared_ptr<event_batch::Columns> columns;
+    nb::object owner;
     for (auto &buffer : buffers)
     {
       if (!buffer)
-        buffer = std::make_shared<event_batch::Columns>();
-      if (buffer.use_count() == 1)
+        buffer = nb::cast(MassSpecBatch{});
+      // Every exported array retains this Python wrapper. Reuse only when the
+      // pool is its sole owner; no C++ shared ownership is needed.
+      if (Py_REFCNT(buffer.ptr()) == 1)
       {
-        columns = buffer;
+        owner = buffer;
         break;
       }
     }
-    // User-retained batches may occupy both reusable buffers. Their ownership
-    // takes precedence over reuse; only two idle buffers are retained here.
+    if (!owner)
+      owner = nb::cast(MassSpecBatch{});
+    auto &output = nb::cast<MassSpecBatch &>(owner);
+    auto columns = std::move(output.events).release_unique();
     if (!columns)
-      columns = std::make_shared<event_batch::Columns>();
-    MassSpecBatch output{columns, {}};
+      columns = std::make_unique<EventColumns>();
+    output.items.clear();
     {
       nb::gil_scoped_release release;
       columns->clear(raw.size());
@@ -557,7 +562,8 @@ struct MassSpecIterator
         output.items.push_back(decode_result(converted));
       }
     }
-    return output;
+    output.events = EventBatch(std::move(columns));
+    return owner;
   }
 
   void join_if_joinable()
@@ -603,83 +609,65 @@ struct MassSpecIterator
   }
 
   void pump(const auto &execute, int64_t result_id, bool ordered, bool progress, bool logs,
-            std::optional<IpcEventWriter::Lease> &writer)
+            std::optional<EventWriter::Lease> &writer)
   {
     const auto start = writer ? writer->counts() : std::array<int64_t, 2>{};
     try
     {
       const bool capture_events = writer || deliver_events;
-      std::vector<int64_t> ordinals(capture_events ? static_cast<size_t>(std::max(0, requested_realizations)) : 0, 0);
-      auto columns = std::make_shared<EventColumns>();
-      const auto maximum = std::min(max_batch_size, size_t{65536});
-      auto limit = std::min(initial_batch_size, maximum);
-      if (capture_events)
-        columns->clear(limit);
       std::vector<MassSpecItem> items;
       bool updated = false;
-
+      auto deliver = [&](EventBatch batch)
+      {
+        const auto pending_rows = batch.get() != nullptr ? batch->event_indices.size() : 0;
+        std::unique_lock lock(delivery_mutex);
+        while (!discard_delivery && operation.checkpoint() &&
+               (delivery.size() >= 2 ||
+                (delivery_rows != 0 && delivery_capacity != 0 && delivery_rows + pending_rows > delivery_capacity)))
+          delivery_changed.wait_for(lock, std::chrono::milliseconds(50));
+        if (!discard_delivery)
+        {
+          delivery.push_back(MassSpecBatch{std::move(batch), std::move(items)});
+          delivery_rows += pending_rows;
+        }
+        lock.unlock();
+        delivery_changed.notify_all();
+        items.clear();
+      };
+      auto dispatch = [&]<typename Callback>(Callback callback) -> std::function<void(std::unique_ptr<EventColumns> &)>
+      {
+        if (!writer)
+          return event_dispatch<NullWriter>(nullptr, std::move(callback));
+        if (writer->is_parquet())
+          return event_dispatch<ParquetWriter>(&*writer, std::move(callback));
+        return event_dispatch<ArrowWriter>(&*writer, std::move(callback));
+      };
+      EventCollator collator(capture_events, requested_realizations, result_id,
+                             initial_batch_size, std::min(max_batch_size, size_t{65536}),
+                             deliver_events ? dispatch(CallbackArrow{deliver}) : dispatch(NullCallbackArrow{}));
       auto flush = [&]
       {
-        const auto rows = columns->event_indices.size();
-        bool handed_to_writer = false;
-        if (writer && rows != 0)
-        {
-          try
-          {
-            handed_to_writer = writer->write(columns, result_id);
-          }
-          catch (...)
-          {
-            writer_error = std::current_exception();
-            throw;
-          }
-        }
         if (updated && progress)
           items.emplace_back(partial_counters);
         updated = false;
-        const bool has_delivery = (deliver_events && rows != 0) || !items.empty();
-        if (has_delivery)
+        try
         {
-          auto delivered = deliver_events ? columns : std::make_shared<EventColumns>();
-          if (deliver_events && delivered->result_ids.empty())
-            delivered->result_ids.assign(rows, result_id);
-          std::unique_lock lock(delivery_mutex);
-          // A single batch may exceed the credit limit. Let it through
-          // when the handoff is empty so recording batch sizes stay stable.
-          const auto pending_rows = deliver_events ? rows : 0;
-          while (!discard_delivery && operation.checkpoint() &&
-                 (delivery.size() >= 2 ||
-                  (delivery_rows != 0 && delivery_capacity != 0 && delivery_rows + pending_rows > delivery_capacity)))
-            delivery_changed.wait_for(lock, std::chrono::milliseconds(50));
-          if (!discard_delivery)
-          {
-            delivery.push_back(MassSpecBatch{std::move(delivered), std::move(items)});
-            delivery_rows += pending_rows;
-          }
-          lock.unlock();
-          delivery_changed.notify_all();
-          items.clear();
+          collator.flush();
         }
-        if (handed_to_writer || (deliver_events && has_delivery))
-          columns = std::make_shared<EventColumns>();
-        if (rows != 0)
-          limit = maximum;
-        if (capture_events)
-          columns->clear(limit);
+        catch (...)
+        {
+          writer_error = std::current_exception();
+          throw;
+        }
+        if (!items.empty())
+          deliver(EventBatch{});
       };
 
       auto consume = [&](const StreamingResultElement &item)
       {
         if (const auto *event = std::get_if<EventMessage>(&item))
         {
-          if (!capture_events)
-            return;
-          columns->append(*event);
-          const auto realization = columns->indices[0].back();
-          if (realization < 0 || static_cast<size_t>(realization) >= ordinals.size())
-            throw std::runtime_error("Native event has an invalid realization index");
-          columns->event_indices.push_back(ordinals[realization]++);
-          if (columns->event_indices.size() == limit)
+          if (collator.append(*event))
             flush();
         }
         else if (const auto *partial = std::get_if<PartialResult>(&item))
@@ -735,7 +723,7 @@ struct MassSpecIterator
   {
     if (finished)
       throw nb::stop_iteration();
-    MassSpecBatch batch{std::make_shared<EventColumns>(), {}};
+    MassSpecBatch batch;
     {
       nb::gil_scoped_release release;
       std::unique_lock lock(delivery_mutex);
@@ -745,7 +733,7 @@ struct MassSpecIterator
       {
         batch = std::move(delivery.front());
         delivery.pop_front();
-        delivery_rows -= batch.events->event_indices.size();
+        delivery_rows -= batch.events.get() != nullptr ? batch.events->event_indices.size() : 0;
         delivery_changed.notify_all();
         return batch;
       }
@@ -1267,23 +1255,27 @@ NB_MODULE(apitofsimraw, m)
     .def_ro("state", &EscapeEvent::state);
 
   nb::class_<MassSpecBatch>(m, "MassSpecBatch")
-    .def_prop_ro("columns", [](const MassSpecBatch &batch)
-  { return event_batch::export_columns(batch.events); })
-    .def_ro("items", &MassSpecBatch::items);
+    .def_prop_ro("columns", [](nb::object self)
+  {
+    const auto &batch = nb::cast<const MassSpecBatch &>(self);
+    static const EventColumns empty;
+    return event_batch::export_columns(batch.events.get() != nullptr ? *batch.events.get() : empty, self);
+  }).def_ro("items", &MassSpecBatch::items);
 
   nb::exception<IpcWriterBusy>(m, "IpcWriterBusy", PyExc_RuntimeError);
-  nb::class_<IpcEventWriter>(m, "IpcEventWriter")
+  nb::class_<EventWriter>(m, "EventWriter")
     .def(nb::init<const std::string &, bool, const std::string &>(), "path"_a, "append"_a, "archive_id"_a)
     .def(nb::init<const std::string &, const std::string &, int64_t, bool, int>(),
          "path"_a, "archive_id"_a, "generation"_a, "zstd"_a, "column_workers"_a)
-    .def("close", &IpcEventWriter::close, "metadata"_a = std::nullopt, nb::call_guard<nb::gil_scoped_release>())
-    .def("abort", &IpcEventWriter::abort, nb::call_guard<nb::gil_scoped_release>())
-    .def("set_metadata", &IpcEventWriter::set_metadata, "metadata"_a)
-    .def_prop_ro("batch_count", &IpcEventWriter::batch_count)
-    .def_prop_ro("rows_written", &IpcEventWriter::rows_written);
+    .def("close", &EventWriter::close, "metadata"_a = std::nullopt, nb::call_guard<nb::gil_scoped_release>())
+    .def("abort", &EventWriter::abort, nb::call_guard<nb::gil_scoped_release>())
+    .def("set_metadata", &EventWriter::set_metadata, "metadata"_a)
+    .def_prop_ro("batch_count", &EventWriter::batch_count)
+    .def_prop_ro("rows_written", &EventWriter::rows_written);
+  m.attr("IpcEventWriter") = m.attr("EventWriter");
 
   nb::class_<StreamDelivery>(m, "StreamDelivery")
-    .def(nb::init<std::shared_ptr<IpcEventWriter>, int64_t, bool, bool, bool, bool>(),
+    .def(nb::init<std::shared_ptr<EventWriter>, int64_t, bool, bool, bool, bool>(),
          "writer"_a.none(), "result_id"_a, "events"_a, "ordered"_a, "progress"_a, "logs"_a);
 
   nb::class_<MassSpecIterator>(m, "MassSpecIterator")

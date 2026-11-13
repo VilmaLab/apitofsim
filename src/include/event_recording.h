@@ -7,7 +7,7 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
-#include "event_columns.h"
+#include "event_batch_storage.h"
 
 class IpcWriterBusy : public std::runtime_error
 {
@@ -17,7 +17,7 @@ public:
   }
 };
 
-class IpcEventWriter
+class EventWriter
 {
   struct Impl;
 
@@ -29,22 +29,23 @@ public:
     Lease(Lease &&) noexcept;
     ~Lease();
     void write(const EventColumns &columns, int64_t result_id, const std::vector<int64_t> &event_indices);
-    // True when the writer takes shared ownership of the batch.
-    bool write(const std::shared_ptr<EventColumns> &columns, int64_t result_id);
+    void write(const EventColumns &columns);
+    void write(EventBatch columns);
+    [[nodiscard]] bool is_parquet() const;
     [[nodiscard]] std::array<int64_t, 2> counts() const;
 
   private:
-    friend class IpcEventWriter;
+    friend class EventWriter;
     explicit Lease(std::shared_ptr<Impl> state);
     std::shared_ptr<Impl> impl;
   };
 
-  IpcEventWriter(const std::string &path, bool append, const std::string &archive_id);
-  IpcEventWriter(const std::string &path, const std::string &archive_id,
-                 int64_t generation, bool zstd, int column_workers);
-  ~IpcEventWriter();
-  IpcEventWriter(const IpcEventWriter &) = delete;
-  IpcEventWriter &operator=(const IpcEventWriter &) = delete;
+  EventWriter(const std::string &path, bool append, const std::string &archive_id);
+  EventWriter(const std::string &path, const std::string &archive_id,
+              int64_t generation, bool zstd, int column_workers);
+  ~EventWriter();
+  EventWriter(const EventWriter &) = delete;
+  EventWriter &operator=(const EventWriter &) = delete;
   void write(const EventColumns &columns, int64_t result_id, const std::vector<int64_t> &event_indices);
   [[nodiscard]] Lease acquire();
   void close(const std::optional<std::string> &metadata = std::nullopt);
@@ -56,3 +57,6 @@ public:
 private:
   std::shared_ptr<Impl> impl;
 };
+
+// Compatibility for callers of the original IPC-named recording facade.
+using IpcEventWriter = EventWriter;
