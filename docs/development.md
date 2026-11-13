@@ -320,6 +320,58 @@ of the 22 physical-order column hashes and all simulation counters. Full-file
 checks again verify row-group limits, codecs, ordering and ordinal continuity.
 The raw records are in `test/bench/results/carquet-nanoarrow-20261111.json`.
 
+#### Collator ownership benchmark (2026-11-13)
+
+This isolates the ownership refactor: both revisions already use nanoarrow and
+carquet. The baseline is `6fe54eb`; the refactored implementation, including the
+GCC portability fix, is `772576a`. The same 45,762,568-event Besel2020 workload
+above runs in a fresh process for each case, with three repeats and interleaved
+builds. Case order rotates between repeats. No local builds or QA jobs run
+during the final sweep; normal desktop load and the warm OS cache remain.
+Both binaries use Clang 22.1.8, Release `-O3 -DNDEBUG -march=native`, the system
+default linker and the same runtime dependencies on the hardware described above.
+
+Parquet uses Zstandard level 3 and four encoding workers. Simulation uses
+default TBB concurrency throughout. Python delivery iterates Arrow batches and
+counts their rows, retaining only the current batch. It includes native handoff,
+array/table conversion and consumption in the timed region. Model preparation
+and full-file verification are excluded; simulation, encoding, publication,
+fsync and database commit/close remain included. RSS is sampled before
+verification and includes preparation.
+
+Wall times below are median (minimum–maximum), in seconds. RSS columns show
+medians of process peaks before / after, in GiB. Negative changes mean less wall time.
+
+| Recording | Python delivery | Before wall time | After wall time | Change | Peak RSS before / after |
+|---|---|---:|---:|---:|---:|
+| nanoarrow IPC | no | 29.87 (28.72–30.86) | 29.23 (28.98–30.43) | -2.1% | 1.70 / 1.70 |
+| nanoarrow IPC | yes | 28.81 (28.81–30.21) | 29.22 (28.71–35.94) | +1.4% | 1.90 / 1.90 |
+| carquet Parquet, Zstandard | no | 32.07 (31.95–34.19) | 32.13 (32.00–34.05) | +0.2% | 2.09 / 2.10 |
+| carquet Parquet, Zstandard | yes | 32.68 (32.26–33.86) | 32.38 (32.20–32.67) | -0.9% | 2.12 / 2.12 |
+
+Median differences are smaller than the observed run-to-run variation; the
+ranges overlap in every combination. There is no clear throughput or peak-RSS
+change in this workload. Sidecars remain 7.50 GiB for IPC and 3.77 GiB for
+Parquet. All 24 runs match every event-column hash and simulation counter;
+Python-delivery counts also match all recorded events.
+
+A preliminary sweep of `6fe54eb` versus `f8d6c22` was interrupted after five
+completed cases to fix GCC's variant-move warning. The final sweep restarts all
+24 cases against `772576a`. The raw report preserves those five preliminary
+observations separately, including its slower 47.17-second IPC sample, alongside
+all final samples, binary hashes and methodology:
+`test/bench/results/collator-20261113.json`.
+
+Reproduce with separately configured builds of the two revisions:
+
+```bash
+python test/bench/parquet_matrix.py /path/to/model.duckdb "$HOME/.scratch/collator-bench" \
+  --python /path/to/environment/bin/python --delivery-matrix \
+  --before-build "$HOME/.scratch/before-build" --after-build "$HOME/.scratch/after-build" \
+  --before-ref 6fe54eb --after-ref 772576a --workers 4 --repeats 3 --realizations 5000
+```
+
+
 `EventWriter` is the format-neutral recording session (`IpcEventWriter` remains
 an alias for compatibility). `event_recording.cpp` contains its lease, lifecycle,
 failure state and counters. Only the selected codec is constructed:
