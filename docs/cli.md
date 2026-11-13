@@ -25,7 +25,7 @@ is `database.ase.sqlite.db`. Move the files together with matching basenames.
 and relational event inserts are removed; old event databases require migration.
 Do not read the event sidecar while an append transaction is active.
 
-Use the native Apache C++ Parquet writer to record directly to
+Use the native carquet Parquet writer to record directly to
 `database.events.parquet`.
 
 ```bash

@@ -220,7 +220,7 @@ with ExperimentDatabase("results.duckdb", readonly=True) as db:
     histories = db.fragmentation_histories_query(run_id=3).fetchdf()
 ```
 
-With the optional Apache C++ writer enabled, use
+To record through the native carquet writer, use
 `ExperimentDatabase("results.duckdb", recording_format="parquet",
 recording_compression="zstd", parquet_column_workers=4)` and request
 `record_events=True` when running. A Parquet sidecar starts in a database without

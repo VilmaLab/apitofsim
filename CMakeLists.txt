@@ -80,48 +80,32 @@ endif()
 if(APITOFSIM_BUILD_PYTHON)
   find_package(Python 3.12 REQUIRED COMPONENTS Interpreter Development.Module Development.SABIModule)
 endif()
-find_package(Arrow 26...<27 CONFIG REQUIRED)
-if(TARGET Arrow::arrow_shared)
-  set(apitofsim_arrow Arrow::arrow_shared)
-else()
-  set(apitofsim_arrow Arrow::arrow_static)
-endif()
-find_package(Parquet "${Arrow_VERSION}" EXACT CONFIG REQUIRED)
-if(TARGET Arrow::arrow_shared)
-  set(apitofsim_parquet Parquet::parquet_shared)
-else()
-  set(apitofsim_parquet Parquet::parquet_static)
+# carquet supplies the Parquet encoder; nanoarrow supplies IPC and C Data types.
+set(CARQUET_BUILD_CLI OFF CACHE BOOL "" FORCE)
+set(CARQUET_BUILD_SHARED OFF CACHE BOOL "" FORCE)
+set(CARQUET_ENABLE_BROTLI OFF CACHE BOOL "" FORCE)
+find_package(OpenMP REQUIRED COMPONENTS C CXX)
+FetchContent_Declare(carquet
+  GIT_REPOSITORY https://github.com/Vitruves/carquet.git
+  GIT_TAG 10d50f721a1cf695917281ba388ed826084bee64
+  SYSTEM EXCLUDE_FROM_ALL
+)
+FetchContent_MakeAvailable(carquet)
+# Upstream enables LTO in Release independently of the selected linker. Leave
+# that choice to this project's toolchain instead of requiring LLVM's linker.
+if(NOT CMAKE_INTERPROCEDURAL_OPTIMIZATION AND CMAKE_C_COMPILER_ID MATCHES "Clang|GNU"
+    AND NOT CMAKE_C_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+  target_compile_options(carquet PRIVATE -fno-lto)
 endif()
 
-if(APITOFSIM_USE_VCPKG AND VCPKG_TARGET_TRIPLET MATCHES "-osx-wheel$")
-  include(cmake/PrivateArrow.cmake)
-endif()
-
-# The installed Arrow headers omit the declaration for this exported IPC API.
-include(CheckCXXSourceCompiles)
-block()
-  set(CMAKE_REQUIRED_INCLUDES "${PROJECT_SOURCE_DIR}/src")
-  set(CMAKE_REQUIRED_LIBRARIES "${apitofsim_arrow}")
-  foreach(definition IN LISTS apitofsim_private_arrow_definitions)
-    list(APPEND CMAKE_REQUIRED_DEFINITIONS "-D${definition}")
-  endforeach()
-  unset(APITOFSIM_ARROW_HAS_WRITE_FILE_FOOTER CACHE)
-  check_cxx_source_compiles([=[
-    #include "arrow_ipc_footer.h"
-    int main() {
-      auto *volatile write_footer = &arrow::ipc::internal::WriteFileFooter;
-      return write_footer == nullptr;
-    }
-  ]=] APITOFSIM_ARROW_HAS_WRITE_FILE_FOOTER)
-  if(NOT APITOFSIM_ARROW_HAS_WRITE_FILE_FOOTER)
-    message(FATAL_ERROR "Arrow C++ 26 must export arrow::ipc::internal::WriteFileFooter.")
-  endif()
-endblock()
-
-add_library(apitofsim STATIC src/event_recording.cpp src/parquet_event_writer.cpp)
-target_link_libraries(apitofsim PUBLIC apitofsim_core "${apitofsim_arrow}")
-target_compile_definitions(apitofsim PUBLIC ${apitofsim_private_arrow_definitions})
-target_link_libraries(apitofsim PRIVATE "${apitofsim_parquet}")
+add_library(apitofsim STATIC src/event_recording.cpp src/arrow_event_writer.cpp src/parquet_event_writer.cpp)
+set_target_properties(apitofsim PROPERTIES CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON)
+set_target_properties(carquet nanoarrow_static nanoarrow_ipc_static flatccrt PROPERTIES C_VISIBILITY_PRESET hidden)
+target_link_libraries(apitofsim PUBLIC apitofsim_core nanoarrow_ipc_static flatccrt
+  PRIVATE carquet OpenMP::OpenMP_CXX)
+# A separately installed Arrow package can contain unprefixed nanoarrow headers.
+target_include_directories(apitofsim SYSTEM BEFORE PUBLIC
+  "${nanoarrow_SOURCE_DIR}/src" "${nanoarrow_BINARY_DIR}/src")
 
 include(GNUInstallDirs)
 set(apitofsim_bin_dir "${CMAKE_INSTALL_BINDIR}")

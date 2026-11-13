@@ -50,6 +50,7 @@ requirements:
     - ${{ compiler('cxx') }}
     - cmake >=3.28
     - ninja
+    - git
     - if: microarch_level|int > 0
       then: x86_64-microarch-level ==${{ microarch_level }}
     - if: linux and x86_64
@@ -64,8 +65,11 @@ requirements:
     - nanobind ==2.9.2
     - eigen
     - tbb-devel >=2023.0
-    - libarrow 26.*
-    - libparquet 26.*
+    - zstd
+    - zlib
+    # PyArrow 26 Conda builds use this runtime codec ABI.
+    - lz4-c >=1.10,<1.11
+    - llvm-openmp
     - if: linux and x86_64
       then:
         - libstdcxx-devel_linux-64 15.2.0.*
@@ -81,7 +85,7 @@ requirements:
     - orjson >= 3.11.4
     - progress-table >= 3.2.2
     - ase >= 3.27.0
-    - pyarrow ==26.0.1
+    - pyarrow >=26.0.1
     - portalocker >= 3.2.0
     - if: win
       then: pywin32

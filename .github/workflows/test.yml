@@ -32,6 +32,9 @@ jobs:
     env:
       CC: clang-20
       CXX: clang++-20
+      # Avoid libomp's optional x2APIC topology probe while retaining leak checks.
+      KMP_AFFINITY: none
+      KMP_TOPOLOGY_METHOD: flat
     steps:
       - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v7
@@ -43,6 +46,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y clang-20 lld-20 libclang-rt-20-dev
           uv sync --no-install-project
+          CC=clang-20 CXX=clang++-20 bash ci/setup_openmp.sh "$HOME/.scratch/apitofsim-openmp-20.1.8"
+          echo "OpenMP_ROOT=$HOME/.scratch/apitofsim-openmp-20.1.8/install" >> "$GITHUB_ENV"
       - name: Build
         run: |
           asan_runtime=$(find -L "$(clang-20 -print-resource-dir)" -name "libclang_rt.asan*.so" -print -quit)
@@ -78,7 +83,7 @@ jobs:
           DATA_DIR="$PWD/test/data" uv run --no-sync python -X dev -m pytest test/
 
   build_test_parquet:
-    name: Build and test the Apache Parquet recorder with vcpkg
+    name: Build and test the carquet recorder with vcpkg
     runs-on: ubuntu-latest
     env:
       SKBUILD_CMAKE_DEFINE: VCPKG_TARGET_TRIPLET=x64-linux-release
@@ -100,6 +105,8 @@ jobs:
     env:
       CC: clang-20
       CXX: clang++-20
+      KMP_AFFINITY: none
+      KMP_TOPOLOGY_METHOD: flat
     steps:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/setup-vcpkg
@@ -107,6 +114,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y clang-20 valgrind
+          CC=clang-20 CXX=clang++-20 bash ci/setup_openmp.sh "$HOME/.scratch/apitofsim-openmp-20.1.8"
+          echo "OpenMP_ROOT=$HOME/.scratch/apitofsim-openmp-20.1.8/install" >> "$GITHUB_ENV"
       - name: Build and test
         run: |
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DAPITOFSIM_STRICT_WARNINGS=ON

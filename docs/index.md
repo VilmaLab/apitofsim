@@ -8,8 +8,8 @@ This package can be installed using packages from Conda or pip (wheel) or from s
 
 ### Installation using pip
 
-The wheel includes the native Parquet writer and bundles its Arrow and Parquet
-libraries. Python event readers use PyArrow. The macOS arm64 wheel requires
+The wheel includes carquet for native Parquet recording and nanoarrow for
+Arrow IPC recording. Python event readers use PyArrow. The macOS arm64 wheel requires
 macOS 12 or later.
 
 Visit [the release page](https://github.com/VilmaLab/apitofsim/releases) and find the appropriate release ending .whl for your platform, right click and copy the link address. Then run the following command in your terminal, replacing `<link>` with the copied link:
