@@ -19,7 +19,9 @@ nav = [
     { "Python library" = "python.md" },
   ] },
   { "Notebooks" = "notebooks.md" },
-  { "Development" = "development.md" },
+  { "Development environment" = "development.md" },
+  { "Internals" = "internals.md" },
+  { "Benchmarks" = "benchmark.md" },
 ]
 
 [project.theme]
