@@ -1,4 +1,4 @@
-# Development environment
+# 🤖 Development environment
 
 Build, test, and debug apitofsim from source. See [Internals](internals.md) for
 execution and event-storage design, and [Benchmarks](benchmark.md) for recording

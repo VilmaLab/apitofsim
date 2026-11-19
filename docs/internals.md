@@ -1,4 +1,4 @@
-# Internals
+# 🤖 Internals
 
 Execution and event-storage design. See [Development environment](development.md)
 for build and test instructions, and [Benchmarks](benchmark.md) for recording
