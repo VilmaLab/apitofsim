@@ -90,6 +90,11 @@ FetchContent_Declare(carquet
   GIT_TAG 10d50f721a1cf695917281ba388ed826084bee64
   SYSTEM EXCLUDE_FROM_ALL
 )
+# The pinned carquet enables x86 SIMD dispatch with icx but skips the per-file ISA flags.
+if(CMAKE_C_COMPILER_ID STREQUAL "IntelLLVM" AND CMAKE_C_COMPILER_FRONTEND_VARIANT STREQUAL "GNU")
+  set(CARQUET_ISA_FLAGS_GNU ON)
+  set(CARQUET_NO_LTO_FLAG "-fno-lto")
+endif()
 FetchContent_MakeAvailable(carquet)
 # Upstream enables LTO in Release independently of the selected linker. Leave
 # that choice to this project's toolchain instead of requiring LLVM's linker.
