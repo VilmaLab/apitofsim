@@ -36,6 +36,15 @@ Be succinct!
 - Preserve existing local data, simulation outputs, and unrelated untracked work.
   Use small test fixtures rather than committing generated databases or results.
 
+## Documentation
+
+Document the current version, not the history of a change. Avoid migration
+narratives, references to a PR, and comparisons with previous behavior.
+
+Keep user documentation focused on usage, observable behavior, and scientific
+assumptions. Put implementation details useful to maintainers in Internals;
+omit details that do not help readers.
+
 ## Local QA
 
 Run QA locally before reporting work complete. For routine changes, run relevant
