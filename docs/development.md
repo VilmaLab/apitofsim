@@ -68,8 +68,7 @@ uv sync
 ```
 
 Python changes are visible immediately. For C++ rebuilds on import, add the
-following to your local `uv.toml`. Replace old Meson-specific config settings
-and use a fresh build directory.
+following to your local `uv.toml`.
 
 ```toml
 [config-settings]

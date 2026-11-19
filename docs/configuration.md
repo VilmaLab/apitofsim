@@ -125,7 +125,7 @@ normalized when loaded. Do not specify a setting both at top level and inside
 | fragmentation_state_method | `zero` | Continuing cluster-tree breakups: `zero` resets daughter velocity, angular velocity and vibrational energy; `phase-space` samples them while conserving breakup energy, linear momentum and angular momentum. Other simulation modes are unaffected. See [daughter-state sampling](fragmentation.md) for assumptions. |
 | sample_mode | `rejection` | `rejection`, `dss_normalized`, or `dss_unnormalized`. |
 | vib_energy_sampler | `dos-only` | Vibrational energy partition for collisions and rotation. Choose `direct` (scan), `dos-only` (DOS CDF rejection), or `group-dos` (grouped rejection with a log-mass DOS tree). Independent of the gas collision `sample_mode`. |
-| collision_time_method | `integrated-hazard` | Use `legacy` for the previous timestep-based collision clock. Independent of `sample_mode`. |
+| collision_time_method | `integrated-hazard` | Use `legacy` for a timestepped/histogrammed collision clock. Independent of `sample_mode`. |
 | hazard_atol | `1e-12` | Absolute tolerance in dimensionless cumulative hazard, for integration and event location. |
 | hazard_rtol | `1e-9` | Relative tolerance in cumulative hazard. Both tolerances must be finite and positive. |
 | use_old_dos_impl | `false` | Use the legacy density of states implementation for uncached calculations. |
@@ -136,7 +136,6 @@ The default `compute_mesh_linear` reduces mesh preparation from quadratic to lin
 The single-pathway API and native CLI use it too; batches avoid redundant preparation for cached inputs and atom-only pathways.
 
 The default solver uses bounded thinning in RF fields and hazard integration elsewhere, where the hazard tolerances control integration and event location. The legacy solver ignores both tolerances and uses the chamber timesteps derived for each cluster.
-The workflow automatically prepares and caches RF tables for `integrated-hazard` simulations with nonzero AC and frequency.
 
 The selected DOS implementation affects newly computed entries; existing DOS
 cache entries are reused.
