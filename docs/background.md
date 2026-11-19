@@ -1,6 +1,7 @@
 # Background on the APi-TOF simulation
 
-This page gives some background information on how the package works and gives references to relevant publications at a high level. For a more detailed, self-contained mathematical description, see [Simulation model and numerical methods (PDF)](simulation-methods.pdf).
+This page gives some background information on how the package works and gives references to relevant publications at a high level. For a more detailed, self-contained mathematical description, see [🤖
+Simulation model and numerical methods (PDF)](simulation-methods.pdf).
 
 ## How does it work?
 
