@@ -252,10 +252,6 @@ readers and writers; direct file access must follow the same rule.
 Deleting execution metadata hides its events without rewriting the archive.
 Reclaiming that space requires a future explicit compaction operation.
 
-`RealizationDatabase` and the relational event writer have been removed. Old
-experiment/event schemas are rejected with an explicit migration message. This
-release does not silently migrate historical databases.
-
 ::: apitofsim.workflow.ClusterDatabase
     options:
       members: true
@@ -395,7 +391,7 @@ records may not identify it. Runs without histogram provenance raise
 
 Recording and Python observation are independent. `mass_spec()` returns a
 `MassSpecResult` with `counters`, `timings`, `cancelled`, `status` and optional
-`recording` provenance. Unrecorded execution does not capture events.
+`recording` provenance.
 
 ```python
 from apitofsim import mass_spec, IpcRecording
@@ -412,10 +408,6 @@ replacement = mass_spec(instrument, substance, N=100,
 ```
 
 Successful return includes native writer completion, file sync and publication.
-Appending reads/replaces footer metadata and writes new payloads; it does not
-copy the previous event payloads. Overwrite builds a replacement and publishes
-it atomically. A standalone archive's footer records each execution's status,
-event count and batch range, including zero-event and incomplete executions.
 
 `mass_spec_iter()` yields only event data. Counters/logs are available through
 `result_callback`/`log_callback`; the final result is `stream.result` after
@@ -458,10 +450,7 @@ Use the iterator as a context manager. `request_cancel()` is thread-safe and
 nonblocking. Calling `stream.close()` or exiting the context early stops
 admitting realizations, discards queued Python delivery, and waits for native
 recording to stop. Partial recordings retain an incomplete status. A write
-failure rolls back the pending append. During normal Python event delivery, backpressure limits the handoff
-to two pending batches and the `max_pending_events` credit limit (default 262144). One batch may
-exceed that credit limit. The pipeline separately bounds the number of in-flight
-histories, whose sizes depend on the simulation.
+failure rolls back the pending append.
 
 `initial_batch_size` and `max_batch_size` control delivery batch sizes. The native
 writer coalesces histories into batches of up to 65536 events. `stream.finish()`
@@ -532,10 +521,7 @@ errors never become successful completion merely because simulation finished.
 
 `MassSpecSubstanceTreeInput.tree_nodes`, `tree_pathways`, `cluster_payloads`
 and `pathway_payloads`, and each node's `pathway_indices`, are read-only views
-of native vectors. Indexing and iteration do not copy the vector. Negative
-indices are supported; slicing returns an independent Python list. Retaining a
-view, element or iterator keeps its native owner alive. Constructors still
-accept Python sequences.
+of native vectors.
 
 `substance.topology_columns()` returns owned NumPy `int64` snapshots:
 
@@ -546,15 +532,10 @@ accept Python sequences.
 | `transition_payload` | Transition index | Pathway payload index |
 | `transition_destination` | Transition index | Destination node, or `-1` for a terminal transition |
 
-The arrays survive deletion of the tree, and changing an array does not change
-the tree. Export traverses the native topology once and validates that every
-transition has exactly one source and an in-range destination. Database tree
-persistence uses these columns and bulk Arrow insertion in one transaction;
-terminal destinations are stored as SQL NULL.
 
 ### Cluster-tree fragmentation histories
 
-New tree executions persist `cluster_tree_experiment_result`, `cluster_tree_node`
+Tree executions persist `cluster_tree_experiment_result`, `cluster_tree_node`
 and `cluster_tree_transition` before starting native execution. Nodes are keyed by
 result ID and local node index; different routes to one species remain separate
 nodes. Transitions describe the exact enabled pathways, including unobserved
@@ -577,9 +558,7 @@ states = db.tree_events_query(result_id=42).fetchdf()
 `provenance` is `persisted` for resolved records, or an explicit `missing_*` or
 `inconsistent_*` diagnostic. `continuity_valid` checks successive node transitions
 in event order; NULL means the preceding state/destination is unavailable. Keep
-these diagnostics when consuming histories. No legacy reconstruction or schema
-migration is provided: these readers require the new schema. Queries perform no
-writes and also work with read-only/attached databases.
+these diagnostics when consuming histories.
 
 Tree realizations are linked as they are recorded, so scopes include retained
 partial executions. `total_us` remains NULL until successful completion;

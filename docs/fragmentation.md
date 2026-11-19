@@ -8,10 +8,8 @@ simulation_mode = "cluster-tree"
 fragmentation_state_method = "phase-space"
 ```
 
-The default, `fragmentation_state_method = "zero"`, retains the previous reset of
-velocity, angular velocity and vibrational energy. The setting is saved with the
-experiment configuration. It only affects continuing tree transitions; terminal
-fragmentations and the single-cluster/pathway-at-a-time modes retain their behavior.
+The default, `fragmentation_state_method = "zero"`, resets velocity, angular velocity and vibrational energy to zero.
+The setting is saved with the experiment configuration. It only affects continuing tree transitions; terminal fragmentations and the single-cluster/pathway-at-a-time modes retain their behavior.
 `postfragmentation` events record the assigned state using the existing schema.
 
 ## Model and limits
@@ -112,11 +110,6 @@ energies are joules. Counts are stored in logarithms and sampling weights are
 evaluated in log space. DOS preparation switches to log space before counts overflow.
 Out-of-range energies or missing/invalid product data raise errors; they do not
 silently fall back to zeroing or clip away energy.
-
-Workflow preparation supplies both products' frequencies and the actual prepared
-DOS grid, including when loading cached rates. Prepared product data are immutable
-and shared across realizations. The per-realization random generator controls all
-sampling, and the rejection loop checks cooperative cancellation.
 
 For direct Python use, construct `api.FragmentationProducts(daughter, neutral,
 bin_width, energy_max)` with `ClusterData` objects and Pint energy quantities
