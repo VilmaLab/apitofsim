@@ -88,6 +88,29 @@ For clangd, symlink `compile_commands.json` from your build directory:
 ln -sf builds/uvbuild/compile_commands.json compile_commands.json
 ```
 
+### Editable installation with Intel oneAPI on Linux
+
+Load the Intel oneAPI compiler environment so `icx` and `icpx` are on
+`PATH` and CMake can find Intel's OpenMP runtime. Set `VCPKG_ROOT` as above
+and use a separate build directory for the Intel toolchain.
+
+```toml
+no-build-isolation-package = ["apitofsim"]
+
+[config-settings]
+build-dir = "builds/uv-intel"
+"cmake.build-type" = "Release"
+"cmake.define.CMAKE_C_COMPILER" = "icx"
+"cmake.define.CMAKE_CXX_COMPILER" = "icpx"
+"cmake.define.CMAKE_CXX_FLAGS_RELEASE" = "-O3 -DNDEBUG -march=native"
+"cmake.define.CMAKE_MODULE_LINKER_FLAGS" = "-static-intel"
+```
+
+Run `./uv_sync.sh` from the project root. The `-march=native` setting tunes
+the C++ code for the build host. Omit the
+`cmake.define.CMAKE_CXX_FLAGS_RELEASE` entry if the build will run on older
+CPUs.
+
 ### Using debug Python builds
 
 You can get Python stack traces in gdb by adding something like the following to your `~/.gdbinit` file:
