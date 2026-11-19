@@ -22,14 +22,14 @@ apitofsim db run database.duckdb --record-events
 Recording appends natively to `database.events.arrow`.
 This must be kept in the same directory as the database.
 
-It's also possible to record events to Parquet, which tends to produce smaller files when using compression:
+Record to Parquet for smaller files with compression:
 
 ```bash
 apitofsim db run database.duckdb --record-events --event-format parquet \
     --event-compression zstd --parquet-column-workers 4
 ```
 
-Empirically setting `--parquet-column-workers` to 25% of available CPU cores seems to produce good results.
+Empirically, when using `zstd`, setting `--parquet-column-workers` to 25% of available CPU cores is close to optimal.
 
 ## Event plots
 
@@ -50,7 +50,7 @@ ambiguous histories contribute to neither fragmentation nor escape counts.
 
 ## The legacy tools
 
-These tools are not recommended for new users, and kept available to support existing workflows.
+These legacy tools are kept for existing workflows and are not recommended for new ones.
 
 If you have installed via Conda, and activated the relevant environment, the legacy command line tools `apitofsim-skimmer`, `apitofsim-densityandrate` and `apitofsim-mass-spec` should be installed and in your path.
 If you have compiled the sources yourself, you will need to add `build/src/cli` to your path for the following example to work.

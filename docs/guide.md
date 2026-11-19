@@ -8,7 +8,7 @@ In the import or ingestion stage, you will prepare a database containing data ab
 
 Typically, you will start with an XYZ file and run either ORCA or Gaussian to generate the quantum chemistry.
 
-The exact ORCA and Gaussian settings depend upon the material of the clusters being studied and the desired level of accuracy versus available computation time, and are somewhat beyond the scope of this guide.
+The exact ORCA and Gaussian settings to use depend upon the material of the clusters being studied and the desired level of accuracy versus available computation time and are beyond the scope of this guide.
 Sometimes multiple analyses are run to estimate different properties of the cluster, for example one which is more accurate for energetics, and one which is more accurate for vibrational and rotational frequencies.
 The following examples are given only as an indication of settings which have been used previously:
 
@@ -112,7 +112,7 @@ name,orca,gaussian
 ...
 ```
 
-when this is done, you can specify the pathways to consider in the simulation in a pathways CSV file with `parent`, `product1` and `product2` columns like so:
+Next, specify the pathways to consider in the simulation in a pathways CSV file with `parent`, `product1` and `product2` columns like so:
 
 ```
 parent,product1,product2
@@ -262,11 +262,6 @@ Then you are ready to run:
 <a href="../cli/#apitofsim-db-run">apitofsim db run</a> database.db
 </code>
 
-There are various options to the [`apitofsim db run`][apitofsim-db-run] command to filter what to run, however the most important option at the moment is `--pathway-at-a-time` which switches between two modes of operation.
-
- * *The default mode* runs the simulation parent cluster at a time. After each simulated gas collision, the possibility of fragmenting into any pathway is considered.
- * *Per-pathway mode* runs each pathway separately. After each simulated collision, only one pathway is considered.
-
 ## Analysing the results
 
 All results are stored in the database.
@@ -306,7 +301,7 @@ This will create a directory called `spectrograms` containing a spectrogram for 
 
 Note that the fragmentation simulation does not take into account transmission efficiency.
 There are some rudimentary models available which can be applied in order to attempt to model transmission based on mass.
-These are based simple curve fitting based on experimental data.
+These are based on simple curve fitting of experimental data.
 They correspond to particular instrument settings, and are expected to be even less accurate when used for other settings.
 
 | Name          | Charge   | Voltages (V) |

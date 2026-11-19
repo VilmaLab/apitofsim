@@ -1,4 +1,4 @@
-# Using the Python API
+# 🤖 Using the Python API
 
 This page documents the Python API.
 The main API is in the `apitofsim.api` module, most of which is re-exported from `apitofsim`.

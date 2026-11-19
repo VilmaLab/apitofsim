@@ -32,7 +32,7 @@ In particular, after a collision with a gas particle, survival probability distr
 In the second, corresponding to earlier versions of the code, the simulation considers each pathway separately and uses assumptions of independence to obtain the overall survival probability as the product of the survival probabilities of each pathway.
 Beyond this, per-pathway fragmentation probabilities can be found using independence and assuming fragmentation happens in an order proportional to some measure of overall pathway fragmentation as outlined by Zanca, T. (2025)[^5].
 This second approach is available through the `--simulation-mode=pathway-at-a-time` option.
-A final is the cluster tree approach which carries on simulating charged daughter ions after fragmentation, and is available through the `--simulation-mode=cluster-tree` option.
+The third is the cluster tree approach, which continues simulating charged daughter ions after fragmentation, via `--simulation-mode=cluster-tree` option.
 This is described in [Simulation model and numerical methods (PDF)](simulation-methods.pdf).
 
 The software has some additional features not yet described in publication or via a notebook, although they are covered in [Simulation model and numerical methods (PDF)](simulation-methods.pdf). They are:

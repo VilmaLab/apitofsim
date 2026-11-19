@@ -8,7 +8,7 @@ While much of this documentation is human written, some has been written by LLMs
 
 ## Installation
 
-This package can be installed using packages from Conda or pip (wheel) or from source
+This package can be installed using packages from Conda, pip (wheel) or from source
 
 ### Installation using pip
 
