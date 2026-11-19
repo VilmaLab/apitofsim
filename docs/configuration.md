@@ -10,14 +10,14 @@ You will probably want to skim this, but can come back after reading the section
 --8<-- "examples/validation/config.toml"
 ```
 
-Note there are two main things configured in this file.
-The first is how to ingest things, as given by one or more `[[pathways]]` sections.
-The second is how to run the simulation, as given by the `[default_config]` section and one or more `[[configs]]` sections.
+There are two main things configured by this file.
+The first is *how to ingest cluster and pathway data*, as given by one or more `[[pathways]]` sections.
+The second is *how to run the simulation, as given by the `[default_config]` section and one or more `[[configs]]` sections.
 
 ## Ingestion configuration
 
 See the documentation for the [apitofsim db prepare][apitofsim-db-prepare] command to get started.
-Here some more extra reference information about `type = "csv"` ingestion is given.
+Here is some extra reference information about `type = "csv"` ingestion:
 
 ### [[pathways]]
 
@@ -57,7 +57,7 @@ For `"csv"`, new columns can be added to the clusters CSV named after the corres
 | Name                     | Description                           |
 | ------------------------ | --------------------------------------|
 | default_source           | The source to be used for any attributes not specified. |
-| number_of_atoms          | The number of atoms in the compound. This is currently only used to determine whether a compound is an atom-like product and therefore does not need to have vibrational_temperatures specified. |
+| number_of_atoms          | The number of atoms in the compound. This is only used to determine whether a compound is an atom-like product and therefore does not need to have vibrational_temperatures specified. |
 | vibrational_temperatures | The vibrational temperatures of the compound. |
 | rotational_temperatures  | The rotational temperatures of the compound. |
 | electronic_energy        | The electronic energy of the compound. |
@@ -90,7 +90,7 @@ name = "myconfig"
 Put numerical settings in `[configs.simulation]` and shared defaults in
 `[default_config.simulation]`. Each config inherits individual simulation defaults,
 so overriding `N` retains the default energy mesh and tolerances.
-`bin_width` belongs here too. The key is spelled `tolerance`.
+`bin_width` belongs here too.
 
 ```toml
 [default_config.simulation]
@@ -114,10 +114,8 @@ k_total_mesh_mode = "compute_mesh_linear"
 k_rate_cancellation = true
 ```
 
-Older flat files and stored databases remain readable. The Python builder and
-runner dictionaries retain their flat structure; nested file settings are
-normalized when loaded. Do not specify a setting both at top level and inside
-`simulation`.
+Nested [configs.simulation] settings are normalized to the flat structure used by the Python builder and runner when loaded.
+Do not specify a setting both at top level and inside simulation.
 
 | Name | Default | Description |
 | ---- | ------- | ----------- |
@@ -130,10 +128,9 @@ normalized when loaded. Do not specify a setting both at top level and inside
 | hazard_rtol | `1e-9` | Relative tolerance in cumulative hazard. Both tolerances must be finite and positive. |
 | use_old_dos_impl | `false` | Use the legacy density of states implementation for uncached calculations. |
 | k_total_mesh_mode | `compute_mesh_linear` | `no_mesh`, `compute_mesh_single_threaded`, `compute_mesh_diagonal_single_threaded`, `compute_mesh_multithreaded`, `compute_mesh_diagonal_multithreaded`, or `compute_mesh_linear` (linear-time recurrence). |
-| k_rate_cancellation | `true` | Cancel intermediate DOS factors for uncached rates; `false` uses the previous two-stage calculation. |
+| k_rate_cancellation | `true` | Cancel intermediate DOS factors for uncached rates; `false` uses a slower two-stage calculation. |
 
-The default `compute_mesh_linear` reduces mesh preparation from quadratic to linear time while preserving the existing midpoint weights.
-The single-pathway API and native CLI use it too; batches avoid redundant preparation for cached inputs and atom-only pathways.
+The default compute_mesh_linear computes the mesh in linear time.
 
 The default solver uses bounded thinning in RF fields and hazard integration elsewhere, where the hazard tolerances control integration and event location. The legacy solver ignores both tolerances and uses the chamber timesteps derived for each cluster.
 
@@ -186,7 +183,7 @@ cache entries are reused.
 | ... $L_3$       | meter        | Length between back quadrupole and 2nd skimmer |
 | ... $L_{sk}$    | meter        | Length of skimmer |
 | voltages        | volt         | A five element array with the voltages applied to the instrument [$V_0$, $V_1$, $V_2$, $V_3$, $V_4$] |
-| ... $V_0$       | volt         | Voltage at then end of the quadrupole in first chamber (not currently simulated) |
+| ... $V_0$       | volt         | Voltage at then end of the quadrupole in first chamber (this quadrupole is not simulated) |
 | ... $V_1$       | volt         | Voltage between first and second chambers |
 | ... $V_2$       | volt         | Voltage at beginning of quadrupole in second chamber |
 | ... $V_3$       | volt         | Voltage at end of quadrupole in second chamber |

@@ -1,4 +1,4 @@
-# Daughter states after fragmentation
+# 🤖 Daughter states after fragmentation
 
 Cluster-tree simulations can continue with a sampled charged daughter:
 
@@ -102,14 +102,8 @@ excitation $i\,\Delta E$ are summed rather than integrated, so the ground state 
 accessible even with less than one bin of available energy. Individual and combined
 counts use the same recurrence, ensuring consistent vibrational splits.
 
-The current rate DOS routine omits the all-ground-state contribution; the sampler
-therefore does not reuse its values. This setting changes neither those tables nor
-the rates computed from them. Collision sampling also retains its existing
-bin-centre convention. Refine `bin_width` when assessing convergence. All runtime
-energies are joules. Counts are stored in logarithms and sampling weights are
-evaluated in log space. DOS preparation switches to log space before counts overflow.
-Out-of-range energies or missing/invalid product data raise errors; they do not
-silently fall back to zeroing or clip away energy.
+The rate DOS routine omits the all-ground-state contribution; the sampler
+therefore does not reuse its values and computes its own DOS curves.
 
 For direct Python use, construct `api.FragmentationProducts(daughter, neutral,
 bin_width, energy_max)` with `ClusterData` objects and Pint energy quantities
