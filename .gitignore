@@ -58,4 +58,7 @@ __marimo__/
 *.png
 *.svg
 *.bin
+
+# Keep examples and fixtures in the Conda source copy.
 !/examples/**/*.csv
+!/test/data/**
