@@ -58,3 +58,4 @@ __marimo__/
 *.png
 *.svg
 *.bin
+!/examples/**/*.csv
