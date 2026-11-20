@@ -24,15 +24,13 @@ Object members use dotted names such as `gas.radius` and
 | pressures | pascal | first, second |
 
 The named input types are `LengthComponents`, `VoltageComponents`,
-`PressureComponents`, `GasComponents`, and `QuadrupoleComponents`. Arrays may
-also be supplied as a Pint quantity with the exact shape `(5,)`, `(5,)`, or
-`(2,)`, respectively. Named mappings require every listed component and reject
-unknown keys. Gas and quadrupole inputs also accept existing public objects.
-Dimensional scalars require Pint quantities; dimensionless scalars accept plain
-numbers or dimensionless quantities. Values must be finite, and iteration,
-resolution and realization counts must be integers. Errors name the invalid
-field/component and expected unit or shape. Physical bounds and form-specific
-validation remain the consumer's responsibility.
+`PressureComponents`, `GasComponents`, and `QuadrupoleComponents`. Input rules:
+
+* Arrays may also be supplied as a Pint quantity with the exact shape `(5,)`, `(5,)`, or `(2,)`, respectively.
+* Named mappings require every listed component and reject unknown keys; gas and quadrupole inputs also accept existing public objects.
+* Dimensional scalars require Pint quantities; dimensionless scalars accept plain numbers or dimensionless quantities.
+* Values must be finite; iteration, resolution and realization counts must be integers.
+* Errors name the invalid field/component and expected unit or shape; physical bounds and form-specific validation remain the consumer's responsibility.
 
 All arguments without defaults in `build_config()` are required. The builder
 supplies no numerical tuning defaults. Omitted/`None` quadrupoles mean no mass
@@ -43,8 +41,8 @@ retained in kelvin, kelvin, and meters. Histogram energies use temperature units
 convert energy quantities explicitly with a Pint Boltzmann context if needed.
 `fragmentation_energy` is a pathway-at-a-time runner override; grouped preparation
 uses electronic-energy differences. `radius_pinhole` is preserved for consumers
-constructing `MassSpectrometer` directly; `ExperimentRunner` currently retains
-its existing default pinhole radius (1 mm).
+constructing `MassSpectrometer` directly; `ExperimentRunner` uses its default
+pinhole radius of 1 mm.
 
 Geometry follows the simulation's definitions: `L0` is the first chamber length,
 `L1` is the gap after the skimmer and before the quadrupole, `L2` is the quadrupole
@@ -56,8 +54,7 @@ For example, 45 degrees becomes 0.25 halfturn. This angle is the slope angle
 used by that formula. See [configuration geometry](configuration.md#top-level-arrays)
 for voltage locations and diagrams.
 
-This example uses only public APIs; a form can substitute its submitted Pint
-quantities for the values below:
+This example uses only public APIs:
 
 ```python
 from pint import get_application_registry
@@ -89,12 +86,8 @@ prepared = runner.prepare_from_config(config)
 # Use runner.iter_mass_spec() as shown in the recording example below.
 ```
 
-Legacy `ConfigFile` readers remain available. Their array ordering and units
-come from the canonical metadata. Gas/quadrupole construction and quantity
-decoding are shared with `import_raw_config()` and the builder; complete-input
-validation is specific to the builder.
-Stored configurations may still be partial.
-`ConfigFile.into_json_config()` preserves quadrupole settings.
+Legacy `ConfigFile` readers remain available, and stored configurations may still
+be partial. `ConfigFile.into_json_config()` preserves quadrupole settings.
 
 ## Data classes
 
@@ -153,11 +146,9 @@ These classes input data to the simulation, as well as output data from intermed
 
 ## Workflow interface
 
-The `apitofsim.workflow` module, contains functions to keep cluster data in a database, convenient for running scaled-up simulations.
+The `apitofsim.workflow` module stores cluster data in a database and runs scaled-up simulations.
 
-Typically an `ExperimentDatabase` is created and its tables created with `db.create_tables(...)` and then clusters are ingested e.g. with `ingest_tree(...)`.
-
-After this, multiple simulations can be run using the `ExperimentRunner` class.
+Typically an `ExperimentDatabase` is created with `db.create_tables(...)` and clusters are ingested e.g. with `ingest_tree(...)`. Simulations are then run with the `ExperimentRunner` class.
 
 `db.create_tables()` omits foreign keys by default while preserving primary keys,
 other constraints and report views. Use `db.create_tables(foreign_keys=True)` to
@@ -180,9 +171,9 @@ the `experiment_summary` columns plus raw `config` and `run_config` JSON. Omit
 the run ID to retrieve all runs. Timestamps remain Python datetimes when fetched.
 `experiment_clusters_query(experiment_run_id, cluster_id=None)` returns rows from
 `experiment_cluster_report`, including cluster facts and `is_single_pathway`,
-optionally filtered to one cluster. Mode flags retain the report views' semantics:
-they indicate whether the run has single-pathway results, so a run without
-results has a false flag; its requested simulation mode remains in `run_config`.
+optionally filtered to one cluster. Mode flags indicate whether the run has
+single-pathway results (false for a run without results); the requested simulation
+mode is in `run_config`.
 
 All four methods return DuckDB relations that callers can select, filter, sort
 or fetch. Missing run or cluster IDs return empty relations. Display labels and
@@ -192,17 +183,17 @@ date formatting belong to callers.
 
 `ExperimentDatabase` stores configuration, tree topology, summaries and failure
 information. Native event payloads are stored in `results.events.arrow` or
-`results.events.parquet` alongside `results.duckdb`. The optional ASE sidecar
-retains its `results.ase.sqlite.db` naming. Move the files together with matching
-basenames. An archive UUID and committed length detect mismatched sidecars.
+`results.events.parquet` alongside `results.duckdb`; the optional ASE sidecar keeps
+its `results.ase.sqlite.db` naming. Move the files together with matching
+basenames; an archive UUID and committed length detect mismatched sidecars.
 
-There are no physical `event_info`, `realization`, `collision_event` or
-`fragmentation_event` tables. `event_execution` contains one metadata row per
-execution, with its result ID, status, event count and batch range. Status is
-`running`, `complete`, `cancelled` or `failed`; whole-experiment status is also
-persisted in `experiment_run.execution_status`. Incomplete executions are never
-inserted into successful-result aggregates. The event reader uses a PyArrow
-IPC dataset or DuckDB's built-in Parquet scan according to the archive format.
+Event payloads are read through a PyArrow IPC dataset or DuckDB's Parquet scan
+according to the archive format; there are no physical `event_info`,
+`realization`, `collision_event` or `fragmentation_event` tables. `event_execution`
+contains one metadata row per execution with its result ID, status, event count and
+batch range. Status is `running`, `complete`, `cancelled` or `failed`;
+whole-experiment status is also persisted in `experiment_run.execution_status`.
+Incomplete executions are never inserted into successful-result aggregates.
 
 `results_query()`, `realizations_query()`, `events_query()` and
 `recorded_output_query()` return DuckDB relations. Filters `run_id`, `parent`
@@ -236,21 +227,19 @@ is not stable. SQL's convenience `event_id` and `realization_id` are opaque
 colon-separated strings of their components. Sort by the numeric components,
 not the textual IDs. `events_query(sort=True)` does this automatically.
 
-`event_details`, `event_info`, `realization` and `event_report` are temporary read
-views created by the database wrapper. `event_details` exposes position/time and
-velocity structs, energies, node identity and optional collision/fragmentation
-fields. A collision holds its before-state; `postcollision` holds its accepted
-after-state. Continuing splits similarly emit `postfragmentation`; terminal
-splits have no after-event. No event associations are inferred from timestamps.
+`event_details`, `event_info`, `realization` and `event_report` are temporary
+read views created by the database wrapper; `event_details` exposes position/time,
+velocity, energies, node identity and any collision/fragmentation fields. No event
+associations are inferred from timestamps. Event types and their fields are listed
+under [Native recording and Python event delivery](#native-recording-and-python-event-delivery).
 
-Readers hold a shared sidecar lock. A recording transaction requires exclusive
-access; close other readers before appending. Event queries on the writing
-connection are unavailable during an append; use live Python delivery instead.
-Finish existing query scans before appending and do not execute retained event
-relations inside the recording transaction. Locks coordinate library-managed
-readers and writers; direct file access must follow the same rule.
+Sidecar access is coordinated with locks:
+
+* Readers hold a shared lock; a recording transaction requires exclusive access, so close other readers before appending.
+* Event queries on the writing connection are unavailable during an append; use live Python delivery instead. Finish existing scans first, and do not execute retained event relations inside the recording transaction.
+* Locks coordinate library-managed readers and writers only; direct file access must follow the same rule.
+
 Deleting execution metadata hides its events without rewriting the archive.
-Reclaiming that space requires a future explicit compaction operation.
 
 ::: apitofsim.workflow.ClusterDatabase
     options:
@@ -372,8 +361,8 @@ for curve in curves:
 The x coordinate is excess energy: internal energy minus bonding energy.
 Energy helpers accept Pint quantities or recorded joule values and preserve
 missing energies. Collision rows contain energies before the collision update.
-For serial fragmentation, supply the event's known current parent ID; older
-records may not identify it. Runs without histogram provenance raise
+For serial fragmentation, supply the event's current parent ID; it may be
+unavailable in some records. Runs without histogram provenance raise
 `RateCurveProvenanceError`.
 
 ::: apitofsim.workflow.PathwayRateCurve
@@ -429,22 +418,27 @@ with mass_spec_iter(instrument, substance, 100, events="individual") as stream:
             inspect(event.theta, event.accepted, event.vibrational_energy)
 ```
 
-Batches retain their native buffers after subsequent reads and stream deletion.
-Individual events are unpacked lazily from those batches. Types are `InitEvent`,
-`CollisionEvent`, `PostCollisionEvent`, `FragmentationEvent`,
-`PostFragmentationEvent` and `EscapeEvent`. Common fields include identity,
-`particle_index`, `x/y/z/t`, `vx/vy/vz`, `ox/oy/oz`, `rot_energy` and
-`vibrational_energy`. Collision rows add `theta`, `u_norm`, `accepted`;
-fragmentation rows add `transition_index` and `next_particle_index`. Native
-values retain double precision and SI units. Raw batch subtype fields are zero
-or -1 outside their event kind; SQL read views expose them as NULL instead.
+Events are delivered as `InitEvent`, `CollisionEvent`, `PostCollisionEvent`,
+`FragmentationEvent`, `PostFragmentationEvent` or `EscapeEvent`. Every event
+carries identity, `particle_index`, `x/y/z/t`, `vx/vy/vz`, `ox/oy/oz`,
+`rot_energy` and `vibrational_energy` as double-precision SI values. Extra fields
+by event type:
+
+| Event | Extra fields |
+| ----- | ------------ |
+| `CollisionEvent` | `theta`, `u_norm`, `accepted` (before-state) |
+| `PostCollisionEvent` | accepted after-state |
+| `FragmentationEvent` | `transition_index`, `next_particle_index` |
+| `PostFragmentationEvent` | assigned daughter state |
+| `InitEvent`, `EscapeEvent` | — |
+
+SQL read views expose fields outside an event's kind as NULL.
 
 Use `ordered=True` to deliver events by realization index and event index within
-an execution. Recording implies ordered delivery. Passing `ordered=False` with
-recording raises an error. Without recording, the default emits histories as they
-complete. Live events become available after the realization finishes, or when
-cancellation or failure ends it early. New IPC footer entries mark ordered
-executions. Appending leaves the layout of earlier executions intact.
+an execution. Recording implies ordered delivery; passing `ordered=False` with
+recording raises an error. Without recording, histories are emitted as they
+complete, with live events available once a realization finishes or ends early
+through cancellation or failure.
 
 Use the iterator as a context manager. `request_cancel()` is thread-safe and
 nonblocking. Calling `stream.close()` or exiting the context early stops
@@ -452,10 +446,9 @@ admitting realizations, discards queued Python delivery, and waits for native
 recording to stop. Partial recordings retain an incomplete status. A write
 failure rolls back the pending append.
 
-`initial_batch_size` and `max_batch_size` control delivery batch sizes. The native
-writer coalesces histories into batches of up to 65536 events. `stream.finish()`
-discards remaining Python events, delivers requested callbacks on the caller's
-thread, and waits for completion.
+`initial_batch_size` and `max_batch_size` control delivery batch sizes; batches
+contain up to 65536 events. `stream.finish()` discards remaining Python events,
+delivers requested callbacks on the caller's thread, and waits for completion.
 
 ```python
 from apitofsim import read_events
@@ -515,7 +508,7 @@ current root's partial history and does not start remaining roots.
 including startup errors when failure insertion succeeds. Partial events carry
 `failed`/`cancelled` execution status rather than being interpreted as successful
 results. Consumer exceptions propagate after cancellation/cleanup. Native I/O
-errors never become successful completion merely because simulation finished.
+errors are reported as failures even when the simulation itself finished.
 
 ### Native tree inspection
 
@@ -555,10 +548,12 @@ history = db.fragmentation_histories_query(result_id=42).fetchdf()
 states = db.tree_events_query(result_id=42).fetchdf()
 ```
 
-`provenance` is `persisted` for resolved records, or an explicit `missing_*` or
-`inconsistent_*` diagnostic. `continuity_valid` checks successive node transitions
-in event order; NULL means the preceding state/destination is unavailable. Keep
-these diagnostics when consuming histories.
+| Column | Meaning |
+| ------ | ------- |
+| `provenance` | `persisted` for resolved records, otherwise a `missing_*` or `inconsistent_*` diagnostic |
+| `continuity_valid` | successive node transitions consistent in event order; NULL when the preceding state/destination is unavailable |
+
+Keep these diagnostic columns when consuming histories.
 
 Tree realizations are linked as they are recorded, so scopes include retained
 partial executions. `total_us` remains NULL until successful completion;
