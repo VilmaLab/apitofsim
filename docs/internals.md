@@ -1,4 +1,4 @@
-# Internals
+# 🤖 Internals
 
 Execution and event-storage design. See [Development environment](development.md)
 for build and test instructions, and [Benchmarks](benchmark.md) for recording
@@ -91,14 +91,3 @@ IDs for event/realization rows. PyArrow IPC datasets and built-in Parquet
 scans supply temporary DuckDB event views. SQL IDs are opaque composite
 strings; numeric `result_id`, `realization_index`, `event_index` define order.
 Deletion is logical until explicit compaction; a schema change requires migration.
-
-Downstream changes required before updating their dependency pins:
-
-- `apitofsim-resultviewer` must use `ExperimentDatabase`, transport/open the event
-  sidecar, and sort on numeric identity components instead of opaque event IDs.
-- `apitofsim-web` must replace `RealizationDatabase` construction, pass an explicit
-  events filename for attached/in-memory result connections, and store/download
-  the sidecar alongside DuckDB. Shared-cluster attachments remain supported.
-
-The old relational-event schema and `EventRecorder` are removed. Historical
-schemas fail clearly and require an explicit migration; this PR provides none.

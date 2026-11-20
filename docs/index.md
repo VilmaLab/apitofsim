@@ -2,9 +2,13 @@
 
 This is the documentation for apitofsim, a simulation of cluster fragmentation in an Atmospheric Pressure interface Time of Flight Mass Spectrometer (APi-ToF MS). This page will help you get started with installation and usage. For more information about the package itself, please refer to the [Background](background.md) page.
 
+## Some docs are machine-generated
+
+While much of this documentation is human written, some has been written by LLMs. Sections which are entirely or almost entirely LLM generated are indicated with a Robot emoji: 🤖
+
 ## Installation
 
-This package can be installed using packages from Conda or pip (wheel) or from source
+This package can be installed using packages from Conda, pip (wheel) or from source
 
 ### Installation using pip
 

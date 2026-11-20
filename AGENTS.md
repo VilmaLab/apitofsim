@@ -15,6 +15,13 @@ Be succinct!
 - `docs/development.md`: build/debug/profiling instructions; `docs/`: user docs.
 - `CMakeLists.txt`, `cmake/`, and `vcpkg.json`: native build and dependencies.
 - `.github/workflows/`: authoritative CI commands and platform coverage.
+- `ci/`: setup/build helper scripts referenced by docs and CI; `examples/`:
+  runnable examples and notebooks; `conda.recipe/`: conda-forge recipe.
+- `zensical.toml` configures the docs site; `prek.toml` the pre-commit hooks.
+- `bump_downstream.py` rewrites the wheel/conda pins in the sibling downstream repos.
+- Root helper scripts: `./uv_sync.sh`, `./test.sh`, `./setup_checks.sh`,
+  `./type_check.sh`, `./checks.sh`. `bin/` is a gitignored scratch directory
+  for local executables.
 
 ## Development
 
@@ -36,6 +43,18 @@ Be succinct!
 - Preserve existing local data, simulation outputs, and unrelated untracked work.
   Use small test fixtures rather than committing generated databases or results.
 
+## Documentation
+
+Document the current version, not the history of a change. Avoid migration
+narratives, references to a PR, and comparisons with previous behavior.
+
+Keep user documentation focused on usage, observable behavior, and scientific
+assumptions. Put implementation details useful to maintainers in Internals;
+omit details that do not help readers.
+
+Mark sections that are entirely or almost entirely LLM-generated with the robot
+emoji, as described in `docs/index.md`.
+
 ## Local QA
 
 Run QA locally before reporting work complete. For routine changes, run relevant
@@ -43,12 +62,16 @@ tests and language QA; broaden coverage for risky changes. Fix failures introduc
 by the work, and report commands/results and any checks that could not run.
 Do not use CI as the first validation step.
 
+- Environment setup: `./setup_checks.sh` (wraps `./uv_sync.sh`) installs all
+  dependency groups/extras and builds the native extension, which also provides
+  `compile_commands.json` in the uv build directory.
 - Python lint/format: `uv run ruff check python` and
   `uv run ruff format --check python`; also check changed Python tests/scripts.
 - Python types: follow `.github/workflows/qa.yml`: run basedpyright against the
   installed package with that environment's Python (including plot/notebook
-  extras). Generated native stubs must be available. Type coverage via
-  `--verifytypes apitofsim` is currently advisory in CI.
+  extras). Generated native stubs must be available. `./type_check.sh` runs
+  these basedpyright invocations against a full install in `.venv`. Type
+  coverage via `--verifytypes apitofsim` is currently advisory in CI.
 - Native and integrated tests: `./test.sh --test-dir <build-dir>`; the script disables core
   dumps for intentional signal tests. CTest runs C++ tests at one-thread and
   default concurrency, plus registered Python tests when dependencies are present.
@@ -57,7 +80,8 @@ Do not use CI as the first validation step.
   Run the CTest suite too when signal-helper coverage is needed.
 - C++ QA: build with warnings as errors, then run
   `ninja -C <build-dir> clang-format-check` and `ninja -C <build-dir> clang-tidy`,
-  following the Clang configuration in `.github/workflows/qa.yml`.
+  following the Clang configuration in `.github/workflows/qa.yml`. Use
+  `./checks.sh <build-dir> <file>...` to run clang-tidy on individual files.
 - For native memory/lifetime/concurrency changes, use the sanitizer and Valgrind
   configurations in the test workflow as appropriate.
 - Docs changes: `uv run --group docs zensical build --clean`.

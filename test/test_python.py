@@ -196,7 +196,7 @@ def test_iterator_cancellation_isolation():
 def test_iterator_cancellation_blocking(action, tree):
     # A subprocess bounds failures if a blocking binding accidentally keeps the GIL.
     code = f"""
-import os, runpy, signal, threading, time
+import runpy, signal, threading, time
 import stream_snapshots as snapshot
 make_stream = runpy.run_path({__file__!r})['_cancellation_stream']
 stream = make_stream(tree={tree!r})
@@ -206,7 +206,7 @@ assert first.counters.n_realizations > 0
 def interrupt():
     time.sleep(.05)
     if {action!r} == 'sigint':
-        os.kill(os.getpid(), signal.SIGINT)
+        signal.raise_signal(signal.SIGINT)
     else:
         stream.request_cancel()
         stream.request_cancel()
@@ -337,19 +337,16 @@ def test_cli_functional():
         )
 
 
-def test_tree_building():
-    from tempfile import TemporaryDirectory
-
+def test_tree_building(tmp_path):
     from apitofsim.cli import prepare
 
     runner = CliRunner(catch_exceptions=False)
     data_dir = os.environ.get("DATA_DIR")
     assert data_dir is not None, "DATA_DIR environment variable not set"
     config_filename = data_dir + "/besel/config.toml"
-    with TemporaryDirectory() as tmpdir:
-        database_filename = tmpdir + "/testdb.duckdb"
-        runner.invoke(prepare, ["create", config_filename, database_filename, "--ase"])
-        db = ExperimentDatabase(database_filename)
+    database_filename = str(tmp_path / "testdb.duckdb")
+    runner.invoke(prepare, ["create", config_filename, database_filename, "--ase"])
+    with ExperimentDatabase(database_filename) as db:
         runner = ExperimentRunner(db)
         configs = list(db.iter_configs())
         config = configs[0][2]

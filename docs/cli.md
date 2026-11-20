@@ -12,31 +12,24 @@ If you are using `uv` you may need to run `uv run apitofsim` instead.
 
 ## Native event recording
 
-Use an experiment database for both summary-only and recorded runs:
+Use `--record-events` to record individual particle events.
 
 ```bash
 apitofsim db prepare create config.toml database.duckdb
 apitofsim db run database.duckdb --record-events
 ```
 
-Recording appends natively to `database.events.arrow`. The optional ASE sidecar
-is `database.ase.sqlite.db`. Move the files together with matching basenames.
-`--no-record-events` is the default. The former `--db-type=realization` schema
-and relational event inserts are removed; old event databases require migration.
-Do not read the event sidecar while an append transaction is active.
+Recording appends natively to `database.events.arrow`.
+This must be kept in the same directory as the database.
 
-Use the native carquet Parquet writer to record directly to
-`database.events.parquet`.
+Record to Parquet for smaller files with compression:
 
 ```bash
 apitofsim db run database.duckdb --record-events --event-format parquet \
     --event-compression zstd --parquet-column-workers 4
 ```
 
-Parquet recording starts in a database without recorded events and publishes
-one immutable sidecar for the selected configurations. Page compression
-defaults to `none`, and the column worker count defaults to one. Readers
-automatically open the format selected by the database.
+Empirically, when using `zstd`, setting `--parquet-column-workers` to 25% of available CPU cores is close to optimal.
 
 ## Event plots
 
@@ -54,17 +47,10 @@ apitofsim db plot plot-events results.db plots/ --panel cumulative --rescale non
 `equal` gives each region equal width, and `none` uses physical distances in mm.
 Fractions include all recorded realizations in the denominator. Incomplete or
 ambiguous histories contribute to neither fragmentation nor escape counts.
-The former `--plot-type` scatter, swarm, strip and violin options are replaced
-by `--panel`.
-
-In Python, the same ordered selection is available as
-`plot_events_cluster(db, run_id, False, cluster_id, panels=("bars", "cumulative"))`
-from `apitofsim.plotting.events`. It returns a Matplotlib figure;
-`plot_events_experiment()` yields `(parent_name, figure)` pairs for a run.
 
 ## The legacy tools
 
-These tools are not recommended for new users, and kept available to support existing workflows.
+These legacy tools are kept for existing workflows and are not recommended for new ones.
 
 If you have installed via Conda, and activated the relevant environment, the legacy command line tools `apitofsim-skimmer`, `apitofsim-densityandrate` and `apitofsim-mass-spec` should be installed and in your path.
 If you have compiled the sources yourself, you will need to add `build/src/cli` to your path for the following example to work.

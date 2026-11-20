@@ -32,3 +32,33 @@ __marimo__/
 /warnings_skimmer.dat
 /experiment_summary.csv
 /pathway_report.csv
+
+# Databases, event recordings, and lock files anywhere in the tree
+*.duckdb
+*.duckdb.wal
+*.db
+*.db.wal
+*.parquet
+*.arrow
+*.lock
+
+# Logs, backups, temp files, profiler output
+*.log
+*.bak
+*.old
+*.tmp
+*.dat
+
+# Downloaded datasets and archives
+/datasets/
+*.7z
+
+# Generated reports and plots
+*.csv
+*.png
+*.svg
+*.bin
+
+# Keep examples and fixtures in the Conda source copy.
+!/examples/**/*.csv
+!/test/data/**

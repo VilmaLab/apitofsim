@@ -1,4 +1,4 @@
-# Benchmarks
+# 🤖 Benchmarks
 
 Recording benchmarks compare writer implementations, encoding concurrency, and
 Python delivery. See [Internals](internals.md) for the recording design and
