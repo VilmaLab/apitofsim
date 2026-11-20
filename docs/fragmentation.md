@@ -82,7 +82,7 @@ $$
 $$
 
 These obey $\mathbf j_D+\mathbf j_N+\boldsymbol\ell=\mathbf J$ and
-$K+j_D^2/(2I_D)+j_N^2/(2I_N)+V=Q$, as well as linear momentum conservation.
+$K+j_D^2/(2I_D)+j_N^2/(2I_N)+V=Q$.
 For zero parent angular momentum, integrating out $K$ at fixed
 $\widetilde K=K+A$ gives the paper's kernel
 $\widetilde K\sqrt R\,\rho_{DN}(Q-\widetilde K-R)$.
@@ -110,4 +110,4 @@ bin_width, energy_max)` with `ClusterData` objects and Pint energy quantities
 (including kelvin), or bare joules. Add `products=...` to
 `api.MassSpecInputFragmentationPathway`, and set
 `fragmentation_state_method=api.FragmentationStateMethod.phase_space` on
-`api.MassSpecSubstanceTreeInput`. Existing calls retain the zeroing default.
+`api.MassSpecSubstanceTreeInput`.
