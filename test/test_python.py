@@ -196,7 +196,7 @@ def test_iterator_cancellation_isolation():
 def test_iterator_cancellation_blocking(action, tree):
     # A subprocess bounds failures if a blocking binding accidentally keeps the GIL.
     code = f"""
-import os, runpy, signal, threading, time
+import runpy, signal, threading, time
 import stream_snapshots as snapshot
 make_stream = runpy.run_path({__file__!r})['_cancellation_stream']
 stream = make_stream(tree={tree!r})
@@ -206,7 +206,7 @@ assert first.counters.n_realizations > 0
 def interrupt():
     time.sleep(.05)
     if {action!r} == 'sigint':
-        os.kill(os.getpid(), signal.SIGINT)
+        signal.raise_signal(signal.SIGINT)
     else:
         stream.request_cancel()
         stream.request_cancel()
