@@ -50,7 +50,7 @@ jobs:
           echo "OpenMP_ROOT=$HOME/.scratch/apitofsim-openmp-20.1.8/install" >> "$GITHUB_ENV"
       - name: Build
         run: |
-          asan_runtime=$(find -L "$(clang-20 -print-resource-dir)" -name "libclang_rt.asan*.so" -print -quit)
+          asan_runtime=$(clang-20 --print-file-name="libclang_rt.asan-$(uname -m).so")
           test -f "$asan_runtime"
           echo "APITOFSIM_ASAN_RUNTIME=$asan_runtime" >> "$GITHUB_ENV"
           export LD_LIBRARY_PATH="$(dirname "$asan_runtime")${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"

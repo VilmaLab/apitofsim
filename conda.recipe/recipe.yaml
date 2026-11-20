@@ -107,7 +107,9 @@ tests:
       - if: unix
         then: DATA_DIR=$(pwd)/test/data pytest ./test
       - if: win
-        then: set "DATA_DIR=%CD%/test/data" && pytest ./test
+        then: |
+          set "DATA_DIR=%CD%/test/data"
+          pytest ./test || exit /b 1
       - python test/wheel_smoke.py
     requirements:
       run:
