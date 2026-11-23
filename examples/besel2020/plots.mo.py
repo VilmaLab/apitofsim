@@ -36,7 +36,7 @@ def _():
 @app.cell(hide_code=True)
 def _(mo):
     database_path = mo.ui.text(
-        value=str(mo.notebook_dir() / "database.duckdb"),
+        value=str(mo.notebook_dir() / "database.apitofsim"),
         label="Database path",
         full_width=True,
     )

@@ -304,7 +304,7 @@ def test_cli_functional():
     assert data_dir is not None, "DATA_DIR environment variable not set"
     config_filename = data_dir + "/besel/config.toml"
     with TemporaryDirectory() as tmpdir:
-        database_filename = tmpdir + "/testdb.duckdb"
+        database_filename = tmpdir + "/testdb.apitofsim"
         prepare_result = runner.invoke(
             prepare, ["create", config_filename, database_filename, "--ase"]
         )
@@ -344,7 +344,7 @@ def test_tree_building(tmp_path):
     data_dir = os.environ.get("DATA_DIR")
     assert data_dir is not None, "DATA_DIR environment variable not set"
     config_filename = data_dir + "/besel/config.toml"
-    database_filename = str(tmp_path / "testdb.duckdb")
+    database_filename = str(tmp_path / "testdb.apitofsim")
     runner.invoke(prepare, ["create", config_filename, database_filename, "--ase"])
     with ExperimentDatabase(database_filename) as db:
         runner = ExperimentRunner(db)
@@ -822,8 +822,9 @@ def test_collision_profile_readonly_inputs(tmp_path, collision_inputs):
     from apitofsim.api import Q_
 
     config, _, skimmer = collision_inputs
-    path = str(tmp_path / "experiment.duckdb")
-    db = ExperimentDatabase(path)
+    db = ExperimentDatabase(tmp_path / "experiment.apitofsim")
+    paths = db.database_paths
+    path = paths.duckdb
     db.create_tables()
     config_id = db.insert_config("profile", config)
     run_id = db.insert_run(config_id)
@@ -844,7 +845,7 @@ def test_collision_profile_readonly_inputs(tmp_path, collision_inputs):
         if attached:
             conn.execute(f"attach '{path}' as results (read_only)")
             conn.execute("use results")
-        db = ExperimentDatabase((conn, None))
+        db = ExperimentDatabase((conn, None), readonly=True, database_paths=paths)
         resolved, cluster = db.collision_profile_inputs(result_id=1)
         profile = collision_profile(
             resolved, cluster, skimmer=skimmer, mesh_skimmer=Q_(0.5, "mm")
@@ -1093,13 +1094,18 @@ def test_rate_curve_provenance_errors(rate_curve_db):
 @pytest.mark.parametrize("attached", [False, True])
 def test_rate_curves_readonly(rate_curve_db, tmp_path, attached):
     import duckdb
+    from apitofsim.workflow import DatabasePaths
     from apitofsim.workflow.db import ExperimentDatabase, connection_scope
 
-    path = str(tmp_path / "curves.duckdb")
+    paths = DatabasePaths(tmp_path / "curves.apitofsim")
+    paths.create()
+    path = paths.duckdb
     source = rate_curve_db.db
-    clusters_path = str(tmp_path / "molecules.duckdb")
+    clusters = DatabasePaths(tmp_path / "molecules.apitofsim")
+    clusters_path = clusters.duckdb
     source.execute(f"attach '{path}' as saved")
     if attached:
+        clusters.create()
         source.execute(f"attach '{clusters_path}' as molecules")
     cluster_tables = {
         "cluster",
@@ -1126,7 +1132,9 @@ def test_rate_curves_readonly(rate_curve_db, tmp_path, attached):
         connection.execute("set search_path = 'output,molecules'")
     else:
         connection = duckdb.connect(path, read_only=True)
-    with connection_scope(ExperimentDatabase, (connection, None)) as db:
+    with connection_scope(
+        ExperimentDatabase, (connection, None), readonly=True, database_paths=paths
+    ) as db:
         before = connection.execute("select count(*) from k_rate").fetchone()
         assert len(db.pathway_rate_curves(1, 1, 3)) == 2
         assert before == connection.execute("select count(*) from k_rate").fetchone()

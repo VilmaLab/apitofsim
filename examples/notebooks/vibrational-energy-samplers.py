@@ -62,7 +62,7 @@ def _(mo):
 
 @app.cell
 def _(Path, duckdb, mo):
-    database = Path(__file__).resolve().parents[1] / "besel2020/database.duckdb"
+    database = Path(__file__).resolve().parents[1] / "besel2020/database.apitofsim"
     curves = {"Rising DOS": -1, "Sparse DOS": -2, "Flat DOS": -3}
     if database.is_file():
         with duckdb.connect(str(database), read_only=True) as _db:

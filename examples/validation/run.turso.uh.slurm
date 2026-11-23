@@ -22,7 +22,7 @@ export CC=clang CXX=clang++
 
 cd ~/apitofsim
 export PTABLE_INTERACTIVE=0
-uv run python -m apitofsim db run validation.duckdb
-uv run python -m apitofsim db run --pathway-at-a-time validation.duckdb
+uv run python -m apitofsim db run validation.apitofsim
+uv run python -m apitofsim db run --pathway-at-a-time validation.apitofsim
 
 echo "DONE"

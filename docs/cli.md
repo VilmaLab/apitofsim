@@ -10,22 +10,25 @@ If you are using `uv` you may need to run `uv run apitofsim` instead.
     :depth: 1
     :list_subcommands: True
 
+Workflow commands take the database directory as their database argument.
+Use `.apitofsim` for the directory name and copy or move the whole directory
+after closing the database.
+
 ## Native event recording
 
 Use `--record-events` to record individual particle events.
 
 ```bash
-apitofsim db prepare create config.toml database.duckdb
-apitofsim db run database.duckdb --record-events
+apitofsim db prepare create config.toml database.apitofsim
+apitofsim db run database.apitofsim --record-events
 ```
 
-Recording appends natively to `database.events.arrow`.
-This must be kept in the same directory as the database.
+Arrow recordings append to `events.arrow` inside the database directory.
 
 Record to Parquet for smaller files with compression:
 
 ```bash
-apitofsim db run database.duckdb --record-events --event-format parquet \
+apitofsim db run database.apitofsim --record-events --event-format parquet \
     --event-compression zstd --parquet-column-workers 4
 ```
 
@@ -33,14 +36,14 @@ Empirically, when using `zstd`, setting `--parquet-column-workers` to 25% of ava
 
 ## Event plots
 
-`apitofsim db plot plot-events results.db plots/` writes one Matplotlib figure per recorded
+`apitofsim db plot plot-events results.apitofsim plots/` writes one Matplotlib figure per recorded
 parent cluster, containing the instrument schematic, stacked cumulative
 fragmentation/escape fractions, and regional fragmentation/escape bars.
 Repeat `--panel` to select 1–3 distinct panels in top-to-bottom order:
 
 ```bash
-apitofsim db plot plot-events results.db plots/ --panel bars --panel schematic --panel cumulative
-apitofsim db plot plot-events results.db plots/ --panel cumulative --rescale none
+apitofsim db plot plot-events results.apitofsim plots/ --panel bars --panel schematic --panel cumulative
+apitofsim db plot plot-events results.apitofsim plots/ --panel cumulative --rescale none
 ```
 
 `--rescale schematic` (the default) uses the explorer's chamber widths;

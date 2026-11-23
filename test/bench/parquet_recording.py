@@ -118,7 +118,7 @@ def main():
         )
     sidecar = db.events_path
     db.close()
-    sync_file(args.output)
+    sync_file(db.database_paths.duckdb)
     wall, cpu = perf_counter() - start, process_time() - cpu_start
     peak_rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
     assert result.status == "complete"

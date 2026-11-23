@@ -39,7 +39,7 @@ def test_fragmentation_cache_persists_and_tracks_inputs(tmp_path, monkeypatch, a
         "bin_width": api.Q_(10, "K"),
         "energy_max": api.Q_(1000, "K"),
     }
-    path = str(tmp_path / "cache.duckdb")
+    path = str(tmp_path / "cache.apitofsim")
     with closing(ExperimentDatabase(path)) as db:
         db.create_tables()
         db.db.execute("drop table fragmentation_dos")  # Upgrade an older database.
@@ -162,7 +162,7 @@ def test_fragmentation_cache_batches_different_grids(
 
     monkeypatch.setattr(runners, "insert_via_arrow", insert)
     monkeypatch.setattr(runners, "_FRAGMENTATION_CACHE_BATCH_BYTES", batch_bytes)
-    path = str(tmp_path / "cache.duckdb")
+    path = str(tmp_path / "cache.apitofsim")
     snapshots = {}
     for warm in (False, True):
         with closing(ExperimentDatabase(path)) as db:

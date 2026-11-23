@@ -242,12 +242,12 @@ r_quadrupole = "6.0e-3 meter"
 Once these are all prepared you can go ahead and create a database:
 
 <code>
-<a href="../cli/#apitofsim-db-prepare">apitofsim db prepare</a> create config.toml database.db
+<a href="../cli/#apitofsim-db-prepare">apitofsim db prepare</a> create config.toml database.apitofsim
 </code>
 
 Foreign keys are omitted by default. Create with `--foreign-keys` to enable them;
 primary keys and other constraints remain enabled in either case.
-Run `apitofsim db check-integrity database.db` after ingestion or simulation and
+Run `apitofsim db check-integrity database.apitofsim` after ingestion or simulation and
 before using reports to detect orphan rows.
 
 ## Running the simulation
@@ -259,7 +259,7 @@ Everything needed is contained in the database, so if you decide to do this, it'
 Then you are ready to run:
 
 <code>
-<a href="../cli/#apitofsim-db-run">apitofsim db run</a> database.db
+<a href="../cli/#apitofsim-db-run">apitofsim db run</a> database.apitofsim
 </code>
 
 ## Analysing the results
@@ -271,15 +271,15 @@ A convenient way of inspecting your result database is to use [apitofsim-resultv
 You can generate CSV reports from the database file, e.g. for usage in Excel or LibreOffice Calc, with the `apitofsim db report` command, for example:
 
 <code>
-<a href="../cli/#apitofsim-db-report">apitofsim db report</a> pathway-report database.db pathway_report.csv
+<a href="../cli/#apitofsim-db-report">apitofsim db report</a> pathway-report database.apitofsim pathway_report.csv
 </code>
 
 <code>
-<a href="../cli/#apitofsim-db-report">apitofsim db report</a> experiment-report database.db experiment_report.csv
+<a href="../cli/#apitofsim-db-report">apitofsim db report</a> experiment-report database.apitofsim experiment_report.csv
 </code>
 
 <code>
-<a href="../cli/#apitofsim-db-report">apitofsim db report</a> experiment-summary database.db experiment_summary.csv
+<a href="../cli/#apitofsim-db-report">apitofsim db report</a> experiment-summary database.apitofsim experiment_summary.csv
 </code>
 
 You can also generate plots directly from the database file.
@@ -287,14 +287,14 @@ You can also generate plots directly from the database file.
 As a summary, you can plot a bar chart of the survival probability of each cluster:
 
 <code>
-<a href="../cli/#apitofsim-db-plot-survival">apitofsim db plot survival</a> database.db survival.png
+<a href="../cli/#apitofsim-db-plot-survival">apitofsim db plot survival</a> database.apitofsim survival.png
 </code>
 
 You can also generate spectrograms.
 For example:
 
 <code>
-<a href="../cli/#apitofsim-db-plot-spectrogram-many">apitofsim db plot spectrogram-many</a> database.db spectrograms
+<a href="../cli/#apitofsim-db-plot-spectrogram-many">apitofsim db plot spectrogram-many</a> database.apitofsim spectrograms
 </code>
 
 This will create a directory called `spectrograms` containing a spectrogram for each cluster.
@@ -313,5 +313,5 @@ They correspond to particular instrument settings, and are expected to be even l
 You can use these models for plotting spectrograms like so:
 
 <code>
-<a href="../cli/#apitofsim-db-plot-spectrogram-many">apitofsim db plot spectrogram-many</a> --model-transmission=new_neg database.db spectrograms
+<a href="../cli/#apitofsim-db-plot-spectrogram-many">apitofsim db plot spectrogram-many</a> --model-transmission=new_neg database.apitofsim spectrograms
 </code>

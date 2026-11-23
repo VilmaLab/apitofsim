@@ -83,16 +83,6 @@ def event_batch_dataset(path, ranges, columns=None):
     return ds.dataset(batches)
 
 
-def events_filename(database, *, format="arrow"):
-    path = Path(database)
-    suffix = f".events.{format}"
-    return (
-        path.with_suffix(suffix)
-        if path.suffix == ".duckdb"
-        else Path(str(path) + suffix)
-    )
-
-
 def event_file_format(path):
     with Path(path).open("rb") as file:
         return "parquet" if file.read(4) == b"PAR1" else "arrow"
@@ -100,7 +90,9 @@ def event_file_format(path):
 
 def event_lock_anchor(path):
     # Both formats use the same lock for a managed archive.
-    return path.with_suffix(".arrow") if path.name.endswith(".events.parquet") else path
+    if path.name == "events.parquet" or path.name.endswith(".events.parquet"):
+        return path.with_suffix(".arrow")
+    return path
 
 
 def sync_file(path):
@@ -120,11 +112,11 @@ def sync_directory(path):
             os.close(fd)
 
 
-def recording_lock(path, *, shared=False):
+def recording_lock(path, *, shared=False, existing=False):
     lock_path = Path(str(path) + ".lock")
     return portalocker.Lock(
         lock_path,
-        mode="rb" if shared and lock_path.exists() else "a+b",
+        mode="rb" if shared and (existing or lock_path.exists()) else "a+b",
         timeout=0,
         flags=(portalocker.LOCK_SH if shared else portalocker.LOCK_EX)
         | portalocker.LOCK_NB,

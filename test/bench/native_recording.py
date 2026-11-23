@@ -12,7 +12,12 @@ from pathlib import Path
 from time import perf_counter, process_time
 
 from apitofsim.recording import sync_file
-from apitofsim.workflow import ExperimentDatabase, ExperimentRunner, SimulationMode
+from apitofsim.workflow import (
+    DatabasePaths,
+    ExperimentDatabase,
+    ExperimentRunner,
+    SimulationMode,
+)
 
 MODEL_TABLES = (
     "cluster",
@@ -30,7 +35,8 @@ MODEL_TABLES = (
 def new_database(base, output):
     db = ExperimentDatabase(output)
     db.create_tables()
-    db.db.execute("attach '" + str(base).replace("'", "''") + "' as source (read_only)")
+    source = str(DatabasePaths(base).require_database()).replace("'", "''")
+    db.db.execute(f"attach '{source}' as source (read_only)")
     available = {
         row[0]
         for row in db.db.execute(
@@ -93,7 +99,7 @@ def main():
     start, cpu = perf_counter(), process_time()
     result = runner.run_experiment(prepared, record_events=args.record_events)
     db.close()
-    sync_file(args.output)
+    sync_file(db.database_paths.duckdb)
     wall, cpu = perf_counter() - start, process_time() - cpu
     assert result.status == "complete"
     counters = [
@@ -120,7 +126,7 @@ def main():
             assert invalid.fetchall() == []
         else:
             assert count == 0
-    archive = args.output.with_suffix(".events.arrow")
+    archive = db.database_paths.arrow
     report = dict(
         record_events=args.record_events,
         roots=len(prepared.groups),
@@ -131,7 +137,7 @@ def main():
         events=count,
         previous_archive_bytes=old_bytes,
         archive_bytes=archive.stat().st_size if archive.exists() else 0,
-        database_bytes=args.output.stat().st_size,
+        database_bytes=db.database_paths.duckdb.stat().st_size,
         counters=counters,
     )
     args.output.with_suffix(".json").write_text(json.dumps(report, indent=2))

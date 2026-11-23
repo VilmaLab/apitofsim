@@ -285,7 +285,7 @@ def test_workflow_roots_share_sidecar_and_reopen(prepared_case):
             )
         with pytest.raises(RuntimeError, match="during a recording"):
             db.events_query()
-    assert db.events_path.name == "fixture.events.arrow"
+    assert db.events_path == db.database_paths.root / "events.arrow"
     assert db.db.execute("select generation from event_recording_state").fetchone() == (
         1,
     )
@@ -361,8 +361,7 @@ def test_writer_excludes_other_readers(prepared_case, seed_events):
             pathway_ids=group.pathway_ids,
             record_events=True,
         )
-    filename = db.db.execute("pragma database_list").fetchall()[0][2]
-    with ExperimentDatabase(filename) as reader:
+    with ExperimentDatabase(db.database_paths.root) as reader:
         with pytest.raises(portalocker.exceptions.LockException):
             with db.recording_transaction():
                 pass
@@ -769,14 +768,15 @@ def test_failed_reader_open_closes_connection(tmp_path):
     import duckdb
     from archive_fixtures import publish_events
 
-    path = tmp_path / "missing-sidecar.duckdb"
+    path = tmp_path / "missing-sidecar.apitofsim"
     with ExperimentDatabase(path) as db:
         db.create_tables()
         publish_events(db, [])
         sidecar = db.events_path
+        paths = db.database_paths
     sidecar.unlink()
 
-    connection = duckdb.connect(path, read_only=True)
+    connection = duckdb.connect(paths.duckdb, read_only=True)
     cleaned = []
 
     def cleanup():
@@ -784,13 +784,11 @@ def test_failed_reader_open_closes_connection(tmp_path):
             connection.execute("select 1")
         cleaned.append(True)
 
-    with pytest.raises(FileNotFoundError, match="matching .events.arrow") as error:
-        ExperimentDatabase(
-            (connection, cleanup), readonly=True, events_filename=sidecar
-        )
+    with pytest.raises(FileNotFoundError, match=r"matching events\.arrow") as error:
+        ExperimentDatabase((connection, cleanup), readonly=True, database_paths=paths)
     assert error.value.__traceback__ is not None
     assert cleaned == [True]
-    with duckdb.connect(path) as writable:
+    with duckdb.connect(paths.duckdb) as writable:
         assert writable.execute("select 1").fetchone() == (1,)
 
 

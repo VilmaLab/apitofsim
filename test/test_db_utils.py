@@ -59,3 +59,34 @@ def test_cached_arrays_follow_requested_cluster_ids():
         )
         assert missing == [{"id": 40}]
         assert all(value.tolist() == [key] for key, value in cached.items())
+
+
+def test_database_directory_with_ase_can_be_moved(tmp_path):
+    from apitofsim.workflow import ClusterDatabase
+    from ase import Atoms
+
+    root = tmp_path / "clusters.apitofsim"
+    with ClusterDatabase(root, ase=True) as db:
+        db.create_tables()
+        db.ase_db.write(Atoms("H2"))
+    relocated = root.rename(tmp_path / "moved # clusters.apitofsim")
+    members = set(relocated.iterdir())
+    with ClusterDatabase(relocated, readonly=True) as db:
+        assert db.ase_db.get(1).formula == "H2"
+    assert set(relocated.iterdir()) == members
+
+
+def test_database_directory_is_required(tmp_path):
+    from apitofsim.workflow import ExperimentDatabase
+
+    loose = tmp_path / "experiment.duckdb"
+    loose.touch()
+    with pytest.raises(
+        NotADirectoryError, match="Expected an APi-ToF database directory"
+    ):
+        ExperimentDatabase(loose)
+    empty = tmp_path / "empty.apitofsim"
+    empty.mkdir()
+    with pytest.raises(FileNotFoundError, match="No database.duckdb"):
+        ExperimentDatabase(empty)
+    assert list(empty.iterdir()) == []

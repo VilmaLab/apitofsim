@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 from pathlib import Path
+from shutil import rmtree
 
 
 def main():
@@ -53,7 +54,7 @@ def main():
             name = f"r{repeat + 1}-{backend}-{mode}-w{workers}" + (
                 "-python" if callback else ""
             )
-            output = args.output / f"{name}.duckdb"
+            output = args.output / f"{name}.apitofsim"
             report_path = output.with_suffix(".json")
             if not report_path.exists():
                 build = (
@@ -123,14 +124,7 @@ def main():
                 f"{(report['sidecar_bytes'] or 0) / 2**30:.3f} GiB file",
                 flush=True,
             )
-            # Each case owns these fresh files; keep the small reports/logs.
-            for path in (
-                output,
-                output.with_suffix(".events.arrow"),
-                output.with_suffix(".events.parquet"),
-                Path(str(output.with_suffix(".events.arrow")) + ".lock"),
-            ):
-                path.unlink(missing_ok=True)
+            rmtree(output)
 
 
 if __name__ == "__main__":
