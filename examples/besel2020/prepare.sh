@@ -1,3 +1,3 @@
 #!/bin/bash
 
-apitofsim db prepare create -w --db-type=realization config.toml database.apitofsim
+apitofsim db prepare create -w config.toml database.apitofsim

@@ -187,6 +187,11 @@ also holds the optional `ase.sqlite.db`, the event archive (`events.arrow` or
 `events.parquet`), and any lock or recovery files. Close the database before
 copying, moving, or renaming its directory.
 
+Pass `ase=True` when creating a database that will store ASE structures.
+When attaching databases with DuckDB, use `DatabasePaths(directory).duckdb`
+as the file path. Pass the result database's `DatabasePaths` to the wrapper
+as `database_paths` when wrapping the attached connection.
+
 Event payloads are read through a PyArrow IPC dataset or DuckDB's Parquet scan
 according to the archive format; there are no physical `event_info`,
 `realization`, `collision_event` or `fragmentation_event` tables. `event_execution`

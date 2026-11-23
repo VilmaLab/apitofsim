@@ -52,7 +52,7 @@ def db():
 )
 def prepare(mode, config, database, db_type, ase, warm, foreign_keys):
     """
-    Prepare the database according to MODE at path DATABASE using the json configuration file at path CONFIG.
+    Prepare the database directory DATABASE using the TOML configuration CONFIG.
 
     Typically, you will be creating an database in order to run simulation experiments,
     and so --db-type should be kept as --db-type=experiment.
