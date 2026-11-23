@@ -13,7 +13,7 @@ Step 3: Run the simulations. You can either run the following command locally bu
 
 ```bash
 $ apitofsim db run validation.apitofsim
-$ apitofsim db run --pathway-at-a-time validation.apitofsim
+$ apitofsim db run --simulation-mode=pathway-at-a-time validation.apitofsim
 ```
 
 Now you can run the notebook to compare survival probabilities and spectrograms according to different methods as well as the results from the paper.
