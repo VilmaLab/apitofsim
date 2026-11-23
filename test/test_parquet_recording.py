@@ -49,8 +49,8 @@ def test_recording_dispatch_and_retained_delivery(prepared_case, format, python_
 
 
 def test_parquet_reader_discovers_and_scopes_archive(tmp_path):
-    path = tmp_path / "experiment.duckdb"
-    archive = recording.events_filename(path, format="parquet")
+    path = tmp_path / "experiment.apitofsim"
+    archive = path / "events.parquet"
     with ExperimentDatabase(path) as db:
         db.create_tables()
         db.db.execute("insert into cluster (id,common_name) values (10,'parent')")
@@ -82,7 +82,7 @@ def test_parquet_reader_discovers_and_scopes_archive(tmp_path):
         identity, generation, size = db.db.sql(
             "select archive_id, generation, file_size from event_recording_state"
         ).fetchone()
-    ipc = recording.events_filename(path)
+    ipc = path / "events.arrow"
     ipc.write_bytes(b"unrelated stale IPC path")
     journal = Path(str(ipc) + ".journal")
     journal.write_text(
@@ -119,11 +119,12 @@ def test_parquet_reader_discovers_and_scopes_archive(tmp_path):
     ] == [(0, 0), (2, 0), (2, 1)]
     relocated = archive.with_name("relocated archive's data")
     archive.rename(relocated)
-    with pytest.raises(FileNotFoundError, match=r"matching .events.parquet"):
+    with pytest.raises(FileNotFoundError, match=r"matching events\.parquet"):
         ExperimentDatabase(path, readonly=True)
-    with ExperimentDatabase(path, readonly=True, events_filename=relocated) as db:
+    relocated.rename(archive)
+    with ExperimentDatabase(path, readonly=True) as db:
         assert db.events_query().count("*").fetchone() == (4,)
-    archive.write_bytes(relocated.read_bytes()[:-1])
+    archive.write_bytes(archive.read_bytes()[:-1])
     with pytest.raises(ValueError, match="identity/size"):
         ExperimentDatabase(path, readonly=True)
 
@@ -142,7 +143,7 @@ def test_standalone_overwrite_replaces_unrelated_parquet(tmp_path):
 
 
 def test_standalone_overwrite_rejects_database_owned_parquet(tmp_path):
-    with ExperimentDatabase(tmp_path / "managed.duckdb") as db:
+    with ExperimentDatabase(tmp_path / "managed.apitofsim") as db:
         db.create_tables()
         publish_events(db, [], format="parquet")
         path = db.events_path
@@ -236,8 +237,8 @@ def test_parquet_rollback_after_failed_sync(prepared_case, monkeypatch):
 
 
 def test_recover_uncommitted_parquet(tmp_path):
-    path = tmp_path / "interrupted.duckdb"
-    ipc = recording.events_filename(path)
+    path = tmp_path / "interrupted.apitofsim"
+    ipc = path / "events.arrow"
     archive = ipc.with_suffix(".parquet")
     journal = Path(str(ipc) + ".journal")
     with ExperimentDatabase(path) as db:
@@ -275,7 +276,7 @@ def test_recover_uncommitted_parquet(tmp_path):
 
 @pytest.mark.parametrize("workers", [0, -1, 2**31])
 def test_parquet_workers_must_be_positive_int(tmp_path, workers):
-    path = tmp_path / "invalid.duckdb"
+    path = tmp_path / "invalid.apitofsim"
     with pytest.raises(ValueError, match="column workers"):
         ExperimentDatabase(
             path,

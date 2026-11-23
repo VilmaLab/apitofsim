@@ -223,10 +223,10 @@ def _(mo):
 
 @app.cell(hide_code=True)
 def _(Path, mo):
-    _default = Path(__file__).resolve().parents[1] / "besel2020/database.duckdb"
+    _default = Path(__file__).resolve().parents[1] / "besel2020/database.apitofsim"
     database_path = mo.ui.text(
         value=str(_default) if _default.is_file() else "",
-        placeholder="/path/to/prepared/database.duckdb",
+        placeholder="/path/to/prepared/database.apitofsim",
         label="Prepared database (read-only)",
         full_width=True,
     )

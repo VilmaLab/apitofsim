@@ -42,7 +42,7 @@ def start(db):
 
 @pytest.mark.parametrize("format", ["arrow", "parquet"])
 def test_shared_archive_tree_identity_and_order(tmp_path, monkeypatch, format):
-    path = tmp_path / "trees.duckdb"
+    path = tmp_path / "trees.apitofsim"
     with ExperimentDatabase(path) as db:
         db.create_tables()
         populate(db.db)
@@ -120,10 +120,8 @@ def test_shared_archive_tree_identity_and_order(tmp_path, monkeypatch, format):
         assert splits["current_cluster_id"].tolist() == [10, 20, 40, 10, 30, 40]
         assert splits["event_index"].tolist() == [3, 7, 11, 3, 7, 11]
         expected = db.events_query(sort=True).fetchall()
-    # Both the database and its sidecar remain relocatable as a pair.
-    renamed = tmp_path / "renamed.duckdb"
+    renamed = tmp_path / "renamed.apitofsim"
     path.rename(renamed)
-    (tmp_path / f"trees.events.{format}").rename(tmp_path / f"renamed.events.{format}")
     with ExperimentDatabase(renamed, readonly=True) as reopened:
         assert reopened.events_query(sort=True).fetchall() == expected
         reads = []
@@ -193,9 +191,11 @@ def test_shared_archive_tree_identity_and_order(tmp_path, monkeypatch, format):
 
 def test_reject_legacy_event_database(tmp_path):
     import duckdb
+    from apitofsim.workflow import DatabasePaths
 
-    path = tmp_path / "old.duckdb"
-    with duckdb.connect(str(path)) as connection:
+    paths = DatabasePaths(tmp_path / "invalid.apitofsim")
+    paths.create()
+    with duckdb.connect(paths.duckdb) as connection:
         connection.execute("create table event_info(id integer)")
     with pytest.raises(ValueError, match="Legacy relational-event.*migration"):
-        ExperimentDatabase(path)
+        ExperimentDatabase(paths.root)

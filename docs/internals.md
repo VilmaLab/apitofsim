@@ -71,13 +71,13 @@ snapshot. An active lease prevents a second run, writer finalization, and
 reads of mutable writer counters. Stream shutdown discards pending Python
 delivery, wakes the producer, and joins it before transaction cleanup.
 
-A database owns one event sidecar. Arrow IPC has fixed primitive fields,
+A database directory owns one event archive. Arrow IPC has fixed primitive fields,
 a schema version/archive UUID, and per-execution footer metadata. An appender
 verifies the previous footer, retains its batch descriptors, then replaces only
 the EOS/footer and adds new batches. Existing event bodies are never copied.
-The Parquet writer streams the same columns into a fresh `.events.parquet` file.
+The Parquet writer streams the same columns into a fresh `events.parquet` file.
 
-Publication uses an exclusive portable sidecar lock and a durable small journal
+Publication uses an exclusive portable archive lock and a durable small journal
 containing the old ending and committed length. Event data, its footer and parent
 directory are synced before committing DuckDB's archive generation/length and
 execution metadata. Reopening compares generations and either retains the

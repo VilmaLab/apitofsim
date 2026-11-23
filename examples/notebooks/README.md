@@ -11,7 +11,7 @@ native apitofsim build. From the repository root:
 uvx marimo edit --sandbox examples/notebooks/fragmentation-outcome-sampler.py
 ```
 
-It defaults to `examples/besel2020/database.duckdb` when present; otherwise enter
+It defaults to `examples/besel2020/database.apitofsim` when present; otherwise enter
 the path to another prepared database. Database access is read-only.
 
 ## Running the notebooks with Mamba

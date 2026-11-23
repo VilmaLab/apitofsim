@@ -70,5 +70,5 @@
       "wall_ratio_to_control": 1.34730328966063
     }
   },
-  "reproduce": "python test/bench/native_recording.py WARM_MODEL.duckdb NEW_OUTPUT.duckdb [--record-events] [--seed-realizations 100]"
+  "reproduce": "python test/bench/native_recording.py WARM_MODEL.apitofsim NEW_OUTPUT.apitofsim [--record-events] [--seed-realizations 100]"
 }

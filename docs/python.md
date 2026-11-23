@@ -182,10 +182,10 @@ date formatting belong to callers.
 ### Event storage and read queries
 
 `ExperimentDatabase` stores configuration, tree topology, summaries and failure
-information. Native event payloads are stored in `results.events.arrow` or
-`results.events.parquet` alongside `results.duckdb`; the optional ASE sidecar keeps
-its `results.ase.sqlite.db` naming. Move the files together with matching
-basenames; an archive UUID and committed length detect mismatched sidecars.
+information in `database.duckdb` inside the database directory. The directory
+also holds the optional `ase.sqlite.db`, the event archive (`events.arrow` or
+`events.parquet`), and any lock or recovery files. Close the database before
+copying, moving, or renaming its directory.
 
 Event payloads are read through a PyArrow IPC dataset or DuckDB's Parquet scan
 according to the archive format; there are no physical `event_info`,
@@ -206,17 +206,17 @@ histories interrupted before a completed-realization counter was emitted.
 ```python
 from apitofsim.workflow import ExperimentDatabase
 
-with ExperimentDatabase("results.duckdb", readonly=True) as db:
+with ExperimentDatabase("results.apitofsim", readonly=True) as db:
     events = db.events_query(run_id=3, parent=17, sort=True).fetchdf()
     histories = db.fragmentation_histories_query(run_id=3).fetchdf()
 ```
 
 To record through the native carquet writer, use
-`ExperimentDatabase("results.duckdb", recording_format="parquet",
+`ExperimentDatabase("results.apitofsim", recording_format="parquet",
 recording_compression="zstd", parquet_column_workers=4)` and request
-`record_events=True` when running. A Parquet sidecar starts in a database without
+`record_events=True` when running. A Parquet archive starts in a database without
 recorded events and is immutable after publication. Use
-`db.recording_transaction()` to group multiple runs into one sidecar. Standalone
+`db.recording_transaction()` to group multiple runs into one recording. Standalone
 `record_to=` recording uses Arrow IPC. `read_events()` accepts either format.
 
 
@@ -233,7 +233,7 @@ velocity, energies, node identity and any collision/fragmentation fields. No eve
 associations are inferred from timestamps. Event types and their fields are listed
 under [Native recording and Python event delivery](#native-recording-and-python-event-delivery).
 
-Sidecar access is coordinated with locks:
+Event archive access is coordinated with locks:
 
 * Readers hold a shared lock; a recording transaction requires exclusive access, so close other readers before appending.
 * Event queries on the writing connection are unavailable during an append; use live Python delivery instead. Finish existing scans first, and do not execute retained event relations inside the recording transaction.
@@ -488,10 +488,9 @@ print(stream.result.roots)
 
 `run_from_config(config, record_events=True)` prepares and executes through the
 existing configuration workflow. `ExperimentDatabase(..., record_events=True)`
-sets the default; individual calls can override it. Database recording always
-appends to its managed sidecar. The metadata commit follows sidecar fsync;
-one experiment shares a writer across all roots. Reopening the database permits
-another experiment to append to the same file.
+sets the default. Individual calls can override it. An experiment shares one
+writer across its roots, and database metadata commits after the archive is
+synced. Arrow recordings support appends across experiments.
 
 For a single prepared group, use
 `runner.iter_mass_spec(prepared, group, N=100, events="individual", record_events=True)`.

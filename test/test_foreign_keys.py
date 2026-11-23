@@ -63,7 +63,7 @@ def test_integrity_composite_and_nullable_keys():
 
 
 def test_integrity_cli_and_reopen(tmp_path):
-    path = str(tmp_path / "results.duckdb")
+    path = str(tmp_path / "results.apitofsim")
     with connection_scope(ExperimentDatabase, path) as db:
         db.create_tables(foreign_keys=False)
     runner = CliRunner()
@@ -81,7 +81,7 @@ def test_integrity_cli_and_reopen(tmp_path):
 def test_prepare_cli(tmp_path, foreign_keys):
     config = tmp_path / "config.toml"
     config.write_text("pathways = []\n")
-    path = str(tmp_path / "results.duckdb")
+    path = str(tmp_path / "results.apitofsim")
     args = ["create", str(config), path, "--db-type=experiment"]
     if foreign_keys is not None:
         args.append("--foreign-keys" if foreign_keys else "--no-foreign-keys")
@@ -100,19 +100,22 @@ def test_prepare_cli(tmp_path, foreign_keys):
 
 
 def test_attached_clusters_and_caller_transaction(tmp_path):
-    from apitofsim.workflow import sql_files_nofk
+    from apitofsim.workflow import DatabasePaths, sql_files_nofk
 
-    clusters = str(tmp_path / "clusters.duckdb")
+    clusters = tmp_path / "clusters.apitofsim"
     with connection_scope(SuperClusterDatabase, clusters) as db:
         db.create_tables()
         db.db.execute("insert into cluster(id) values (1)")
+        cluster_paths = db.database_paths
+    results = DatabasePaths(tmp_path / "results.apitofsim")
+    results.create()
     with duckdb.connect(config={"threads": 1}) as conn:
-        conn.execute(f"attach '{clusters}' as clusters_db (read_only)")
-        conn.execute(f"attach '{tmp_path / 'results.duckdb'}' as results_db")
+        conn.execute(f"attach '{cluster_paths.duckdb}' as clusters_db (read_only)")
+        conn.execute(f"attach '{results.duckdb}' as results_db")
         conn.execute("use results_db")
         conn.execute("set search_path='results_db,clusters_db'")
         conn.execute(sql_files_nofk.experiment + sql_files_nofk.event_recording)
-        db = ExperimentDatabase((conn, None))
+        db = ExperimentDatabase((conn, None), database_paths=results)
         conn.execute("begin")
         conn.execute("insert into cluster_tree_node values (1, 0, 2)")
         assert db.check_foreign_keys() == {

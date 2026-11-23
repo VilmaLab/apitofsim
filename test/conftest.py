@@ -16,7 +16,7 @@ def foreign_keys(request):
 def prepared_case(request, monkeypatch, foreign_keys, tmp_path):
     with connection_scope(
         ExperimentDatabase,
-        str(tmp_path / "fixture.duckdb"),
+        str(tmp_path / "fixture.apitofsim"),
         record_events=request.param,
     ) as db:
         db.create_tables(foreign_keys=foreign_keys)

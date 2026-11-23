@@ -16,7 +16,7 @@ the [test configuration](development.md#running-tests). Set
 using a cached private model database. For example:
 
 ```bash
-python test/bench/parquet_matrix.py /path/to/model.duckdb "$HOME/.scratch/parquet-bench" \
+python test/bench/parquet_matrix.py /path/to/model.apitofsim "$HOME/.scratch/parquet-bench" \
   --python /path/to/environment/bin/python \
   --arrow-build "$HOME/.scratch/arrow-build" \
   --carquet-build "$HOME/.scratch/carquet-build" \
@@ -177,7 +177,7 @@ all final samples, binary hashes and methodology:
 Reproduce with separately configured builds of the two revisions:
 
 ```bash
-python test/bench/parquet_matrix.py /path/to/model.duckdb "$HOME/.scratch/collator-bench" \
+python test/bench/parquet_matrix.py /path/to/model.apitofsim "$HOME/.scratch/collator-bench" \
   --python /path/to/environment/bin/python --delivery-matrix \
   --before-build "$HOME/.scratch/before-build" --after-build "$HOME/.scratch/after-build" \
   --before-ref 6fe54eb --after-ref 772576a --workers 4 --repeats 3 --realizations 5000

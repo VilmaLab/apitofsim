@@ -32,7 +32,9 @@ def transaction_scope(conn):
         raise
 
 
-def duckdb_connect_roview_cow(filename, *, config=None, fallback="copy"):
+def duckdb_connect_roview_cow(
+    filename, *, config=None, fallback="copy", snapshot_dir=None
+):
     import os
     from os.path import join as pjoin
     from os.path import split as psplit
@@ -50,7 +52,7 @@ def duckdb_connect_roview_cow(filename, *, config=None, fallback="copy"):
     path, base = psplit(filename)
     base, ext = splitext(base)
     rnd = uuid4().hex
-    dest = pjoin(path, f".{base}.rosnap.{rnd}.{ext}")
+    dest = pjoin(snapshot_dir or path, f".{base}.rosnap.{rnd}.{ext}")
     exc = None
     cleanup = None
     try:

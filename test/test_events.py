@@ -84,7 +84,7 @@ def test_empty_cohort(events):
 def test_run_scope_and_missing_histories(monkeypatch, tmp_path):
     from archive_fixtures import publish_events
 
-    with connection_scope(ExperimentDatabase, tmp_path / "plot.duckdb") as db:
+    with connection_scope(ExperimentDatabase, tmp_path / "plot.apitofsim") as db:
         db.create_tables()
         db.insert_cluster("parent", 100, -1, 0, [1, 1, 1], [])
         config_id = db.insert_config("events", "{}")
@@ -117,7 +117,7 @@ def test_plot_requires_events_in_selected_run_or_cluster(tmp_path, monkeypatch):
     from archive_fixtures import publish_events
     from click.testing import CliRunner
 
-    path = tmp_path / "plot.duckdb"
+    path = tmp_path / "plot.apitofsim"
     out = tmp_path / "plots"
     with ExperimentDatabase(path) as db:
         db.create_tables()
@@ -151,7 +151,7 @@ def test_event_report_requires_recorded_events(tmp_path):
     from archive_fixtures import publish_events
     from click.testing import CliRunner
 
-    path = tmp_path / "report.duckdb"
+    path = tmp_path / "report.apitofsim"
     out = tmp_path / "events.csv"
     with ExperimentDatabase(path) as db:
         db.create_tables()

@@ -4,7 +4,8 @@ import click
 from ase import Atoms
 
 from apitofsim.workflow import SimulationMode
-from apitofsim.workflow.db import connection_scope, guess_ase_db_filename
+from apitofsim.workflow.db import connection_scope
+from apitofsim.workflow.db_paths import DatabasePaths
 
 
 @click.group()
@@ -32,7 +33,7 @@ def db():
 @db.command(short_help="Prepare the database for use")
 @click.argument("mode", required=True, type=click.Choice(["create", "append"]))
 @click.argument("config", required=True, type=click.Path(exists=True, dir_okay=False))
-@click.argument("database", required=True, type=click.Path(dir_okay=False))
+@click.argument("database", required=True, type=click.Path(file_okay=False))
 @click.option(
     "-t",
     "--db-type",
@@ -195,7 +196,6 @@ def prepare(mode, config, database, db_type, ase, warm, foreign_keys):
     r_quadrupole = "6.0e-3 meter"
     ```
     """
-    import os
     from copy import deepcopy
     from pprint import pprint
 
@@ -221,20 +221,11 @@ def prepare(mode, config, database, db_type, ase, warm, foreign_keys):
     if mode != "create" and foreign_keys:
         raise click.UsageError("--foreign-keys is only supported in create mode")
 
-    if ase:
-        ase_path = guess_ase_db_filename(database)
-    else:
-        ase_path = None
-
-    for path in (database, *((ase_path,) if ase_path else ())):
-        if os.path.exists(path) and mode == "create":
-            raise click.ClickException(
-                f"Database file {path} already exists, will not overwrite (delete it yourself first if you want)"
-            )
-        if not os.path.exists(path) and mode != "create":
-            raise click.ClickException(
-                f"Database file {path} does not exist, cannot append"
-            )
+    paths = DatabasePaths(database)
+    if mode == "create" and paths.root.exists():
+        raise click.ClickException(f"Database directory {paths.root} already exists")
+    if mode == "append":
+        paths.require_database()
 
     if db_type == "experiment":
         db_cls = ExperimentDatabase
@@ -249,7 +240,7 @@ def prepare(mode, config, database, db_type, ase, warm, foreign_keys):
     else:
         assert False
 
-    with connection_scope(db_cls, database, ase_filename=ase_path) as db:
+    with connection_scope(db_cls, paths.root, ase=ase) as db:
         if mode == "create":
             db.create_tables(foreign_keys=foreign_keys)
 
@@ -321,7 +312,9 @@ def prepare(mode, config, database, db_type, ase, warm, foreign_keys):
     short_help="Run the simulations according to the prepared database",
     context_settings={"token_normalize_func": lambda x: x.replace("_", "-").lower()},
 )
-@click.argument("database", required=True, type=click.Path(exists=True, dir_okay=False))
+@click.argument(
+    "database", required=True, type=click.Path(exists=True, file_okay=False)
+)
 @click.option(
     "--strict-dos/--no-strict-dos",
     default=False,
@@ -531,7 +524,9 @@ def select_cluster_result(db, filter_parent=None, filter_config=None):
 
 
 @plot.command(short_help="Plot survival rates for each parent cluster in an experiment")
-@click.argument("database", required=True, type=click.Path(exists=True, dir_okay=False))
+@click.argument(
+    "database", required=True, type=click.Path(exists=True, file_okay=False)
+)
 @click.argument("pngout", type=click.Path(dir_okay=False))
 def survival(database, pngout):
     """
@@ -548,7 +543,9 @@ def survival(database, pngout):
 
 
 @plot.command(short_help="Plot a spectrogram for a single cluster in an experiment")
-@click.argument("database", required=True, type=click.Path(exists=True, dir_okay=False))
+@click.argument(
+    "database", required=True, type=click.Path(exists=True, file_okay=False)
+)
 @click.argument("pngout", type=click.Path(dir_okay=False))
 @click.option(
     "--filter-parent",
@@ -621,7 +618,9 @@ def spectrogram(
 
 
 @plot.command(short_help="Plot a spectrogram for each cluster in an experiment")
-@click.argument("database", required=True, type=click.Path(exists=True, dir_okay=False))
+@click.argument(
+    "database", required=True, type=click.Path(exists=True, file_okay=False)
+)
 @click.argument("dirout", type=click.Path(file_okay=False, path_type=pathlib.Path))
 @click.option(
     "--filter-config",
@@ -697,7 +696,9 @@ def spectrogram_many(
 @plot.command(
     short_help="Plot cumulative and regional fragmentation/escape fractions for a run"
 )
-@click.argument("database", required=True, type=click.Path(exists=True, dir_okay=False))
+@click.argument(
+    "database", required=True, type=click.Path(exists=True, file_okay=False)
+)
 @click.argument("dirout", type=click.Path(file_okay=False, path_type=pathlib.Path))
 @click.option(
     "-p",
@@ -767,7 +768,9 @@ def plot_events(database, dirout, panels, rescale):
     ),
     required=False,
 )
-@click.argument("database", required=True, type=click.Path(exists=True, dir_okay=False))
+@click.argument(
+    "database", required=True, type=click.Path(exists=True, file_okay=False)
+)
 @click.argument("csvout", type=click.Path(dir_okay=False))
 def report(report_type, database, csvout):
     """
@@ -797,7 +800,7 @@ def report(report_type, database, csvout):
 @db.command(
     short_help="Check declared foreign-key relationships, including omitted FKs"
 )
-@click.argument("database", type=click.Path(exists=True, dir_okay=False))
+@click.argument("database", type=click.Path(exists=True, file_okay=False))
 def check_integrity(database):
     """Check for orphan rows after trusted bulk ingestion; fail if any are found."""
     from apitofsim.workflow import auto_db_type
@@ -812,7 +815,9 @@ def check_integrity(database):
 
 
 @db.command(help="Refresh views in the database at path DATABASE (please ignore)")
-@click.argument("database", required=True, type=click.Path(exists=True, dir_okay=False))
+@click.argument(
+    "database", required=True, type=click.Path(exists=True, file_okay=False)
+)
 def refresh_views(database):
     """
     Refresh views in the database at path DATABASE.
@@ -1107,7 +1112,9 @@ def ingest_tree(config, outdir):
 
 
 @inspect.command(short_help="")
-@click.argument("database", required=True, type=click.Path(exists=True, dir_okay=False))
+@click.argument(
+    "database", required=True, type=click.Path(exists=True, file_okay=False)
+)
 @click.argument(
     "outdir",
     required=True,

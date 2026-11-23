@@ -19,6 +19,7 @@ from apitofsim import ClusterData
 from apitofsim.api import Histogram
 
 from .base import SimulationMode
+from .db_paths import DatabasePaths
 from .db_utils import (
     duckdb_connect_roview_cow,
     get_through_join_else,
@@ -27,20 +28,6 @@ from .db_utils import (
 
 ureg = get_application_registry()
 Q_ = ureg.Quantity
-
-
-def guess_events_filename(filename):
-    from apitofsim.recording import events_filename
-
-    return events_filename(filename)
-
-
-def guess_ase_db_filename(cluster_db_filename):
-    ase_path = cluster_db_filename
-    if ase_path.endswith(".duckdb"):
-        ase_path = ase_path[: -len(".duckdb")]
-    ase_path += ".ase.sqlite.db"
-    return ase_path
 
 
 @contextmanager
@@ -65,13 +52,13 @@ class SQLite3DatabaseWithUri(SQLite3Database):
 def connect_ase_sqlite_db_readonly(
     filename,
     create_indices=True,
-    use_lock_file=True,
+    use_lock_file=False,
     append=True,
     serial=False,
     **db_kwargs,
 ):
     # TODO: These ClusterDatabase, etc. objects should probably be context managers too
-    uri = f"file:{filename}?mode=ro"
+    uri = f"{Path(filename).as_uri()}?mode=ro"
     return SQLite3DatabaseWithUri(
         uri, create_indices, use_lock_file, serial=serial, **db_kwargs
     )
@@ -79,7 +66,22 @@ def connect_ase_sqlite_db_readonly(
 
 def connect_duckdb_cleanup(filename, *, readonly=False):
     if readonly:
-        return duckdb_connect_roview_cow(filename, fallback="connect")
+        from tempfile import TemporaryDirectory
+
+        if filename == ":memory:":
+            return duckdb.connect(), None
+        scratch = TemporaryDirectory(prefix="apitofsim-read-")
+        try:
+            db, cleanup = duckdb_connect_roview_cow(
+                filename, fallback="connect", snapshot_dir=scratch.name
+            )
+        except BaseException:
+            scratch.cleanup()
+            raise
+        if cleanup is None:
+            scratch.cleanup()
+            return db, None
+        return db, scratch.cleanup
     else:
         return duckdb.connect(filename), None
 
@@ -88,21 +90,39 @@ class ClusterDatabase:
     TABLES = [sql_files.pathway]
     VIEWS = []
 
-    def __init__(self, filename, *, readonly=False, ase_filename=None):
+    def __init__(self, filename, *, readonly=False, ase=False, database_paths=None):
         self.closed = False
+        self.database_paths = database_paths
+        self.ase_db = None
+        create = False
         if isinstance(filename, tuple):
             self.db, self.cleanup = filename
         else:
+            if filename != ":memory:":
+                paths = self.database_paths = DatabasePaths(filename)
+                create = not readonly and not paths.root.exists()
+                if create:
+                    paths.create()
+                    filename = paths.duckdb
+                else:
+                    filename = paths.require_database()
             self.db, self.cleanup = connect_duckdb_cleanup(filename, readonly=readonly)
-        if ase_filename is not None:
-            # TODO: These ClusterDatabase, etc. objects should probably be context managers too
-            if readonly:
-                self.ase_db = connect_ase_sqlite_db_readonly(ase_filename).__enter__()
-            else:
-                self.ase_db = ase_connect(ase_filename).__enter__()
-        else:
-            self.ase_db = None
-        self._setup_db()
+        try:
+            if self.database_paths is not None:
+                ase_path = self.database_paths.ase
+                if ase_path.is_file() or (create and ase):
+                    connect_ase = (
+                        connect_ase_sqlite_db_readonly if readonly else ase_connect
+                    )
+                    self.ase_db = connect_ase(str(ase_path)).__enter__()
+                elif ase:
+                    raise FileNotFoundError(ase_path)
+            elif ase:
+                raise ValueError("ASE storage requires a database directory")
+            self._setup_db()
+        except BaseException:
+            self.close()
+            raise
 
     def refresh_views(self):
         for view in self.VIEWS:
@@ -895,11 +915,8 @@ class ExperimentDatabase(SuperClusterDatabase, _EventQueries):
         recording_format="arrow",
         recording_compression="none",
         parquet_column_workers=1,
-        events_filename=None,
-        _database_path=None,
         **kwargs,
     ):
-        from apitofsim.recording import events_filename as sidecar_name
         from apitofsim.recording import validate_recording_options
 
         self.closed = True
@@ -914,34 +931,11 @@ class ExperimentDatabase(SuperClusterDatabase, _EventQueries):
         self.recording_compression = recording_compression
         self.readonly = kwargs.get("readonly", False)
         self._event_format = "arrow"
-        self._explicit_events_path = (
-            Path(events_filename).resolve() if events_filename is not None else None
-        )
         super().__init__(filename, **kwargs)
-        if _database_path is None:
-            _database_path = (
-                filename
-                if isinstance(filename, (str, Path)) and str(filename) != ":memory:"
-                else next(
-                    (
-                        row[2]
-                        for row in self.db.execute("pragma database_list").fetchall()
-                        if row[2]
-                    ),
-                    None,
-                )
-            )
-        self._ipc_path = (
-            sidecar_name(_database_path).resolve()
-            if _database_path is not None
-            else None
-        )
-        self._parquet_path = (
-            self._ipc_path.with_suffix(".parquet")
-            if self._ipc_path is not None
-            else None
-        )
-        self.events_path = self._explicit_events_path or self._ipc_path
+        paths = self.database_paths
+        self._ipc_path = paths.arrow if paths else None
+        self._parquet_path = paths.parquet if paths else None
+        self.events_path = self._ipc_path
         physical = {
             row[0]
             for row in self.db.execute(
@@ -989,7 +983,6 @@ class ExperimentDatabase(SuperClusterDatabase, _EventQueries):
             EVENT_SCHEMA,
             RecordingTransaction,
             archive_metadata,
-            event_lock_anchor,
             recording_lock,
             validate_parquet,
         )
@@ -1002,14 +995,12 @@ class ExperimentDatabase(SuperClusterDatabase, _EventQueries):
             return
 
         # The standard IPC lock guards every managed format, including the switch.
-        lock_path = (
-            event_lock_anchor(self._explicit_events_path)
-            if self._explicit_events_path is not None
-            else self._ipc_path
-        )
+        lock_path = self._ipc_path
         try:
             if lock_path is not None:
-                self._event_read_lock = recording_lock(lock_path, shared=True)
+                self._event_read_lock = recording_lock(
+                    lock_path, shared=True, existing=True
+                )
                 self._event_read_lock.acquire()
             version, identity, generation, size = self.db.execute(
                 "select schema_version,archive_id,generation,file_size from event_recording_state"
@@ -1019,17 +1010,13 @@ class ExperimentDatabase(SuperClusterDatabase, _EventQueries):
                     "Unsupported event recording schema; explicit migration is required"
                 )
             self._event_format = EVENT_FORMATS[version]
-            path = self._explicit_events_path or (
+            path = (
                 self._parquet_path
                 if self._event_format == "parquet"
                 else self._ipc_path
             )
             self.events_path = path
-            recovery_path = (
-                path
-                if self._event_format == "arrow"
-                else (lock_path if lock_path != path else None)
-            )
+            recovery_path = lock_path
             if (
                 recovery_path is not None
                 and Path(str(recovery_path) + ".journal").exists()
@@ -1058,7 +1045,7 @@ class ExperimentDatabase(SuperClusterDatabase, _EventQueries):
                 if path is None or not path.is_file():
                     suffix = self._event_format
                     raise FileNotFoundError(
-                        f"Recorded events require the matching .events.{suffix} sidecar (or explicit events_filename)"
+                        f"Recorded events require the matching events.{suffix} archive in the database directory"
                     )
                 if path.stat().st_size != size or (
                     self._event_format == "arrow"
@@ -1151,15 +1138,9 @@ class ExperimentDatabase(SuperClusterDatabase, _EventQueries):
             yield self._recording
             return
         if self.events_path is None:
-            raise ValueError(
-                "Recording requires a file-backed database or an explicit events_filename"
-            )
+            raise ValueError("Recording requires a database directory")
         if self._event_format != "arrow":
             raise ValueError(PARQUET_APPEND_ERROR)
-        if self.recording_format != "arrow" and (
-            self._ipc_path is None or self.events_path != self._ipc_path
-        ):
-            raise ValueError("Parquet recording requires the managed sidecar path")
         transaction = RecordingTransaction(
             IpcRecording(self.events_path, "append"),
             database=self,
@@ -1796,9 +1777,8 @@ def is_experiment_db(db) -> bool:
 
 
 def auto_db_type(filename, *, readonly=False):
-    db, cleanup = connect_duckdb_cleanup(filename, readonly=readonly)
+    paths = DatabasePaths(filename)
+    db, cleanup = connect_duckdb_cleanup(paths.require_database(), readonly=readonly)
     conn = (db, cleanup)
-    if is_experiment_db(db):
-        return ExperimentDatabase(conn, readonly=readonly, _database_path=filename)
-    else:
-        return SuperClusterDatabase(conn)
+    cls = ExperimentDatabase if is_experiment_db(db) else SuperClusterDatabase
+    return cls(conn, readonly=readonly, database_paths=paths)

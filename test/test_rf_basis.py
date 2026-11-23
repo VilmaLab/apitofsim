@@ -38,7 +38,7 @@ def test_rf_persistence_and_shared_inputs(prepared_case, monkeypatch, tmp_path):
 
     monkeypatch.setattr(DerivedDataPreparer, "_build_rf_basis", unexpected)
     # A new on-disk database/preparer proves reuse is not a process-global cache.
-    filename = str(tmp_path / "cache.duckdb")
+    filename = str(tmp_path / "cache.apitofsim")
     disk = SuperClusterDatabase(filename)
     disk.create_tables(foreign_keys=False)
     disk.db.execute("insert into rf_basis values (?, ?, ?, ?, ?)", row)

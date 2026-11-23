@@ -6,14 +6,14 @@ Step 2: Prepare the dataset:
 
 
 ```bash
-$ apitofsim db prepare create config.toml validation.duckdb
+$ apitofsim db prepare create config.toml validation.apitofsim
 ```
 
 Step 3: Run the simulations. You can either run the following command locally but you might like to use a cluster since it will currently take around 10 hours on a 64 core machine. See `run.turso.uh.slurm` for a SLURM example or else run:
 
 ```bash
-$ apitofsim db run validation.duckdb
-$ apitofsim db run --pathway-at-a-time validation.duckdb
+$ apitofsim db run validation.apitofsim
+$ apitofsim db run --pathway-at-a-time validation.apitofsim
 ```
 
 Now you can run the notebook to compare survival probabilities and spectrograms according to different methods as well as the results from the paper.
