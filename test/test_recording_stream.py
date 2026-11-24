@@ -99,6 +99,10 @@ def test_missing_caches(prepared_case, cache):
 
 def test_invalid_mesh(prepared_case):
     db, _, _, _ = prepared_case
-    db.db.execute("update k_rate set data = [1, 2] where pathway_id = 1")
+    (row,) = db.histogram_store.append(np.array([[1, 2]]))
+    db.db.execute(
+        "update k_rate set histogram_length = 2, histogram_row = ? where pathway_id = 1",
+        [row],
+    )
     with pytest.raises(ValueError, match="histogram configuration"):
         prepare(prepared_case, pathways=[1])

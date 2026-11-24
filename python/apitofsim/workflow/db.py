@@ -1,7 +1,7 @@
 # pyright: reportAttributeAccessIssue=false
 
 import json
-from collections import Counter, namedtuple
+from collections import Counter, defaultdict, namedtuple
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import timedelta
@@ -22,9 +22,11 @@ from .base import SimulationMode
 from .db_paths import DatabasePaths
 from .db_utils import (
     duckdb_connect_roview_cow,
-    get_through_join_else,
+    insert_via_arrow,
+    iter_join_matches,
     transaction_scope,
 )
+from .histogram_store import HistogramStore
 
 ureg = get_application_registry()
 Q_ = ureg.Quantity
@@ -523,8 +525,61 @@ class SuperClusterDatabase(ClusterDatabase):
         sql_files.pathway_report,
     ]
 
-    def __init__(self, filename, **kwargs):
+    def __init__(
+        self, filename, *, histogram_store: HistogramStore | None = None, **kwargs
+    ):
         super().__init__(filename, **kwargs)
+        self._histograms_readonly = kwargs.get("readonly", False)
+        self._owns_histogram_store = histogram_store is None
+        self.histogram_store = histogram_store or HistogramStore(
+            self.database_paths, readonly=self._histograms_readonly
+        )
+
+    def close(self):
+        try:
+            super().close()
+        finally:
+            if getattr(self, "_owns_histogram_store", False):
+                self.histogram_store.release_mappings()
+
+    def insert_histograms(self, table, histogram_id, values, **keys):
+        """Insert a matrix with one native double histogram per row."""
+        if self._histograms_readonly:
+            raise PermissionError(
+                "Cannot insert histograms through a read-only database"
+            )
+        if table not in ("cluster_dos", "products_dos", "k_rate"):
+            raise ValueError(f"Unknown histogram table: {table}")
+        count, length = values.shape
+        if any(len(ids) != count for ids in keys.values()):
+            raise ValueError("Expected one set of keys per histogram")
+        rows = self.histogram_store.append(values)
+        with transaction_scope(self.db):
+            insert_via_arrow(
+                self.db,
+                table,
+                histogram_params_id=[histogram_id] * count,
+                histogram_length=[length] * count,
+                histogram_row=list(rows),
+                **keys,
+            )
+
+    def _get_histograms_through_join_else(self, rel, result_dict, **keys):
+        hits = defaultdict(list)
+        misses = []
+        for matches, (length, row) in iter_join_matches(
+            self.db, rel, ["histogram_length", "histogram_row"], **keys
+        ):
+            if not row.is_valid:
+                misses.append(matches)
+                continue
+            key = tuple(matches.values())
+            hits[length.as_py()].append((key[0] if len(key) == 1 else key, row.as_py()))
+        for length, addresses in hits.items():
+            keys_for_length, rows = zip(*addresses)
+            values = self.histogram_store.read_rows(length, rows)
+            result_dict.update(zip(keys_for_length, values, strict=True))
+        yield from misses
 
     def ensure_vib_index_cache(self):
         # Existing read-only databases can serve warmed indexes without any DDL.
@@ -586,10 +641,8 @@ class SuperClusterDatabase(ClusterDatabase):
         self, cluster_indexed, histogram_id, cluster_dos_dict
     ):
         wanted_cluster_ids = numpy.array(list(cluster_indexed.keys()))
-        for miss_info in get_through_join_else(
-            self.db,
+        for miss_info in self._get_histograms_through_join_else(
             self.db.table("cluster_dos"),
-            "data",
             cluster_dos_dict,
             cluster_id=wanted_cluster_ids,
             histogram_params_id=histogram_id,
@@ -613,10 +666,8 @@ class SuperClusterDatabase(ClusterDatabase):
             wanted_p1.append(product1_id)
             wanted_p2.append(product2_id)
 
-        for miss_info in get_through_join_else(
-            self.db,
+        for miss_info in self._get_histograms_through_join_else(
             self.db.table("products_dos"),
-            "data",
             cluster_dos_dict,
             cluster1_id=wanted_p1,
             cluster2_id=wanted_p2,
@@ -627,13 +678,11 @@ class SuperClusterDatabase(ClusterDatabase):
             yield ProductsCluster(cluster_indexed[p1], cluster_indexed[p2])
 
     def get_k_rate_through_join_else(self, histogram_id, k_total_dict, pathway_lookup):
-        for miss_info in get_through_join_else(
-            self.db,
+        for miss_info in self._get_histograms_through_join_else(
             self.db.table("k_rate").filter(
                 duckdb.ColumnExpression("histogram_params_id")
                 == duckdb.ConstantExpression(histogram_id)
             ),
-            "data",
             k_total_dict,
             pathway_id=pathway_lookup.keys(),
         ):
@@ -1366,7 +1415,8 @@ class ExperimentDatabase(SuperClusterDatabase, _EventQueries):
             if not all_pathways and not participating:
                 continue
             rows = self.db.execute(
-                "select data from k_rate where pathway_id = ? and histogram_params_id = ?",
+                """select histogram_length, histogram_row from k_rate
+                where pathway_id = ? and histogram_params_id = ?""",
                 (pathway_id, rate_id),
             ).fetchall()
             if len(rows) > 1:
@@ -1374,10 +1424,15 @@ class ExperimentDatabase(SuperClusterDatabase, _EventQueries):
                     f"Ambiguous rate cache for pathway {pathway_id}"
                 )
             histogram = None
-            if rows and rows[0][0] is not None:
-                histogram = scaled_rate_const(
-                    Histogram.from_mesh(*params, numpy.array(rows[0][0]))
-                )
+            if rows:
+                length, row = rows[0]
+                try:
+                    (values,) = self.histogram_store.read_rows(length, (row,))
+                except (OSError, ValueError) as error:
+                    raise RateCurveProvenanceError(
+                        f"Invalid rate cache for pathway {pathway_id}: {error}"
+                    ) from error
+                histogram = scaled_rate_const(Histogram.from_mesh(*params, values))
                 if len(histogram.x) != len(histogram.y):
                     raise RateCurveProvenanceError(
                         f"Invalid rate cache for pathway {pathway_id}"

@@ -988,8 +988,6 @@ class DerivedDataPreparer:
         status_table=None,
         use_old_impl=False,
     ):
-        import pyarrow as pa
-
         from apitofsim.api import compute_density_of_states_batch
 
         num_clusters_missed = 0
@@ -1033,31 +1031,20 @@ class DerivedDataPreparer:
             )
             assert density_of_states.flags.f_contiguous
             if num_clusters_missed > 0:
-                arrow_arr = pa.FixedSizeListArray.from_arrays(
-                    density_of_states[:, :num_clusters_missed].flatten("K"),
-                    density_of_states.shape[0],
-                )
-
-                insert_via_arrow(
-                    self.db.db,
+                self.db.insert_histograms(
                     "cluster_dos",
-                    histogram_params_id=[histogram_id] * len(missed_cluster_ids),
+                    histogram_id,
+                    density_of_states[:, :num_clusters_missed].T,
                     cluster_id=missed_cluster_ids,
-                    data=arrow_arr,
                 )
 
             if len(density_of_states_inputs) > num_clusters_missed:
-                arrow_arr = pa.FixedSizeListArray.from_arrays(
-                    density_of_states[:, num_clusters_missed:].flatten("K"),
-                    density_of_states.shape[0],
-                )
-                insert_via_arrow(
-                    self.db.db,
+                self.db.insert_histograms(
                     "products_dos",
-                    histogram_params_id=[histogram_id] * len(wanted_p1),
+                    histogram_id,
+                    density_of_states[:, num_clusters_missed:].T,
                     cluster1_id=wanted_p1,
                     cluster2_id=wanted_p2,
-                    data=arrow_arr,
                 )
 
             for cluster_id, v in zip(
@@ -1084,8 +1071,6 @@ class DerivedDataPreparer:
         name_lookup=None,
         k_rate_cancellation=True,
     ):
-        import pyarrow as pa
-
         from apitofsim import (
             FragmentationPathway,
             KTotalInput,
@@ -1193,14 +1178,8 @@ class DerivedDataPreparer:
             k_rate_cancellation=k_rate_cancellation,
         )
 
-        insert_via_arrow(
-            self.db.db,
-            "k_rate",
-            histogram_params_id=[histogram_id] * k_rates.shape[1],
-            pathway_id=k_total_keys,
-            data=pa.FixedSizeListArray.from_arrays(
-                k_rates.flatten("K"), k_rates.shape[0]
-            ),
+        self.db.insert_histograms(
+            "k_rate", histogram_id, k_rates.T, pathway_id=k_total_keys
         )
         for key, k_rates in zip(k_total_keys, k_rates.T):
             k_total_dict[key] = k_rates

@@ -35,6 +35,9 @@ class DatabasePaths:
     def parquet(self):
         return self.root / "events.parquet"
 
+    def histograms(self, length: int):
+        return self.root / f"histograms_{length}.mmap"
+
     def create(self):
         self.root.mkdir()
         # Make the lock available even when the directory is served read-only.

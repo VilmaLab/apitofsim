@@ -115,7 +115,7 @@ def get_or_insert(db, tbl, **vals):
     return id[0]
 
 
-def get_through_join_else(conn, rel, proj_col, result_dict, **match_cols):
+def iter_join_matches(conn, rel, proj_cols, **match_cols):
     import pyarrow as pa
 
     iterable_match_keys = []
@@ -156,23 +156,30 @@ def get_through_join_else(conn, rel, proj_col, result_dict, **match_cols):
             how="right",
         )
         .order("wanted._wanted_order")
-        .select("wanted._wanted_order", proj_col)
+        .select("wanted._wanted_order", *proj_cols)
         .to_arrow_table()
     )
     match_rows = list(zip(*iterable_match_vals))
-    for ordinal, value in zip(
-        data.column("_wanted_order").to_pylist(), data.column(proj_col), strict=True
+    for ordinal, *values in zip(
+        data.column("_wanted_order").to_pylist(),
+        *(data.column(col) for col in proj_cols),
+        strict=True,
     ):
-        match_row = match_rows[ordinal]
-        value = value.values
+        yield dict(zip(iterable_match_keys, match_rows[ordinal], strict=True)), values
+
+
+def get_through_join_else(conn, rel, proj_col, result_dict, **match_cols):
+    for matches, (column,) in iter_join_matches(conn, rel, [proj_col], **match_cols):
+        value = column.values
         if value is not None:
             # Hit: update result_dict
+            match_row = tuple(matches.values())
             if len(match_row) == 1:
                 match_row = match_row[0]
             result_dict[match_row] = value.to_numpy(zero_copy_only=True)
         else:
             # Miss: yield the match_row for the caller to compute/insert
-            yield dict(zip(iterable_match_keys, match_row, strict=True))
+            yield matches
 
 
 def insert_via_arrow_limitoffset(conn, table, *, chunk_size=None, **kwargs):

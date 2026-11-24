@@ -166,6 +166,12 @@ same columns for configurations used by `k_rate`. Each configuration appears
 once, even when several configurations share a bin width. These are independent
 sets with no implied pairing or ordering; callers choose compatible configurations.
 
+The `cluster_dos`, `products_dos`, and `k_rate` tables expose `histogram_length`
+and `histogram_row`. Use `db.histogram_store.read_rows(length, rows)` for direct
+access to the bin values. Rows are zero-based and the returned arrays are
+read-only. For physical units and run provenance, use
+`ExperimentDatabase.pathway_rate_curves()`.
+
 `ExperimentDatabase.experiment_overview_query(experiment_run_id=None)` returns
 the `experiment_summary` columns plus raw `config` and `run_config` JSON. Omit
 the run ID to retrieve all runs. Timestamps remain Python datetimes when fetched.

@@ -570,25 +570,24 @@ def test_available_histogram_queries(cluster_dos, products_dos, rates):
         db.execute("insert into cluster (id) values (1)")
         db.execute("insert into pathway values (1, 1, 1, 1)")
         # Equal widths and differing maxima remain distinct configurations;
-        # unreferenced parameter and mesh rows do not imply availability.
+        # an unreferenced parameter row does not imply availability.
         db.execute(
             "insert into histogram_params values "
             "(1, 10, 100), (2, 1, 100), (3, 1, 200), (4, 5, 100), (5, 20, 100)"
         )
-        db.execute("insert into k_rate_mesh (histogram_params_id) values (5)")
         for histogram_id in cluster_dos:
             db.execute(
-                "insert into cluster_dos (histogram_params_id, cluster_id) values (?, 1)",
+                "insert into cluster_dos (histogram_params_id, cluster_id, histogram_length, histogram_row) values (?, 1, 1, 0)",
                 (histogram_id,),
             )
         for histogram_id in products_dos:
             db.execute(
-                "insert into products_dos (histogram_params_id, cluster1_id, cluster2_id) values (?, 1, 1)",
+                "insert into products_dos (histogram_params_id, cluster1_id, cluster2_id, histogram_length, histogram_row) values (?, 1, 1, 1, 0)",
                 (histogram_id,),
             )
         for histogram_id in rates:
             db.execute(
-                "insert into k_rate (histogram_params_id, pathway_id) values (?, 1)",
+                "insert into k_rate (histogram_params_id, pathway_id, histogram_length, histogram_row) values (?, 1, 1, 0)",
                 (histogram_id,),
             )
         widths = {1: 10.0, 2: 1.0, 3: 1.0, 4: 5.0}
@@ -959,6 +958,7 @@ def test_quantity_energy_helpers():
 
 @pytest.fixture
 def rate_curve_db():
+    import numpy as np
     from apitofsim.api import Q_
     from apitofsim.workflow.db import ExperimentDatabase, connection_scope
 
@@ -977,9 +977,10 @@ def rate_curve_db():
         db.db.execute(
             "insert into histogram_params values (1, 20, 100), (2, 10, 40), (3, 10, 60)"
         )
-        db.db.execute(
-            "insert into k_rate (pathway_id, histogram_params_id, data) values (1, 2, [10,20,40,80]), (2, 2, [1,2,3,4]), (1, 3, [9,9,9,9,9,9])"
+        db.insert_histograms(
+            "k_rate", 2, np.array([[10, 20, 40, 80], [1, 2, 3, 4]]), pathway_id=[1, 2]
         )
+        db.insert_histograms("k_rate", 3, np.full((1, 6), 9), pathway_id=[1])
         config = {"fragmentation_energy": Q_(150, "K"), "bin_width": Q_(99, "K")}
         config_id = db.insert_config("selected", config)
         for rate_id in (2, 3):
@@ -1082,7 +1083,7 @@ def test_rate_curve_provenance_errors(rate_curve_db):
     with pytest.raises(RateCurveProvenanceError, match="Missing DOS/rate"):
         db.pathway_rate_curves(2, 1)
     db.db.execute(
-        "insert into k_rate (pathway_id, histogram_params_id, data) values (1, 2, [1,2,3,4])"
+        "insert into k_rate (pathway_id, histogram_params_id, histogram_length, histogram_row) values (1, 2, 4, 1)"
     )
     with pytest.raises(RateCurveProvenanceError, match="Ambiguous rate cache"):
         db.pathway_rate_curves(1, 1, 1)
@@ -1094,7 +1095,7 @@ def test_rate_curve_provenance_errors(rate_curve_db):
 @pytest.mark.parametrize("attached", [False, True])
 def test_rate_curves_readonly(rate_curve_db, tmp_path, attached):
     import duckdb
-    from apitofsim.workflow import DatabasePaths
+    from apitofsim.workflow import DatabasePaths, HistogramStore
     from apitofsim.workflow.db import ExperimentDatabase, connection_scope
 
     paths = DatabasePaths(tmp_path / "curves.apitofsim")
@@ -1113,7 +1114,6 @@ def test_rate_curves_readonly(rate_curve_db, tmp_path, attached):
         "histogram_params",
         "cluster_dos",
         "products_dos",
-        "k_rate_mesh",
         "k_rate",
     }
     for (name,) in source.execute(
@@ -1132,8 +1132,20 @@ def test_rate_curves_readonly(rate_curve_db, tmp_path, attached):
         connection.execute("set search_path = 'output,molecules'")
     else:
         connection = duckdb.connect(path, read_only=True)
+    import numpy as np
+
+    histogram_paths = clusters if attached else paths
+    for length, count in ((4, 2), (6, 1)):
+        rows = rate_curve_db.histogram_store.read_rows(length, tuple(range(count)))
+        HistogramStore(histogram_paths).append(np.stack(rows))
     with connection_scope(
-        ExperimentDatabase, (connection, None), readonly=True, database_paths=paths
+        ExperimentDatabase,
+        (connection, None),
+        readonly=True,
+        database_paths=paths,
+        histogram_store=HistogramStore(histogram_paths, readonly=True)
+        if attached
+        else None,
     ) as db:
         before = connection.execute("select count(*) from k_rate").fetchone()
         assert len(db.pathway_rate_curves(1, 1, 3)) == 2
@@ -1182,8 +1194,8 @@ def test_cached_run_preparation(rate_curve_db, monkeypatch):
     from apitofsim.workflow import ExperimentRunner, runners
 
     db = rate_curve_db
-    db.db.execute(
-        "insert into cluster_dos (histogram_params_id, cluster_id, data) values (1, 1, [1,2,3,4,5]), (1, 2, [1,2,3,4,5])"
+    db.insert_histograms(
+        "cluster_dos", 1, np.tile(np.arange(1, 6), (2, 1)), cluster_id=[1, 2]
     )
     runner = ExperimentRunner(db)
     runner.start_run(1)

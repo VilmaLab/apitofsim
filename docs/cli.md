@@ -12,7 +12,8 @@ If you are using `uv` you may need to run `uv run apitofsim` instead.
 
 Workflow commands take the database directory as their database argument.
 Use `.apitofsim` for the directory name and copy or move the whole directory
-after closing the database.
+after closing the database. Prepared DOS and rate tables travel with it in
+`histograms_N.mmap` files, where `N` is the number of bins.
 
 ## Native event recording
 

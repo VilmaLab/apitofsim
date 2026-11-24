@@ -8,6 +8,7 @@ from .db import (
     auto_db_type,
 )
 from .db_paths import DatabasePaths
+from .histogram_store import HistogramStore
 from .ingest import ingest_legacy_one, ingest_tree
 from .runners import (
     DerivedDataPreparer,
@@ -23,6 +24,7 @@ from .runners import (
 
 __all__ = [
     "DatabasePaths",
+    "HistogramStore",
     "SimulationMode",
     "ClusterDatabase",
     "ExperimentDatabase",
