@@ -34,16 +34,8 @@ def prepared_case(request, monkeypatch, foreign_keys, tmp_path):
         db.db.execute(
             "insert into histogram_params (bin_width, max) values (100, 100000), (50, 100000), (50, 200)"
         )
-        for cluster in (1, 2):
-            db.db.execute(
-                "insert into cluster_dos (cluster_id, histogram_params_id, data) values (?, 1, ?)",
-                [cluster, np.ones(1000)],
-            )
-        for pathway in (1, 2, 3, 4):
-            db.db.execute(
-                "insert into k_rate (pathway_id, histogram_params_id, data) values (?, 2, ?)",
-                [pathway, np.zeros(2000)],
-            )
+        db.insert_histograms("cluster_dos", 1, np.ones((2, 1000)), cluster_id=[1, 2])
+        db.insert_histograms("k_rate", 2, np.zeros((4, 2000)), pathway_id=[1, 2, 3, 4])
         config = dict(
             N=5,
             gas=api.Gas(api.Q_(2.46e-10, "m"), api.Q_(4.85e-26, "kg"), 1.4),

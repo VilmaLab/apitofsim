@@ -13,12 +13,12 @@ app = marimo.App(width="medium")
 def _():
     from pathlib import Path
 
-    import duckdb
     import marimo as mo
     import matplotlib.pyplot as plt
     import numpy as np
+    from apitofsim.workflow import SuperClusterDatabase
 
-    return Path, duckdb, mo, np, plt
+    return Path, SuperClusterDatabase, mo, np, plt
 
 
 @app.cell(hide_code=True)
@@ -61,12 +61,12 @@ def _(mo):
 
 
 @app.cell
-def _(Path, duckdb, mo):
+def _(Path, SuperClusterDatabase, mo):
     database = Path(__file__).resolve().parents[1] / "besel2020/database.apitofsim"
     curves = {"Rising DOS": -1, "Sparse DOS": -2, "Flat DOS": -3}
-    if database.is_file():
-        with duckdb.connect(str(database), read_only=True) as _db:
-            for _id, _name in _db.execute("""
+    if database.is_dir():
+        with SuperClusterDatabase(database, readonly=True) as _store:
+            for _id, _name in _store.db.execute("""
                 select d.id, c.common_name from cluster_dos d
                 join cluster c on c.id = d.cluster_id order by c.common_name, d.id
             """).fetchall():
@@ -96,7 +96,7 @@ def _(Path, duckdb, mo):
             spare,
             mo.md(
                 "Besel curves use the stored grid. The toy grids all span 0–100,000 K."
-                if database.is_file()
+                if database.is_dir()
                 else "Toy curves are available. To load Besel curves, place the notebook beside the examples’ besel2020 directory."
             ),
         ]
@@ -110,17 +110,17 @@ def _():
 
 
 @app.cell
-def _(curve, database, duckdb, np, resolution):
+def _(SuperClusterDatabase, curve, database, np, resolution):
     if curve.value >= 0:
-        with duckdb.connect(str(database), read_only=True) as _db:
-            _data, width = _db.execute(
+        with SuperClusterDatabase(database, readonly=True) as _store:
+            _length, _row, width = _store.db.execute(
                 """
-                select d.data, h.bin_width from cluster_dos d
+                select d.histogram_length, d.histogram_row, h.bin_width from cluster_dos d
                 join histogram_params h on h.id = d.histogram_params_id where d.id = ?
             """,
                 [curve.value],
             ).fetchone()
-        rho = np.asarray(_data)
+            (rho,) = _store.histogram_store.read_rows(_length, (_row,))
         x = width * (np.arange(len(rho)) + 0.5)
     else:
         width = 100000 / resolution.value

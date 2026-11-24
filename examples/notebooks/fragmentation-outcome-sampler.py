@@ -26,9 +26,10 @@ def _():
     import marimo as mo
     import matplotlib.pyplot as plt
     import numpy as np
+    from apitofsim.workflow import SuperClusterDatabase
     from scipy.special import logsumexp
 
-    return Path, csv, duckdb, escape, io, logsumexp, mo, np, plt
+    return Path, SuperClusterDatabase, csv, duckdb, escape, io, logsumexp, mo, np, plt
 
 
 @app.cell(hide_code=True)
@@ -225,7 +226,7 @@ def _(mo):
 def _(Path, mo):
     _default = Path(__file__).resolve().parents[1] / "besel2020/database.apitofsim"
     database_path = mo.ui.text(
-        value=str(_default) if _default.is_file() else "",
+        value=str(_default) if _default.is_dir() else "",
         placeholder="/path/to/prepared/database.apitofsim",
         label="Prepared database (read-only)",
         full_width=True,
@@ -235,7 +236,7 @@ def _(Path, mo):
 
 
 @app.cell
-def _(duckdb, np):
+def _(SuperClusterDatabase, np):
     # Match src/include/consts.h and compute_derived's spherical approximation.
     KB = 1.38064852e-23
     HBAR = 1.054571800e-34
@@ -243,7 +244,8 @@ def _(duckdb, np):
     HARTREE_K = 3.157732e5
 
     def load_catalog(path):
-        with duckdb.connect(str(path), read_only=True) as db:
+        with SuperClusterDatabase(path, readonly=True) as database:
+            db = database.db
             channels = db.execute("""
                 select p.id, c.common_name, d.common_name, n.common_name
                 from pathway p join cluster c on c.id=p.cluster_id
@@ -263,7 +265,8 @@ def _(duckdb, np):
         return channels, grids
 
     def load_channel(path, channel_id, grid_id):
-        with duckdb.connect(str(path), read_only=True) as db:
+        with SuperClusterDatabase(path, readonly=True) as database:
+            db = database.db
             ids = db.execute(
                 "select cluster_id, product1_id, product2_id from pathway where id=?",
                 [channel_id],
@@ -300,7 +303,7 @@ def _(duckdb, np):
                 )
                 rows = db.execute(
                     """
-                    select data from cluster_dos
+                    select histogram_length, histogram_row from cluster_dos
                     where cluster_id=? and histogram_params_id=?
                 """,
                     [cid, grid_id],
@@ -320,7 +323,11 @@ def _(duckdb, np):
                         charge=charge,
                         electronic_energy=energy,
                         atom=atom,
-                        rho=None if atom else np.asarray(rows[0][0], dtype=float),
+                        rho=None
+                        if atom
+                        else database.histogram_store.read_rows(
+                            rows[0][0], (rows[0][1],)
+                        )[0],
                     )
                 )
             parent, first, second = species
@@ -343,10 +350,10 @@ def _(duckdb, np):
             ) * HARTREE_K
             if not np.isfinite(threshold):
                 raise ValueError("The channel has no finite fragmentation energy.")
-            rates = (
+            rate_rows = (
                 db.execute(
                     """
-                select h.id, h.bin_width, k.data from k_rate k
+                select h.id, h.bin_width, k.histogram_length, k.histogram_row from k_rate k
                 join histogram_params h on h.id=k.histogram_params_id
                 where k.pathway_id=? order by h.bin_width, h.id
             """,
@@ -357,6 +364,14 @@ def _(duckdb, np):
                 ).fetchone()[0]
                 else []
             )
+            rates = [
+                (
+                    rate_id,
+                    rate_width,
+                    database.histogram_store.read_rows(length, (row,))[0],
+                )
+                for rate_id, rate_width, length, row in rate_rows
+            ]
         return dict(
             parent=parent,
             daughter=daughter,
@@ -379,7 +394,7 @@ def _(Path, database_path, duckdb, load_catalog, mo):
         mo.md("Enter a prepared database path to enable the experiment below."),
     )
     db_path = Path(database_path.value).expanduser()
-    mo.stop(not db_path.is_file(), mo.md("That database file does not exist."))
+    mo.stop(not db_path.is_dir(), mo.md("That database directory does not exist."))
     try:
         channel_rows, grid_rows = load_catalog(db_path)
     except (duckdb.Error, OSError) as _error:

@@ -91,3 +91,24 @@ IDs for event/realization rows. PyArrow IPC datasets and built-in Parquet
 scans supply temporary DuckDB event views. SQL IDs are opaque composite
 strings; numeric `result_id`, `realization_index`, `event_index` define order.
 Deletion is logical until explicit compaction; a schema change requires migration.
+
+
+## 🤖 DOS and rate histogram storage
+
+Each `histograms_N.mmap` is a sequence of contiguous rows of `N` native
+`double` values. The byte offset for row `r` is `r * N * 8`. DuckDB stores the
+row address with the histogram parameters and cluster, product pair, or pathway
+key. Attached connections use the `HistogramStore` for the catalog that owns
+those tables.
+
+Batches reserve rows under the histogram writer lock, write and sync the data,
+and then insert the addresses into DuckDB. A failed write or rolled-back
+transaction can leave unused rows. The store appends beyond them so published
+addresses stay stable.
+
+Readers keep a mapping per bin count and replace it only when a requested row
+lies beyond its extent. NumPy arrays retain their mapping. The cache lookup
+issues `MADV_WILLNEED` for the selected page ranges on platforms that provide
+it. A server can map all of its prepared files at startup without faulting in
+their values. On Windows, writable stores read through file handles so the
+files can grow. Read-only Windows stores map prepared datasets.
